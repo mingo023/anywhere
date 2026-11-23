@@ -80,7 +80,7 @@ pub struct Desktop {
     pub(crate) notch: Notch,
     pub(crate) chime: Chime,
     pub(crate) badge: Badge,
-    pub(crate) terminals: Terminals,
+    pub(crate) terminals: Entity<Terminals>,
     pub(crate) creates: Entity<Creates>,
     pub(crate) removals: Removals,
     pub(crate) renames: Renames,
@@ -212,7 +212,11 @@ impl Desktop {
         let creates_subs = cx.subscribe_in(&creates, window, Self::on_creates_event);
         let inbox = cx.new(Inbox::new);
         let inbox_subs = cx.subscribe_in(&inbox, window, Self::on_inbox_event);
-        let terminals = Terminals::new(crate::terminals::sessions::config(&store.terminal));
+        let terminals = cx.new(|_| Terminals::new(crate::terminals::sessions::config(&store.terminal)));
+        let terminals_subs = [
+            cx.subscribe(&terminals, |this, _, ev: &crate::terminals::TerminalsEvent, _| this.on_terminals_event(ev)),
+            cx.observe(&terminals, |_, _, cx| cx.notify()),
+        ];
         let root = cx.focus_handle();
         window.focus(&root, cx);
         crate::desktop::chrome::apply_zoom(store.appearance.zoom_factor(), window);
@@ -251,6 +255,7 @@ impl Desktop {
         _subs.extend(chips_subs);
         _subs.extend(chat_subs);
         _subs.extend(chats_subs);
+        _subs.extend(terminals_subs);
         _subs.push(changes_subs);
         _subs.push(explorer_subs);
         _subs.push(preview_subs);
@@ -351,10 +356,10 @@ impl Desktop {
     pub fn focus_agent(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let id = &self.delegated_show(id);
         let Some(term) = self.agents.get(id).map(|a| a.terminal_id.clone()) else { return };
-        let Some(tree) = self.terminals.sessions.get(&term).and_then(|s| self.place_of(&s.info)) else { return };
+        let Some(tree) = self.terminals.read(cx).sessions.get(&term).and_then(|s| self.place_of(&s.info, cx)) else { return };
         self.show_tree(&tree, cx);
         self.side = Side::Sessions;
-        let w = self.workspace(&tree);
+        let w = self.workspace(&tree, cx);
         if let Some((pane, i)) = w.show_term(&term) {
             w.tree.select(pane, i);
         }
@@ -372,7 +377,7 @@ impl Desktop {
     }
 
     pub(crate) fn show_tree(&mut self, tree: &str, cx: &mut Context<Self>) {
-        if let Some(p) = self.folder_of(tree).and_then(|cwd| self.project_of(&cwd, &self.projects()).cloned()) {
+        if let Some(p) = self.folder_of(tree, cx).and_then(|cwd| self.project_of(&cwd, &self.projects(cx)).cloned()) {
             self.follow_space(&p, cx);
             self.project = Some(p);
         }
@@ -420,9 +425,9 @@ impl Desktop {
 
     /// Shows tab `i` of `pane` and focuses the pane.
     pub fn select_tab(&mut self, pane: PaneId, i: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
-        self.workspace(&tree).tree.select(pane, i);
-        match self.pane_tab(pane) {
+        let Some(tree) = self.place(cx) else { return };
+        self.workspace(&tree, cx).tree.select(pane, i);
+        match self.pane_tab(pane, cx) {
             Some(Tab::Term(id)) => {
                 if let Some(agent) = self.summary(&id).map(|a| a.id.clone()) {
                     self.delegated.leave(&agent);
@@ -438,22 +443,22 @@ impl Desktop {
     }
 
     /// The pane keys and actions go to.
-    pub(crate) fn focused_pane(&self) -> PaneId {
-        self.place().and_then(|t| self.workspaces.get(&t)).map_or(MAIN, |w| w.tree.focused)
+    pub(crate) fn focused_pane(&self, cx: &App) -> PaneId {
+        self.place(cx).and_then(|t| self.workspaces.get(&t)).map_or(MAIN, |w| w.tree.focused)
     }
 
-    pub(crate) fn pane_ids(&self) -> Vec<PaneId> {
-        self.place().and_then(|t| self.workspaces.get(&t)).map_or(vec![MAIN], |w| w.tops().iter().flat_map(|t| t.panes()).map(|p| p.id).collect())
+    pub(crate) fn pane_ids(&self, cx: &App) -> Vec<PaneId> {
+        self.place(cx).and_then(|t| self.workspaces.get(&t)).map_or(vec![MAIN], |w| w.tops().iter().flat_map(|t| t.panes()).map(|p| p.id).collect())
     }
 
     /// The tab `pane` shows in the worktree on screen.
-    pub(crate) fn pane_tab(&self, pane: PaneId) -> Option<Tab> {
-        self.workspaces.get(&self.place()?)?.tree.pane(pane)?.active().cloned()
+    pub(crate) fn pane_tab(&self, pane: PaneId, cx: &App) -> Option<Tab> {
+        self.workspaces.get(&self.place(cx)?)?.tree.pane(pane)?.active().cloned()
     }
 
     /// The file or changes the focused pane shows.
-    pub fn active_doc(&self) -> Option<Doc> {
-        match self.pane_tab(self.focused_pane())? {
+    pub fn active_doc(&self, cx: &App) -> Option<Doc> {
+        match self.pane_tab(self.focused_pane(cx), cx)? {
             Tab::Doc(doc) => Some(doc),
             Tab::Term(_) | Tab::Web(_) => None,
         }
@@ -462,13 +467,13 @@ impl Desktop {
     /// Opens `doc` in its tab of the worktree on screen; unless `pin`, in the preview tab the next open takes over.
     /// With no pane holding docs it opens in a new pane right of the focused one, or in the focused one when that has no room to split.
     pub fn open_doc(&mut self, doc: Doc, pin: bool, cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
+        let Some(tree) = self.place(cx) else { return };
         self.screen = Screen::Sessions;
         self.new_form.update(cx, |f, _| f.shown = false);
         let bounds = self.panels.bounds;
         let files = &self.store.files;
         let (pin, next) = (pin || !files.preview_tabs, files.new_tabs == store::prefs::files::NewTabs::AfterCurrent);
-        let w = self.workspace(&tree);
+        let w = self.workspace(&tree, cx);
         let pane = w.doc_pane(bounds);
         let (pane, _) = w.place_doc(doc.clone(), pin, pane, next);
         self.show_doc(pane, doc, cx);
@@ -476,14 +481,14 @@ impl Desktop {
     }
 
     pub(crate) fn pin_doc(&mut self, doc: &Doc, cx: &mut Context<Self>) {
-        if let Some(tree) = self.place() {
-            self.workspace(&tree).pin(doc);
+        if let Some(tree) = self.place(cx) {
+            self.workspace(&tree, cx).pin(doc);
             self.save_soon(cx);
         }
     }
 
     pub(crate) fn close_doc(&mut self, doc: &Doc, cx: &mut Context<Self>) {
-        if let Some((pane, i)) = self.place().and_then(|t| self.workspaces.get(&t)?.doc_tab(doc)) {
+        if let Some((pane, i)) = self.place(cx).and_then(|t| self.workspaces.get(&t)?.doc_tab(doc)) {
             self.close_tab(pane, i, cx);
         }
     }
@@ -532,13 +537,13 @@ impl Desktop {
 
     /// Drops what closed panes showed, and loads the docs that tabs revealed by closing or switching worktrees show, unless they are loaded already.
     pub(crate) fn load_active(&mut self, cx: &mut Context<Self>) {
-        let panes = self.pane_ids();
+        let panes = self.pane_ids(cx);
         self.diff.retain_panes(&panes);
         self.commit.retain_panes(&panes);
         self.preview.update(cx, |p, _| p.retain_panes(&panes));
         self.browsers.retain_panes(&panes);
         for pane in panes {
-            if let Some(Tab::Doc(doc)) = self.pane_tab(pane)
+            if let Some(Tab::Doc(doc)) = self.pane_tab(pane, cx)
                 && !self.loaded(pane, &doc, cx)
             {
                 self.show_doc(pane, doc, cx);
@@ -602,25 +607,25 @@ impl Desktop {
 
     /// The worktree whose panes the main view shows.
     pub(crate) fn session_tree(&self, cx: &App) -> Option<String> {
-        if self.terminals.link.is_down()
-            || self.terminals.link.update(Instant::now()).is_some()
+        if self.terminals.read(cx).link.is_down()
+            || self.terminals.read(cx).link.update(Instant::now()).is_some()
             || self.screen != Screen::Sessions
             || self.new_form.read(cx).shown
         {
             return None;
         }
-        self.place()
+        self.place(cx)
     }
 
     /// A git project's main checkout on screen with nothing open in it, once the saved layouts are back: the new session page stands in for its empty panes.
-    pub(crate) fn idle_main(&self) -> bool {
+    pub(crate) fn idle_main(&self, cx: &App) -> bool {
         let Some(p) = self.project.as_deref() else { return false };
-        let Some(main) = self.tree_of(p) else { return false };
+        let Some(main) = self.tree_of(p, cx) else { return false };
         self.panels.restored
             && new_session::may_start(&self.agents)
             && self.worktrees.get(p).is_some_and(|w| !w.is_empty())
-            && self.place().as_ref() == Some(&main)
-            && !self.in_use(&main)
+            && self.place(cx).as_ref() == Some(&main)
+            && !self.in_use(&main, cx)
     }
 
     /// The provider's Label from Settings, else its own name.
@@ -631,22 +636,22 @@ impl Desktop {
     fn main_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let now = Instant::now();
         // The hand-back ends on time even when another page covers it, since it keeps the panes hidden.
-        if matches!(self.terminals.link.update(now), Some(Update::Back(_))) {
+        if matches!(self.terminals.read(cx).link.update(now), Some(Update::Back(_))) {
             window.request_animation_frame();
         }
         let body = match self.session_tree(cx) {
             _ if self.shown_create(cx).is_some() => self.creating_page(window, cx),
-            Some(_) if self.idle_main() => {
+            Some(_) if self.idle_main(cx) => {
                 // Every way onto the main checkout ends here, and opening the page needs the window; re-checked since the frame may be stale by then.
                 cx.defer_in(window, |this, window, cx| {
-                    if let Some(p) = this.project.clone().filter(|_| this.idle_main() && !this.new_form.read(cx).shown && this.overlay.is_none()) {
+                    if let Some(p) = this.project.clone().filter(|_| this.idle_main(cx) && !this.new_form.read(cx).shown && this.overlay.is_none()) {
                         this.new_place(p, window, cx);
                     }
                 });
                 div()
             }
             Some(tree) => self.panels_view(&tree, window, cx),
-            None if self.terminals.link.is_down() || self.terminals.link.update(now).is_some() => self.link_page(now, window, cx),
+            None if self.terminals.read(cx).link.is_down() || self.terminals.read(cx).link.update(now).is_some() => self.link_page(now, window, cx),
             None if self.new_form.read(cx).shown && self.screen == Screen::Sessions => self.new_session_page(cx),
             None => match self.screen_view(window, cx) {
                 Some(page) => page,
@@ -670,8 +675,10 @@ impl Desktop {
     }
 
     fn link_page(&self, now: Instant, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let link = &self.terminals.link;
-        let hint = link.hint(now);
+        let (hint, update, stale) = {
+            let link = &self.terminals.read(cx).link;
+            (link.hint(now), link.update(now), link.stale().unwrap_or_default().to_string())
+        };
         let tip = match hint {
             None | Some(Hint::Stale) => Vec::new(),
             Some(Hint::Install) => {
@@ -686,8 +693,8 @@ impl Desktop {
             ],
             Some(Hint::Reopen) => vec![div().child("Not starting? Quit and reopen Anywhere.").into_any_element()],
         };
-        let body = match link.update(now) {
-            Some(update) => self.updating_page(update, link.stale().unwrap_or_default(), tip, window, cx),
+        let body = match update {
+            Some(update) => self.updating_page(update, &stale, tip, window, cx),
             None => div()
                 .flex_1()
                 .flex()
@@ -852,7 +859,7 @@ impl Render for Desktop {
                     cx.notify();
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);
-                } else if this.overlay.is_none() && this.new_form.read(cx).shown && this.screen == Screen::Sessions && !this.idle_main() {
+                } else if this.overlay.is_none() && this.new_form.read(cx).shown && this.screen == Screen::Sessions && !this.idle_main(cx) {
                     this.leave_new_session(window, cx);
                 } else if this.overlay.is_some() || !this.escape_screen(window, cx) {
                     return;

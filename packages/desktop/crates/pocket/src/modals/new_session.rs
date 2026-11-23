@@ -681,7 +681,7 @@ impl Desktop {
         self.store
             .projects
             .iter()
-            .filter(|p| (repo == Some(p.as_str()) || !self.store.is_scratch(p)) && self.listed_trees(p).is_some_and(|t| !t.is_empty()))
+            .filter(|p| (repo == Some(p.as_str()) || !self.store.is_scratch(p)) && self.listed_trees(p, cx).is_some_and(|t| !t.is_empty()))
             .cloned()
             .collect()
     }
@@ -745,7 +745,7 @@ impl Desktop {
         if !self.session_ready(cx) {
             return;
         }
-        if self.terminals.link.stale().is_some() {
+        if self.terminals.read(cx).link.stale().is_some() {
             self.error = Some(link::UPDATING.into());
             return cx.notify();
         }
@@ -763,7 +763,7 @@ impl Desktop {
         let local = match target {
             Target::NewLocal => {
                 let retry = self.new_form.read(cx).draft.retry_local(self.agents.locals_in(&project));
-                let id = retry.unwrap_or_else(|| self.new_local(&project));
+                let id = retry.unwrap_or_else(|| self.new_local(&project, cx));
                 self.new_form.update(cx, |f, _| f.draft.local = Some(id.clone()));
                 self.store.collapsed.remove(&project);
                 self.select_tree(project.clone(), Some(id.clone()), cx);
@@ -912,11 +912,11 @@ impl Desktop {
     pub(crate) fn on_launch(&mut self, ev: Event, window: &mut Window, cx: &mut Context<Self>) {
         match ev {
             Event::Creating { request, terminal, cwd, setup } => {
-                if self.terminals.tab_chats.contains_key(&request) {
+                if self.terminals.read(cx).tab_chats.contains_key(&request) {
                     self.store.chats.insert(terminal.clone());
                     self.save_soon(cx);
                 }
-                self.terminals.created(&request, terminal.clone(), cwd.clone(), setup);
+                self.terminals.update(cx, |t, _| t.created(&request, terminal.clone(), cwd.clone(), setup));
                 self.creates.update(cx, |c, _| c.made_terminal(&request, terminal.clone(), Instant::now()));
                 self.daemon.send(json!({"op": "list"}));
                 if let Some(chat) = self.creates.update(cx, |c, _| c.get(&request).map(|c| c.chat())) {
@@ -957,8 +957,10 @@ impl Desktop {
                 });
             }
             Event::CreateFailed { request, message, detail, .. } => {
-                self.terminals.tab_chats.remove(&request);
-                self.terminals.tab_terms.remove(&request);
+                self.terminals.update(cx, |t, _| {
+                    t.tab_chats.remove(&request);
+                    t.tab_terms.remove(&request);
+                });
                 self.creates.update(cx, |c, _| c.failed_in_place(&request));
                 let made = self.creates.update(cx, |cs, _| cs.get(&request).map(|c| c.fail(message.clone(), detail.clone(), Instant::now())).is_some());
                 if !made && let Some(message) = self.new_form.update(cx, |f, _| f.draft.failed(&request, message, detail, f.shown)) {
@@ -1040,7 +1042,7 @@ impl Desktop {
             project: repo.as_deref().map(project),
             projects,
             opens: self.agents.opens(),
-            idle: self.idle_main(),
+            idle: self.idle_main(cx),
             background: self.store.appearance.background.clone(),
             chips: self.composer_chips(&f.composer, &pick, repo, cx),
             attachments: self.store.home().join("attachments"),

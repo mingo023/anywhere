@@ -108,8 +108,9 @@ pub(super) const ROWS: &[Setting] = &[
         .effect(configure),
 ];
 
-fn configure(d: &mut Desktop, _: &mut Context<Desktop>) {
-    d.terminals.sessions.configure(config(&d.store.terminal));
+fn configure(d: &mut Desktop, cx: &mut Context<Desktop>) {
+    let config = config(&d.store.terminal);
+    d.terminals.update(cx, |t, _| t.sessions.configure(config));
 }
 
 fn hex(c: u32) -> Hsla {

@@ -16,7 +16,7 @@ impl Desktop {
     }
 
     pub(crate) fn tab_menu_view(&self, place: Place, cx: &mut Context<Self>) -> Stateful<Div> {
-        let branch = self.repo().map(|r| r.branch.clone()).unwrap_or_default();
+        let branch = self.repo(cx).map(|r| r.branch.clone()).unwrap_or_default();
         let item = |id: ElementId, lead: AnyElement, label: String, hint: Option<String>, keys: Option<&str>| {
             div()
                 .id(id)

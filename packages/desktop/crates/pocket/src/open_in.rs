@@ -310,7 +310,7 @@ impl Desktop {
     }
 
     pub(crate) fn copy_worktree_path(&mut self, _: &CopyWorktreePath, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(folder) = self.local_explore_root().filter(|_| self.screen == Screen::Sessions) else { return };
+        let Some(folder) = self.local_explore_root(cx).filter(|_| self.screen == Screen::Sessions) else { return };
         cx.write_to_clipboard(ClipboardItem::new_string(folder.clone()));
         self.open_in.update(cx, |o, _| o.menu = None);
         self.show_notice(Notice::Copied(folder), cx);
@@ -321,7 +321,7 @@ impl Desktop {
         if !cfg!(target_os = "macos") {
             return None;
         }
-        let folder = self.local_explore_root()?;
+        let folder = self.local_explore_root(cx)?;
         let choice = self.store.general.open_in.clone();
         self.open_in.update(cx, |o, _| o.set(folder, choice));
         Some(self.open_in.clone())

@@ -310,7 +310,7 @@ impl Desktop {
 
     /// The expanded sidebar: projects with their worktrees.
     pub(crate) fn aside(&self, cx: &mut Context<Self>) -> Div {
-        self.placed(|| self.aside_body(cx))
+        self.placed(cx, |cx| self.aside_body(cx))
     }
 
     fn aside_body(&self, cx: &mut Context<Self>) -> Div {
@@ -393,8 +393,8 @@ impl Desktop {
         state.filter(|s| !(unreachable && *s == ui::State::Working))
     }
 
-    fn tree_cards(&self, project: &str, tree: &str) -> Vec<Card> {
-        in_tree(self.cards(project), Some(tree), |cwd| self.tree_of(cwd))
+    fn tree_cards(&self, project: &str, tree: &str, cx: &App) -> Vec<Card> {
+        in_tree(self.cards(project, cx), Some(tree), |cwd| self.tree_of(cwd, cx))
     }
 
     /// `row`'s element under `p`; pinned, it names its project `sub`.
@@ -421,7 +421,7 @@ impl Desktop {
         let renames = self.agents.renames_offered(key);
         let pins = self.store.projects.iter().any(|k| k == p);
         let (selected, own) = (current == Some(key), selects.is_none());
-        let state = self.calm(p, rolled_state(&self.tree_cards(p, key)));
+        let state = self.calm(p, rolled_state(&self.tree_cards(p, key, cx)));
         let mark = ui::indicator(id(format!("aside-spin:{key}")), state).or_else(|| self.pr_mark(key).filter(|_| own));
         let (name, sub) = match sub {
             Some(project) if own => (project, Some(self.local_name(key))),
@@ -453,7 +453,7 @@ impl Desktop {
             .when(lit, |row| row.bg(FILL_3))
             .when(pins || renames, |row| row.on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx)));
         let row = if pinned { row } else { self.reorders(row, p, key, ix, cx) };
-        let card = self.card_for(p, key, &name, tip, own, cx.reduce_motion());
+        let card = self.card_for(p, key, &name, tip, own, cx);
         Self::with_card(row, key, card, cx).into_any_element()
     }
 
@@ -483,9 +483,10 @@ impl Desktop {
     }
 
     /// `tree`'s card, naming it `title` on `branch`, while it shows. `shows_pr` shows its PR.
-    fn card_for(&self, p: &str, tree: &str, title: &str, branch: &str, shows_pr: bool, reduce_motion: bool) -> Option<Div> {
+    fn card_for(&self, p: &str, tree: &str, title: &str, branch: &str, shows_pr: bool, cx: &App) -> Option<Div> {
+        let reduce_motion = cx.reduce_motion();
         self.sidebar.hover.shows(tree).map(|fades| {
-            let when = self.tree_cards(p, tree).iter().map(|c| c.at).max().map(|at| ago_long(at, now_ms())).filter(|w| !w.is_empty());
+            let when = self.tree_cards(p, tree, cx).iter().map(|c| c.at).max().map(|at| ago_long(at, now_ms())).filter(|w| !w.is_empty());
             let slide = self.sidebar.hover.slide().filter(|_| !reduce_motion);
             tree_card::hung(title.to_string(), branch.to_string(), self.prs.get(tree).filter(|_| shows_pr), when, fades && !reduce_motion, slide)
         })
@@ -516,7 +517,7 @@ impl Desktop {
                 if d.project != project {
                     return;
                 }
-                let keys = this.tree_rows(&project, &this.trees_shown(&project, cx).unwrap_or_default()).into_iter().map(|r| r.key).collect();
+                let keys = this.tree_rows(&project, &this.trees_shown(&project, cx).unwrap_or_default(), cx).into_iter().map(|r| r.key).collect();
                 this.store.sections.move_tree(&project, keys, &d.key, &to);
                 this.store.save();
                 cx.notify();
@@ -551,13 +552,13 @@ impl Desktop {
     /// `only` holds the trees the filter lets through, unfolding it; `section` is where it sits, so where a project dropped on it goes.
     /// Returns its height once its fold settles, so a section around it can spring to it.
     fn project_block(&self, i: usize, p: &str, only: Option<&[String]>, section: Section, cx: &mut Context<Self>) -> (AnyElement, f32) {
-        let current = self.place().filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
+        let current = self.place(cx).filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
         let trees = self.trees_shown(p, cx);
-        let setups = self.creates.read(cx).setups(&self.terminals.setups);
+        let setups = self.creates.read(cx).setups(&self.terminals.read(cx).setups);
         let fold = ProjectRow::new(trees.as_deref(), only.is_none() && self.store.collapsed.contains(p), &setups);
         let selected = fold.selected(current.as_deref());
         let ProjectRow { git, open, setting_up } = fold;
-        let state = if open { None } else { self.calm(p, rolled_state(&self.cards(p)).filter(|_| !setting_up)) };
+        let state = if open { None } else { self.calm(p, rolled_state(&self.cards(p, cx)).filter(|_| !setting_up)) };
         let chevron = git.then(|| ui::chevron(("aside-chevron", i), open));
         let menu = RowMenu::Project(p.to_string());
         let mut buttons = Vec::new();
@@ -605,7 +606,7 @@ impl Desktop {
             .on_drag(DragProject { path: p.to_string(), ix: i }, |_, _, _, cx| cx.new(|_| EmptyView));
         let mut out = Vec::new();
         if self.sidebar.closing.drawn(&Fold::Project(p.to_string()), open) {
-            let rows = self.tree_rows(p, trees.as_deref().unwrap_or_default());
+            let rows = self.tree_rows(p, trees.as_deref().unwrap_or_default(), cx);
             for row in rows.iter().filter(|r| only.is_none_or(|o| o.contains(&r.key)) && !self.tree_pinned(p, &r.key)) {
                 out.push(self.place_row(p, row, current.as_deref(), &setups, None, cx));
             }
@@ -650,7 +651,7 @@ impl Desktop {
         let menu = RowMenu::Tree { project: p.to_string(), tree: tree.clone() };
         let selected = current == Some(tree.as_str());
         let (failed, setting) = (self.creates.read(cx).failed(tree), self::setting_up(setups, tree));
-        let state = self.calm(p, rolled_state(&self.tree_cards(p, tree)).filter(|_| !failed && !setting));
+        let state = self.calm(p, rolled_state(&self.tree_cards(p, tree, cx)).filter(|_| !failed && !setting));
         let mark = if failed {
             ui::indicator(id(format!("aside-failed:{tree}")), Some(ui::State::Failed))
         } else if setting {
@@ -693,7 +694,7 @@ impl Desktop {
             }))
             .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx));
         let row = if pinned { row } else { self.reorders(row, p, tree, ix, cx) };
-        let card = self.card_for(p, tree, title, tip, true, cx.reduce_motion());
+        let card = self.card_for(p, tree, title, tip, true, cx);
         Self::with_card(row, tree, card, cx).into_any_element()
     }
 }

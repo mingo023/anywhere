@@ -432,29 +432,29 @@ impl Desktop {
         true
     }
 
-    fn confirm_text(&self, confirm: &Confirm) -> Option<Sheet> {
+    fn confirm_text(&self, confirm: &Confirm, cx: &App) -> Option<Sheet> {
         let text = match confirm {
             Confirm::ResetSection(section) => return Some(self.reset_sheet(*section)),
             Confirm::RemoveProject(p) => ConfirmText::remove_project(
                 &self.repo_name(p),
-                Takes { terminals: self.project_terminals(p).len(), locals: self.agents.locals_removed_with(p).count() },
+                Takes { terminals: self.project_terminals(p, cx).len(), locals: self.agents.locals_removed_with(p).count() },
             ),
             Confirm::DeleteWorktree { removal, dirty, lost, lost_anyway, subtrees, .. } => {
-                let terminals = std::iter::once(&removal.tree).chain(subtrees.iter().map(|r| &r.tree)).map(|t| self.tree_terminals(t).len()).sum();
+                let terminals = std::iter::once(&removal.tree).chain(subtrees.iter().map(|r| &r.tree)).map(|t| self.tree_terminals(t, cx).len()).sum();
                 ConfirmText::delete_worktree(removal, *dirty, *lost, *lost_anyway, terminals, subtrees.len())
             }
-            Confirm::DeleteLocal(id) => ConfirmText::delete_local(&self.local_name(id), self.tree_terminals(id).len()),
+            Confirm::DeleteLocal(id) => ConfirmText::delete_local(&self.local_name(id), self.tree_terminals(id, cx).len()),
             Confirm::DeleteScratch { path, dirty, lost } => {
-                ConfirmText::delete_scratch(&self.place_name(path), path, *dirty, *lost, self.tree_terminals(path).len())
+                ConfirmText::delete_scratch(&self.place_name(path), path, *dirty, *lost, self.tree_terminals(path, cx).len())
             }
             Confirm::TeardownFailed { failed, .. } => ConfirmText::teardown_failed(failed),
-            Confirm::Discard(paths) => ConfirmText::discard(paths, self.repo().map_or(&[], |r| r.files.as_slice())),
+            Confirm::Discard(paths) => ConfirmText::discard(paths, self.repo(cx).map_or(&[], |r| r.files.as_slice())),
             Confirm::CloseSession(id) => {
                 let a = self.agents.get(id)?;
                 let card = status::card(a, &a.cwd);
                 ConfirmText::close_session(&card.title, card.status == Status::Working)
             }
-            Confirm::Paste { pane, text } => ConfirmText::paste(text, &self.pane_label(pane)),
+            Confirm::Paste { pane, text } => ConfirmText::paste(text, &self.pane_label(pane, cx)),
             Confirm::CloseTerminals { ids, busy, worktree } => ConfirmText::close_terminals(busy, worktree, ids.len()),
             Confirm::CloseFile(path) => ConfirmText::close_file(path),
             Confirm::Quit(n) => ConfirmText::quit(*n),
@@ -466,7 +466,7 @@ impl Desktop {
             Confirm::DeleteTicket(id) => ConfirmText::delete_ticket(&self.delete_ticket_title(id)),
             Confirm::RevokeDevice { name, .. } => ConfirmText::revoke_device(name),
             Confirm::RemoveHost { id, name } => {
-                let projects = self.projects().iter().filter(|p| hosts::split(p).0 == Some(id.as_str())).count();
+                let projects = self.projects(cx).iter().filter(|p| hosts::split(p).0 == Some(id.as_str())).count();
                 ConfirmText::remove_host(name, projects)
             }
             Confirm::UpdateHost { name, windows, .. } => ConfirmText::update_host(name, *windows),
@@ -482,7 +482,7 @@ impl Desktop {
 
     /// The sheet over everything, saying what `confirm_text` makes of the open confirm now.
     pub(super) fn confirm_view(&mut self, cx: &mut Context<Self>) -> Div {
-        let sheet = self.confirm.read(cx).kind().and_then(|c| self.confirm_text(c));
+        let sheet = self.confirm.read(cx).kind().and_then(|c| self.confirm_text(c, cx));
         self.confirm.update(cx, |c, _| c.show(sheet));
         div().absolute().inset_0().child(self.confirm.clone())
     }

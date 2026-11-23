@@ -19,7 +19,7 @@ impl Desktop {
         let preview = self.preview.read(cx);
         let f = preview.pane(pane)?;
         let (file, views) = (f.file.as_deref()?, f.views.as_ref()?);
-        let path = || self.cwd().map_or_else(|| file.to_string(), |root| relative(file, &root));
+        let path = || self.cwd(cx).map_or_else(|| file.to_string(), |root| relative(file, &root));
         match preview.body(pane) {
             View::Code => {
                 let code = views.code.read(cx);

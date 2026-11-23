@@ -813,7 +813,7 @@ impl Desktop {
         let Some((path, at)) = self.diff.view(pane, cx).and_then(|v| Some((v.file.clone()?, v.at.clone()))) else {
             return empty("No changes.");
         };
-        let file = self.repo().and_then(|r| r.files.iter().find(|f| f.path == path)).cloned().filter(|_| at == At::Working);
+        let file = self.repo(cx).and_then(|r| r.files.iter().find(|f| f.path == path)).cloned().filter(|_| at == At::Working);
         let image = image_format(&path).is_some();
         let right = div()
             .flex()
@@ -854,7 +854,7 @@ impl Desktop {
             meta.push(ui::meta_item().child(ui::meta_diff(f.added, f.removed, 11.5)).into_any_element());
         }
         if at == At::Working {
-            let abs = self.cwd().map(|c| format!("{c}/{path}")).unwrap_or_default();
+            let abs = self.cwd(cx).map(|c| format!("{c}/{path}")).unwrap_or_default();
             if let Some((a, ts)) = self.agents.last_edit(&abs) {
                 let by = format!("{} · {}", self.agent_name(&a.provider), ago_long(ts, now_ms()));
                 meta.push(ui::meta_item().child(provider_icon(&a.provider, 13., TEXT_2)).child("by").child(ui::meta_value(by)).into_any_element());
@@ -916,8 +916,8 @@ impl Desktop {
     }
 
     pub fn open_changes(&mut self, path: Option<String>, pin: bool, cx: &mut Context<Self>) {
-        let shown = self.diff.view(self.focused_pane(), cx).and_then(|v| v.working_file()).map(str::to_string);
-        let path = path.or(shown).or_else(|| self.repo()?.files.first().map(|f| f.path.clone()));
+        let shown = self.diff.view(self.focused_pane(cx), cx).and_then(|v| v.working_file()).map(str::to_string);
+        let path = path.or(shown).or_else(|| self.repo(cx)?.files.first().map(|f| f.path.clone()));
         (self.side, self.sidebar.panel_open) = (Side::Changes, true);
         match path {
             Some(path) => self.open_doc(Doc::Diff(path), pin, cx),
@@ -943,7 +943,8 @@ impl Desktop {
     }
 
     fn read_diff_in_background(&mut self, pane: PaneId, shown: Vec<Line>, cx: &mut Context<Self>) {
-        let Some((cwd, (path, at, open))) = self.cwd().zip(self.diff.view(pane, cx).and_then(|v| Some((v.file.clone()?, v.at.clone(), v.open.clone())))) else {
+        let Some((cwd, (path, at, open))) = self.cwd(cx).zip(self.diff.view(pane, cx).and_then(|v| Some((v.file.clone()?, v.at.clone(), v.open.clone()))))
+        else {
             return;
         };
         let options = self.diff.options;

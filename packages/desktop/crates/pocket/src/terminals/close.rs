@@ -26,8 +26,8 @@ impl Desktop {
         if !self.store.terminal.confirm_close {
             return false;
         }
-        let Some((id, busy)) = ids.iter().find_map(|id| Some((id, busy(self.summary(id), self.terminals.sessions.get(id))?))) else { return false };
-        let worktree = self.terminals.sessions.get(id).and_then(|s| self.place_of(&s.info)).map(|t| self.place_name(&t)).unwrap_or_default();
+        let Some((id, busy)) = ids.iter().find_map(|id| Some((id, busy(self.summary(id), self.terminals.read(cx).sessions.get(id))?))) else { return false };
+        let worktree = self.terminals.read(cx).sessions.get(id).and_then(|s| self.place_of(&s.info, cx)).map(|t| self.place_name(&t)).unwrap_or_default();
         self.ask(Confirm::CloseTerminals { ids, busy, worktree }, cx);
         cx.notify();
         true

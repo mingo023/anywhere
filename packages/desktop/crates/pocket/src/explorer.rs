@@ -416,34 +416,34 @@ impl Render for Explorer {
 
 impl Desktop {
     /// The folder Explore browses: the chosen tree's folder, else the project.
-    pub fn explore_root(&self) -> Option<String> {
-        self.worktree.as_deref().and_then(|t| self.folder_of(t)).or_else(|| self.project.clone())
+    pub fn explore_root(&self, cx: &App) -> Option<String> {
+        self.worktree.as_deref().and_then(|t| self.folder_of(t, cx)).or_else(|| self.project.clone())
     }
 
     /// The folder Explore browses, while its files are on this Mac.
-    pub(crate) fn local_explore_root(&self) -> Option<String> {
-        self.explore_root().filter(|root| fs_for(root).local().is_ok())
+    pub(crate) fn local_explore_root(&self, cx: &App) -> Option<String> {
+        self.explore_root(cx).filter(|root| fs_for(root).local().is_ok())
     }
 
     /// Git's letter for a file under the explore root, if it has changed.
-    pub fn file_status(&self, path: &str) -> Option<char> {
-        let root = self.explore_root()?;
+    pub fn file_status(&self, path: &str, cx: &App) -> Option<char> {
+        let root = self.explore_root(cx)?;
         status_of(&self.repos.get(&root)?.files, &root, path)
     }
 
     /// Hands the tree what it reads of `Desktop`; before it draws and before anything calls into it.
     pub(crate) fn sync_explorer(&mut self, cx: &mut Context<Self>) {
-        let root = self.explore_root();
+        let root = self.explore_root(cx);
         let repo = root.as_ref().and_then(|r| self.repos.get(r)).cloned();
         let local = root.as_deref().is_some_and(|r| fs_for(r).local().is_ok());
-        let selected = self.preview.read(cx).file(self.focused_pane()).map(str::to_string);
+        let selected = self.preview.read(cx).file(self.focused_pane(cx)).map(str::to_string);
         let stamp = self.agents.edits_stamp();
         let (menu_open, touched_at) = {
             let e = self.explorer.read(cx);
             (e.menu_open(), e.inputs.touched.0)
         };
         let touched = (touched_at != stamp).then(|| (stamp, Arc::new(self.agents.edited_paths())));
-        let chats = menu_open.then(|| self.chat_choices());
+        let chats = menu_open.then(|| self.chat_choices(cx));
         let (session, observe_only, files) = (self.session().map(str::to_string), self.agents.observe_only(), self.store.files.clone());
         self.explorer.update(cx, |e, _| {
             let i = &mut e.inputs;
@@ -527,15 +527,15 @@ impl Desktop {
     fn mention(&mut self, id: &str, path: &Path, folder: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some((terminal, provider, cwd)) = self.agents.get(id).map(|a| (a.terminal_id.clone(), a.provider.clone(), a.cwd.clone())) else { return };
         let text = menu::mention_text(path, folder, Path::new(&cwd));
-        if self.route(&terminal) == Route::Chat {
+        if self.route(&terminal, cx) == Route::Chat {
             self.chat_add_text(id, &text, window, cx);
         } else {
-            let Some(bracketed) = self.terminals.sessions.term(&terminal).map(|t| t.mode(2004)) else { return };
+            let Some(bracketed) = self.terminals.read(cx).sessions.term(&terminal).map(|t| t.mode(2004)) else { return };
             self.send_input(&terminal, &term::paste_bytes(&text, bracketed), cx);
         }
         // The focused chat shows the mention landing in its input; any other gets a toast.
         if self.session() != Some(id) {
-            let title = self.chat_choices().into_iter().find(|c| c.id == id).map(|c| c.title).unwrap_or_default();
+            let title = self.chat_choices(cx).into_iter().find(|c| c.id == id).map(|c| c.title).unwrap_or_default();
             self.show_notice(toast::Notice::Mentioned { provider, title }, cx);
         }
     }

@@ -51,7 +51,7 @@ impl Desktop {
     }
 
     fn column_header(&self, cx: &mut Context<Self>) -> Div {
-        let title = self.place().map(|t| self.place_name(&t)).or_else(|| self.project.as_deref().map(|p| self.repo_name(p))).unwrap_or_default();
+        let title = self.place(cx).map(|t| self.place_name(&t)).or_else(|| self.project.as_deref().map(|p| self.repo_name(p))).unwrap_or_default();
         let add = icon_button_sized("column-add", "plus", 28., TEXT_2)
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_session(None, false, window, cx)));
         div()

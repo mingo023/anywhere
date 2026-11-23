@@ -515,7 +515,7 @@ impl Desktop {
                     }
                     self.open_chosen_folder(dest, window, cx);
                 } else {
-                    let cfg = self.new_repo_config(&dest);
+                    let cfg = self.new_repo_config(&dest, cx);
                     self.add_repo(dest, cfg, window, cx);
                 }
                 cx.notify();

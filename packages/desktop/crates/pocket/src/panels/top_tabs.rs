@@ -121,7 +121,7 @@ impl Desktop {
         };
         let italic = matches!(head, Some(Tab::Doc(d)) if w.preview.as_ref() == Some(d));
         let meta = match (meta, head) {
-            (Some(m), _) => self.tab_text(m),
+            (Some(m), _) => self.tab_text(m, cx),
             _ if panes > 1 => format!("{panes} panes"),
             (None, Some(h)) => self.tab_kind(h, cx),
             (None, None) => String::new(),
@@ -156,7 +156,7 @@ impl Desktop {
                     .font_weight(FontWeight::MEDIUM)
                     .truncate()
                     .when(italic, |d| d.italic())
-                    .child(head.map(|h| self.tab_text(h)).unwrap_or_default()),
+                    .child(head.map(|h| self.tab_text(h, cx)).unwrap_or_default()),
             )
             .child(div().text_size(px(11.)).text_color(TEXT_3).truncate().child(meta));
         div()
@@ -208,8 +208,8 @@ impl Desktop {
 
     /// Follows a held top tab: along the bar it makes room among the others; below it, one not shown leaves the bar to join the shown one beside a pane.
     fn hold_top(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
-        let (shown, b) = (self.workspace(&tree).at, self.panels.bar);
+        let Some(tree) = self.place(cx) else { return };
+        let (shown, b) = (self.workspace(&tree, cx).at, self.panels.bar);
         let Some(d) = self.panels.top_drag.as_mut() else { return };
         let away = at.1 >= b.y + b.h && d.from != shown;
         // A drag move comes every frame, moved or not; notifying on each would redraw forever.
@@ -232,9 +232,9 @@ impl Desktop {
             return;
         }
         let Some((from, to)) = moved else { return };
-        let Some(tree) = self.place() else { return };
+        let Some(tree) = self.place(cx) else { return };
         let at = {
-            let w = self.workspace(&tree);
+            let w = self.workspace(&tree, cx);
             w.move_top(from, to);
             w.at
         };
@@ -256,7 +256,7 @@ impl Desktop {
             ),
             Tab::Doc(Doc::File(p)) => {
                 let dir = Path::new(p).parent().unwrap_or(Path::new(""));
-                match self.explore_root().map(|root| dir.strip_prefix(root).map(Path::to_path_buf)) {
+                match self.explore_root(cx).map(|root| dir.strip_prefix(root).map(Path::to_path_buf)) {
                     Some(Ok(rel)) if rel.as_os_str().is_empty() => self.project.as_deref().map(|p| self.repo_name(p)).unwrap_or_default(),
                     Some(Ok(rel)) => rel.to_string_lossy().into_owned(),
                     _ => tilde(&dir.to_string_lossy()),
@@ -269,10 +269,10 @@ impl Desktop {
 
     /// Shows top tab `i`, and what its focused pane shows.
     fn switch_top(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
-        self.workspace(&tree).switch(i);
+        let Some(tree) = self.place(cx) else { return };
+        self.workspace(&tree, cx).switch(i);
         let (p, a) = {
-            let t = &self.workspace(&tree).tree;
+            let t = &self.workspace(&tree, cx).tree;
             (t.focused, t.focused().active)
         };
         self.select_tab(p, a, window, cx);

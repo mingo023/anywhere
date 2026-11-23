@@ -153,8 +153,8 @@ impl Desktop {
     }
 
     /// How text reaches the agent in `terminal`.
-    pub(crate) fn route(&mut self, terminal: &str) -> Route {
-        route(self.chat_shown(terminal), self.terminals.sessions.term(terminal).is_some_and(|t| t.mode(2004)))
+    pub(crate) fn route(&mut self, terminal: &str, cx: &App) -> Route {
+        route(self.chat_shown(terminal), self.terminals.read(cx).sessions.term(terminal).is_some_and(|t| t.mode(2004)))
     }
 
     /// Focuses the terminal pane, and its chat's input when the chat shows: keys then go to the input.
@@ -306,7 +306,7 @@ impl Desktop {
             capturing: self.capturing,
             // `fix_agent` walks every agent, so only a chat that links a PR asks.
             prs: links_pr.then(|| {
-                let to = pr_link::FixTo { tree: self.cwd(), agent: self.fix_agent(cx), can_send: !self.agents.observe_only() };
+                let to = pr_link::FixTo { tree: self.cwd(cx), agent: self.fix_agent(cx), can_send: !self.agents.observe_only() };
                 pr_link::peeks(&self.prs, &self.pr, &to)
             }),
         }

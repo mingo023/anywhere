@@ -70,7 +70,7 @@ impl Render for Switcher {
 impl Desktop {
     /// Hands `switcher` one button per space: its icon, a host's link dot, its colour under the one on screen and the count of sessions waiting on you in the others.
     fn hand_spaces(&self, switcher: &Entity<Switcher>, order: &[Space], current: &Space, cx: &mut Context<Self>) {
-        let waiting_in = self.waiting_projects();
+        let waiting_in = self.waiting_projects(cx);
         let now = Instant::now();
         let buttons = order
             .iter()

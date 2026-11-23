@@ -37,13 +37,13 @@ impl Desktop {
         let branches = div().font_family(MONO).text_size(px(11.5)).child(format!(
             "{} ← {}",
             base_branch(&pr.base),
-            self.repo().map(|r| r.branch.clone()).unwrap_or_default()
+            self.repo(cx).map(|r| r.branch.clone()).unwrap_or_default()
         ));
         let list = uniform_list(
             "pr-commits",
             pr.commits.len(),
             cx.processor(|this, range: Range<usize>, _, cx| {
-                let Some((_, pr)) = this.shown_pr() else { return Vec::new() };
+                let Some((_, pr)) = this.shown_pr(cx) else { return Vec::new() };
                 let now = now_ms();
                 range
                     .filter_map(|i| pr.commits.get(i).map(|c| (i, c)))
@@ -75,7 +75,7 @@ impl Desktop {
             "pr-files",
             pr.files.len(),
             cx.processor(|this, range: Range<usize>, _, cx| {
-                let Some((_, pr)) = this.shown_pr() else { return Vec::new() };
+                let Some((_, pr)) = this.shown_pr(cx) else { return Vec::new() };
                 let base = this.pr_base(pr);
                 range
                     .filter_map(|i| pr.files.get(i).map(|f| (i, f)))

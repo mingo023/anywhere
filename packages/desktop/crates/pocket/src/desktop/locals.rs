@@ -14,8 +14,8 @@ impl Desktop {
     }
 
     /// Adds a Local to `project`, named after the first free number, and returns its id.
-    pub(crate) fn new_local(&mut self, project: &str) -> String {
-        let main = self.tree_of(project).map(|t| self.local_name(&t));
+    pub(crate) fn new_local(&mut self, project: &str, cx: &App) -> String {
+        let main = self.tree_of(project, cx).map(|t| self.local_name(&t));
         let taken: Vec<String> = self.agents.locals_in(project).map(|l| l.name.clone()).chain(main).collect();
         let local = Local { id: locals::new_id(), project: project.to_string(), name: locals::next_name(taken.iter().map(String::as_str)) };
         self.outbox.local.local_create(&local);
@@ -30,7 +30,7 @@ impl Desktop {
 
     /// Closes its terminals; their files belong to the project and stay.
     pub(crate) fn delete_local(&mut self, id: &str, cx: &mut Context<Self>) {
-        for term in self.tree_terminals(id) {
+        for term in self.tree_terminals(id, cx) {
             self.close_pane(&term, cx);
         }
         self.outbox.local.local_delete(id);

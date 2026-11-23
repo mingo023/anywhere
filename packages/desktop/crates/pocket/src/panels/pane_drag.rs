@@ -72,8 +72,8 @@ impl Desktop {
     /// Moves pane `from` where it was aimed: to an edge of another pane, or into a top tab of its own.
     pub(super) fn drop_pane(&mut self, from: PaneId, window: &mut Window, cx: &mut Context<Self>) {
         let Some(Held { aim, .. }) = self.panels.pane_drag.take() else { return };
-        let Some(tree) = self.place() else { return };
-        let w = self.workspace(&tree);
+        let Some(tree) = self.place(cx) else { return };
+        let w = self.workspace(&tree, cx);
         match aim {
             Some(Drop::Pane(to, edge)) => w.tree.move_pane(from, to, edge),
             Some(Drop::Top(i)) => w.detach_pane(from, i),
@@ -99,8 +99,8 @@ impl Desktop {
     /// Moves the held top tab's panes beside the pane it was aimed at; true if it was aimed at one.
     pub(super) fn drop_top(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(Held { from: Source::Top(i), aim: Some(Drop::Pane(pane, edge)), .. }) = self.panels.pane_drag.take() else { return false };
-        let Some(tree) = self.place() else { return false };
-        self.workspace(&tree).place_top(i, pane, edge);
+        let Some(tree) = self.place(cx) else { return false };
+        self.workspace(&tree, cx).place_top(i, pane, edge);
         self.show_focused(&tree, window, cx);
         self.save_soon(cx);
         cx.notify();

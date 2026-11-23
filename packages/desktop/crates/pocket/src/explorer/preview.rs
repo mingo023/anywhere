@@ -583,7 +583,7 @@ impl Desktop {
     }
 
     pub fn save(&mut self, _: &crate::actions::Save, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(Doc::File(path)) = self.active_doc() else { return };
+        let Some(Doc::File(path)) = self.active_doc(cx) else { return };
         self.pin_doc(&Doc::File(path.clone()), cx);
         self.save_file(path, false, cx);
         cx.notify();
@@ -621,7 +621,7 @@ impl Desktop {
 
     pub fn load_file(&mut self, pane: PaneId, cx: &mut Context<Self>) {
         let Some(path) = self.preview.read(cx).file(pane).map(str::to_string) else { return };
-        let changed = self.file_status(&path).is_some();
+        let changed = self.file_status(&path, cx).is_some();
         let task = cx.background_executor().spawn(async move { load(&path, changed) });
         cx.spawn(async move |this, cx| {
             let file = task.await;

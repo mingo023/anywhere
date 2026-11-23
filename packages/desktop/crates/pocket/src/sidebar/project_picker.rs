@@ -108,10 +108,10 @@ impl Desktop {
         let trees = |p: &str| {
             let locals = self.agents.locals_in(p).map(|l| l.id.clone());
             let worktrees =
-                self.listed_trees(p).map(|w| self.creates.read(cx).trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main).map(|w| w.path);
+                self.listed_trees(p, cx).map(|w| self.creates.read(cx).trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main).map(|w| w.path);
             locals.chain(worktrees).map(|t| (t.clone(), tree_texts(&t, self.agents.given_name(&t)))).collect()
         };
-        let search_texts = |p: &str| project_texts(&self.repo_name(p), self.tree_of(p).as_deref().and_then(|t| self.agents.given_name(t)));
+        let search_texts = |p: &str| project_texts(&self.repo_name(p), self.tree_of(p, cx).as_deref().and_then(|t| self.agents.given_name(t)));
         listed(self.store.projects.clone(), self.project.as_deref(), &self.sidebar.picker.search.read(cx).value(), search_texts, trees)
     }
 
@@ -155,10 +155,10 @@ impl Desktop {
     pub(crate) fn project_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let entries = self.picked_entries(cx);
         let ix = self.sidebar.picker.highlighted_row(entries.len());
-        let (current, tree) = (self.project.as_deref().filter(|_| self.screen == Screen::Sessions), self.place());
+        let (current, tree) = (self.project.as_deref().filter(|_| self.screen == Screen::Sessions), self.place(cx));
         let rows = entries.iter().enumerate().map(|(i, e)| {
             let lead = match &e.tree {
-                _ if e.shown(current, tree.as_deref(), |p| self.tree_of(p)) => icon("check", 14., TEXT).into_any_element(),
+                _ if e.shown(current, tree.as_deref(), |p| self.tree_of(p, cx)) => icon("check", 14., TEXT).into_any_element(),
                 Some(tree) => icon(tree_icon(tree), 14., TEXT_3).into_any_element(),
                 None => {
                     let mark = self.project_mark(&e.project, ui::mark_letter(&self.repo_name(&e.project)));
@@ -186,7 +186,7 @@ impl Desktop {
                     None => d
                         .child(div().flex_1().min_w_0().truncate().font_weight(FontWeight::MEDIUM).child(self.repo_name(&e.project)))
                         .child(div().max_w(px(112.)).flex_none().truncate().font_family(MONO).text_size(px(11.)).text_color(TEXT_4).child(parent(&e.project)))
-                        .children(ui::indicator(id(format!("projects-state:{}", e.project)), self.project_state(&e.project))),
+                        .children(ui::indicator(id(format!("projects-state:{}", e.project)), self.project_state(&e.project, cx))),
                 })
                 .on_mouse_move(cx.listener(move |this, _: &MouseMoveEvent, _, cx| {
                     if this.sidebar.picker.highlight != i {

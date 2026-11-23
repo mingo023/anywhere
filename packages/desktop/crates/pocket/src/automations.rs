@@ -281,7 +281,7 @@ impl Desktop {
         let a = self.automations.read(cx);
         let data = &self.agents.automations;
         let current = a.form.values(cx).folder;
-        let folders = self.store.without_scratch(self.projects());
+        let folders = self.store.without_scratch(self.projects(cx));
         let wanted = data.items.iter().map(|x| x.folder.as_str()).chain(folders.iter().map(String::as_str)).chain(std::iter::once(current.as_str()));
         let projects = wanted
             .filter(|f| !f.is_empty())

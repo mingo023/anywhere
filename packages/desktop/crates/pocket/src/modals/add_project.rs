@@ -672,18 +672,18 @@ impl Desktop {
         self.close_menus(cx);
         self.pick_path(true, window, cx, |d, paths, window, cx| {
             let Some(path) = paths.into_iter().next().map(|p| p.to_string_lossy().into_owned()) else { return };
-            let cfg = d.new_repo_config(&path);
+            let cfg = d.new_repo_config(&path, cx);
             d.add_repo(path, cfg, window, cx);
         });
     }
 
     /// The settings `path` had if it was a project before, else the defaults in the next colour.
-    pub(crate) fn new_repo_config(&self, path: &str) -> RepoConfig {
-        self.store.repos.get(path).cloned().unwrap_or(RepoConfig { color: self.next_color(), ..RepoConfig::default() })
+    pub(crate) fn new_repo_config(&self, path: &str, cx: &App) -> RepoConfig {
+        self.store.repos.get(path).cloned().unwrap_or(RepoConfig { color: self.next_color(cx), ..RepoConfig::default() })
     }
 
-    fn next_color(&self) -> u32 {
-        PALETTE[self.projects().len() % PALETTE.len()]
+    fn next_color(&self, cx: &App) -> u32 {
+        PALETTE[self.projects(cx).len() % PALETTE.len()]
     }
 
     /// Opens Add project on Folder on a host.
@@ -696,8 +696,8 @@ impl Desktop {
     pub fn reset_repo_form(&mut self, editing: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         let stored = editing.as_ref().and_then(|p| self.store.repos.get(p)).cloned();
         let color = match &editing {
-            Some(p) => self.repo_color(p),
-            None => self.next_color(),
+            Some(p) => self.repo_color(p, cx),
+            None => self.next_color(cx),
         };
         self.settings.update(cx, |s, _| s.menu = None);
         self.repo_form.update(cx, |f, cx| f.reset(editing, stored, color, window, cx));

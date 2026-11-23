@@ -18,11 +18,11 @@ impl Desktop {
 
     /// Closes every tab of `pane` but tab `keep`, highest index first so the rest keep theirs, stopping at the first that asks to be confirmed.
     fn close_others(&mut self, pane: PaneId, keep: usize, cx: &mut Context<Self>) {
-        let count = |this: &Self| this.place().and_then(|t| this.workspaces.get(&t)?.tree.pane(pane).map(|p| p.tabs.len())).unwrap_or_default();
-        for i in (0..count(self)).rev().filter(|i| *i != keep) {
-            let before = count(self);
+        let count = |this: &Self, cx: &App| this.place(cx).and_then(|t| this.workspaces.get(&t)?.tree.pane(pane).map(|p| p.tabs.len())).unwrap_or_default();
+        for i in (0..count(self, cx)).rev().filter(|i| *i != keep) {
+            let before = count(self, cx);
             self.close_tab(pane, i, cx);
-            if count(self) == before {
+            if count(self, cx) == before {
                 return;
             }
         }
@@ -60,13 +60,13 @@ impl Desktop {
         let file = match tab {
             Tab::Doc(Doc::File(p)) => Some(p.clone()),
             Tab::Doc(Doc::Diff(p) | Doc::CommitFile { path: p, .. } | Doc::PrFile { path: p, .. } | Doc::CompareFile { path: p, .. }) => {
-                self.cwd().map(|cwd| format!("{cwd}/{p}"))
+                self.cwd(cx).map(|cwd| format!("{cwd}/{p}"))
             }
             _ => None,
         };
         let mut files = Vec::new();
         if let Some(path) = file {
-            let rel = relative(&path, &self.explore_root().unwrap_or_default());
+            let rel = relative(&path, &self.explore_root(cx).unwrap_or_default());
             if matches!(tab, Tab::Doc(Doc::File(_))) {
                 let prompt = format!("About {rel}: ");
                 files.push(ui::menu_row("tab-ask", "sparkle", "Ask about this file", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {

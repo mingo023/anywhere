@@ -112,18 +112,18 @@ pub(crate) fn group_mark(g: &Group) -> Option<Div> {
 impl Desktop {
     /// `p`'s trees, less those being deleted, plus those being made; `None` until git lists them.
     pub(super) fn trees_shown(&self, p: &str, cx: &App) -> Option<Vec<git::Worktree>> {
-        self.listed_trees(p).map(|w| self.removals.hide(self.creates.read(cx).trees(p, &w)))
+        self.listed_trees(p, cx).map(|w| self.removals.hide(self.creates.read(cx).trees(p, &w)))
     }
 
     /// The rows under `p`: its own Local while in use, the Locals added to it, then its worktrees, in the order they were dragged to.
-    pub(super) fn tree_rows(&self, p: &str, trees: &[git::Worktree]) -> Vec<TreeRow> {
+    pub(super) fn tree_rows(&self, p: &str, trees: &[git::Worktree], cx: &App) -> Vec<TreeRow> {
         if trees.is_empty() {
             return vec![];
         }
-        let main = self.tree_of(p).unwrap_or_else(|| p.to_string());
+        let main = self.tree_of(p, cx).unwrap_or_else(|| p.to_string());
         let tip = trees.iter().find(|w| w.main).map(tree_place).unwrap_or_default();
         let mut rows = Vec::new();
-        if self.in_use(&main) {
+        if self.in_use(&main, cx) {
             rows.push(TreeRow { label: self.local_name(&main), key: main, tip: tip.clone(), kind: Kind::Own, ix: 0 });
         }
         rows.extend(self.agents.locals_in(p).map(|l| TreeRow { key: l.id.clone(), label: self.local_name(&l.id), tip: tip.clone(), kind: Kind::Local, ix: 0 }));
@@ -144,7 +144,7 @@ impl Desktop {
         let space = self.space();
         let mut projects = self.space_projects(&space);
         let sections = &self.store.sections;
-        sort_projects(&mut projects, sections.sort, |p| self.repo_name(p), |p| self.cards(p).iter().map(|c| c.at).max().unwrap_or(0));
+        sort_projects(&mut projects, sections.sort, |p| self.repo_name(p), |p| self.cards(p, cx).iter().map(|c| c.at).max().unwrap_or(0));
         let arranged = sections.arrange(&projects, space.host(), |p| self.store.projects.iter().any(|k| k == p));
         let block = |ix: usize| {
             let p = &projects[ix];
@@ -152,7 +152,7 @@ impl Desktop {
                 None
             } else {
                 let trees: Vec<(String, String)> = self
-                    .tree_rows(p, &self.trees_shown(p, cx).unwrap_or_default())
+                    .tree_rows(p, &self.trees_shown(p, cx).unwrap_or_default(), cx)
                     .into_iter()
                     .filter(|r| !self.tree_pinned(p, &r.key))
                     .map(|r| (r.key, r.label))
@@ -174,7 +174,7 @@ impl Desktop {
                     let Some(trees) = self.trees_shown(project, cx) else {
                         return query.is_empty().then(|| Item::Tree { project: project.clone(), key: tree.clone() });
                     };
-                    let row = self.tree_rows(project, &trees).into_iter().find(|r| &r.key == tree)?;
+                    let row = self.tree_rows(project, &trees, cx).into_iter().find(|r| &r.key == tree)?;
                     let shows = query.is_empty() || matches(&self.repo_name(project), query) || matches(&row.label, query);
                     shows.then(|| Item::Tree { project: project.clone(), key: row.key })
                 }
@@ -449,9 +449,9 @@ impl Desktop {
     /// A pinned tree's row, naming its project; `None` once the tree is gone.
     fn pinned_tree(&self, p: &str, key: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
         let trees = self.trees_shown(p, cx)?;
-        let row = self.tree_rows(p, &trees).into_iter().find(|r| r.key == key)?;
-        let current = self.place().filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
-        Some(self.place_row(p, &row, current.as_deref(), &self.creates.read(cx).setups(&self.terminals.setups), Some(self.repo_name(p)), cx))
+        let row = self.tree_rows(p, &trees, cx).into_iter().find(|r| r.key == key)?;
+        let current = self.place(cx).filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
+        Some(self.place_row(p, &row, current.as_deref(), &self.creates.read(cx).setups(&self.terminals.read(cx).setups), Some(self.repo_name(p)), cx))
     }
 }
 

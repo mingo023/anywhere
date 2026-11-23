@@ -369,8 +369,8 @@ impl ChatComposer {
 
 impl Desktop {
     pub(crate) fn add_to_chat(&mut self, _: &AddToChat, window: &mut Window, cx: &mut Context<Self>) {
-        let pane = self.focused_pane();
-        match self.pane_tab(pane) {
+        let pane = self.focused_pane(cx);
+        match self.pane_tab(pane, cx) {
             Some(Tab::Doc(Doc::Diff(_) | Doc::CompareFile { .. })) => {
                 let quotable = |v: &&DiffView| v.followed_file().is_some() && v.pick.range.is_some_and(|r| span(&v.lines, ordered(r)).is_some());
                 if let Some(i) = self.diff.view(pane, cx).filter(quotable).and_then(|v| v.pick.last()) {
@@ -383,10 +383,10 @@ impl Desktop {
         }
     }
 
-    pub(crate) fn chat_choices(&self) -> Vec<Choice> {
-        let (Some(project), Some(tree)) = (self.project.as_deref(), self.place()) else { return Vec::new() };
-        let branch = self.repo().map(|r| r.branch.clone()).unwrap_or_default();
-        choices(in_tree(self.cards(project), Some(&tree), |c| self.tree_of(c)), &branch)
+    pub(crate) fn chat_choices(&self, cx: &App) -> Vec<Choice> {
+        let (Some(project), Some(tree)) = (self.project.as_deref(), self.place(cx)) else { return Vec::new() };
+        let branch = self.repo(cx).map(|r| r.branch.clone()).unwrap_or_default();
+        choices(in_tree(self.cards(project, cx), Some(&tree), |c| self.tree_of(c, cx)), &branch)
     }
 
     pub(crate) fn chat_target(&self, choices: &[Choice], cx: &App) -> Option<String> {
@@ -396,7 +396,7 @@ impl Desktop {
 
     /// What the composer needs of the app to draw a card.
     pub(crate) fn chat_side(&self, cx: &App) -> Side {
-        let choices = self.chat_choices();
+        let choices = self.chat_choices(cx);
         Side { target: self.chat_target(&choices, cx), names: choices.iter().map(|c| (c.provider.clone(), self.agent_name(&c.provider))).collect(), choices }
     }
 
@@ -435,10 +435,10 @@ impl Desktop {
         if self.agents.observe_only() {
             return;
         }
-        let (Some(quote), Some(target)) = (self.chat_quote(cx), self.chat_target(&self.chat_choices(), cx)) else { return };
+        let (Some(quote), Some(target)) = (self.chat_quote(cx), self.chat_target(&self.chat_choices(cx), cx)) else { return };
         let Some((terminal, provider)) = self.agents.get(&target).map(|a| (a.terminal_id.clone(), a.provider.clone())) else { return };
         let question = self.chat.read(cx).question(cx);
-        match self.route(&terminal) {
+        match self.route(&terminal, cx) {
             Route::Chat if self.store.agents.send_now => self.chat_command(&target, chat::Command::Send(quote.prompt(&question)), cx),
             Route::Chat => self.chat_add_text(&target, &quote.prompt(&question), window, cx),
             Route::Paste => {

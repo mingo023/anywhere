@@ -587,11 +587,11 @@ fn lost_together(jobs: &[Removal]) -> (usize, usize) {
 
 impl Desktop {
     /// `subagent_removals` for `r`, here; the host folders in it go through `host_removals`, off the UI thread.
-    pub(crate) fn subagent_removals(&self, r: &Removal) -> (Vec<Removal>, OnHosts) {
-        let place = |a: &Summary| self.session_place(a).or_else(|| folder(a).filter(|f| hosts::split(f).0.is_some()));
-        let started = |t: &str| self.saved_start(t);
-        let (subtrees, mut on_hosts) = subagent_removals(r, &self.agents, place, &self.worktrees, &self.saved_links(), started);
-        let shells = self.shells();
+    pub(crate) fn subagent_removals(&self, r: &Removal, cx: &App) -> (Vec<Removal>, OnHosts) {
+        let place = |a: &Summary| self.session_place(a, cx).or_else(|| folder(a).filter(|f| hosts::split(f).0.is_some()));
+        let started = |t: &str| self.saved_start(t, cx);
+        let (subtrees, mut on_hosts) = subagent_removals(r, &self.agents, place, &self.worktrees, &self.saved_links(cx), started);
+        let shells = self.shells(cx);
         on_hosts.others.extend(shells.iter().filter(|f| hosts::split(f).0.is_some()).cloned());
         let unready = on_hosts.folders.iter().filter_map(|(f, _)| hosts::split(f).0).filter(|h| !self.removals.host_ready(h)).map(str::to_string).collect();
         on_hosts.unready = unready;
@@ -599,38 +599,38 @@ impl Desktop {
     }
 
     /// The host folders live sessions and shells work in.
-    fn host_occupants(&self) -> Vec<String> {
-        let sessions = self.agents.list.iter().filter_map(|a| self.session_place(a).or_else(|| folder(a)));
-        sessions.chain(self.shells()).filter(|f| hosts::split(f).0.is_some()).collect()
+    fn host_occupants(&self, cx: &App) -> Vec<String> {
+        let sessions = self.agents.list.iter().filter_map(|a| self.session_place(a, cx).or_else(|| folder(a)));
+        sessions.chain(self.shells(cx)).filter(|f| hosts::split(f).0.is_some()).collect()
     }
 
     /// The saved subagent links, child tree to parent tree.
-    fn saved_links(&self) -> BTreeMap<String, String> {
+    fn saved_links(&self, cx: &App) -> BTreeMap<String, String> {
         // A host's folder has no creation time here; its host checks it against `started`.
         // From the last git refresh, read off the UI thread.
         let created = |t: &str| self.worktrees.values().flatten().find(|w| w.path == t).and_then(|w| w.created);
-        saved_links(&self.store.subtrees, |f| self.folder_tree(f), created)
+        saved_links(&self.store.subtrees, |f| self.folder_tree(f, cx), created)
     }
 
     /// When the subagent saved in `tree` started.
-    fn saved_start(&self, tree: &str) -> Option<u64> {
-        self.store.subtrees.iter().find(|(c, _)| self.folder_tree(c).as_deref() == Some(tree)).map(|(_, s)| s.started)
+    fn saved_start(&self, tree: &str, cx: &App) -> Option<u64> {
+        self.store.subtrees.iter().find(|(c, _)| self.folder_tree(c, cx).as_deref() == Some(tree)).map(|(_, s)| s.started)
     }
 
     /// The folders of live terminals no session runs in: a plain shell is someone working there too.
-    fn shells(&self) -> Vec<String> {
+    fn shells(&self, cx: &App) -> Vec<String> {
         let agents = |id: &str| self.agents.list.iter().any(|a| a.terminal_id == id);
-        let live = self.terminals.sessions.items.iter().filter(|s| s.exit.is_none() && !agents(&s.info.id));
+        let live = self.terminals.read(cx).sessions.items.iter().filter(|s| s.exit.is_none() && !agents(&s.info.id));
         live.map(|s| s.info.cwd.clone()).collect()
     }
 
     /// The tree holding `folder`, or a host's folder as itself when that host's worktrees aren't listed here.
-    fn folder_tree(&self, folder: &str) -> Option<String> {
-        self.tree_of(folder).or_else(|| Some(folder.to_string()).filter(|f| hosts::split(f).0.is_some()))
+    fn folder_tree(&self, folder: &str, cx: &App) -> Option<String> {
+        self.tree_of(folder, cx).or_else(|| Some(folder.to_string()).filter(|f| hosts::split(f).0.is_some()))
     }
 
-    fn session_place(&self, a: &Summary) -> Option<String> {
-        self.terminals.sessions.get(&a.terminal_id).and_then(|s| self.place_of(&s.info))
+    fn session_place(&self, a: &Summary, cx: &App) -> Option<String> {
+        self.terminals.read(cx).sessions.get(&a.terminal_id).and_then(|s| self.place_of(&s.info, cx))
     }
 
     /// Records each live subagent's folder: once the sessions close, nothing else says whose it was. Folders, not
@@ -653,8 +653,8 @@ impl Desktop {
 
     /// `leftover` is the host folder the sweep asks about, for a sheet the user didn't ask for.
     fn ask_delete(&mut self, removal: Removal, leftover: Option<String>, cx: &mut Context<Self>) {
-        let (mut subtrees, on_hosts) = self.subagent_removals(&removal);
-        let shells = self.shells();
+        let (mut subtrees, on_hosts) = self.subagent_removals(&removal, cx);
+        let shells = self.shells(cx);
         let main = removal.clone();
         let task = cx.background_executor().spawn(async move {
             // A delete that can't read it refuses; the sheet shows what it can.
@@ -702,16 +702,16 @@ impl Desktop {
             self.select_tree(removal.project.clone(), None, cx);
         }
         // Read now: once its sessions close, pocketd closes their subagents and the lineage is gone.
-        let (still, on_hosts) = self.subagent_removals(&removal);
+        let (still, on_hosts) = self.subagent_removals(&removal, cx);
         let known = |c: &Removal| still.iter().any(|s| s.tree == c.tree) || on_hosts.folders.iter().any(|(f, _)| holds(&c.tree, f));
         let confirmed: Vec<Removal> = confirmed.iter().map(|c| Removal { delete_branch: removal.delete_branch && c.branch.is_some(), ..c.clone() }).collect();
         // The rest go if the lineage, read off the UI thread, still names them.
         let (subagents, unsure): (Vec<Removal>, Vec<Removal>) = confirmed.into_iter().partition(known);
         let subagents: Vec<Removal> = subagents.into_iter().filter(|c| self.removals.start(&c.tree)).collect();
-        let unsure: Vec<Removal> = unoccupied(unsure, &self.shells()).into_iter().filter(|c| self.removals.start(&c.tree)).collect();
+        let unsure: Vec<Removal> = unoccupied(unsure, &self.shells(cx)).into_iter().filter(|c| self.removals.start(&c.tree)).collect();
         let scheduled: Vec<Removal> = subagents.iter().chain(&unsure).cloned().collect();
         let starts: Vec<(String, u64)> =
-            subagents.iter().filter(|r| hosts::split(&r.tree).0.is_none()).filter_map(|r| Some((r.tree.clone(), self.saved_start(&r.tree)?))).collect();
+            subagents.iter().filter(|r| hosts::split(&r.tree).0.is_none()).filter_map(|r| Some((r.tree.clone(), self.saved_start(&r.tree, cx)?))).collect();
         let started: Vec<String> = scheduled.iter().map(|s| s.tree.clone()).chain(std::iter::once(removal.tree.clone())).collect();
         let teardown = |r: &Removal| self.store.repos.get(&r.project).map(|x| x.teardown.clone()).unwrap_or_default();
         let jobs: Vec<(Removal, String)> = subagents.iter().map(|r| (r.clone(), teardown(r))).collect();
@@ -761,7 +761,7 @@ impl Desktop {
                         d.error = Some(format!("Deleted the worktree; kept branch {branch}: {e}"));
                     }
                     let mut subtrees = std::mem::take(&mut d.store.subtrees);
-                    reparent(&mut subtrees, &r.tree, &removal.tree, |f| d.folder_tree(f));
+                    reparent(&mut subtrees, &r.tree, &removal.tree, |f| d.folder_tree(f, cx));
                     d.store.subtrees = subtrees;
                     d.forget_tree(&r.tree, cx);
                 }
@@ -805,7 +805,7 @@ impl Desktop {
         if back.is_empty() {
             return;
         }
-        let others = self.host_occupants();
+        let others = self.host_occupants(cx);
         let task = cx.background_executor().spawn(async move {
             let sweep = |(f, l): (String, Leftover)| {
                 let run = hosts::runner_for(&f);
@@ -859,14 +859,14 @@ impl Desktop {
     /// turn: one may have delegated while its host was away.
     fn sweep_delete(&mut self, f: String, r: Removal, cx: &mut Context<Self>) {
         // Someone may have started working there while the sweep read the host; a later sweep sees.
-        if self.host_occupants().iter().any(|o| holds(&r.tree, o)) || !self.removals.start(&f) {
+        if self.host_occupants(cx).iter().any(|o| holds(&r.tree, o)) || !self.removals.start(&f) {
             return;
         }
-        let (_, mut on_hosts) = self.subagent_removals(&r);
+        let (_, mut on_hosts) = self.subagent_removals(&r, cx);
         // Ones still closing, or whose parent left the list, are saved links only; each sweep tells whose each is.
-        for t in below(vec![r.tree.clone()], &self.saved_links()).into_iter().skip(1).filter(|t| hosts::split(t).0.is_some()) {
+        for t in below(vec![r.tree.clone()], &self.saved_links(cx)).into_iter().skip(1).filter(|t| hosts::split(t).0.is_some()) {
             if !on_hosts.folders.iter().any(|(f, _)| *f == t) {
-                let at = self.saved_start(&t);
+                let at = self.saved_start(&t, cx);
                 on_hosts.folders.push((t, at));
             }
         }
@@ -948,13 +948,13 @@ impl Desktop {
             .store
             .subtrees
             .iter()
-            .filter(|(c, s)| [*c, &s.parent].iter().any(|f| self.folder_tree(f).as_deref() == Some(tree)))
+            .filter(|(c, s)| [*c, &s.parent].iter().any(|f| self.folder_tree(f, cx).as_deref() == Some(tree)))
             .map(|(c, _)| c.clone())
             .collect();
         for c in gone {
             self.store.subtrees.remove(&c);
         }
-        for id in self.tree_terminals(tree) {
+        for id in self.tree_terminals(tree, cx) {
             self.close_pane(&id, cx);
         }
         // Its row would show again until the git refresh lands.

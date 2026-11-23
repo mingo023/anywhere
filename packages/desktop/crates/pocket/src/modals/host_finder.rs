@@ -393,7 +393,7 @@ impl Desktop {
             name: self.host_name(&host),
             glyph: self.space_glyph(&Space::Host(host)),
             hosts: self.host_choices(),
-            projects: self.projects(),
+            projects: self.projects(cx),
             clone: (opener == Opener::CloneInto).then(|| self.clone_form.read(cx).repo_name(cx)),
         };
         self.host_finder.update(cx, |f, _| f.hand(side));

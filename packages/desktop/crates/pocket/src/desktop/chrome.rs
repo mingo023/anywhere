@@ -454,7 +454,8 @@ impl Desktop {
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_focus(&crate::actions::ToggleFocus, window, cx)))
         };
         let pad = bar_pad(self.layout, self.screen, self.lead_width(), pad, self.store.appearance.zoom_factor());
-        let toggle = (self.layout == Layout::Focus).then(|| toggle("sidebar-expand", cx).relative().when(has_changes(self.repo()), |d| d.child(changes_dot())));
+        let toggle =
+            (self.layout == Layout::Focus).then(|| toggle("sidebar-expand", cx).relative().when(has_changes(self.repo(cx)), |d| d.child(changes_dot())));
         (pad, toggle)
     }
 

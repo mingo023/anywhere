@@ -49,17 +49,17 @@ impl Chips {
 
 impl Desktop {
     pub(crate) fn visible_sessions(&self, cx: &App) -> Vec<Card> {
-        self.sessions_matching(&self.sidebar.search.read(cx).value())
+        self.sessions_matching(&self.sidebar.search.read(cx).value(), cx)
     }
 
-    pub(crate) fn sessions_matching(&self, query: &str) -> Vec<Card> {
+    pub(crate) fn sessions_matching(&self, query: &str, cx: &App) -> Vec<Card> {
         let Some(project) = self.project.as_deref() else { return Vec::new() };
-        let tree = self.place();
-        walkable(self.cards(project), tree.as_deref(), |cwd| self.tree_of(cwd), query)
+        let tree = self.place(cx);
+        walkable(self.cards(project, cx), tree.as_deref(), |cwd| self.tree_of(cwd, cx), query)
     }
 
-    fn all_cards(&self) -> Vec<Card> {
-        self.projects().iter().flat_map(|p| self.cards(p)).collect()
+    fn all_cards(&self, cx: &App) -> Vec<Card> {
+        self.projects(cx).iter().flat_map(|p| self.cards(p, cx)).collect()
     }
 
     fn go_to(&mut self, id: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
@@ -70,12 +70,12 @@ impl Desktop {
     }
 
     pub(crate) fn next_needs_you(&mut self, _: &NextNeedsYou, window: &mut Window, cx: &mut Context<Self>) {
-        let next = status::next_needs_you(&self.all_cards(), self.session());
+        let next = status::next_needs_you(&self.all_cards(cx), self.session());
         self.go_to(next, window, cx);
     }
 
     pub(crate) fn go_to_up_next(&mut self, _: &GoToUpNext, window: &mut Window, cx: &mut Context<Self>) {
-        let next = status::next_up(&self.all_cards(), self.session());
+        let next = status::next_up(&self.all_cards(cx), self.session());
         self.go_to(next, window, cx);
     }
 

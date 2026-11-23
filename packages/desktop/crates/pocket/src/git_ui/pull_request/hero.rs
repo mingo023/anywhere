@@ -296,7 +296,7 @@ impl Desktop {
             )
         };
         if pr.state == PrState::Merged && self.deletable(tree) && !self.pr.track.kept(tree) {
-            let branch = self.repo().map(|r| r.branch.clone()).unwrap_or_default();
+            let branch = self.repo(cx).map(|r| r.branch.clone()).unwrap_or_default();
             let (keep_tree, delete_tree) = (tree.to_string(), tree.to_string());
             let keep = small("pr-keep", Variant::Secondary, "Keep").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.pr.track.keep(&keep_tree);

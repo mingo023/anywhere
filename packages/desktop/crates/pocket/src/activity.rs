@@ -307,7 +307,7 @@ impl Desktop {
     /// Off the screen nothing reads the columns; opening it regroups.
     pub(crate) fn activity_changed(&mut self, cx: &mut Context<Self>) {
         if self.screen == Screen::Activity {
-            let items = self.activity_items();
+            let items = self.activity_items(cx);
             if let Some(id) = self.activity.update(cx, |a, _| a.gather(items)) {
                 self.outbox.seen(&[id]);
             }
@@ -358,12 +358,12 @@ impl Desktop {
     }
 
     /// Every session with a terminal, as the page shows it.
-    fn activity_items(&self) -> Vec<Item> {
-        let projects = self.projects();
+    fn activity_items(&self, cx: &App) -> Vec<Item> {
+        let projects = self.projects(cx);
         crate::status::listed(&self.agents.list)
             .into_iter()
             .filter_map(|a| {
-                let cwd = &self.terminals.sessions.get(&a.terminal_id)?.info.cwd;
+                let cwd = &self.terminals.read(cx).sessions.get(&a.terminal_id)?.info.cwd;
                 let project = self.agent_project(a, cwd, &projects).cloned().unwrap_or_else(|| cwd.clone());
                 let tree = self.worktree_of(cwd);
                 let status = Status::of(a);

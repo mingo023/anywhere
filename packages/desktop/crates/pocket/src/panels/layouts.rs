@@ -1,11 +1,12 @@
 use crate::desktop::Desktop;
+use gpui_kit::App;
 use std::collections::BTreeMap;
 use workspace::Workspace;
 
 impl Desktop {
     /// Brings back last launch's panels, once, after pocketd's first terminal list says which terminals still run.
     /// A host's worktrees wait for that host's list instead.
-    pub(crate) fn restore_layouts(&mut self) {
+    pub(crate) fn restore_layouts(&mut self, cx: &App) {
         if std::mem::replace(&mut self.panels.restored, true) || self.capturing {
             return;
         }
@@ -16,19 +17,19 @@ impl Desktop {
         let (waiting, here): (BTreeMap<_, _>, BTreeMap<_, _>) =
             std::mem::take(&mut self.store.layouts).into_iter().partition(|(tree, _)| hosts::split(tree).0.is_some());
         self.panels.waiting = waiting;
-        self.restore(here);
+        self.restore(here, cx);
     }
 
     /// Brings back the panels of `host`'s worktrees, once it has listed its terminals.
-    pub(crate) fn restore_host_layouts(&mut self, host: &str) {
+    pub(crate) fn restore_host_layouts(&mut self, host: &str, cx: &App) {
         if self.panels.restored {
             let saved = take_host(&mut self.panels.waiting, host);
-            self.restore(saved);
+            self.restore(saved, cx);
         }
     }
 
-    fn restore(&mut self, saved: BTreeMap<String, Workspace>) {
-        let live: Vec<String> = self.terminals.sessions.items.iter().map(|s| s.info.id.clone()).collect();
+    fn restore(&mut self, saved: BTreeMap<String, Workspace>, cx: &App) {
+        let live: Vec<String> = self.terminals.read(cx).sessions.items.iter().map(|s| s.info.id.clone()).collect();
         for (tree, saved) in saved {
             if self.workspaces.get(&tree).is_none_or(Workspace::is_empty) {
                 self.workspaces.insert(tree, saved.restored(&live));

@@ -422,15 +422,15 @@ const STEPS: [(&str, Step); 303] = [
     ("chat-sub-agent", |d, _, _| fixture(d, "sub-agent")),
     ("chat-perf", |d, _, _| fixture(d, "perf-1200")),
     ("chat-stream-code", |d, _, _| fixture(d, "stream-code")),
-    ("worktree", |d, _, _| d.worktree = d.cwd().and_then(|cwd| d.worktree_of(&cwd)).map(|w| w.path.clone())),
+    ("worktree", |d, _, cx| d.worktree = d.cwd(cx).and_then(|cwd| d.worktree_of(&cwd)).map(|w| w.path.clone())),
     ("rail", |d, window, cx| d.toggle_rail(&ToggleRail, window, cx)),
     ("focus", |d, window, cx| d.toggle_focus(&ToggleFocus, window, cx)),
     ("sidebar", |d, window, cx| d.toggle_sidebar(&ToggleSidebar, window, cx)),
     ("projects", |d, window, cx| d.toggle_project_picker(window, cx)),
     ("add-menu", |d, _, _| d.sidebar.add_menu = true),
     ("organize-menu", |d, _, _| d.sidebar.organize.menu = true),
-    ("sections", |d, _, _| {
-        let projects = d.projects();
+    ("sections", |d, _, cx| {
+        let projects = d.projects(cx);
         let sections = &mut d.store.sections;
         let work = sections.add_group("Work", None);
         sections.add_group("Side", None);
@@ -441,7 +441,7 @@ const STEPS: [(&str, Step); 303] = [
             sections.pin(store::sections::Pin::Project(p.clone()));
         }
         let first = projects.first().cloned().unwrap_or_default();
-        if let Some(w) = d.listed_trees(&first).and_then(|ts| ts.into_iter().find(|w| !w.main)) {
+        if let Some(w) = d.listed_trees(&first, cx).and_then(|ts| ts.into_iter().find(|w| !w.main)) {
             d.store.sections.pin(store::sections::Pin::Tree { project: first, tree: w.path });
         }
     }),
@@ -454,7 +454,7 @@ const STEPS: [(&str, Step); 303] = [
         d.refresh_git(cx);
     }),
     ("tree-menu", |d, window, cx| {
-        let Some(root) = d.explore_root().map(PathBuf::from) else { return };
+        let Some(root) = d.explore_root(cx).map(PathBuf::from) else { return };
         d.explorer.update(cx, |e, cx| {
             let target = e.tree.get(&root).and_then(|l| l.first()).map(|(dir, p)| (p.clone(), *dir));
             e.menu = Some(TreeMenu::new(target, point(px(1150.), px(112.)), false, true, window.viewport_size().width));
@@ -463,7 +463,7 @@ const STEPS: [(&str, Step); 303] = [
     }),
     ("tree-menu-down", |d, window, cx| d.tree_menu_arrow(&TreeMenuArrow(Arrow::Down), window, cx)),
     ("tree-mentioned", |d, _, cx| {
-        if let Some(c) = d.chat_choices().into_iter().next() {
+        if let Some(c) = d.chat_choices(cx).into_iter().next() {
             d.show_notice(Notice::Mentioned { provider: c.provider, title: c.title }, cx);
         }
     }),
@@ -473,7 +473,7 @@ const STEPS: [(&str, Step); 303] = [
     }),
     ("branch-tree", |d, _, cx| {
         let Some(p) = d.project.clone() else { return };
-        if let Some(w) = d.listed_trees(&p).and_then(|ts| ts.into_iter().find(|w| !w.main)) {
+        if let Some(w) = d.listed_trees(&p, cx).and_then(|ts| ts.into_iter().find(|w| !w.main)) {
             d.select_tree(p, Some(w.path), cx);
             d.refresh_git(cx);
         }
@@ -507,21 +507,21 @@ const STEPS: [(&str, Step); 303] = [
             d.open_doc(Doc::Commit(sha), false, cx);
         }
     }),
-    ("tab-menu", |d, _, _| d.panels.menu = Some(workspace::Place::Pane(Some(d.focused_pane())))),
+    ("tab-menu", |d, _, cx| d.panels.menu = Some(workspace::Place::Pane(Some(d.focused_pane(cx))))),
     ("top-menu", |d, _, _| d.panels.menu = Some(workspace::Place::Top)),
     // The focused session's right-click menus: its top tab's, and its row's.
-    ("top-actions", |d, _, _| {
-        let Some(workspace::Tab::Term(t)) = d.pane_tab(d.focused_pane()) else { return };
+    ("top-actions", |d, _, cx| {
+        let Some(workspace::Tab::Term(t)) = d.pane_tab(d.focused_pane(cx), cx) else { return };
         d.panels.top_actions = d.summary(&t).map(|s| (s.id.clone(), point(px(330.), px(36.))));
     }),
-    ("session-menu", |d, _, _| {
-        let Some(workspace::Tab::Term(t)) = d.pane_tab(d.focused_pane()) else { return };
+    ("session-menu", |d, _, cx| {
+        let Some(workspace::Tab::Term(t)) = d.pane_tab(d.focused_pane(cx), cx) else { return };
         d.row_menu = d.summary(&t).map(|s| RowMenu::Session(s.id.clone()));
     }),
     ("term-menu", |d, _, _| d.terminal.menu = d.terminal.focused.clone().map(|p| (p, point(px(520.), px(300.))))),
     ("browser", |d, window, cx| d.open_browser(None, window, cx)),
     ("file", |d, _, cx| {
-        if let Some(path) = d.cwd().zip(d.repo().and_then(|r| r.files.first())).map(|(root, f)| format!("{root}/{}", f.path)) {
+        if let Some(path) = d.cwd(cx).zip(d.repo(cx).and_then(|r| r.files.first())).map(|(root, f)| format!("{root}/{}", f.path)) {
             d.open_file(path, false, cx);
         }
     }),
@@ -537,14 +537,14 @@ const STEPS: [(&str, Step); 303] = [
         });
     }),
     ("ask-file", |d, _, cx| {
-        let pane = d.focused_pane();
+        let pane = d.focused_pane(cx);
         let Some((path, text)) = d.preview.read(cx).pane(pane).and_then(|f| Some((f.file.clone()?, f.text()?.to_string()))) else { return };
         let end = text.match_indices('\n').nth(2).map_or(text.len(), |(i, _)| i);
         let file = Quote::code(&crate::util::basename(&path), &text, 0..end).map(|q| (point(px(420.), px(260.)), q));
         d.chat.update(cx, |c, cx| c.set_file(file, cx));
     }),
     ("add-to-chat", |d, window, cx| {
-        let pane = d.focused_pane();
+        let pane = d.focused_pane(cx);
         if let Some(i) = d.diff.view(pane, cx).and_then(|v| v.lines.iter().position(|l| l.kind == Kind::Add)) {
             d.open_composer(pane, i, window, cx);
         }
@@ -706,7 +706,7 @@ const STEPS: [(&str, Step); 303] = [
     // The new-session page's machine pill, with devbox's app-ios the twin of this Mac's (FIXTURE_HOST_FILES=1).
     ("form-machine", |d, _, cx| d.new_form.update(cx, |f, cx| f.toggle_picker(Picker::Machine, cx))),
     ("form-app-ios", |d, window, cx| {
-        if let Some(p) = d.projects().into_iter().find(|p| p.ends_with("/code/app-ios") && !p.starts_with("//")) {
+        if let Some(p) = d.projects(cx).into_iter().find(|p| p.ends_with("/code/app-ios") && !p.starts_with("//")) {
             d.new_place(p, window, cx);
         }
     }),
@@ -724,8 +724,8 @@ const STEPS: [(&str, Step); 303] = [
     ("vm-open", |d, window, cx| d.repo_form.update(cx, |f, cx| f.open_browsed(window, cx))),
     ("vm-save", |d, _, cx| d.repo_form.update(cx, |f, cx| f.save(cx))),
     ("vm-shell", |d, _, cx| d.new_shell(workspace::Place::Pane(None), cx)),
-    ("vm-uname", |d, _, _| {
-        if let Some(id) = d.terminals.sessions.items.iter().rev().map(|s| s.info.id.clone()).find(|id| hosts::session::untag(id).0.is_some()) {
+    ("vm-uname", |d, _, cx| {
+        if let Some(id) = d.terminals.read(cx).sessions.items.iter().rev().map(|s| s.info.id.clone()).find(|id| hosts::session::untag(id).0.is_some()) {
             d.daemon.input(&id, b"uname -a\r");
         }
     }),
@@ -783,10 +783,12 @@ const STEPS: [(&str, Step); 303] = [
         let id = "fx-signin".to_string();
         let mut term = term::Term::new(100, 30);
         term.write(b"Opening browser to sign in\xe2\x80\xa6\r\nIf the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&scope=user%3Ainference&state=Nwd_oVnDKfPnpygUrKjXPJ00\r\nPaste code here if prompted > ");
-        d.terminals.sessions.items.push(crate::terminals::sessions::Session {
-            info: daemon::Info { id: id.clone(), ..Default::default() },
-            term: Some(crate::terminals::sessions::Grid::new(term)),
-            exit: None,
+        d.terminals.update(cx, |t, _| {
+            t.sessions.items.push(crate::terminals::sessions::Session {
+                info: daemon::Info { id: id.clone(), ..Default::default() },
+                term: Some(crate::terminals::sessions::Grid::new(term)),
+                exit: None,
+            })
         });
         let mut signin = d.new_sign_in(crate::accounts::Key { host: None, provider: "claude".into(), id: String::new() }, window, cx);
         (signin.terminal, signin.output_open) = (Some(id), true);
@@ -810,8 +812,8 @@ const STEPS: [(&str, Step); 303] = [
         }
         cx.notify();
     }),
-    ("project-accounts", |d, _, _| {
-        for p in d.projects() {
+    ("project-accounts", |d, _, cx| {
+        for p in d.projects(cx) {
             d.store.repos.entry(p).or_default().accounts.insert("claude".into(), "work".into());
         }
     }),
@@ -833,8 +835,8 @@ const STEPS: [(&str, Step); 303] = [
         d.store.agents.favorites = picks(&[("claude", "opus")]);
         d.store.agents.recent = picks(&[("opencode", "zai/glm-5.2"), ("claude", "opus"), ("codex", "gpt-5.5"), ("claude", "sonnet")]);
     }),
-    ("project-hides", |d, _, _| {
-        for p in d.projects() {
+    ("project-hides", |d, _, cx| {
+        for p in d.projects(cx) {
             d.store.repos.entry(p).or_default().hidden.insert("codex".into());
         }
     }),
@@ -869,7 +871,7 @@ const STEPS: [(&str, Step); 303] = [
             p.available = ["claude", "codex", "opencode", "pi", "hermes"].contains(&p.id.as_str());
         }
     }),
-    ("service-down", |d, _, _| d.terminals.link.down(Instant::now())),
+    ("service-down", |d, _, cx| d.terminals.update(cx, |t, _| t.link.down(Instant::now()))),
     ("service-starting", |d, _, cx| d.settings.update(cx, |s, _| s.starting = Some(Instant::now()))),
     ("settings-search", |d, window, cx| {
         let search = d.settings.read(cx).search.clone();
@@ -908,7 +910,7 @@ const STEPS: [(&str, Step); 303] = [
     ("prompt", |d, window, cx| {
         d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)
     }),
-    ("add-repo", |d, window, cx| d.edit_project(d.projects().into_iter().next(), window, cx)),
+    ("add-repo", |d, window, cx| d.edit_project(d.projects(cx).into_iter().next(), window, cx)),
     ("clone", |d, window, cx| {
         d.clone_project(window, cx);
         d.clone_form.read(cx).url.clone().update(cx, |s, cx| s.set_value("https://github.com/zed-industries/zed", window, cx));
@@ -923,10 +925,10 @@ const STEPS: [(&str, Step); 303] = [
     ("clone-host-progress", |d, window, cx| d.start_clone(window, cx)),
     ("finder-open-host", |d, window, cx| d.open_folder(crate::modals::host_finder::Opener::Sidebar, window, cx)),
     ("project-settings", |d, window, cx| d.project_settings(&crate::actions::ProjectSettings, window, cx)),
-    ("project-icons", |d, _, _| {
+    ("project-icons", |d, _, cx| {
         let app_icon = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/AppIcon.png"));
         let icons = [store::ProjectIcon::Emoji("🚀".into()), store::ProjectIcon::Image(app_icon)];
-        for (p, icon) in d.projects().into_iter().zip(icons) {
+        for (p, icon) in d.projects(cx).into_iter().zip(icons) {
             d.store.repos.entry(p).or_default().icon = Some(icon);
         }
     }),
@@ -1031,12 +1033,12 @@ const STEPS: [(&str, Step); 303] = [
             }
         });
     }),
-    ("deleting", |d, _, _| {
-        let Some(tree) = d.project.as_ref().and_then(|p| d.listed_trees(p)).and_then(|w| w.into_iter().find(|w| !w.main)).map(|w| w.path) else { return };
+    ("deleting", |d, _, cx| {
+        let Some(tree) = d.project.as_ref().and_then(|p| d.listed_trees(p, cx)).and_then(|w| w.into_iter().find(|w| !w.main)).map(|w| w.path) else { return };
         d.removals.start(&tree);
     }),
     ("delete-worktree", |d, _, cx| {
-        let Some((project, w)) = d.project.clone().and_then(|p| d.listed_trees(&p)?.into_iter().find(|w| !w.main).map(|w| (p, w))) else { return };
+        let Some((project, w)) = d.project.clone().and_then(|p| d.listed_trees(&p, cx)?.into_iter().find(|w| !w.main).map(|w| (p, w))) else { return };
         let removal = crate::removal::Removal { project, tree: w.path, branch: Some(w.branch), delete_branch: true, teardown: true };
         d.ask(Confirm::DeleteWorktree { removal, dirty: 2, lost: 3, lost_anyway: 0, subtrees: vec![], requested: true }, cx);
         cx.notify();
@@ -1052,7 +1054,7 @@ const STEPS: [(&str, Step); 303] = [
         d.welcome = Some(welcome);
     }),
     ("prs", |d, _, cx| {
-        let Some(trees) = d.project.as_ref().and_then(|p| d.listed_trees(p)) else { return };
+        let Some(trees) = d.project.as_ref().and_then(|p| d.listed_trees(p, cx)) else { return };
         let trees: Vec<String> = trees.into_iter().filter(|w| !w.main).map(|w| w.path).collect();
         let now = Instant::now();
         let checks = [
@@ -1077,8 +1079,8 @@ const STEPS: [(&str, Step); 303] = [
         }
         d.activity_changed(cx);
     }),
-    ("pr-loop", |d, _, _| {
-        let Some(tree) = d.cwd() else { return };
+    ("pr-loop", |d, _, cx| {
+        let Some(tree) = d.cwd(cx) else { return };
         let at = crate::util::now_ms() as u64;
         let ago = |mins: u64| at - mins * 60_000;
         let said = |author: &str, body: &str, mins: u64| Comment { author: author.into(), body: body.into(), at: ago(mins), ..Comment::default() };
@@ -1129,8 +1131,8 @@ const STEPS: [(&str, Step); 303] = [
         d.prs.start(&tree, now);
         d.prs.apply(tree, now, Ok(Some(pr)), now);
     }),
-    ("pr-long", |d, _, _| {
-        let Some((tree, pr)) = d.shown_pr() else { return };
+    ("pr-long", |d, _, cx| {
+        let Some((tree, pr)) = d.shown_pr(cx) else { return };
         let mut pr = pr.clone();
         let at = crate::util::now_ms() as u64;
         let replies = [
@@ -1154,8 +1156,8 @@ const STEPS: [(&str, Step); 303] = [
         d.prs.start(&tree, now);
         d.prs.apply(tree, now, Ok(Some(pr)), now);
     }),
-    ("pr-long-body", |d, _, _| {
-        let Some((tree, pr)) = d.shown_pr() else { return };
+    ("pr-long-body", |d, _, cx| {
+        let Some((tree, pr)) = d.shown_pr(cx) else { return };
         let mut pr = pr.clone();
         let steps: String = (1..=14).map(|i| format!("- Step {i}: restore the session, wait for the settled redraw, then reveal the pane.\n")).collect();
         pr.body = format!("{}\n\n## Steps\n{steps}\n## Last line\nThe end of the description.", pr.body);
@@ -1167,8 +1169,8 @@ const STEPS: [(&str, Step); 303] = [
         d.prs.start(&tree, now);
         d.prs.apply(tree, now, Ok(Some(pr)), now);
     }),
-    ("pr-sent", |d, _, _| {
-        let Some((tree, pr)) = d.shown_pr() else { return };
+    ("pr-sent", |d, _, cx| {
+        let Some((tree, pr)) = d.shown_pr(cx) else { return };
         let pr = pr.clone();
         let failed: Vec<&Check> = pr.runs.iter().filter(|c| c.outcome == Outcome::Failed).collect();
         d.pr.track.send(&tree, "capture", &pr, &[], &failed, false);
@@ -1181,18 +1183,18 @@ const STEPS: [(&str, Step); 303] = [
     ("pr-comment", |d, window, cx| d.open_comment(window, cx)),
     // Downloads from GitHub, so only the captures that show the pictures ask for it.
     ("pr-avatars", |d, _, cx| {
-        if let Some(tree) = d.cwd() {
+        if let Some(tree) = d.cwd(cx) {
             d.fetch_avatars(&tree, cx);
         }
     }),
     ("pr-diff", |d, _, cx| {
-        let first = d.shown_pr().and_then(|(_, pr)| pr.threads.first().map(|t| t.id.clone()));
+        let first = d.shown_pr(cx).and_then(|(_, pr)| pr.threads.first().map(|t| t.id.clone()));
         if let Some(id) = first {
             d.view_thread(&id, cx);
         }
     }),
-    ("names", |d, _, _| {
-        let tree = d.project.as_ref().and_then(|p| d.listed_trees(p)).into_iter().flatten().find(|w| !w.main).map(|w| w.path);
+    ("names", |d, _, cx| {
+        let tree = d.project.as_ref().and_then(|p| d.listed_trees(p, cx)).into_iter().flatten().find(|w| !w.main).map(|w| w.path);
         if let Some(tree) = tree {
             d.agents.names.insert(tree, "Fix the login form".into());
         }
@@ -1225,13 +1227,15 @@ const STEPS: [(&str, Step); 303] = [
             d.start_rename(tree, window, cx);
         }
     }),
-    ("daemon-down", |d, _, _| d.terminals.disconnected(Instant::now() - crate::terminals::link::HINT_AFTER)),
-    ("service-off", |d, _, _| d.terminals.link.service = Some(daemon::service::Service::RequiresApproval)),
-    ("service-updating", |d, _, _| d.terminals.link.connected("0.2.0", "0.1.0", true, Instant::now())),
-    ("service-stale", |d, _, _| d.terminals.link.connected("0.2.0", "0.1.0", true, Instant::now() - crate::terminals::link::STALE_AFTER)),
-    ("service-back", |d, _, _| {
-        d.terminals.link.connected("0.2.0", "0.1.0", true, Instant::now());
-        d.terminals.link.connected("0.2.0", "0.2.0", true, Instant::now());
+    ("daemon-down", |d, _, cx| d.terminals.update(cx, |t, _| t.disconnected(Instant::now() - crate::terminals::link::HINT_AFTER))),
+    ("service-off", |d, _, cx| d.terminals.update(cx, |t, _| t.link.service = Some(daemon::service::Service::RequiresApproval))),
+    ("service-updating", |d, _, cx| d.terminals.update(cx, |t, _| t.link.connected("0.2.0", "0.1.0", true, Instant::now()))),
+    ("service-stale", |d, _, cx| d.terminals.update(cx, |t, _| t.link.connected("0.2.0", "0.1.0", true, Instant::now() - crate::terminals::link::STALE_AFTER))),
+    ("service-back", |d, _, cx| {
+        d.terminals.update(cx, |t, _| {
+            t.link.connected("0.2.0", "0.1.0", true, Instant::now());
+            t.link.connected("0.2.0", "0.2.0", true, Instant::now());
+        });
     }),
 ];
 
@@ -1645,14 +1649,14 @@ fn models_sample(d: &mut Desktop) {
 }
 
 fn session(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
-    if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
+    if let Some(card) = d.project.clone().and_then(|p| d.cards(&p, cx).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
         d.focus_agent(&card.id, window, cx);
     }
 }
 
 fn chat_session(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     session(d, window, cx);
-    if let Some(Tab::Term(t)) = d.pane_tab(d.focused_pane()) {
+    if let Some(Tab::Term(t)) = d.pane_tab(d.focused_pane(cx), cx) {
         d.store.chats.insert(t.clone());
         d.focus_chat_or_terminal(t, window, cx);
     }
@@ -1900,8 +1904,10 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.spaces.reset();
     d.sidebar.space_header.update(cx, |h, _| h.reset());
     d.updates.update = Update::Idle;
-    d.terminals.link.up();
-    d.terminals.link.service = None;
+    d.terminals.update(cx, |t, _| {
+        t.link.up();
+        t.link.service = None;
+    });
     let a = &mut d.store.appearance;
     (a.mode, a.theme, a.day, a.night) = (store::Mode::System, None, None, None);
     d.themes = Default::default();

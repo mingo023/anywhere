@@ -33,15 +33,18 @@ impl Desktop {
         let space = self.space();
         let rows: Vec<String> =
             self.store.scratches().into_iter().filter(|p| space_of(p) == space && (!filtering || matches(&self.place_name(p), &query))).collect();
-        let loose: Vec<String> =
-            self.loose_folders(&space).into_iter().filter(|p| !filtering || matches(&thread_title(&self.cards(p)), &query) || matches(p, &query)).collect();
+        let loose: Vec<String> = self
+            .loose_folders(&space, cx)
+            .into_iter()
+            .filter(|p| !filtering || matches(&thread_title(&self.cards(p, cx)), &query) || matches(p, &query))
+            .collect();
         let rows: Vec<String> = rows.into_iter().chain(loose.iter().cloned()).collect();
         if filtering && rows.is_empty() {
             return None;
         }
         let open = filtering || !self.store.scratch_folded;
         let roll = (!open)
-            .then(|| ui::indicator(id("aside-scratch-roll".to_string()), rolled_state(&rows.iter().flat_map(|p| self.cards(p)).collect::<Vec<_>>())))
+            .then(|| ui::indicator(id("aside-scratch-roll".to_string()), rolled_state(&rows.iter().flat_map(|p| self.cards(p, cx)).collect::<Vec<_>>())))
             .flatten();
         let chevron = div().when(open, |d| d.invisible().group_hover(HEAD, |s| s.visible())).child(icon(
             if open { "chevron-down" } else { "chevron-right" },
@@ -78,7 +81,7 @@ impl Desktop {
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_session_without_project(window, cx)));
         let head = section_head().pl(px(6.)).child(toggle).child(new);
         let height = fold::stacked(rows.iter().map(|_| ui::SIDEBAR_ROW_H), 1.).min(ui::SIDEBAR_ROW_H * MAX_ROWS);
-        let current = self.place().filter(|_| self.screen == Screen::Sessions && self.project.as_deref().is_some_and(|p| rows.iter().any(|r| r == p)));
+        let current = self.place(cx).filter(|_| self.screen == Screen::Sessions && self.project.as_deref().is_some_and(|p| rows.iter().any(|r| r == p)));
         let drawn: Vec<AnyElement> = if self.sidebar.closing.drawn(&Fold::Scratch, open) {
             rows.iter()
                 .enumerate()
@@ -92,7 +95,7 @@ impl Desktop {
     }
 
     fn loose_row(&self, path: &str, current: Option<&str>, cx: &mut Context<Self>) -> AnyElement {
-        let cards = self.cards(path);
+        let cards = self.cards(path, cx);
         let (selected, state) = (current == Some(path), rolled_state(&cards));
         let mark = ui::indicator(id(format!("aside-spin:{path}")), state);
         let label = with_sub(
@@ -110,7 +113,7 @@ impl Desktop {
     fn scratch_row(&self, ix: usize, path: &str, current: Option<&str>, cx: &mut Context<Self>) -> AnyElement {
         let name = self.place_name(path);
         let selected = current == Some(path);
-        let state = rolled_state(&self.cards(path));
+        let state = rolled_state(&self.cards(path, cx));
         let mark = ui::indicator(id(format!("aside-spin:{path}")), state);
         let label = match self.sidebar.rename.as_ref().filter(|r| r.tree == path) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
@@ -186,7 +189,7 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             let work = task.await;
             this.update(cx, |d, cx| {
-                if project::scratch::nothing_to_lose(work, d.tree_terminals(&path).len()) {
+                if project::scratch::nothing_to_lose(work, d.tree_terminals(&path, cx).len()) {
                     return d.delete_scratch(&path, cx);
                 }
                 let (dirty, lost) = work.unwrap_or_default();

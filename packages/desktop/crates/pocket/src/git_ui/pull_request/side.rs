@@ -21,14 +21,14 @@ impl Desktop {
     /// The worktree's pull request: the composer while one is written, else the PR over its tabs, else how to open one.
     pub(crate) fn pr_side(&mut self, cx: &mut Context<Self>) -> Div {
         let panel = div().flex_1().min_h_0().flex().flex_col();
-        let Some(repo) = self.repo_handle() else {
+        let Some(repo) = self.repo_handle(cx) else {
             return panel.child(empty("Not a git repository."));
         };
         let panel = panel.child(self.pr_head(cx));
         if let Some(composer) = self.pr_composer(&repo, cx) {
             return panel.child(div().id("pr-side").flex_1().min_h_0().overflow_y_scroll().child(composer));
         }
-        let Some((tree, pr)) = self.shown_pr() else {
+        let Some((tree, pr)) = self.shown_pr(cx) else {
             return panel.child(self.no_pr(&repo, cx));
         };
         let body = match self.pr.track.tab {
@@ -41,7 +41,7 @@ impl Desktop {
     }
 
     fn pr_head(&self, cx: &mut Context<Self>) -> Div {
-        let tree = self.cwd().unwrap_or_default();
+        let tree = self.cwd(cx).unwrap_or_default();
         let refresh: AnyElement = if self.prs.asking(&tree) {
             div().size(px(26.)).flex().items_center().justify_center().child(spinner("pr-refreshing", 13., TEXT_3)).into_any_element()
         } else {
@@ -50,7 +50,7 @@ impl Desktop {
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.refresh_pr(cx)))
                 .into_any_element()
         };
-        let open = self.shown_pr().map(|(_, pr)| {
+        let open = self.shown_pr(cx).map(|(_, pr)| {
             let url = pr.url.clone();
             ui::icon_button_sized("pr-open", "external", 26., TEXT_3)
                 .tooltip(|window, cx| Tooltip::new("Open on GitHub").build(window, cx))
@@ -114,7 +114,7 @@ impl Desktop {
 
     /// Why the worktree has no PR to show, with Create pull request when it can have one.
     fn no_pr(&self, repo: &Repo, cx: &mut Context<Self>) -> AnyElement {
-        match self.cwd().and_then(|tree| self.prs.item(&tree, &repo.branch, repo.base.as_deref())) {
+        match self.cwd(cx).and_then(|tree| self.prs.item(&tree, &repo.branch, repo.base.as_deref())) {
             Some(PrItem::Create) => {
                 let create = ui::button("pr-side-create", Variant::Primary, Some("pull-request"), "Create pull request")
                     .h(px(30.))

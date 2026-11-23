@@ -79,7 +79,7 @@ impl Desktop {
         );
         let menu = open.then(|| {
             let viewed = self.chats.composer.draft.viewing.unwrap_or(agent.provider.as_str());
-            let project = self.chat_project(agent);
+            let project = self.chat_project(agent, cx);
             let view: View = Rc::new(|this, entry, cx| this.view_models(&Held::Chat, entry, cx));
             let rail = model_rail(viewed, &self.rail_tabs(project.as_deref(), &agent.provider), &self.chats.composer.draft.rail, view, cx);
             let own = viewed == agent.provider;
@@ -97,13 +97,13 @@ impl Desktop {
     }
 
     /// The project `agent` works in, whose hidden agents its model panel leaves out.
-    fn chat_project(&self, agent: &Summary) -> Option<String> {
-        self.agent_project(agent, &agent.cwd, &self.projects()).cloned()
+    fn chat_project(&self, agent: &Summary, cx: &App) -> Option<String> {
+        self.agent_project(agent, &agent.cwd, &self.projects(cx)).cloned()
     }
 
     /// The chat's model panel just opened on the agent with this `id`.
     pub(super) fn chat_models_opened(&mut self, id: &str, cx: &mut Context<Self>) {
-        let Some((provider, project)) = self.agents.get(id).map(|a| (a.provider.clone(), self.chat_project(a))) else { return };
+        let Some((provider, project)) = self.agents.get(id).map(|a| (a.provider.clone(), self.chat_project(a, cx))) else { return };
         self.models_opened(&Held::Chat, &provider, project.as_deref(), cx);
         let Some(agent) = self.agents.get(id) else { return };
         if let Some(on) = self.chat_listed(agent, &provider, "", project.as_deref()).on {

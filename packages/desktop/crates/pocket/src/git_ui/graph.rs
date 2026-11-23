@@ -426,7 +426,7 @@ impl Render for Graph {
 
 impl Desktop {
     pub(crate) fn refresh_graph(&mut self, cx: &mut Context<Self>) {
-        let (cwd, active) = (self.cwd(), self.side == Side::Changes);
+        let (cwd, active) = (self.cwd(cx), self.side == Side::Changes);
         self.graph.update(cx, |g, cx| g.refresh(cwd, active, cx));
     }
 
@@ -442,7 +442,7 @@ impl Desktop {
     }
 
     pub(crate) fn viewing_commit_file(&self, cx: &App) -> Option<(String, String)> {
-        let v = self.diff.view(self.focused_pane(), cx)?;
+        let v = self.diff.view(self.focused_pane(cx), cx)?;
         let At::Commit(sha) = &v.at else { return None };
         Some((sha.clone(), v.file.clone()?))
     }

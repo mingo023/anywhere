@@ -52,7 +52,7 @@ impl Desktop {
     }
 
     pub(crate) fn refocus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.web_tab(self.focused_pane(), cx).is_some() {
+        if self.web_tab(self.focused_pane(cx), cx).is_some() {
             window.focus(&self.browsers.focus, cx);
         } else if !self.terminal.focus.is_focused(window) {
             window.focus(&self.root, cx);

@@ -531,10 +531,10 @@ pub(crate) fn arriving(creates: &Entity<Creates>, agent: &str, part: Part, el: D
 impl Desktop {
     /// The create on screen, unless its worktree's terminal is.
     pub(crate) fn shown_create<'a>(&self, cx: &'a App) -> Option<&'a Create> {
-        if self.terminals.link.is_down() || self.screen != Screen::Sessions {
+        if self.terminals.read(cx).link.is_down() || self.screen != Screen::Sessions {
             return None;
         }
-        self.creates.read(cx).shown(&self.place()?)
+        self.creates.read(cx).shown(&self.place(cx)?)
     }
 
     /// Hands finished creates to their chats; says whether any went.

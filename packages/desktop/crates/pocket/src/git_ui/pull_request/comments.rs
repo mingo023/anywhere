@@ -106,7 +106,7 @@ impl Desktop {
 
     /// Thread `id` of the PR on screen, as a card under its line in the PR diff.
     pub(crate) fn pinned_thread(&self, k: usize, id: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let (tree, pr) = self.shown_pr()?;
+        let (tree, pr) = self.shown_pr(cx)?;
         let t = pr.threads.iter().find(|t| t.id == id)?;
         Some(self.pr_thread(k, &self.shown(&tree, pr, cx), t, cx))
     }

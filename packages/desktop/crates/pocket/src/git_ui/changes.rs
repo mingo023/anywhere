@@ -530,10 +530,10 @@ pub(crate) fn push_argv(repo: Option<&Repo>, git: &store::prefs::Git) -> Vec<Str
 
 impl Desktop {
     fn changes_inputs(&self, cx: &App) -> Inputs {
-        let cwd = self.cwd();
-        let repo = self.repo_handle();
+        let cwd = self.cwd(cx);
+        let repo = self.repo_handle(cx);
         let scope = cwd.as_deref().map(|c| self.scope(c)).unwrap_or_default();
-        let shown = self.diff.view(self.focused_pane(), cx).and_then(|v| Some((v.file.clone()?, v.at.clone())));
+        let shown = self.diff.view(self.focused_pane(cx), cx).and_then(|v| Some((v.file.clone()?, v.at.clone())));
         let pr = cwd.as_deref().and_then(|tree| {
             let pr = self.prs.get(tree)?;
             Some((pr.clone(), self.pr_verdict(tree, pr, cx).0))
@@ -579,7 +579,7 @@ impl Desktop {
 
     /// Flips the rows at once: `git add -A` and `git reset` leave each path wholly staged or wholly unstaged.
     fn stage(&mut self, paths: Vec<String>, staged: bool, cx: &mut Context<Self>) {
-        let Some(cwd) = self.cwd() else { return };
+        let Some(cwd) = self.cwd(cx) else { return };
         if let Some(repo) = self.repos.get_mut(&cwd) {
             flip_staged(&mut Arc::make_mut(repo).files, &paths, staged);
         }
@@ -600,7 +600,7 @@ impl Desktop {
     }
 
     pub fn discard(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
-        let Some(cwd) = self.cwd() else { return };
+        let Some(cwd) = self.cwd(cx) else { return };
         let task = cx.background_executor().spawn(async move { git::discard(&hosts::runner_for(&cwd), &cwd, &paths) });
         cx.spawn(async move |this, cx| {
             task.await;
@@ -610,13 +610,13 @@ impl Desktop {
     }
 
     /// Pushes to the remote picked in Settings when this repo has it.
-    pub(crate) fn push_argv(&self) -> Vec<String> {
-        push_argv(self.repo(), &self.store.git)
+    pub(crate) fn push_argv(&self, cx: &App) -> Vec<String> {
+        push_argv(self.repo(cx), &self.store.git)
     }
 
     /// Opens a pull request where Settings say: a browser tab, or the system browser.
     pub(crate) fn open_pr(&mut self, url: String, window: &mut Window, cx: &mut Context<Self>) {
-        if self.store.git.in_app && self.cwd().is_some() {
+        if self.store.git.in_app && self.cwd(cx).is_some() {
             self.open_browser(Some(url), window, cx);
         } else {
             cx.open_url(&url);
@@ -627,7 +627,7 @@ impl Desktop {
         match ev {
             ChangesEvent::Stage { paths, staged } => self.stage(paths.clone(), *staged, cx),
             ChangesEvent::Compared { cwd, against, read } => {
-                if self.cwd().as_ref() != Some(cwd) {
+                if self.cwd(cx).as_ref() != Some(cwd) {
                     return;
                 }
                 self.sync_changes(cx);
@@ -659,7 +659,7 @@ impl Desktop {
                 cx.notify();
             }
             ChangesEvent::Shipped(tree, repo) => {
-                let shown = self.cwd().as_ref() == Some(tree);
+                let shown = self.cwd(cx).as_ref() == Some(tree);
                 self.repos.insert(tree.clone(), Arc::new(repo.clone()));
                 if shown {
                     self.open_pr_composer(window, cx);

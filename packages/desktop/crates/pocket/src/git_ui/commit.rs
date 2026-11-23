@@ -258,7 +258,7 @@ impl Desktop {
     }
 
     fn load_commit(&mut self, pane: PaneId, run: u64, cx: &mut Context<Self>) {
-        let Some((cwd, sha)) = self.cwd().zip(self.commit.get(pane).and_then(|v| v.read(cx).state.sha.clone())) else { return };
+        let Some((cwd, sha)) = self.cwd(cx).zip(self.commit.get(pane).and_then(|v| v.read(cx).state.sha.clone())) else { return };
         let options = self.diff.options;
         cx.spawn(async move |this, cx| {
             let (parent, files) = cx

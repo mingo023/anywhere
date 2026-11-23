@@ -126,7 +126,7 @@ impl Board {
 impl Desktop {
     /// Points the composer at the filtered project, or another when its own was removed.
     pub(crate) fn aim_board_composer(&mut self, cx: &mut Context<Self>) {
-        let projects = self.board_projects();
+        let projects = self.board_projects(cx);
         let current = self.project.as_deref().filter(|p| !self.store.is_scratch(p)).map(str::to_string);
         if let Some(folder) = self.board.update(cx, |b, _| b.aim(&projects, current.as_deref())) {
             self.load_ticket_branches(Surface::Composer, folder, cx);
@@ -135,7 +135,7 @@ impl Desktop {
 
     /// After a refresh a project picked by hand stays, even off the filter; only one that's gone is replaced.
     pub(crate) fn rescue_board_composer(&mut self, cx: &mut Context<Self>) {
-        if !self.board_projects().iter().any(|p| p == self.board.read(cx).composer_folder()) {
+        if !self.board_projects(cx).iter().any(|p| p == self.board.read(cx).composer_folder()) {
             self.aim_board_composer(cx);
         }
     }

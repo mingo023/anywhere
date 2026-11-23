@@ -169,7 +169,7 @@ impl Desktop {
         self.store.save();
         match tree {
             Some(key) => {
-                let main = self.tree_of(&p).unwrap_or_else(|| p.clone());
+                let main = self.tree_of(&p, cx).unwrap_or_else(|| p.clone());
                 self.select_tree(p, (key != main).then_some(key), cx);
             }
             None => self.select_project(p, cx),

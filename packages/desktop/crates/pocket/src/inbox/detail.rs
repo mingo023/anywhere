@@ -12,7 +12,7 @@ impl Desktop {
         let Some(n) = self.shown_notes(cx).into_iter().nth(self.inbox.read(cx).selected) else {
             return drag_area(div()).flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(TEXT_3).child("You're all caught up.");
         };
-        let path = self.project_path(&n.agent);
+        let path = self.project_path(&n.agent, cx);
         let project = basename(&path);
         let title = self.agents.get(&n.agent).map(|a| a.title.clone()).unwrap_or_default();
         let secs = (now_ms() - n.at).max(0) / 1000;

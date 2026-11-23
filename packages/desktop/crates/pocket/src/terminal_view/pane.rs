@@ -323,8 +323,8 @@ impl EntityInputHandler for TerminalPane {
 }
 
 impl Desktop {
-    pub fn pane_label(&self, id: &str) -> String {
-        pane_label(self.summary(id), self.terminals.sessions.get(id))
+    pub fn pane_label(&self, id: &str, cx: &App) -> String {
+        pane_label(self.summary(id), self.terminals.read(cx).sessions.get(id))
     }
 
     /// The body of a terminal tab; only the focused pane's takes keys.
@@ -351,7 +351,7 @@ impl Desktop {
     pub(crate) fn terminal_pane(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) -> Entity<TerminalPane> {
         let view = self.terminal_entity(id, window, cx);
         let focused = self.terminal.focused.as_deref() == Some(id);
-        let session = self.terminals.sessions.get(id);
+        let session = self.terminals.read(cx).sessions.get(id);
         let (grid, exit, known) = (session.and_then(|s| s.term.clone()), session.and_then(|s| s.exit), session.is_some());
         let placeholder = if grid.is_some() {
             ""
@@ -374,12 +374,12 @@ impl Desktop {
             banner,
             focus: focused.then(|| self.terminal.focus.clone()),
             keyboard: self.terminal.focus.is_focused(window) && self.overlay.is_none(),
-            flashing: self.terminals.bell.flashing.as_deref() == Some(id),
+            flashing: self.terminals.read(cx).bell.flashing.as_deref() == Some(id),
             menu: self.terminal.menu.as_ref().filter(|(p, _)| p == id).map(|(_, at)| *at),
             observe_only,
             known,
-            may_send: self.terminals.may_send(id, observe_only),
-            may_close: self.terminals.may_close(id, observe_only),
+            may_send: self.terminals.read(cx).may_send(id, observe_only),
+            may_close: self.terminals.read(cx).may_close(id, observe_only),
             has_agent: self.summary(id).is_some(),
             clicks: Clicks::from(&self.store.terminal),
         };

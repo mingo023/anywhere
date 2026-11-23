@@ -181,14 +181,14 @@ fn helper() -> Option<PathBuf> {
 
 impl Desktop {
     /// Offers the pending asks among `shown`, the notices just shown, oldest first, and drops those no longer pending.
-    pub(crate) fn sync_island(&mut self, shown: &[Notice]) {
+    pub(crate) fn sync_island(&mut self, shown: &[Notice], cx: &App) {
         let pending = &self.agents.pending;
         let asks = pending
             .iter()
             .filter_map(|p| {
                 let n = shown.iter().find(|n| n.ask.as_ref() == Some(&p.request_id))?;
                 let a = self.agents.get(&n.id)?;
-                Some(Ask::new(p, &a.provider, &n.title, self.alert_place(a)))
+                Some(Ask::new(p, &a.provider, &n.title, self.alert_place(a, cx)))
             })
             .collect();
         let ids: Vec<&str> = pending.iter().map(|p| p.request_id.as_str()).collect();

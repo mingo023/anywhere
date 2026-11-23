@@ -131,7 +131,7 @@ impl TabDrag {
 
 impl Desktop {
     /// What a tab is called: a doc's file name, a page's title, an agent's conversation title else its name, a terminal's running command else its label.
-    pub(super) fn tab_text(&self, tab: &Tab) -> String {
+    pub(super) fn tab_text(&self, tab: &Tab, cx: &App) -> String {
         match tab {
             Tab::Web(id) => self.browsers.tabs.get(id).map(Browser::label).unwrap_or_default().to_string(),
             Tab::Doc(Doc::File(p) | Doc::Diff(p)) => basename(p),
@@ -142,7 +142,7 @@ impl Desktop {
             Tab::Term(term) => match self.summary(term) {
                 Some(a) if !a.title.is_empty() => a.title.clone(),
                 Some(a) => self.agent_name(&a.provider),
-                None => self.terminals.sessions.get(term).and_then(|s| s.busy()).map_or_else(|| self.pane_label(term), str::to_string),
+                None => self.terminals.read(cx).sessions.get(term).and_then(|s| s.busy()).map_or_else(|| self.pane_label(term, cx), str::to_string),
             },
         }
     }
@@ -160,7 +160,7 @@ impl Desktop {
                     Some(b) if b.loading => spinner(format!("tab-loading:{id}"), 13., TEXT_3).into_any_element(),
                     _ => icon("globe", 13., TEXT_3).into_any_element(),
                 };
-                return row.child(lead(icon)).child(label(self.tab_text(tab)));
+                return row.child(lead(icon)).child(label(self.tab_text(tab, cx)));
             }
             Tab::Doc(doc) => {
                 let path = match doc {
@@ -168,12 +168,12 @@ impl Desktop {
                     Doc::Commit(_) => {
                         return row
                             .child(lead(icon("diff-multiple", 14., ink).into_any_element()))
-                            .child(label(self.tab_text(tab)).when(preview, |d| d.italic()));
+                            .child(label(self.tab_text(tab, cx)).when(preview, |d| d.italic()));
                     }
                 };
-                let text = self.tab_text(tab);
+                let text = self.tab_text(tab, cx);
                 let totals = match doc {
-                    Doc::Diff(p) => self.repo().and_then(|r| r.files.iter().find(|f| f.path == *p)).map(|f| ui::meta_diff(f.added, f.removed, 11.)),
+                    Doc::Diff(p) => self.repo(cx).and_then(|r| r.files.iter().find(|f| f.path == *p)).map(|f| ui::meta_diff(f.added, f.removed, 11.)),
                     _ => None,
                 };
                 let unsaved = matches!(doc, Doc::File(p) if self.preview.read(cx).dirty(p)).then(|| dot(6., TEXT_2));
@@ -188,18 +188,18 @@ impl Desktop {
             let mark = ui::indicator(id(format!("tab-mark:{}", a.id)), Status::of(a).map(|s| state(s, 0, 0)));
             return row.child(lead(provider_icon(&a.provider, 13., ink).into_any_element())).child(label(self.agent_name(&a.provider))).children(mark);
         }
-        let mark = match self.terminals.sessions.get(term) {
+        let mark = match self.terminals.read(cx).sessions.get(term) {
             Some(s) if s.failed() => icon("x", 12., FAILED).into_any_element(),
             Some(s) if s.busy().is_some() => dot(6., ACCENT).into_any_element(),
             _ => dot(6., TEXT_5).into_any_element(),
         };
-        row.child(lead(icon("prompt", 13., TEXT_3).into_any_element())).child(label(self.tab_text(tab))).child(mark)
+        row.child(lead(icon("prompt", 13., TEXT_3).into_any_element())).child(label(self.tab_text(tab, cx))).child(mark)
     }
 
     /// Moves tab `from` of `pane` to `to` in the same strip.
     pub(crate) fn move_tab(&mut self, pane: PaneId, from: usize, to: usize, cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
-        self.workspace(&tree).tree.move_tab(pane, from, Target::Into { pane, index: to });
+        let Some(tree) = self.place(cx) else { return };
+        self.workspace(&tree, cx).tree.move_tab(pane, from, Target::Into { pane, index: to });
         self.save_soon(cx);
         cx.notify();
     }
@@ -213,8 +213,8 @@ impl Desktop {
             (Some((from, to)), _) => self.move_tab(pane, from, to, cx),
             (None, Some(Aim::To(to))) => self.move_tab_to(pane, from, to, window, cx),
             (None, Some(Aim::Top(i))) => {
-                let Some(tree) = self.place() else { return };
-                self.workspace(&tree).detach_tab(pane, from, i);
+                let Some(tree) = self.place(cx) else { return };
+                self.workspace(&tree, cx).detach_tab(pane, from, i);
                 self.show_focused(&tree, window, cx);
             }
             _ => {}
@@ -290,7 +290,7 @@ impl Desktop {
                 let lifted = held == Some(i);
                 let selected = i == active;
                 let closable = match tab {
-                    Tab::Term(id) => self.terminals.may_close(id, observe),
+                    Tab::Term(id) => self.terminals.read(cx).may_close(id, observe),
                     Tab::Doc(_) | Tab::Web(_) => true,
                 };
                 let close = ui::control(div().id(("close-tab", i)))

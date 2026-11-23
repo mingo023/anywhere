@@ -194,24 +194,24 @@ impl Desktop {
             update: self.updates.update.clone(),
             updates_available: self.updates.available(),
             thanked: self.star.read(cx).thanked,
-            link_down: self.terminals.link.is_down(),
-            service: self.terminals.link.service.is_some(),
+            link_down: self.terminals.read(cx).link.is_down(),
+            service: self.terminals.read(cx).link.service.is_some(),
             themes: self.themes.custom.clone(),
             theme_edits: self.themes.edits,
             theme_error: self.themes.error.clone(),
-            projects: projects.iter().map(|p| self.project_card(p)).collect(),
+            projects: projects.iter().map(|p| self.project_card(p, cx)).collect(),
             models: self.models.clone(),
             hosts: if on(Section::Hosts) { self.hosts_side() } else { HostsSide::default() },
-            accounts: if on(Section::Accounts) { self.accounts_side() } else { AccountsSide::default() },
+            accounts: if on(Section::Accounts) { self.accounts_side(cx) } else { AccountsSide::default() },
             automations: self.agents.automations.clone(),
             can_open_automations: self.agents.automations_offered(),
             can_pair: crate::modals::may_open(Overlay::PairPhone, &self.agents),
             tailnet: self.agents.host.as_ref().map(|h| h.tailnet),
-            gh: if on(Section::Git) { self.gh_side(&projects) } else { GhSide::default() },
+            gh: if on(Section::Git) { self.gh_side(&projects, cx) } else { GhSide::default() },
         }
     }
 
-    fn project_card(&self, path: &str) -> ProjectCard {
+    fn project_card(&self, path: &str, cx: &App) -> ProjectCard {
         let name = self.repo_name(path);
         let picks = self
             .store
@@ -223,13 +223,13 @@ impl Desktop {
             path: path.to_string(),
             mark: self.project_mark(path, initials(&name)),
             name,
-            color: self.repo_color(path),
+            color: self.repo_color(path, cx),
             worktrees: self.worktrees.get(path).map(Vec::len),
             picks,
         }
     }
 
-    fn gh_side(&self, projects: &[String]) -> GhSide {
+    fn gh_side(&self, projects: &[String], cx: &App) -> GhSide {
         let rows = if self.gh_accounts.any_choice() {
             projects
                 .iter()
@@ -249,7 +249,7 @@ impl Desktop {
         } else {
             Vec::new()
         };
-        GhSide { status: self.prs.gh.clone(), terminal: self.cwd().is_some(), rows, remotes: self.repo().map(|r| r.remotes.clone()).unwrap_or_default() }
+        GhSide { status: self.prs.gh.clone(), terminal: self.cwd(cx).is_some(), rows, remotes: self.repo(cx).map(|r| r.remotes.clone()).unwrap_or_default() }
     }
 
     fn hosts_side(&self) -> HostsSide {
@@ -298,7 +298,7 @@ impl Desktop {
         }
     }
 
-    fn accounts_side(&self) -> AccountsSide {
+    fn accounts_side(&self, cx: &App) -> AccountsSide {
         let accounts = &self.accounts;
         let machines = std::iter::once(None)
             .chain(self.fleet.hosts.list.iter().map(|h| Some(h.id.clone())))
@@ -308,7 +308,7 @@ impl Desktop {
                 name: self.machine_name(&host),
                 auto_switch: accounts.auto_switch.get(&host).copied(),
                 list: accounts.list(&host).to_vec(),
-                signins: accounts.signins.iter().filter(|s| s.key.host == host).map(|s| self.sign_in_side(s)).collect(),
+                signins: accounts.signins.iter().filter(|s| s.key.host == host).map(|s| self.sign_in_side(s, cx)).collect(),
                 host,
             })
             .collect();
@@ -321,12 +321,12 @@ impl Desktop {
         }
     }
 
-    fn sign_in_side(&self, s: &crate::accounts::SignIn) -> SignInSide {
+    fn sign_in_side(&self, s: &crate::accounts::SignIn, cx: &App) -> SignInSide {
         let lines = s
             .terminal
             .as_deref()
             .and_then(|id| {
-                self.terminals.sessions.term(id).map(|mut t| {
+                self.terminals.read(cx).sessions.term(id).map(|mut t| {
                     let (f, cells) = t.frame();
                     crate::accounts::screen_lines(cells, f.cols)
                 })

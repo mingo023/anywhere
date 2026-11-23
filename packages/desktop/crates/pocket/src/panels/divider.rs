@@ -19,8 +19,8 @@ impl Desktop {
     }
 
     pub(super) fn resize_split(&mut self, d: &Divider, at: f32, len: f32, cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
-        let t = &mut self.workspace(&tree).tree;
+        let Some(tree) = self.place(cx) else { return };
+        let t = &mut self.workspace(&tree, cx).tree;
         let before = t.layout(UNIT);
         t.resize(d, at, len);
         // A drag move comes every frame, moved or not; notifying on each would redraw forever.
@@ -31,8 +31,8 @@ impl Desktop {
     }
 
     fn equalize_split(&mut self, path: &[usize], cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
-        self.workspace(&tree).tree.equalize(path);
+        let Some(tree) = self.place(cx) else { return };
+        self.workspace(&tree, cx).tree.equalize(path);
         self.save_soon(cx);
         cx.notify();
     }

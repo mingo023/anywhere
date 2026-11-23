@@ -359,7 +359,7 @@ impl Desktop {
     /// "Leave a comment…" until clicked, then the box with Cancel and Comment.
     fn pr_comment_box(&self, tree: &str, cx: &mut Context<Self>) -> AnyElement {
         if self.pr.commenting.as_deref() != Some(tree) {
-            let me = self.login(&self.gh_in(tree));
+            let me = self.login(&self.gh_in(tree, cx));
             return div()
                 .id("pr-comment-open")
                 .flex_none()

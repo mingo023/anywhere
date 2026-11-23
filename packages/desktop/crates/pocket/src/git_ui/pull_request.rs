@@ -543,8 +543,8 @@ impl PullRequest {
 
 impl Desktop {
     /// The PR of the worktree on screen, with the worktree.
-    pub(crate) fn shown_pr(&self) -> Option<(String, &Pr)> {
-        let tree = self.cwd()?;
+    pub(crate) fn shown_pr(&self, cx: &App) -> Option<(String, &Pr)> {
+        let tree = self.cwd(cx)?;
         let pr = self.prs.get(&tree)?;
         Some((tree, pr))
     }
@@ -558,7 +558,7 @@ impl Desktop {
     /// Opens the composer for the worktree on screen, filled by the agent picked for commit messages or from the commits.
     pub(crate) fn open_pr_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.close_menus(cx);
-        let (Some(tree), Some(repo)) = (self.cwd(), self.repo_handle()) else { return };
+        let (Some(tree), Some(repo)) = (self.cwd(cx), self.repo_handle(cx)) else { return };
         self.show_pr_side(cx);
         self.pr.composing = Some(tree);
         self.pr.error = None;
@@ -586,7 +586,7 @@ impl Desktop {
 
     /// Asks the commit-message agent for a title and body from the branch's commits and diff.
     pub(crate) fn write_pr(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(cwd), Some(repo)) = (self.cwd(), self.repo()) else { return };
+        let (Some(cwd), Some(repo)) = (self.cwd(cx), self.repo(cx)) else { return };
         let Some(base) = repo.base.clone().filter(|_| !self.pr.writing) else { return };
         let (tree, fallback) = (cwd.clone(), from_commits(&repo.commits));
         let argv = self.store.git.pr_argv(&self.store.agents.command(&self.store.git.agent));
@@ -636,10 +636,10 @@ impl Desktop {
             return cx.notify();
         }
         let body = self.pr.body.read(cx).value().to_string();
-        let (dir, push_argv, draft) = (tree.clone(), self.push_argv(), self.store.git.draft);
+        let (dir, push_argv, draft) = (tree.clone(), self.push_argv(cx), self.store.git.draft);
         self.pr.busy = Some((tree.clone(), if draft { "Creating draft PR…" } else { "Creating PR…" }));
         self.pr.error = None;
-        let (argv, gh) = (github::create_argv(&base, &title, draft), self.gh_in(&dir));
+        let (argv, gh) = (github::create_argv(&base, &title, draft), self.gh_in(&dir, cx));
         let task = cx.background_executor().spawn(async move {
             push(&dir, &push_argv)?;
             gh.run(&argv, &dir, &body)
@@ -692,13 +692,13 @@ impl Desktop {
 
     /// Runs `gh` in the worktree on screen while the card says `busy`, then `done` with what it printed.
     fn run_gh(&mut self, busy: &'static str, argv: Vec<String>, cx: &mut Context<Self>, done: impl FnOnce(&mut Self, String, &mut Context<Self>) + 'static) {
-        let Some(dir) = self.cwd() else { return };
+        let Some(dir) = self.cwd(cx) else { return };
         if self.pr.busy.is_some() {
             return;
         }
         self.pr.busy = Some((dir.clone(), busy));
         (self.pr.merge_menu, self.pr.create_menu) = (false, false);
-        let gh = self.gh_in(&dir);
+        let gh = self.gh_in(&dir, cx);
         let task = cx.background_executor().spawn(async move { gh.run(&argv, &dir, "") });
         cx.spawn(async move |this, cx| {
             let res = task.await;
@@ -718,7 +718,7 @@ impl Desktop {
 
     /// Merges the PR on screen, then deletes its worktree if the card says to.
     pub(crate) fn merge_pr(&mut self, cx: &mut Context<Self>) {
-        let Some((tree, pr)) = self.shown_pr() else { return };
+        let Some((tree, pr)) = self.shown_pr(cx) else { return };
         if pr.gate() != github::Gate::Ready {
             return;
         }
@@ -734,7 +734,7 @@ impl Desktop {
     }
 
     pub(crate) fn mark_ready(&mut self, cx: &mut Context<Self>) {
-        let Some((tree, pr)) = self.shown_pr() else { return };
+        let Some((tree, pr)) = self.shown_pr(cx) else { return };
         self.run_gh("Marking ready…", github::ready_argv(pr.number), cx, move |d, _, _| {
             d.prs.edit(&tree, |pr| pr.draft = false);
             d.prs.expire(&tree, Instant::now());
@@ -748,14 +748,14 @@ impl Desktop {
 
     /// The name of the agent fixes go to.
     pub(crate) fn fix_agent(&self, cx: &App) -> &'static str {
-        self.chat_target(&self.chat_choices(), cx).and_then(|id| self.agents.get(&id)).map_or("agent", |a| theme::provider_name(&a.provider))
+        self.chat_target(&self.chat_choices(cx), cx).and_then(|id| self.agents.get(&id)).map_or("agent", |a| theme::provider_name(&a.provider))
     }
 
     /// Deletes a merged PR's worktree and its subagents', keeping their branches; asks first if any has changes.
     pub(crate) fn delete_merged(&mut self, tree: &str, cx: &mut Context<Self>) {
         let Some(project) = self.project.clone().filter(|_| self.deletable(tree)) else { return };
         let removal = Removal { project, tree: tree.to_string(), branch: None, delete_branch: false, teardown: true };
-        let (mut subagents, on_hosts) = self.subagent_removals(&removal);
+        let (mut subagents, on_hosts) = self.subagent_removals(&removal, cx);
         let dir = removal.tree.clone();
         // Untracked files count even when Changes hides them, so this reads the trees afresh.
         let dirty = |dir: &str| git::dirty_files(&hosts::runner_for(dir), dir).is_none_or(|n| n > 0);
@@ -779,7 +779,7 @@ impl Desktop {
 
     /// Opens the file thread `id` is on as the PR changes it, scrolled to the thread; one whose line is gone shows in Comments instead.
     pub(crate) fn view_thread(&mut self, id: &str, cx: &mut Context<Self>) {
-        let Some((_, pr)) = self.shown_pr() else { return };
+        let Some((_, pr)) = self.shown_pr(cx) else { return };
         let Some(t) = pr.threads.iter().find(|t| t.id == id) else { return };
         if t.outdated || t.line.is_none() {
             self.pr.track.tab = PrTab::Conversation;
@@ -797,7 +797,7 @@ impl Desktop {
 
     /// Pins the threads of the PR on screen to the PR diffs.
     pub(crate) fn pin_threads(&mut self, cx: &mut App) {
-        let pr = self.cwd().and_then(|tree| self.prs.get(&tree));
+        let pr = self.cwd(cx).and_then(|tree| self.prs.get(&tree));
         let base = pr.map(|pr| self.pr_base(pr));
         self.diff.pin(pr.map_or(&[][..], |pr| pr.threads.as_slice()), base.as_deref(), cx);
     }
@@ -816,13 +816,13 @@ impl Desktop {
         if self.agents.observe_only() {
             return None;
         }
-        let Some(target) = self.chat_target(&self.chat_choices(), cx) else {
+        let Some(target) = self.chat_target(&self.chat_choices(cx), cx) else {
             self.error = Some("Start an agent in this worktree to send it this.".into());
             cx.notify();
             return None;
         };
         let (terminal, provider) = self.agents.get(&target).map(|a| (a.terminal_id.clone(), a.provider.clone()))?;
-        match self.route(&terminal) {
+        match self.route(&terminal, cx) {
             Route::Chat => self.chat_command(&target, chat::Command::Send(prompt.to_string()), cx),
             Route::Paste => {
                 self.send_input(&terminal, &term::paste_bytes(prompt, true), cx);
@@ -844,7 +844,7 @@ impl Desktop {
 
     /// Hands failed checks and review threads of the PR on screen to its agent.
     pub(crate) fn send_fix(&mut self, checks: &[String], threads: &[String], cx: &mut Context<Self>) {
-        let Some((tree, pr)) = self.shown_pr() else { return };
+        let Some((tree, pr)) = self.shown_pr(cx) else { return };
         let pr = pr.clone();
         let checks: Vec<&Check> = pr.runs.iter().filter(|c| checks.contains(&c.name)).collect();
         let threads: Vec<&Thread> = pr.threads.iter().filter(|t| threads.contains(&t.id)).collect();
@@ -857,7 +857,7 @@ impl Desktop {
     }
 
     pub(crate) fn send_conflict(&mut self, cx: &mut Context<Self>) {
-        let Some((tree, pr)) = self.shown_pr() else { return };
+        let Some((tree, pr)) = self.shown_pr(cx) else { return };
         let (prompt, pr) = (conflict_prompt(&pr.base), pr.clone());
         if let Some(agent) = self.send_to_agent(&prompt, cx) {
             self.pr.track.send(&tree, &agent, &pr, &[], &[], true);
@@ -865,7 +865,7 @@ impl Desktop {
     }
 
     pub(crate) fn start_reply(&mut self, thread: String, window: &mut Window, cx: &mut Context<Self>) {
-        let to = self.shown_pr().and_then(|(_, pr)| pr.threads.iter().find(|t| t.id == thread)?.comments.first().map(|c| c.author.clone()));
+        let to = self.shown_pr(cx).and_then(|(_, pr)| pr.threads.iter().find(|t| t.id == thread)?.comments.first().map(|c| c.author.clone()));
         self.pr.replying = Some(thread);
         self.pr.reply.update(cx, |s, cx| {
             s.set_value("", window, cx);
@@ -883,12 +883,12 @@ impl Desktop {
 
     /// Posts the reply at once and shows it as sent; a failure takes it back out.
     pub(crate) fn send_reply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(dir), Some(thread)) = (self.cwd(), self.pr.replying.clone()) else { return };
+        let (Some(dir), Some(thread)) = (self.cwd(cx), self.pr.replying.clone()) else { return };
         let body = self.pr.reply.read(cx).value().trim().to_string();
         if body.is_empty() {
             return;
         }
-        let gh = self.gh_in(&dir);
+        let gh = self.gh_in(&dir, cx);
         let me = self.login(&gh);
         let at = crate::util::now_ms() as u64;
         self.prs.edit(&dir, |pr| {
@@ -925,7 +925,7 @@ impl Desktop {
     }
 
     pub(crate) fn open_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tree) = self.cwd() else { return };
+        let Some(tree) = self.cwd(cx) else { return };
         self.pr.track.tab = PrTab::Conversation;
         if self.pr.commenting.as_ref() != Some(&tree) {
             let held = self.pr.comment.read(cx).value().to_string();
@@ -965,7 +965,7 @@ impl Desktop {
 
     /// Asks `gh` about the PR on screen now, rather than at its next poll.
     pub(crate) fn refresh_pr(&mut self, cx: &mut Context<Self>) {
-        let Some(tree) = self.cwd() else { return };
+        let Some(tree) = self.cwd(cx) else { return };
         self.prs.expire(&tree, Instant::now());
         self.poll_prs(cx);
         cx.notify();
@@ -978,7 +978,7 @@ impl Desktop {
         if body.is_empty() {
             return;
         }
-        let gh = self.gh_in(&dir);
+        let gh = self.gh_in(&dir, cx);
         let note = Note { author: self.login(&gh), body: body.clone(), at: crate::util::now_ms() as u64, ..Note::default() };
         self.prs.edit(&dir, |pr| pr.notes.push(note.clone()));
         self.cancel_comment(window, cx);
@@ -1024,7 +1024,7 @@ impl Desktop {
 
     /// Resolves or reopens a thread at once, with Undo; a failure flips it back.
     pub(crate) fn resolve_thread(&mut self, thread: String, resolved: bool, undo: bool, cx: &mut Context<Self>) {
-        let Some(dir) = self.cwd() else { return };
+        let Some(dir) = self.cwd(cx) else { return };
         self.resolve_in(dir, thread, resolved, undo, cx);
     }
 
@@ -1041,7 +1041,7 @@ impl Desktop {
         } else {
             self.pr.notice = None;
         }
-        let (argv, gh) = (github::resolve_argv(&thread, resolved), self.gh_in(&dir));
+        let (argv, gh) = (github::resolve_argv(&thread, resolved), self.gh_in(&dir, cx));
         let tree = dir.clone();
         let task = cx.background_executor().spawn(async move { gh.run(&argv, &dir, "") });
         cx.spawn(async move |this, cx| {

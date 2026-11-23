@@ -597,7 +597,7 @@ impl Desktop {
     }
 
     fn leave_host(&mut self, id: &str, leave: Leave, cx: &mut Context<Self>) {
-        for step in removal(id, leave, &self.projects()) {
+        for step in removal(id, leave, &self.projects(cx)) {
             match step {
                 Removing::Uninstall => return self.uninstall_host(id, cx),
                 Removing::Host => {
@@ -686,8 +686,10 @@ impl Desktop {
         self.close_host_agents(id);
         self.registry.forget(id);
         hosts::remote::forget(id);
-        let left = self.terminals.lists.forget(id);
-        self.terminals.listed(left);
+        self.terminals.update(cx, |t, _| {
+            let left = t.lists.forget(id);
+            t.listed(left);
+        });
         self.activity_changed(cx);
         cx.notify();
     }

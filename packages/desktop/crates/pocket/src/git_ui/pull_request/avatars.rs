@@ -26,7 +26,7 @@ impl Desktop {
     /// Fetches the pictures of everyone on `tree`'s PR, and the user's own, each in its own background task.
     pub(crate) fn fetch_avatars(&mut self, tree: &str, cx: &mut Context<Self>) {
         let Some(pr) = self.prs.get(tree) else { return };
-        let me = self.login(&self.gh_in(tree));
+        let me = self.login(&self.gh_in(tree, cx));
         let dir = self.store.home().join("avatars");
         let wanted = self.pr.avatars.ask(github::people(pr).into_iter().chain([me.as_str()]));
         for login in wanted {

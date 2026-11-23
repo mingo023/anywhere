@@ -24,7 +24,7 @@ impl Desktop {
 
     /// Keeps the folder `key` as a project, with the settings it had before or the defaults in the next colour.
     pub(crate) fn save_folder(&mut self, key: &str, cx: &mut Context<Self>) {
-        let cfg = self.new_repo_config(key);
+        let cfg = self.new_repo_config(key, cx);
         self.store.repos.entry(key.to_string()).or_insert(cfg);
         self.keep_project(key, cx);
     }

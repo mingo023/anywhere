@@ -331,17 +331,17 @@ impl Desktop {
         in_space(&self.store.without_scratch(self.store.projects.clone()), space)
     }
 
-    pub(crate) fn loose_folders(&self, space: &Space) -> Vec<String> {
-        in_space(&unadded(self.projects(), &self.store.projects), space)
+    pub(crate) fn loose_folders(&self, space: &Space, cx: &App) -> Vec<String> {
+        in_space(&unadded(self.projects(cx), &self.store.projects), space)
     }
 
     /// The projects of the sessions waiting on the user, one entry each.
-    pub(crate) fn waiting_projects(&self) -> Vec<String> {
-        let projects = self.projects();
+    pub(crate) fn waiting_projects(&self, cx: &App) -> Vec<String> {
+        let projects = self.projects(cx);
         status::listed(&self.agents.list)
             .into_iter()
             .filter(|a| Status::of(a) == Some(Status::NeedsYou))
-            .filter_map(|a| self.agent_project(a, &self.terminals.sessions.get(&a.terminal_id)?.info.cwd, &projects).cloned())
+            .filter_map(|a| self.agent_project(a, &self.terminals.read(cx).sessions.get(&a.terminal_id)?.info.cwd, &projects).cloned())
             .collect()
     }
 
@@ -364,7 +364,7 @@ impl Desktop {
         }
         self.remember_space(&to, cx);
         if self.space_reach(&to) == Reach::Online {
-            match self.spot_left_in(&to).filter(|_| back_to_session) {
+            match self.spot_left_in(&to, cx).filter(|_| back_to_session) {
                 Some((project, tree)) => self.select_tree(project, tree, cx),
                 None => {
                     let projects = in_space(&self.form_projects(cx), &to);
@@ -399,12 +399,12 @@ impl Desktop {
     }
 
     /// The session `space` showed when it was left, while its tree is still listed.
-    fn spot_left_in(&self, space: &Space) -> Option<Spot> {
+    fn spot_left_in(&self, space: &Space, cx: &App) -> Option<Spot> {
         let (project, tree) = self.spaces.left_in(space)?;
         let listed = match tree {
-            None => self.projects().contains(project),
+            None => self.projects(cx).contains(project),
             Some(t) if is_local(t) => self.agents.local(t).is_some_and(|l| l.project == *project),
-            Some(t) => self.listed_trees(project).is_some_and(|trees| trees.iter().any(|w| w.path == *t)),
+            Some(t) => self.listed_trees(project, cx).is_some_and(|trees| trees.iter().any(|w| w.path == *t)),
         };
         listed.then(|| (project.clone(), tree.clone()))
     }

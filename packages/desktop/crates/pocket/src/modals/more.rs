@@ -9,10 +9,10 @@ impl Desktop {
     pub(super) fn more_menu(&mut self, cx: &mut Context<Self>) -> Div {
         let at = self.panels.more_at.unwrap_or_default();
         let menu = ui::pop(div().absolute().left(at.x - px(216.)).top(at.y + px(18.)).w(px(230.)).p(px(6.)).flex().flex_col()).occlude();
-        let path = match self.active_doc() {
+        let path = match self.active_doc(cx) {
             Some(Doc::File(p)) => Some(p),
             Some(Doc::Diff(p) | Doc::CommitFile { path: p, .. } | Doc::PrFile { path: p, .. } | Doc::CompareFile { path: p, .. }) => {
-                self.cwd().map(|cwd| format!("{cwd}/{p}"))
+                self.cwd(cx).map(|cwd| format!("{cwd}/{p}"))
             }
             Some(Doc::Commit(_)) | None => None,
         };

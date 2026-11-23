@@ -208,7 +208,7 @@ impl Desktop {
             can_pick: b.page.is_some(),
             page: b.page.clone().filter(|_| self.browsers.shown.contains(&id)),
             shot: b.shot.clone(),
-            focus: (pane == self.focused_pane()).then(|| self.browsers.focus.clone()),
+            focus: (pane == self.focused_pane(cx)).then(|| self.browsers.focus.clone()),
         };
         view.update(cx, |p, _| p.look = Some(look));
         div().flex_1().min_h_0().flex().flex_col().child(view)

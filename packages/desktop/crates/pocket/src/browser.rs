@@ -115,14 +115,14 @@ impl Browsers {
 impl Desktop {
     pub(crate) fn web_tab(&mut self, pane: PaneId, cx: &App) -> Option<u64> {
         self.session_tree(cx)?;
-        match self.pane_tab(pane)? {
+        match self.pane_tab(pane, cx)? {
             Tab::Web(id) => Some(id),
             _ => None,
         }
     }
 
     fn focused_page(&mut self, cx: &App) -> Option<&web::Page> {
-        let id = self.web_tab(self.focused_pane(), cx)?;
+        let id = self.web_tab(self.focused_pane(cx), cx)?;
         self.browsers.page(id)
     }
 
@@ -179,11 +179,11 @@ impl Desktop {
 
     /// `open_browser`, its tab at `place`.
     pub(crate) fn open_browser_at(&mut self, place: Place, url: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
+        let Some(tree) = self.place(cx) else { return };
         let dev_url = self.project.as_ref().and_then(|p| self.store.repos.get(p)).map(|r| r.dev_url.as_str()).unwrap_or_default();
         let url = url.or_else(|| self.store.browser.home_page(dev_url).map(|u| web::resolve(&u, self.store.browser.search_url())));
         let id = self.browsers.open();
-        self.workspace(&tree).open_web(id, place);
+        self.workspace(&tree, cx).open_web(id, place);
         self.screen = Screen::Sessions;
         self.new_form.update(cx, |f, _| f.shown = false);
         match url {
@@ -251,7 +251,7 @@ impl Desktop {
                 }
             }
             web::Event::Pressed => {
-                if let Some(w) = self.place().and_then(|t| self.workspaces.get_mut(&t))
+                if let Some(w) = self.place(cx).and_then(|t| self.workspaces.get_mut(&t))
                     && let Some((pane, _)) = w.tree.find(|t| *t == Tab::Web(id))
                     && w.tree.focused != pane
                 {
@@ -270,7 +270,7 @@ impl Desktop {
     }
 
     fn focus_address(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let pane = self.focused_pane();
+        let pane = self.focused_pane(cx);
         let Some(b) = self.web_tab(pane, cx).and_then(|id| self.browsers.tabs.get(&id)) else { return };
         if let Some(page) = &b.page {
             page.give_keys();

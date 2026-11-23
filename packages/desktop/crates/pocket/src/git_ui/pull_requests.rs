@@ -271,18 +271,18 @@ impl Desktop {
             return self.check_gh(cx);
         }
         let mut trees: Vec<String> = self
-            .projects()
+            .projects(cx)
             .iter()
-            .filter_map(|p| self.listed_trees(p))
+            .filter_map(|p| self.listed_trees(p, cx))
             .flatten()
             .filter(|w| !w.main && w.branch != "detached" && self.gh_accounts.accounts_of(&w.path).is_some())
             .map(|w| w.path)
             .collect();
         trees.sort();
-        let Some(tree) = self.prs.due(self.cwd().as_deref(), self.store.general.prs_every(), &trees, Instant::now()) else { return };
+        let Some(tree) = self.prs.due(self.cwd(cx).as_deref(), self.store.general.prs_every(), &trees, Instant::now()) else { return };
         let started = Instant::now();
         self.prs.start(&tree, started);
-        let (dir, gh) = (tree.clone(), self.gh_in(&tree));
+        let (dir, gh) = (tree.clone(), self.gh_in(&tree, cx));
         let task = cx.background_executor().spawn(async move {
             let mut result = github::view(|argv| gh.run(argv, &dir, ""));
             let mut lost = false;

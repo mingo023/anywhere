@@ -151,7 +151,7 @@ impl Desktop {
     /// Returns the focused file it closed, for an undo to reopen.
     pub(crate) fn close_trashed(&mut self, path: &Path, cx: &mut Context<Self>) -> Option<String> {
         let preview = self.preview.read(cx);
-        let open = preview.file(self.focused_pane()).filter(|f| Path::new(f).starts_with(path) && !preview.dirty(f)).map(String::from);
+        let open = preview.file(self.focused_pane(cx)).filter(|f| Path::new(f).starts_with(path) && !preview.dirty(f)).map(String::from);
         let path = path.to_string_lossy();
         self.workspaces.values_mut().for_each(|w| w.close_files(&path, |f| preview.dirty(f)));
         self.load_active(cx);

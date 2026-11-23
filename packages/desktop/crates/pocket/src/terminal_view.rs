@@ -155,7 +155,7 @@ impl Desktop {
             }
             Input(bytes) => self.send_input(id, bytes, cx),
             Report(bytes) => {
-                if self.terminals.may_send(id, self.agents.observe_only()) {
+                if self.terminals.read(cx).may_send(id, self.agents.observe_only()) {
                     self.daemon.input(id, bytes);
                 }
             }
@@ -182,7 +182,7 @@ impl Desktop {
                     menu::Item::Paste => self.paste(&Paste, window, cx),
                     menu::Item::Clear => self.clear_pane(id, cx),
                     menu::Item::Close => self.close_terminal(id, cx),
-                    menu::Item::Kill => self.kill_pane(id),
+                    menu::Item::Kill => self.kill_pane(id, cx),
                 }
                 cx.notify();
             }
@@ -195,14 +195,14 @@ impl Desktop {
 
     pub(crate) fn copy_selection(&mut self, _: &CopySelection, _: &mut Window, cx: &mut Context<Self>) {
         let Some(id) = &self.terminal.focused else { return };
-        let Some(text) = self.terminals.sessions.term(id).and_then(|t| t.selection_text()) else { return };
+        let Some(text) = self.terminals.read(cx).sessions.term(id).and_then(|t| t.selection_text()) else { return };
         cx.write_to_clipboard(ClipboardItem::new_string(text));
     }
 
     pub(crate) fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
         let Some(id) = self.terminal.focused.clone() else { return };
-        if let Some(mut t) = self.terminals.sessions.term(&id) {
-            t.select_all();
+        if let Some(grid) = self.terminals.read(cx).sessions.grid(&id).cloned() {
+            grid.get().select_all();
             cx.notify();
         }
     }
@@ -217,7 +217,7 @@ impl Desktop {
     }
 
     fn offer_paste(&mut self, pane: String, text: String, cx: &mut Context<Self>) {
-        let Some(bracketed) = self.terminals.sessions.term(&pane).map(|t| t.mode(2004)) else { return };
+        let Some(bracketed) = self.terminals.read(cx).sessions.term(&pane).map(|t| t.mode(2004)) else { return };
         if !asks_before_paste(self.store.terminal.confirm_paste, bracketed, &text) {
             self.paste_into(&pane, &text, cx);
         } else {
@@ -228,14 +228,14 @@ impl Desktop {
 
     /// Re-reads bracketed mode, since the program may have changed it while the confirm was open.
     pub(crate) fn paste_into(&mut self, pane: &str, text: &str, cx: &mut Context<Self>) {
-        let Some(bracketed) = self.terminals.sessions.term(pane).map(|t| t.mode(2004)) else { return };
+        let Some(bracketed) = self.terminals.read(cx).sessions.term(pane).map(|t| t.mode(2004)) else { return };
         self.send_input(pane, &term::paste_bytes(text, bracketed), cx);
     }
 
     /// Wipes the screen and scrollback, as ⌘K does in Ghostty, and has an idle shell redraw its prompt at the top.
     pub(crate) fn clear_pane(&mut self, pane: &str, cx: &mut Context<Self>) {
-        let idle = self.terminals.sessions.get(pane).is_some_and(|s| s.busy().is_none());
-        let Some(mut t) = self.terminals.sessions.term(pane) else { return };
+        let idle = self.terminals.read(cx).sessions.get(pane).is_some_and(|s| s.busy().is_none());
+        let Some(mut t) = self.terminals.read(cx).sessions.term(pane) else { return };
         // Only this window's copy: pocketd keeps the scrollback, so a reattach brings it back.
         t.write(b"\x1b[H\x1b[2J\x1b[3J");
         drop(t);
@@ -247,15 +247,17 @@ impl Desktop {
 
     /// The one way input reaches a pane, so the view always returns to the prompt.
     pub(crate) fn send_input(&mut self, pane: &str, bytes: &[u8], cx: &mut Context<Self>) {
-        if !self.terminals.may_send(pane, self.agents.observe_only()) {
+        if !self.terminals.read(cx).may_send(pane, self.agents.observe_only()) {
             return;
         }
         if let Some(view) = self.terminal.pane(pane) {
             view.update(cx, |p, _| p.typed());
         }
-        if let Some(mut t) = self.terminals.sessions.term(pane) {
+        if let Some(grid) = self.terminals.read(cx).sessions.grid(pane).cloned() {
+            let mut t = grid.get();
             t.select_none();
             t.scroll(Scroll::Bottom);
+            drop(t);
             cx.notify();
         }
         self.daemon.input(pane, bytes);
@@ -272,7 +274,7 @@ impl Desktop {
             return;
         }
         let bytes = {
-            let Some(mut t) = self.terminals.sessions.term(&id) else { return };
+            let Some(mut t) = self.terminals.read(cx).sessions.term(&id) else { return };
             keys::key_bytes(&ev.keystroke, &mut t)
         };
         if let Some(bytes) = bytes {
