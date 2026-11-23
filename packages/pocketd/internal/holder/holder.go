@@ -319,10 +319,11 @@ func (c *Client) resume(conn net.Conn, rp replayed) bool {
 			c.queue = append(c.queue, rp.tail[skip:]...)
 		}
 	} else {
-		// The holder's ring no longer reaches what came last: redraw from its checkpoint.
+		// The holder's ring no longer reaches what came last: redraw from its
+		// checkpoint, on a cleared screen (RIS) rather than over the old one.
 		read := c.queued - c.base - int64(len(c.queue))
-		c.queue = append(append([]byte(nil), rp.snapshot...), rp.tail...)
-		c.base = rp.From - read - int64(len(rp.snapshot))
+		c.queue = append(append([]byte("\x1bc"), rp.snapshot...), rp.tail...)
+		c.base = rp.From + int64(len(rp.tail)) - read - int64(len(c.queue))
 	}
 	c.queued = max(c.queued, rp.From+int64(len(rp.tail)))
 	c.cond.Broadcast()

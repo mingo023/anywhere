@@ -76,7 +76,9 @@ func (p pending) Commands() ([]proto.Command, error) { return nil, p.refuse() }
 func (p pending) Close()                             { p.d.drop(p.h) }
 
 // Snapshot is what a restart needs to bring every Terminal back. An Agent
-// still resuming keeps its saved entry, so a second restart doesn't lose it.
+// still resuming keeps its saved entry, so a second restart doesn't lose it, as
+// does one that failed in a Terminal the restart started: the next one tries
+// again. A handed-down Terminal's next restart only hands it down again, to fail again.
 func (d *Daemon) Snapshot() state.File {
 	f := state.File{Version: state.Version, Terminals: []state.Terminal{}}
 	for _, info := range d.Terminals.List() {
@@ -84,7 +86,7 @@ func (d *Daemon) Snapshot() state.File {
 		var resuming *agent.Agent
 		d.mu.Lock()
 		h := d.restoring[info.ID]
-		if h != nil {
+		if h != nil && (!h.over || !h.handoff) {
 			e = h.saved
 			e.Cols, e.Rows = info.Cols, info.Rows
 			resuming = h.a

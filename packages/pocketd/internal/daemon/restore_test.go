@@ -648,6 +648,21 @@ func TestAHandedDownAgentAPollFindsGoneFailsItsRestoreAfterItsWait(t *testing.T)
 	}
 }
 
+func TestAFailedHandedDownRestoreIsNotTriedAgainAtTheNextRestart(t *testing.T) {
+	old := RestoreWait
+	RestoreWait = 50 * time.Millisecond
+	t.Cleanup(func() { RestoreWait = old })
+	d := newDaemon(t)
+	reports := resuming(d, "/bin/sh")
+	handedDown(t, d, "sleep 30")
+	d.poll()
+	report(t, reports)
+
+	if got := d.Snapshot().Terminals; len(got) != 1 || got[0].AgentID != "" {
+		t.Fatalf("Snapshot = %+v", got)
+	}
+}
+
 func TestAHandedDownAgentOutOfTheForegroundForAMomentIsNotFailed(t *testing.T) {
 	d := newDaemon(t)
 	reports := resuming(d, "/bin/sh")

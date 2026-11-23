@@ -324,7 +324,7 @@ func TestAClientTheHoldersRingNoLongerReachesRedrawsFromTheCheckpoint(t *testing
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if got := string(c.queue); got != "SCREENlater" {
+	if got := string(c.queue); got != "\x1bcSCREENlater" {
 		t.Fatalf("queue %q", got)
 	}
 	// What Read hands on lines up with the holder's offsets again.
