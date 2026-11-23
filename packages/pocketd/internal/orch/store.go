@@ -26,6 +26,9 @@ const (
 	ClosedKept   = 15 * 24 * time.Hour
 )
 
+// walKept is what the WAL file is cut back to once a checkpoint empties it; SQLite never shrinks it otherwise.
+const walKept = 16 << 20
+
 // Store is state/orchestrator.db. One connection makes it the only writer.
 type Store struct{ db *sql.DB }
 
@@ -46,7 +49,7 @@ func OpenPath(path string) (*Store, error) {
 	if err := os.Chmod(path, 0o600); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
+	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)&_pragma=journal_size_limit("+strconv.Itoa(walKept)+")")
 	if err != nil {
 		return nil, err
 	}
@@ -137,8 +140,8 @@ func (s *Store) Prune(now time.Time) error {
 		cut := ms - ClosedKept.Milliseconds()
 		gone := `SELECT id FROM sessions WHERE closed_at > 0 AND closed_at < ?`
 		for _, q := range []string{
+			`DELETE FROM items_fts WHERE rowid IN (SELECT rowid FROM items WHERE session_id IN (` + gone + `))`,
 			`DELETE FROM items WHERE session_id IN (` + gone + `)`,
-			`DELETE FROM items_fts WHERE session_id IN (` + gone + `)`,
 			`DELETE FROM turns WHERE session_id IN (` + gone + `)`,
 			`DELETE FROM queue WHERE session_id IN (` + gone + `)`,
 			`DELETE FROM requests WHERE session_id IN (` + gone + `)`,

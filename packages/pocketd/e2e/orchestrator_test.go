@@ -476,3 +476,43 @@ func TestAClosedSessionsTimelineReadsAsTheStoreKeptIt(t *testing.T) {
 		t.Fatalf("closed, it reads %q; it showed %q", got, before)
 	}
 }
+
+func TestAChatOnABigStoreFromBeforeKeepsItsTimelineAndWritesWithoutStalling(t *testing.T) {
+	h, phone, _, id := chatClaude(t, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "before")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: before"), streamOf(id, "result", ""), statusOf(id, "done"))
+	before := itemsOf(phone, id)
+	h.Shutdown()
+	store, err := orch.Open(h.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`WITH RECURSIVE k(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM k WHERE i < 30000)
+			INSERT INTO items (session_id, item_id, seq, epoch, kind, text, body, ts)
+			SELECT 'old' || (i % 79), 'i' || i, i, 1, 'assistant', 'words ' || i, randomblob(3000), i FROM k`,
+		`DROP TABLE items_fts`,
+		`CREATE VIRTUAL TABLE items_fts USING fts5 (session_id UNINDEXED, item_id UNINDEXED, text)`,
+		`INSERT INTO items_fts (rowid, session_id, item_id, text) SELECT 1000000 - rowid, session_id, item_id, text FROM items WHERE text != ''`,
+		`DELETE FROM schema_version WHERE version > 5`,
+	} {
+		if _, err := store.DB().Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store.Close()
+
+	h.up()
+
+	again := resumedChat(h, id)
+	if got := itemsOf(again, id); got != before {
+		t.Fatalf("after the restart\n%s\nbefore\n%s", got, before)
+	}
+	for _, p := range []string{"one", "two", "three"} {
+		again.Prompt(id, p)
+		again.WaitAll("the turn "+p, streamOf(id, "assistant", "echo: "+p), statusOf(id, "done"))
+	}
+	if strings.Contains(h.log.String(), "flush timed out") {
+		t.Fatalf("pocketd log:\n%s", h.log.String())
+	}
+}

@@ -2,8 +2,12 @@ package orch
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"pocketd/internal/proto"
 )
 
 func TestPruneDropsEventsOlderThanADayButKeepsEachSessionsNewest(t *testing.T) {
@@ -100,4 +104,107 @@ func countRows(s *Store, q string) int {
 	var n int
 	s.db.QueryRow(q).Scan(&n)
 	return n
+}
+
+func seedItems(t *testing.T, s *Store, n int) {
+	t.Helper()
+	execAll(t, s,
+		`WITH RECURSIVE k(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM k WHERE i < `+itoa(int64(n))+`)
+		INSERT INTO items (session_id, item_id, seq, epoch, kind, text, body, ts) SELECT 's' || (i % 80), 'i' || i, i, 1, 'assistant', 'words about the code ' || i, zeroblob(3000), i FROM k`,
+		`INSERT INTO items_fts (rowid, session_id, item_id, text) SELECT rowid, session_id, item_id, text FROM items`,
+	)
+}
+
+func writeItems(s *Store) time.Duration {
+	k := NewSink(s)
+	defer k.Close()
+	start := time.Now()
+	for i := range 200 {
+		k.Item("live", 1, proto.Item{ID: fmt.Sprintf("n%d", i%20), Seq: int64(i), Kind: "assistant", Text: fmt.Sprintf("streaming %d", i)})
+	}
+	k.Flush()
+	return time.Since(start)
+}
+
+func TestAnItemWriteCostsNoMoreInABigStore(t *testing.T) {
+	small := writeItems(openTest(t))
+	s := openTest(t)
+	seedItems(t, s, 20000)
+	if big := writeItems(s); big > 4*small+100*time.Millisecond {
+		t.Fatalf("200 item writes took %v beside 20000 items, %v in an empty store", big, small)
+	}
+}
+
+func TestAStoreFromBeforeFindsARewrittenItemOnce(t *testing.T) {
+	s := openTest(t)
+	execAll(t, s,
+		`DROP TABLE items_fts`,
+		`CREATE VIRTUAL TABLE items_fts USING fts5 (session_id UNINDEXED, item_id UNINDEXED, text)`,
+		`DELETE FROM schema_version WHERE version > 5`,
+		`INSERT INTO items (session_id, item_id, seq, epoch, kind, text, body, ts) VALUES ('a', 'i1', 1, 1, 'user', 'first draft', '{}', 1), ('a', 'i2', 2, 1, 'user', 'other words', '{}', 2)`,
+		`INSERT INTO items_fts (rowid, session_id, item_id, text) VALUES (2, 'a', 'i1', 'first draft'), (1, 'a', 'i2', 'other words')`,
+	)
+	if err := s.migrate(); err != nil {
+		t.Fatal(err)
+	}
+	k := NewSink(s)
+	k.Item("a", 1, proto.Item{ID: "i1", Seq: 1, Kind: "user", Text: "second draft"})
+	k.Close()
+	for q, want := range map[string]int{"first": 0, "second": 1, "draft": 1, "other": 1} {
+		if n := countRows(s, `SELECT COUNT(*) FROM items_fts WHERE items_fts MATCH '`+q+`'`); n != want {
+			t.Errorf("%q finds %d, want %d", q, n, want)
+		}
+	}
+}
+
+func TestPruneDropsTheSearchRowsOfASessionItDrops(t *testing.T) {
+	s := openTest(t)
+	day := int64(24 * time.Hour / time.Millisecond)
+	k := NewSink(s)
+	k.Item("gone", 1, proto.Item{ID: "i1", Seq: 1, Kind: "user", Text: "gone words"})
+	k.Item("kept", 1, proto.Item{ID: "i1", Seq: 1, Kind: "user", Text: "kept words"})
+	k.Close()
+	execAll(t, s, `UPDATE sessions SET closed_at = `+itoa(time.Now().UnixMilli()-16*day)+` WHERE id = 'gone'`)
+	if err := s.Prune(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if n := countRows(s, `SELECT COUNT(*) FROM items_fts WHERE items_fts MATCH 'words'`); n != 1 {
+		t.Fatalf("search rows = %d, want only the kept session's", n)
+	}
+}
+
+func TestTheWALShrinksBackAfterABigWrite(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	execAll(t, s, `WITH RECURSIVE k(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM k WHERE i < 12000)
+		INSERT INTO items (session_id, item_id, seq, epoch, kind, body, ts) SELECT 'a', 'i' || i, i, 1, 'assistant', randomblob(3000), i FROM k`)
+	execAll(t, s, `INSERT INTO items (session_id, item_id, seq, epoch, kind, body, ts) VALUES ('a', 'last', 0, 1, 'user', '{}', 0)`)
+	st, err := os.Stat(filepath.Join(dir, "state", "orchestrator.db-wal"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Size() > walKept {
+		t.Fatalf("WAL is %d bytes after the write that followed a big one", st.Size())
+	}
+}
+
+func TestAStoreFromBeforeKeepsTheNewestSearchRowOfAnItemWrittenTwice(t *testing.T) {
+	s := openTest(t)
+	execAll(t, s,
+		`DROP TABLE items_fts`,
+		`CREATE VIRTUAL TABLE items_fts USING fts5 (session_id UNINDEXED, item_id UNINDEXED, text)`,
+		`DELETE FROM schema_version WHERE version > 5`,
+		`INSERT INTO items (session_id, item_id, seq, epoch, kind, text, body, ts) VALUES ('a', 'i1', 1, 1, 'user', 'newer', '{}', 1)`,
+		`INSERT INTO items_fts (rowid, session_id, item_id, text) VALUES (1, 'a', 'i1', 'older'), (2, 'a', 'i1', 'newer')`,
+	)
+	if err := s.migrate(); err != nil {
+		t.Fatal(err)
+	}
+	if n := countRows(s, `SELECT COUNT(*) FROM items_fts WHERE items_fts MATCH 'newer'`); n != 1 {
+		t.Fatalf("newer finds %d", n)
+	}
 }
