@@ -1,5 +1,5 @@
 use super::Peek;
-use crate::chat::markdown::Open;
+use crate::chat::markdown::{Open, Press};
 use crate::desktop::Desktop;
 use crate::git_ui::pull_request::{check_rows, glyph_slot, opening, plural, review_icon, review_lines, row, small, spot};
 use crate::git_ui::pull_requests::glyph;
@@ -77,7 +77,7 @@ pub(super) fn card(p: &Peek, open: Open, url: String, desktop: WeakEntity<Deskto
             desktop.update(cx, |d, cx| d.show_pr_side(cx)).ok();
         })
     });
-    let web = ui::icon_button_sized("pr-peek-web", "external", 24., TEXT_3).on_click(move |_, window, cx| open(&url, window, cx));
+    let web = ui::icon_button_sized("pr-peek-web", "external", 24., TEXT_3).on_click(move |_, window, cx| open(&url, Press::Follow, window, cx));
     let fix = p.fix.clone().map(|fix| {
         small("pr-peek-fix", Variant::Primary, format!("Send to {}", p.agent)).on_click(move |_, _, cx| {
             desktop.update(cx, |d, cx| d.send_fix(&fix.checks, &fix.threads, cx)).ok();

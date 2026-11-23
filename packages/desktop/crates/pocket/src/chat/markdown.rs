@@ -149,8 +149,21 @@ fn path_in(code: &str) -> Option<bool> {
     (word && (code.contains('/') || has_file_icon(code))).then(|| code.ends_with('/'))
 }
 
-/// Opens what a click in a markdown block points at: a link's URL, or a path as written.
-pub(super) type Open = Arc<dyn Fn(&str, &mut Window, &mut App) + Send + Sync>;
+/// Opens what a click in a markdown block points at, a link's URL or a path as written, or the menu over it.
+pub(super) type Open = Arc<dyn Fn(&str, Press, &mut Window, &mut App) + Send + Sync>;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Press {
+    Follow,
+    Menu,
+}
+
+fn press(event: &ClickEvent) -> Press {
+    match event {
+        ClickEvent::Mouse(m) if m.up.button == MouseButton::Right => Press::Menu,
+        _ => Press::Follow,
+    }
+}
 
 /// Where a link points.
 #[derive(Debug, PartialEq)]
@@ -221,7 +234,7 @@ impl MarkdownPlugin for Paths {
             .child(path.to_string());
         let chip = chip.id(SharedString::from(format!("path-{path}"))).when(!folder, |c| {
             let (open, path) = (self.0.clone(), path.to_string());
-            c.cursor_pointer().hover(|s| s.bg(FILL_3)).on_click(move |_, window, cx| open(&path, window, cx))
+            c.cursor_pointer().hover(|s| s.bg(FILL_3)).on_click(move |_, window, cx| open(&path, Press::Follow, window, cx))
         });
         Some(InlineElement::new(chip).with_baseline(size * 0.25 + ascent))
     }
@@ -276,7 +289,7 @@ fn style() -> TextViewStyle {
 pub(super) fn block(view: TextView, open: Open) -> TextView {
     view.style(style())
         .plugin(Paths(open.clone()))
-        .on_link_click(move |url, _, window, cx| open(url, window, cx))
+        .on_link_click(move |url, event, window, cx| open(url, press(event), window, cx))
         .selectable(true)
         .scrollable(false)
         .w_full()

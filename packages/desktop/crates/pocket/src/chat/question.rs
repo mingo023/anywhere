@@ -358,7 +358,7 @@ impl Desktop {
         let body = body.map(|text| {
             let open: markdown::Open = {
                 let (this, (agent, cwd)) = (cx.weak_entity(), self.summary(terminal).map(|a| (a.id.clone(), a.cwd.clone())).unwrap_or_default());
-                Arc::new(move |link, window, cx| this.update(cx, |d, cx| d.chat_open(&agent, link, &cwd, window, cx)).unwrap_or_default())
+                Arc::new(move |link, press, window, cx| this.update(cx, |d, cx| d.chat_link(&agent, link, &cwd, press, window, cx)).unwrap_or_default())
             };
             div()
                 .id(id(format!("chat-question-body:{terminal}")))

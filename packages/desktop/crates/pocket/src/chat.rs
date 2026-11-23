@@ -20,6 +20,7 @@ mod question;
 mod question_marker;
 mod reveal;
 pub(crate) mod selectable;
+mod selection;
 pub(crate) mod shimmer;
 mod sticky;
 pub(crate) mod sub_agent;
@@ -91,6 +92,7 @@ pub(crate) struct ChatState {
     transcripts: HashMap<String, (String, Entity<Region>)>,
     pub(crate) composer: composer::ComposerState,
     pub(crate) files: Option<locate::Choice>,
+    pub(crate) select: selection::Select,
     /// The error toast that tells of a closed chat's unsent text, and that text, which the toast copies.
     pub(crate) unsent: Option<(String, String)>,
     /// The chats whose attachments are being copied to their host; each sends nothing until its copy is done.
@@ -111,7 +113,7 @@ impl ChatState {
         let (composer, mut subs) = composer::ComposerState::new(&input, window, cx);
         let diagrams = cx.new(|_| Diagrams::standalone(MD_CODE_BG));
         subs.push(cx.subscribe(&diagrams, |d, _, _: &Resized, _| d.chats.views.values().for_each(transcript::View::remeasure_under_pin)));
-        (Self { input, drafts: Default::default(), views: HashMap::new(), transcripts: HashMap::new(), composer, files: None, unsent: None, copying: HashSet::new(), copied: HashMap::new(), map: agent_map::AgentMap::new(cx), dock: agent_dock::AgentDock::new(cx), diagrams, editing: HashMap::new() }, subs)
+        (Self { input, drafts: Default::default(), views: HashMap::new(), transcripts: HashMap::new(), composer, files: None, select: Default::default(), unsent: None, copying: HashSet::new(), copied: HashMap::new(), map: agent_map::AgentMap::new(cx), dock: agent_dock::AgentDock::new(cx), diagrams, editing: HashMap::new() }, subs)
     }
 }
 
@@ -185,7 +187,8 @@ impl Desktop {
                     let region = Region::new(cx, move |d, window, cx| d.transcript(&t, window, cx).into_any_element());
                     self.chats.transcripts.insert(agent.clone(), (terminal.to_string(), region));
                 }
-                region::cached(&self.chats.transcripts[agent].1, StyleRefinement::default().flex_1().min_h_0())
+                let region = region::cached(&self.chats.transcripts[agent].1, StyleRefinement::default().flex_1().min_h_0());
+                self.offers_selection(agent, region, cx).into_any_element()
             }
             None => self.transcript(terminal, window, cx).into_any_element(),
         };

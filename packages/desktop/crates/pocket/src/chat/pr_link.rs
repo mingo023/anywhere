@@ -1,6 +1,6 @@
 mod card;
 
-use super::markdown::Open;
+use super::markdown::{Open, Press};
 use crate::desktop::Desktop;
 use crate::git_ui::pull_request::{PullRequest, Sent, card_busy, to_fix, verdict};
 use crate::git_ui::pull_requests::{PullRequests, glyph};
@@ -158,7 +158,7 @@ impl MarkdownPlugin for PrLinks {
                     .when(p.pr.state == PrState::Open, |c| c.child(ui::dot(6., p.verdict.0))),
                 None => chip.child(link.at.label(&link.text, &link.url)),
             })
-            .on_click(move |_, window, cx| open(&url, window, cx));
+            .on_click(move |_, window, cx| open(&url, Press::Follow, window, cx));
         let baseline = size * 0.15 + ascent;
         let Some(i) = known else { return Some(InlineElement::new(chip).with_baseline(baseline)) };
         let (peeks, open, url, desktop) = (self.peeks.clone(), self.open.clone(), link.url.clone(), self.desktop.clone());
