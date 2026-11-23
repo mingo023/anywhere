@@ -105,13 +105,14 @@ fn page_fill() -> Hsla {
     if is_dark() { WINDOW_SOLID.into() } else { PAGE.into() }
 }
 
-pub(crate) fn backdrop(path: String, tint: f32) -> impl IntoElement {
+pub(crate) fn backdrop(path: String, tint: f32, dither: bool) -> impl IntoElement {
     let page = page_fill();
     div()
         .absolute()
         .inset_0()
         .child(img(PathBuf::from(path)).size_full().object_fit(ObjectFit::Cover))
         .child(div().absolute().inset_0().bg(page.opacity(tint)))
+        .children(dither.then(|| crate::dither::layer(page)))
         .child(div().absolute().inset_0().bg(linear_gradient(180., linear_color_stop(page.opacity(0.), 0.45), linear_color_stop(page, 1.))))
 }
 
@@ -142,7 +143,7 @@ impl Desktop {
                     cx.notify();
                 }
             }))
-            .children(self.store.appearance.background.clone().map(|path| backdrop(path, PROMPT_PAGE_TINT)))
+            .children(self.store.appearance.background.clone().map(|path| backdrop(path, PROMPT_PAGE_TINT, self.store.appearance.dither)))
             .child(field(self).view(bounds, moving))
             // Measured before the field paints, so its dots clear the content.
             .child(content.relative().w_full().max_w(px(600.)).child(canvas(move |b, _, _| measured.set(Some(b)), |_, _, _, _| {}).absolute().inset_0()));
@@ -255,7 +256,7 @@ fn smooth(t: f32) -> f32 {
     t * t * (3. - 2. * t)
 }
 
-fn fbm(x: f32, y: f32) -> f32 {
+pub(crate) fn fbm(x: f32, y: f32) -> f32 {
     noise(x, y) * 0.55 + noise(x * 2.1, y * 2.1) * 0.3 + noise(x * 4.3, y * 4.3) * 0.15
 }
 

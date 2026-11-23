@@ -248,6 +248,7 @@ pub struct Appearance {
     /// The image behind the New session page and chats: a copy in `~/.anywhere/backgrounds/`.
     #[serde(deserialize_with = "lenient")]
     pub background: Option<String>,
+    pub dither: bool,
 }
 
 impl Appearance {
@@ -1005,6 +1006,7 @@ mod tests {
             zoom: Some(125),
             glass: Some(60),
             background: Some("/home/backgrounds/sky.png".into()),
+            dither: true,
         };
         s.sounds.all = false;
         s.worktree.root = "/wt".into();

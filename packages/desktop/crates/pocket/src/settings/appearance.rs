@@ -43,6 +43,9 @@ pub(super) const ROWS: &[Setting] = &[
         .effect(apply_accent),
     GLASS,
     BACKGROUND,
+    Setting::switch("background-dither", "Theme", "Dither the image", |s| s.appearance.dither, |s, on| s.appearance.dither = on)
+        .hint("Darkens the background image with a dot pattern so text stands out")
+        .under(|s| s.appearance.background.is_some()),
     Setting::choice("reduce-motion", "Theme", "Reduce motion", &["System", "On", "Off"], Look::Segmented, |s| MOTION.iter().position(|m| *m == s.appearance.reduce_motion).unwrap_or(0), |s, i| {
         s.appearance.reduce_motion = MOTION[i]
     })
@@ -425,6 +428,18 @@ mod tests {
         assert_eq!(super::BACKGROUND.value(&store).as_deref(), Some("sky.png"));
         super::super::catalog::reset(super::ROWS, &mut store);
         assert_eq!(store.appearance.background, None);
+    }
+
+    #[test]
+    fn dithering_is_offered_only_once_there_is_an_image_and_starts_off() {
+        let row = super::ROWS.iter().find(|r| r.id == "background-dither").unwrap();
+        let mut store = store::Store::default();
+        assert!(!row.allowed(&store));
+        store.appearance.background = Some("/home/backgrounds/1-sky.png".into());
+        assert!(row.allowed(&store));
+        assert_eq!(row.value(&store).as_deref(), Some("Off"));
+        let saved: store::Appearance = serde_json::from_str(r#"{"background":"/sky.png"}"#).unwrap();
+        assert!(!saved.dither);
     }
 
     #[test]

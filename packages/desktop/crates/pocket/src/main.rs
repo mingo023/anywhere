@@ -14,6 +14,7 @@ mod composer;
 mod creating;
 mod delegated;
 mod desktop;
+mod dither;
 mod explorer;
 mod field;
 mod fleet;
