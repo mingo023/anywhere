@@ -4,7 +4,7 @@ use crate::caps::CAPS;
 use crate::{Event, Outbox, hosts, queue};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use serde_json::{Value, json};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::ErrorKind;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
@@ -19,6 +19,7 @@ use uds_windows::UnixStream;
 const UNSENT: &str = "Lost the connection to pocketd";
 /// How long a pocketd may take to answer the websocket handshake, and to take each write after it, before the link counts as lost.
 const STALL: Duration = Duration::from_secs(5);
+const PAGE: usize = 500;
 
 /// Follows pocketd's phone protocol over its unix socket, where pocketd tells
 /// the owner from a process inside a Terminal: the agent list and every agent's timeline.
@@ -69,6 +70,7 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
         ws.send(Message::text(m.to_string())).ok()?;
     }
     let mut known: Vec<String> = Vec::new();
+    let mut asked_before: HashMap<String, i64> = HashMap::new();
     loop {
         for m in queue.try_iter() {
             if m["type"] == "agent.create" {
@@ -114,7 +116,15 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
                 Event::Agent(Box::new(a))
             }
             "agent.stream" => Event::Items(f.agent_id, f.item.into_iter().collect()),
-            "agent.timeline" => Event::Page { agent: f.agent_id, items: f.items, max_seq: f.max_seq },
+            "agent.timeline" => {
+                let asked = asked_before.remove(&f.agent_id);
+                if let Some((before, req)) = older_request(&f, asked) {
+                    ws.send(Message::text(req.to_string())).ok()?;
+                    asked_before.insert(f.agent_id.clone(), before);
+                }
+                // An older page only adds: the held items it doesn't cover are newer, not stale.
+                if asked.is_some() { Event::Items(f.agent_id, f.items) } else { Event::Page { agent: f.agent_id, items: f.items, max_seq: f.max_seq } }
+            }
             "permission.request" => {
                 let Some(r) = f.request else { continue };
                 Event::Asked(r)
@@ -133,11 +143,18 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
             if known.contains(&id) {
                 continue;
             }
-            let req = json!({"type": "agent.timeline", "id": format!("t-{id}"), "agentId": id, "limit": 500});
+            let req = json!({"type": "agent.timeline", "id": format!("t-{id}"), "agentId": id, "limit": PAGE});
             ws.send(Message::text(req.to_string())).ok()?;
             known.push(id);
         }
     }
+}
+
+/// `asked` is the `beforeSeq` page `f` answers: a pocketd that ignored it sends nothing older, so it isn't asked again.
+fn older_request(f: &Frame, asked: Option<i64>) -> Option<(i64, Value)> {
+    let oldest = f.items.iter().map(|x| x.seq).min()?;
+    (f.has_older && asked.is_none_or(|b| oldest < b))
+        .then(|| (oldest, json!({"type": "agent.timeline", "id": format!("o-{}", f.agent_id), "agentId": f.agent_id, "beforeSeq": oldest, "limit": PAGE})))
 }
 
 /// Prompts, stops and queue changes written to pocketd and not yet answered, so a refusal names the one it refused.
@@ -244,6 +261,49 @@ mod tests {
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
         out.seen(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.seen", "id": "seen", "agentIds": ["a1"]}));
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    fn page(seqs: std::ops::RangeInclusive<i64>, older: bool) -> Message {
+        let items: Vec<Value> = seqs.map(|s| json!({"id": format!("i{s}"), "seq": s, "kind": "assistant"})).collect();
+        Message::text(json!({"type": "agent.timeline", "agentId": "a1", "hasOlder": older, "maxSeq": 6, "items": items}).to_string())
+    }
+
+    #[test]
+    fn a_chat_longer_than_a_page_is_paged_back_to_its_first_item() {
+        let (server, sock) = pocketd("older");
+        let (_out, events) = connect(&sock);
+        let mut ws = accept(&server);
+        read(&mut ws);
+        ws.send(Message::text(json!({"type": "agent.list", "agents": [{"id": "a1"}]}).to_string())).unwrap();
+        assert_eq!(read(&mut ws)["limit"], 500);
+        ws.send(page(5..=6, true)).unwrap();
+        assert_eq!(read(&mut ws), json!({"type": "agent.timeline", "id": "o-a1", "agentId": "a1", "beforeSeq": 5, "limit": 500}));
+        ws.send(page(3..=4, true)).unwrap();
+        assert_eq!(read(&mut ws)["beforeSeq"], 3);
+        ws.send(page(1..=2, false)).unwrap();
+
+        let mut a = Agents::default();
+        for ev in futures::executor::block_on_stream(events).take(4) {
+            a.apply(ev);
+        }
+        assert_eq!(a.timelines["a1"].iter().map(|i| i.seq).collect::<Vec<_>>(), [1, 2, 3, 4, 5, 6]);
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn a_pocketd_that_ignores_before_seq_is_not_asked_again() {
+        let (server, sock) = pocketd("ignores");
+        let (_out, _events) = connect(&sock);
+        let mut ws = accept(&server);
+        read(&mut ws);
+        ws.send(Message::text(json!({"type": "agent.list", "agents": [{"id": "a1"}]}).to_string())).unwrap();
+        read(&mut ws);
+        ws.send(page(5..=6, true)).unwrap();
+        assert_eq!(read(&mut ws)["beforeSeq"], 5);
+        ws.send(page(5..=6, true)).unwrap();
+        ws.get_ref().set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+        assert!(ws.read().is_err(), "asked for the same page again");
         std::fs::remove_file(&sock).unwrap();
     }
 
