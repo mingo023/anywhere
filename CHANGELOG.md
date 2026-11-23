@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.60
+
+- Sidebar shows folders you never added as threads, not phantom projects (#363): (62378b0d)
+- Chat text gets a right-click menu and an "Add to chat" pill (#365): (e2d7f559)
+- Only a real exit closes a session, so a busy Mac or a restart loses none (#360): (4afbf9ff)
+- Merged-worktree banner puts Keep and Delete under its text (#361): (07089709)
+- Signing in to an account no longer adds the home folder to the sidebar (#362): (841659e4)
+- Desktop window activation keeps its Metal display link, avoiding a QuartzCore crash (#358): (2e4b29a4)
+- Chat hides a model or effort switch and stops thinking after it (#357): (6460d722)
+- Project groups stay on their machine, and hosts get Sessions (#354): (4353267a)
+- Blog: move a Claude Code session to a remote server, conversation included (#352): (e3d05081)
+- New session prompt attaches images and pastes them like chat (#349): (6bcf5c11)
+- Phone composer stops clipping, launch shows the mascot, PRs look like GitHub (#347): (496bb9a9)
+- Chat shows a prompt that starts with a command Claude doesn't know (#346): (0915725d)
+
 ## 0.1.59
 
 - Model picker sets effort with an animated slider (#343): (ee4e20d2)
