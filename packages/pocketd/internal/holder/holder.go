@@ -34,16 +34,17 @@ type Starter struct{ Exe, Dir string }
 
 // Spec is what `pocketd hold` reads on stdin.
 type Spec struct {
-	ID    string   `json:"id"`
-	Cmd   string   `json:"cmd"`
-	Bin   string   `json:"bin"`
-	Args  []string `json:"args,omitempty"`
-	Cwd   string   `json:"cwd"`
-	Env   []string `json:"env"`
-	Cols  int      `json:"cols"`
-	Rows  int      `json:"rows"`
-	Local string   `json:"local,omitempty"`
-	Sock  string   `json:"sock"`
+	ID     string   `json:"id"`
+	Cmd    string   `json:"cmd"`
+	Bin    string   `json:"bin"`
+	Args   []string `json:"args,omitempty"`
+	Cwd    string   `json:"cwd"`
+	Env    []string `json:"env"`
+	Cols   int      `json:"cols"`
+	Rows   int      `json:"rows"`
+	Local  string   `json:"local,omitempty"`
+	SignIn bool     `json:"signin,omitempty"`
+	Sock   string   `json:"sock"`
 	// AdoptPid is the process on the pty handed in as fd 3, which a pocketd before holders started.
 	AdoptPid int `json:"adoptPid,omitempty"`
 }
@@ -56,6 +57,7 @@ type Hello struct {
 	Args    []string `json:"args,omitempty"`
 	Cwd     string   `json:"cwd"`
 	Local   string   `json:"local,omitempty"`
+	SignIn  bool     `json:"signin,omitempty"`
 	Cols    int      `json:"cols"`
 	Rows    int      `json:"rows"`
 	Pid     int      `json:"pid"`

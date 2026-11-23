@@ -4,7 +4,6 @@ use crate::modals::form::{footer, home};
 use crate::modals::host_finder::Opener;
 use crate::modals::new_session::picker::machine_rows;
 use crate::settings::ssh_hosts::link_color;
-use crate::sidebar::sections::group_mark;
 use crate::spaces::{Reach, Space};
 use crate::util::{tilde_in, untilde_in};
 use hosts::remote;
@@ -95,8 +94,6 @@ pub struct CloneForm {
     root: Option<String>,
     /// The folder was typed, so the URL no longer names it.
     path_edited: bool,
-    group: Option<u32>,
-    pub(crate) group_menu: bool,
     /// The machine the repository is cloned onto.
     machine: Space,
     pub(crate) machine_menu: bool,
@@ -126,7 +123,7 @@ impl CloneForm {
                 _ => {}
             }),
         ];
-        (Self { url, path, root: None, path_edited: false, group: None, group_menu: false, machine: Space::Local, machine_menu: false, homes: HashMap::new(), busy: false, error: None }, subs)
+        (Self { url, path, root: None, path_edited: false, machine: Space::Local, machine_menu: false, homes: HashMap::new(), busy: false, error: None }, subs)
     }
 }
 
@@ -139,7 +136,7 @@ impl Desktop {
         let space = self.space();
         let machine = if self.space_reach(&space) == Reach::Online { space } else { Space::Local };
         let f = &mut self.clone_form;
-        (f.root, f.path_edited, f.group, f.group_menu, f.machine, f.machine_menu) = (None, false, None, false, machine, false);
+        (f.root, f.path_edited, f.machine, f.machine_menu) = (None, false, machine, false);
         f.url.update(cx, |s, cx| {
             s.set_value("", window, cx);
             s.focus(window, cx);
@@ -233,7 +230,6 @@ impl Desktop {
         let path = self.clone_dest(cx);
         let dest = clone_key(host.as_deref(), &path);
         let url = self.clone_form.url.read(cx).value().trim().to_string();
-        let group = self.clone_form.group;
         (self.clone_form.busy, self.clone_form.error) = (true, None);
         let task = cx.background_executor().spawn({
             let dest = dest.clone();
@@ -245,10 +241,6 @@ impl Desktop {
                 d.clone_form.busy = false;
                 match res {
                     Ok(()) => {
-                        if let Some(g) = group {
-                            d.store.sections.set_group(&dest, Some(g));
-                            d.store.sections.reveal(&dest, None);
-                        }
                         if host.is_some() {
                             if matches!(d.overlay, Some(Overlay::Clone)) {
                                 d.close_overlay(window, cx);
@@ -293,48 +285,6 @@ impl Desktop {
                 .child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(r.name.clone()))
                 .child(format!("from {}/{}", r.host, r.owner)),
         }
-    }
-
-    fn clone_group_field(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let groups = &self.store.sections.groups;
-        if groups.is_empty() {
-            return None;
-        }
-        let f = &self.clone_form;
-        let picked = f.group.and_then(|id| self.store.sections.group(id));
-        let open = f.group_menu;
-        let button = ui::field_box()
-            .id("clone-group")
-            .cursor_pointer()
-            .gap(px(8.))
-            .children(picked.and_then(group_mark))
-            .child(div().flex_1().text_size(px(13.5)).child(picked.map_or("No group".to_string(), |g| g.name.clone())))
-            .child(icon("chevron-down", 12., TEXT_4));
-        let button = ui::popover_trigger(button, open, cx.listener(|this, _: &MouseDownEvent, _, cx| {
-            this.clone_form.group_menu = true;
-            cx.notify();
-        }));
-        let pick = |id: Option<u32>, lead: AnyElement, label: &str| {
-            ui::menu_pick(SharedString::from(format!("clone-group-{id:?}")), lead, label, f.group == id).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                (this.clone_form.group, this.clone_form.group_menu) = (id, false);
-                cx.notify();
-            }))
-        };
-        let mut rows = vec![pick(None, div().into_any_element(), "No group")];
-        rows.extend(groups.iter().map(|g| pick(Some(g.id), div().children(group_mark(g)).into_any_element(), &g.name)));
-        let menu = ui::pop(div().id("clone-group-menu"))
-            .w(px(240.))
-            .p(px(6.))
-            .flex()
-            .flex_col()
-            .occlude()
-            .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.clone_form.group_menu = false;
-                cx.notify();
-            }))
-            .children(rows);
-        let field = div().relative().child(button).when(open, |d| d.child(ui::dropdown(42., ui::menu_in("clone-group-menu-in", menu))));
-        Some(div().flex().flex_col().gap(px(6.)).child(ui::field_label("Group")).child(field))
     }
 
     /// The machine cloned onto, in the folder's field, and its menu.
@@ -433,12 +383,11 @@ impl Desktop {
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_clone(window, cx))))
             .when(!ready, |d| d.opacity(0.5).cursor_default());
         let close = ui::icon_button("clone-close", "x").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
-        let mut body = vec![
+        let body = vec![
             field("Repository URL", url).child(self.clone_hint(&check, cx)).into_any_element(),
             field("Clone into", path).children(cloning).into_any_element(),
+            footer(div(), cancel, submit).into_any_element(),
         ];
-        body.extend(self.clone_group_field(cx).map(IntoElement::into_any_element));
-        body.push(footer(div(), cancel, submit).into_any_element());
         ui::modal("Clone from URL", 480., 96., close, body)
     }
 }

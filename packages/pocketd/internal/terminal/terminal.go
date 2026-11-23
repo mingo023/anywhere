@@ -24,6 +24,8 @@ type Info struct {
 	Rows       int      `json:"rows"`
 	Foreground string   `json:"foreground,omitempty"`
 	Local      string   `json:"local,omitempty"`
+	// SignIn marks an account's sign-in, which a desktop keeps out of its projects and tabs.
+	SignIn bool `json:"signin,omitempty"`
 }
 
 type Spec struct {
@@ -38,7 +40,8 @@ type Spec struct {
 	Origin string
 	// Local is the Local the Terminal was opened in, fixed for life; empty
 	// means it belongs to the Worktree holding Cwd.
-	Local string
+	Local  string
+	SignIn bool
 }
 
 type Event struct {
@@ -171,7 +174,7 @@ func (m *Manager) Spawn(spec Spec) (*Terminal, error) {
 		m.mu.Unlock()
 		return nil, err
 	}
-	s := m.newTerminal(Info{ID: spec.ID, Cmd: spec.Cmd, Args: spec.Args, Cwd: spec.Cwd, Cols: spec.Cols, Rows: spec.Rows, Local: spec.Local}, sess)
+	s := m.newTerminal(Info{ID: spec.ID, Cmd: spec.Cmd, Args: spec.Args, Cwd: spec.Cwd, Cols: spec.Cols, Rows: spec.Rows, Local: spec.Local, SignIn: spec.SignIn}, sess)
 	s.origin = spec.Origin
 	s.vt, err = vt.New(spec.Cols, spec.Rows, s.replyToQuery)
 	if err != nil {
@@ -225,7 +228,7 @@ func (m *Manager) Adopt(a Adopted) (*Terminal, error) {
 
 // Reattach takes over the Terminal a holder kept running while no pocketd was there.
 func (m *Manager) Reattach(c *holder.Client) (*Terminal, error) {
-	return m.attach(Info{ID: c.ID, Cmd: c.Cmd, Args: c.Args, Cwd: c.Cwd, Cols: c.Cols, Rows: c.Rows, Local: c.Local}, c, c.Snapshot, c.Tail)
+	return m.attach(Info{ID: c.ID, Cmd: c.Cmd, Args: c.Args, Cwd: c.Cwd, Cols: c.Cols, Rows: c.Rows, Local: c.Local, SignIn: c.SignIn}, c, c.Snapshot, c.Tail)
 }
 
 // attach lists a Terminal whose process already runs, its screen redrawn from

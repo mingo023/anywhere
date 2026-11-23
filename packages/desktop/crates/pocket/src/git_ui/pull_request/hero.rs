@@ -225,25 +225,24 @@ impl Desktop {
                 .px(px(10.))
                 .py(px(8.))
                 .flex()
-                .items_center()
-                .gap(px(9.))
+                .flex_col()
+                .gap(px(8.))
                 .rounded(px(9.))
                 .bg(bg)
                 .text_size(px(12.))
                 .line_height(px(16.))
                 .text_color(TEXT_2)
-                .child(lead)
-                .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title)).child(sub))
+                .child(div().flex().items_center().gap(px(9.)).child(lead).child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title)).child(sub)))
         };
         if pr.state == PrState::Merged && self.deletable(tree) && !self.pr.track.kept(tree) {
             let branch = self.repo().map(|r| r.branch.clone()).unwrap_or_default();
             let (keep_tree, delete_tree) = (tree.to_string(), tree.to_string());
-            let keep = small("pr-keep", Variant::Ghost, "Keep").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            let keep = small("pr-keep", Variant::Secondary, "Keep").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.pr.track.keep(&keep_tree);
                 cx.notify();
             }));
             let delete = small("pr-delete-tree", Variant::Primary, "Delete").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.delete_merged(&delete_tree, cx)));
-            return Some(banner(icon("merge", 15., MERGED).into_any_element(), FILL_2, format!("Delete the worktree {branch}?"), "Its terminals close; the branch stays.".into()).child(div().flex().flex_none().gap(px(4.)).child(keep).child(delete)));
+            return Some(banner(icon("merge", 15., MERGED).into_any_element(), FILL_2, format!("Delete the worktree {branch}?"), "Its terminals close; the branch stays.".into()).child(div().flex().justify_end().gap(px(4.)).child(keep).child(delete)));
         }
         let fixing = self.pr.track.fixing(tree, pr)?;
         let agent = self.fix_agent();

@@ -49,6 +49,23 @@ func TestAChatAgentAnswersInItsTranscriptAndEndsItsTurn(t *testing.T) {
 	)
 }
 
+func TestAChatsModelSwitchShowsNoPromptInIt(t *testing.T) {
+	_, phone, _, id := chatClaude(t)
+	phone.Send(map[string]any{"type": "agent.settings", "id": "s1", "agentId": id, "model": "fake-claude-opus"})
+	phone.WaitFor("ack", func(m Message) bool { return m.Type == "ack" && m.ID == "s1" })
+	phone.Prompt(id, "hello")
+	var prompts []string
+	phone.WaitFor("the reply", func(m Message) bool {
+		if m.Type == "agent.stream" && m.AgentID == id && m.Item.Kind == "user" {
+			prompts = append(prompts, m.Item.Text)
+		}
+		return streamOf(id, "assistant", "echo: hello")(m)
+	})
+	if !slices.Equal(prompts, []string{"hello"}) {
+		t.Fatalf("chat shows prompts %q", prompts)
+	}
+}
+
 func TestAPromptStartingWithACommandClaudeDoesNotKnowShowsAsSent(t *testing.T) {
 	_, phone, _, id := chatClaude(t)
 	phone.Prompt(id, "/gial fix the composer")

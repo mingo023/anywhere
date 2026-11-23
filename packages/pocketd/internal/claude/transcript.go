@@ -400,10 +400,17 @@ func firstLine(text string) string {
 	return line
 }
 
-// localOutput is what a command Claude ran itself printed.
+// localOutput is what a command Claude ran itself printed. Claude writes it as a local_command line, or as a user line.
 func (l line) localOutput() (string, bool) {
 	var text string
-	if l.Type != "system" || l.Subtype != "local_command" || json.Unmarshal(l.Content, &text) != nil {
+	switch {
+	case l.Type == "system" && l.Subtype == "local_command":
+		if json.Unmarshal(l.Content, &text) != nil {
+			return "", false
+		}
+	case l.Type == "user" && !l.IsMeta && strings.HasPrefix(textOf(l.Message.Content), "<local-command-std"):
+		text = textOf(l.Message.Content)
+	default:
 		return "", false
 	}
 	if out := tag(text, "local-command-stdout"); out != "" {
@@ -646,8 +653,9 @@ func userEvents(content json.RawMessage) []timeline.Event {
 	case strings.HasPrefix(text, "[Request interrupted by user"):
 		return append(events, timeline.Event{Kind: "result", OK: false, Error: "interrupted"})
 	// A /clear opens the conversation it starts, which has nothing of the one before to answer. Claude writes a
-	// /compact after the compaction it ran, and nothing answers it either.
-	case strings.HasPrefix(text, "<command-") && name != "" && name != "/clear" && name != "/compact":
+	// /compact after the compaction it ran, and nothing answers it either. A /model or /effort is the chat's own
+	// switch, which Claude writes with its next prompt, its output as a user line that ends no turn.
+	case strings.HasPrefix(text, "<command-") && name != "" && !slices.Contains([]string{"/clear", "/compact", "/model", "/effort"}, name):
 		return append(events, timeline.Event{Kind: "user", Text: strings.TrimSpace(name + " " + tag(text, "command-args"))})
 	case strings.HasPrefix(text, "<command-"), strings.HasPrefix(text, "<local-command-"), Command(text), text == "":
 		return events

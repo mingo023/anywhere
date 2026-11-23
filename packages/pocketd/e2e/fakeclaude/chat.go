@@ -38,6 +38,8 @@ type chatter struct {
 	next  int
 	waits map[string]chan map[string]any
 	stop  chan struct{}
+	// switched holds the models set since the last prompt, which claude writes as /model commands with the next one.
+	switched []string
 }
 
 func chat() {
@@ -101,6 +103,7 @@ func (c *chatter) read(prompts chan<- string) {
 			case "set_model":
 				c.mu.Lock()
 				c.model = l.Request.Model
+				c.switched = append(c.switched, l.Request.Model)
 				c.mu.Unlock()
 				note("set_model: %s", l.Request.Model)
 			case "apply_flag_settings":
@@ -137,7 +140,8 @@ func (c *chatter) send(v any) {
 
 func (c *chatter) turn(text string) {
 	c.mu.Lock()
-	model := c.model
+	model, switched := c.model, c.switched
+	c.switched = nil
 	c.mu.Unlock()
 	select {
 	case <-c.stop:
@@ -146,6 +150,13 @@ func (c *chatter) turn(text string) {
 	c.send(map[string]any{"type": "system", "subtype": "init", "session_id": c.s.id, "cwd": c.s.cwd, "model": model, "permissionMode": c.mode})
 	note("prompt: %s", text)
 	c.s.hook("UserPromptSubmit", map[string]any{"prompt": text})()
+	for _, m := range switched {
+		caveat := user("<local-command-caveat>The command below was run directly in Claude Code, not sent to you as a request.</local-command-caveat>")
+		caveat["isMeta"] = true
+		c.s.write(caveat)
+		c.s.write(user("<command-name>/model</command-name>\n            <command-message>model</command-message>\n            <command-args>" + m + "</command-args>"))
+		c.s.write(user("<local-command-stdout>Set model to `" + m + "`</local-command-stdout>"))
+	}
 	c.s.write(user(text))
 	c.next++
 	id := fmt.Sprintf("toolu_%d", c.next)

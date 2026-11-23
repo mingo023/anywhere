@@ -268,16 +268,14 @@ impl Desktop {
         )
     }
 
-    /// The space's projects, led by No project on This Mac, then a folder to open there and Clone from URL.
+    /// The space's projects, led by No project, then a folder to open there and Clone from URL.
     fn form_project_menu(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let f = &self.new_form.draft;
         let (space, repo) = (self.space(), f.repo.as_deref());
-        let none = (space == Space::Local).then(|| {
-            ui::menu_pick("project-none", icon("folder", 14., TEXT_3), NO_PROJECT, f.no_project()).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.new_form.draft.pick_no_project();
-                this.focus_prompt(window, cx);
-            }))
-        });
+        let none = ui::menu_pick("project-none", icon("folder", 14., TEXT_3), NO_PROJECT, f.no_project()).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+            this.new_form.draft.pick_no_project();
+            this.focus_prompt(window, cx);
+        }));
         let rows = in_space(&self.form_projects(), &space).into_iter().enumerate().map(|(i, p)| {
             let (name, tile) = (self.repo_name(&p), self.repo_tile_for(&p, 14.));
             let chosen = repo == Some(p.as_str());
@@ -295,7 +293,7 @@ impl Desktop {
             this.new_form.draft.picker = None;
             this.clone_project(window, cx);
         }));
-        let rows: Vec<AnyElement> = none.map(IntoElement::into_any_element).into_iter().chain(rows).chain([ui::menu_divider().into_any_element(), open.into_any_element(), clone.into_any_element()]).collect();
+        let rows: Vec<AnyElement> = std::iter::once(none.into_any_element()).chain(rows).chain([ui::menu_divider().into_any_element(), open.into_any_element(), clone.into_any_element()]).collect();
         picker_menu("project-menu", 260., rows, cx).gap(px(2.))
     }
 
