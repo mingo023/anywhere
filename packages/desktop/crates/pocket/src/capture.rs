@@ -1942,22 +1942,32 @@ async fn settle(cx: &mut AsyncApp, window: AnyWindowHandle, desktop: &Entity<Des
 }
 
 /// Presses at `x,y` of the next CAPTURE_PANS, moves by `dx,dy` in four steps drawing a frame at each, and lets go if `release`.
+/// Each step is its own deferred call, so what the one before emitted is handled first, as between a hand's events.
 fn hand_drag(window: &mut Window, cx: &mut App, release: bool) {
     let Some(arg) = next_arg("CAPTURE_PANS", ';') else { return };
     let Some((from, by)) = arg.match_indices(',').nth(1).and_then(|(i, _)| Some((point_arg(&arg[..i])?, point_arg(&arg[i + 1..])?))) else { return };
     window.defer(cx, move |window, cx| {
-        let (modifiers, left) = (Modifiers::default(), Some(MouseButton::Left));
+        let modifiers = Modifiers::default();
         window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: from, pressed_button: None, modifiers }), cx);
         window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: from, modifiers, click_count: 1, first_mouse: false }), cx);
         draw(window, cx);
-        for step in 1..=4 {
-            let position = from + by * (step as f32 / 4.);
-            window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position, pressed_button: left, modifiers }), cx);
-            draw(window, cx);
+        hand_step(window, cx, (from, by), 1, release);
+    });
+}
+
+fn hand_step(window: &mut Window, cx: &mut App, (from, by): (Point<Pixels>, Point<Pixels>), step: u8, release: bool) {
+    window.defer(cx, move |window, cx| {
+        let modifiers = Modifiers::default();
+        if step > 4 {
+            if release {
+                window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: from + by, modifiers, click_count: 1 }), cx);
+            }
+            return;
         }
-        if release {
-            window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: from + by, modifiers, click_count: 1 }), cx);
-        }
+        let position = from + by * (f32::from(step) / 4.);
+        window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position, pressed_button: Some(MouseButton::Left), modifiers }), cx);
+        draw(window, cx);
+        hand_step(window, cx, (from, by), step + 1, release);
     });
 }
 
