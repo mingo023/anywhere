@@ -75,8 +75,7 @@ impl Quote {
             Body::Code { lines, language, text } => format!("{}:{}\n```{language}\n{text}\n```", self.path, lines_text(*lines)),
             Body::Prose { section, text } => {
                 let section = section.as_ref().map(|s| format!(" (section \"{s}\")")).unwrap_or_default();
-                let quoted: Vec<String> = text.lines().map(|l| if l.is_empty() { ">".into() } else { format!("> {l}") }).collect();
-                format!("{}{section}:\n{}", self.path, quoted.join("\n"))
+                format!("{}{section}:\n{}", self.path, blockquote(text))
             }
         }
     }
@@ -110,6 +109,10 @@ impl Quote {
             q => format!("{}\n\n{q}", self.payload()),
         }
     }
+}
+
+pub(crate) fn blockquote(text: &str) -> String {
+    text.lines().map(|l| if l.is_empty() { ">".to_string() } else { format!("> {l}") }).collect::<Vec<_>>().join("\n")
 }
 
 fn plain(s: &str) -> String {
@@ -234,6 +237,7 @@ impl Desktop {
                 }
             }
             Some(Tab::Doc(Doc::File(_))) if self.chat.file.is_none() => self.ask_about_text(pane, window, cx),
+            Some(Tab::Term(terminal)) if self.chat_shown(&terminal) => self.quote_chat_selection(&terminal, window, cx),
             _ => {}
         }
     }

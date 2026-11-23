@@ -513,7 +513,7 @@ impl Desktop {
     /// Where a link clicked in `agent`'s chat goes.
     pub(super) fn chat_links(&self, agent: &str, cx: &Context<Self>) -> markdown::Open {
         let (this, id, cwd) = (cx.weak_entity(), agent.to_string(), self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default());
-        Arc::new(move |link, window, cx| this.update(cx, |d, cx| d.chat_open(&id, link, &cwd, window, cx)).unwrap_or_default())
+        Arc::new(move |link, press, window, cx| this.update(cx, |d, cx| d.chat_link(&id, link, &cwd, press, window, cx)).unwrap_or_default())
     }
 
     /// `terminal`'s agent's transcript, refolded when its timeline moved.

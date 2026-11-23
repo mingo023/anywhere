@@ -1434,8 +1434,8 @@ impl Element for Inline {
             });
         }
 
-        if !is_selection {
-            // click to open link
+        {
+            // click to open link; a right-click reaches the handler over a selection too, for a link menu
             window.on_mouse_event({
                 let links = self.links.clone();
                 let text_layout = text_layout.clone();
@@ -1447,9 +1447,11 @@ impl Element for Inline {
                     if !phase.bubble() || !hitbox.is_hovered(window) {
                         return;
                     }
-                    if text_view_state
-                        .as_ref()
-                        .is_some_and(|state| state.read(cx).has_selection(cx))
+                    if event.button != MouseButton::Right
+                        && (is_selection
+                            || text_view_state
+                                .as_ref()
+                                .is_some_and(|state| state.read(cx).has_selection(cx)))
                     {
                         return;
                     }

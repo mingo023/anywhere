@@ -120,6 +120,7 @@ gpui-pre-apple = { path = "vendor/gpui-pre-apple" }
 # It also builds a paragraph's highlights in one pass over its inline children, where combining them per child was quadratic in its marks and a streaming reply paid it every frame; drop once upstream does.
 # It also loads a document's relative and `file:` images from disk once given an `image_base`, where only `data:` images showed; upstream has no equivalent.
 # It also highlights code blocks in the background parser, with `TextViewState::shared_code_block_highlighter` and a public `set_markdown_extensions` to give it what the view will; upstream has no equivalent.
+# It also passes a right-click on a link to `on_link_click` while text is selected, so a link menu can open over a selection; upstream has no equivalent.
 gpui-base = { path = "vendor/gpui-base" }
 
 # macOS's default "unpacked" leaves every build's .o files in target/debug/deps, which Cargo never removes.
