@@ -35,7 +35,6 @@ impl Key {
 
 struct Shown {
     key: Key,
-    area: Size<Pixels>,
     image: Arc<RenderImage>,
 }
 
@@ -59,10 +58,12 @@ fn paint(bounds: Bounds<Pixels>, color: Hsla, window: &mut Window, cx: &mut App)
     // Display bounds are in platform points, while the viewport and scale factor are zoomed.
     let display = window.display(cx).map_or(viewport, |d| d.bounds().size.map(|v| v / window.zoom()));
     let area = size(display.width.max(viewport.width), display.height.max(viewport.height));
-    let key = Key::new(area, window.scale_factor(), color);
+    let scale = window.scale_factor();
+    let key = Key::new(area, scale, color);
     DOTS.with_borrow_mut(|dots| {
         if let Some(shown) = &dots.shown {
-            window.paint_image(bounds, Bounds::new(Point::default(), shown.area), Corners::default(), shown.image.clone(), 0, false).ok();
+            let drawn = size(px(shown.key.width as f32 / scale), px(shown.key.height as f32 / scale));
+            window.paint_image(bounds, Bounds::new(Point::default(), drawn), Corners::default(), shown.image.clone(), 0, false).ok();
         }
         if dots.shown.as_ref().is_some_and(|s| s.key == key) || dots.building == Some(key) {
             return;
@@ -74,7 +75,7 @@ fn paint(bounds: Bounds<Pixels>, color: Hsla, window: &mut Window, cx: &mut App)
                 let image = built.await;
                 DOTS.with_borrow_mut(|dots| dots.building.take_if(|b| *b == key));
                 cx.update(|window, _| {
-                    let old = DOTS.with_borrow_mut(|dots| dots.shown.replace(Shown { key, area, image }));
+                    let old = DOTS.with_borrow_mut(|dots| dots.shown.replace(Shown { key, image }));
                     if let Some(old) = old {
                         window.drop_image(old.image).ok();
                     }
