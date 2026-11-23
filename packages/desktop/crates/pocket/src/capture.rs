@@ -34,7 +34,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 303] = [
+const STEPS: [(&str, Step); 302] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -390,8 +390,8 @@ const STEPS: [(&str, Step); 303] = [
     ("sections", |d, _, _| {
         let projects = d.projects();
         let sections = &mut d.store.sections;
-        let work = sections.add_group("Work");
-        sections.add_group("Side");
+        let work = sections.add_group("Work", None);
+        sections.add_group("Side", None);
         for p in projects.iter().skip(1).step_by(2) {
             sections.set_group(p, Some(work));
         }
@@ -807,7 +807,6 @@ const STEPS: [(&str, Step); 303] = [
         d.clone_form.url.update(cx, |s, cx| s.set_value("https://github.com/zed-industries/zed", window, cx));
         d.clone_url_changed(window, cx);
     }),
-    ("clone-group-menu", |d, _, _| d.clone_form.group_menu = true),
     // Clone from URL on the space on screen, then cloning (FIXTURE_HOST_FILES=1; devbox's git holds the clone until it is let go).
     ("clone-host", |d, window, cx| {
         d.clone_project(window, cx);

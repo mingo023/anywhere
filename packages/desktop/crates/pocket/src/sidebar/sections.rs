@@ -145,7 +145,7 @@ impl Desktop {
         let mut projects = self.space_projects(&space);
         let sections = &self.store.sections;
         sort_projects(&mut projects, sections.sort, |p| self.repo_name(p), |p| self.cards(p).iter().map(|c| c.at).max().unwrap_or(0));
-        let arranged = sections.arrange(&projects, |p| self.store.projects.iter().any(|k| k == p));
+        let arranged = sections.arrange(&projects, space.host(), |p| self.store.projects.iter().any(|k| k == p));
         let block = |ix: usize| {
             let p = &projects[ix];
             let only = if query.is_empty() {
@@ -255,8 +255,9 @@ impl Desktop {
 
     /// Adds a group, holding `project` if given, and names it in place.
     pub(super) fn new_group(&mut self, project: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let host = self.space().host().map(str::to_string);
         let sections = &mut self.store.sections;
-        let id = sections.add_group("New group");
+        let id = sections.add_group("New group", host.as_deref());
         if let Some(p) = project {
             sections.set_group(&p, Some(id));
         }
@@ -385,7 +386,7 @@ impl Desktop {
             return out;
         }
         let rows: Vec<AnyElement> = listed.other.iter().map(|b| self.project_block(b.ix, &b.project, b.only.as_deref(), Section::Other, cx).0).collect();
-        let other = div().id("aside-other").flex().flex_col().gap(px(1.)).when((!out.is_empty() || !sections.groups.is_empty()) && (!rows.is_empty() || cx.has_active_drag()), |d| {
+        let other = div().id("aside-other").flex().flex_col().gap(px(1.)).when((!out.is_empty() || !listed.groups.is_empty()) && (!rows.is_empty() || cx.has_active_drag()), |d| {
             d.child(div().h(px(28.)).px(px(10.)).flex().flex_none().items_center().gap(px(8.)).text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child("Other").child(ui::group_count(rows.len())))
         });
         out.push(Self::drops_into(other.children(rows), Section::Other, cx).into_any_element());

@@ -480,6 +480,7 @@ impl Store {
         let path = home.join("desktop.json");
         let mut s: Self = std::fs::read(&path).ok().and_then(|raw| serde_json::from_slice(&raw).ok()).unwrap_or_default();
         s.path = path;
+        s.sections.settle_hosts();
         s
     }
 
@@ -761,7 +762,7 @@ mod tests {
         s.graph_share = Some(0.3);
         s.track("/t/fix");
         s.hosts.push(serde_json::json!({"id": "devbox", "name": "devbox", "target": {"kind": "alias", "name": "devbox"}}));
-        let work = s.sections.add_group("Work");
+        let work = s.sections.add_group("Work", None);
         s.sections.set_group("/w", Some(work));
         s.sections.toggle_pin(sections::Pin::Tree { project: "/w".into(), tree: "/t/fix".into() });
         s.sections.sort = sections::Sort::Recent;

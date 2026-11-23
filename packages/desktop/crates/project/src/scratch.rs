@@ -1,4 +1,5 @@
-use std::io::ErrorKind;
+use git::Runner;
+use std::io::{self, ErrorKind};
 
 const DIR: &str = ".anywhere/sessions";
 const TRIES: usize = 512;
@@ -15,23 +16,30 @@ fn name(seed: usize, attempt: usize) -> String {
     format!("{}-{}", adjectives[n / nouns.len()], nouns[n % nouns.len()])
 }
 
-/// Makes a folder under `root` with a name no other there has, as an empty repository, and returns its path.
-/// Taking the name with `create_dir` keeps two creates at once from sharing a folder.
+/// Makes a folder under `root` on this Mac with a name no other there has, as an empty repository, and returns its path.
 pub fn create(root: &str, seed: usize) -> Result<String, String> {
-    std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
+    let make = |path: &str, parents: bool| if parents { std::fs::create_dir_all(path) } else { std::fs::create_dir(path) };
+    create_on(&Runner::Local, root, seed, make, |path| _ = std::fs::remove_dir_all(path))
+}
+
+/// `create` on the machine `run` runs git on, where `make(path, parents)` makes a folder and `remove` deletes one.
+/// Without `parents`, `make` must fail on a folder already there: taking the name that way keeps two creates at once from sharing a folder.
+pub fn create_on(run: &Runner, root: &str, seed: usize, make: impl Fn(&str, bool) -> io::Result<()>, remove: impl Fn(&str)) -> Result<String, String> {
+    make(root, true).map_err(|e| e.to_string())?;
     for attempt in 0..TRIES {
         let path = format!("{root}/{}", name(seed, attempt));
-        match std::fs::create_dir(&path) {
+        match make(&path, false) {
             Ok(()) => {
-                return match git::init_empty(&path) {
+                return match git::init_empty(run, &path) {
                     Ok(()) => Ok(path),
                     Err(e) => {
-                        std::fs::remove_dir_all(&path).ok();
+                        remove(&path);
                         Err(e)
                     }
                 };
             }
-            Err(e) if e.kind() == ErrorKind::AlreadyExists => {}
+            // A host's pocketd gives the reason only as text, so whether the name was taken is asked of the folder.
+            Err(e) if e.kind() == ErrorKind::AlreadyExists || run.stat(&path).is_ok_and(|s| s.is_some()) => {}
             Err(e) => return Err(e.to_string()),
         }
     }
@@ -40,12 +48,12 @@ pub fn create(root: &str, seed: usize) -> Result<String, String> {
 
 /// Whether `path` is a folder directly in `root`, the only kind deleting a scratch folder may remove.
 pub fn holds(root: &str, path: &str) -> bool {
-    path.strip_prefix(root).and_then(|rest| rest.strip_prefix('/')).is_some_and(|name| !name.is_empty() && !name.contains('/') && name != "." && name != "..")
+    path.strip_prefix(root).and_then(|rest| rest.strip_prefix('/')).is_some_and(|name| !name.is_empty() && !name.contains(['/', '\\', ':']) && name != "." && name != "..")
 }
 
 /// The folder's uncommitted files and the commits made since `create`'s own; `None` when git can't read it.
-pub fn work(path: &str) -> Option<(usize, usize)> {
-    Some((git::dirty_files(&git::Runner::Local, path)?, git::commit_count(&git::Runner::Local, path)?.saturating_sub(1)))
+pub fn work(run: &Runner, path: &str) -> Option<(usize, usize)> {
+    Some((git::dirty_files(run, path)?, git::commit_count(run, path)?.saturating_sub(1)))
 }
 
 /// Whether deleting a folder needs no asking: git could read it and it holds no work, and no terminals are open in it.
@@ -55,7 +63,7 @@ pub fn nothing_to_lose(work: Option<(usize, usize)>, terminals: usize) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{TRIES, create, holds, name, nothing_to_lose, work};
+    use super::{TRIES, create, create_on, holds, name, nothing_to_lose, work};
     use git::Runner;
 
     fn temp_root(tag: &str) -> String {
@@ -86,6 +94,21 @@ mod tests {
     }
 
     #[test]
+    fn a_name_a_host_refuses_in_words_moves_on_when_its_folder_is_there() {
+        let root = temp_root("host-taken");
+        let taken = create(&root, 7).unwrap();
+        let make = |path: &str, parents: bool| match (parents, std::path::Path::new(path).exists()) {
+            (false, true) => Err(std::io::Error::other(format!("mkdir {path}: file exists"))),
+            _ => std::fs::create_dir_all(path),
+        };
+        let made = create_on(&Runner::Local, &root, 7, make, |_| {}).unwrap();
+        assert_ne!(made, taken);
+        let refused = create_on(&Runner::Local, &format!("{root}/x"), 7, |p, parents| if parents { std::fs::create_dir_all(p) } else { Err(std::io::Error::other("permission denied")) }, |_| {});
+        assert_eq!(refused, Err("permission denied".into()));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn every_try_draws_a_different_name() {
         let mut names: Vec<String> = (0..TRIES).map(|attempt| name(3, attempt)).collect();
         names.sort();
@@ -102,12 +125,12 @@ mod tests {
     fn uncommitted_files_and_later_commits_are_work_but_the_first_commit_is_not() {
         let root = temp_root("work");
         let path = create(&root, 0).unwrap();
-        assert_eq!(work(&path), Some((0, 0)));
+        assert_eq!(work(&Runner::Local, &path), Some((0, 0)));
         std::fs::write(format!("{path}/notes"), "x").unwrap();
-        assert_eq!(work(&path), Some((1, 0)));
+        assert_eq!(work(&Runner::Local, &path), Some((1, 0)));
         git_in(&path, &["add", "."]);
         git_in(&path, &["commit", "-q", "-m", "notes"]);
-        assert_eq!(work(&path), Some((0, 1)));
+        assert_eq!(work(&Runner::Local, &path), Some((0, 1)));
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -123,7 +146,8 @@ mod tests {
     fn only_a_folder_directly_in_the_root_can_be_deleted() {
         let root = "/home/me/.anywhere/sessions";
         assert!(holds(root, "/home/me/.anywhere/sessions/calm-river"));
-        for path in [root, "/home/me/.anywhere/sessions/", "/home/me/.anywhere/sessions/a/b", "/home/me/.anywhere/sessions/..", "/home/me/.anywhere/sessions-other/a", "/home/me"] {
+        let windows = [r"/home/me/.anywhere/sessions/..\..", "/home/me/.anywhere/sessions/C:"];
+        for path in [root, "/home/me/.anywhere/sessions/", "/home/me/.anywhere/sessions/a/b", "/home/me/.anywhere/sessions/..", "/home/me/.anywhere/sessions-other/a", "/home/me"].into_iter().chain(windows) {
             assert!(!holds(root, path), "{path}");
         }
     }

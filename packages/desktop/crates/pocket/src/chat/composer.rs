@@ -486,7 +486,6 @@ impl Desktop {
             ("explorer.menu", self.explorer.menu.is_some()),
             ("terminal.menu", self.terminal.menu.is_some()),
             ("accounts.menu", self.accounts.menu.is_some()),
-            ("clone_form.group_menu", self.clone_form.group_menu),
             ("chats.files", self.chats.files.is_some()),
         ];
         let open: Vec<&str> = menus.iter().filter(|(_, on)| *on).map(|(n, _)| *n).collect();

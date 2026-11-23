@@ -219,7 +219,7 @@ impl Draft {
 
     fn ready(&self, name: &str) -> bool {
         if self.scratch {
-            return !self.making_scratch && !self.reply.waiting();
+            return !self.making_scratch && !self.copying && !self.reply.waiting();
         }
         let place = match (self.in_worktree(), &self.source) {
             (false, _) => self.repo.is_some(),
@@ -612,7 +612,7 @@ impl Desktop {
             return cx.notify();
         }
         if self.new_form.draft.scratch {
-            return self.start_in_scratch(cx);
+            return self.start_in_scratch(window, cx);
         }
         let Some(project) = self.new_form.draft.repo.clone() else { return };
         if self.copy_attachments_first(&project, window, cx) {
@@ -696,24 +696,29 @@ impl Desktop {
     }
 
     /// Starts the session in the Scratch folder picked, or in a new one when no project is.
-    fn start_in_scratch(&mut self, cx: &mut Context<Self>) {
-        let prompt = self.new_form.composer.prompt.read(cx).value().to_string();
-        let (pick, sent) = (self.new_form_pick(), self.new_form.composer.draft.prompt(&prompt));
+    fn start_in_scratch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(folder) = self.new_form.draft.repo.clone() {
+            if self.copy_attachments_first(&folder, window, cx) {
+                return cx.notify();
+            }
+            let prompt = self.new_form.composer.prompt.read(cx).value().to_string();
+            let (pick, sent) = (self.new_form_pick(), self.new_form.composer.draft.prompt_with(&prompt, self.new_form.draft.copied_for(&folder)));
             return self.send_in_scratch(folder, pick, sent, cx);
         }
         self.new_form.draft.making_scratch = true;
         let task = self.make_scratch(cx);
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let made = task.await;
-            this.update(cx, |d, cx| {
+            this.update_in(cx, |d, window, cx| {
                 d.new_form.draft.making_scratch = false;
                 match made {
                     Ok(folder) => {
+                        let pick = d.new_form_pick();
                         d.adopt_scratch(&folder);
                         // A send pocketd refuses is retried here, not in yet another new folder.
                         d.new_form.draft.pick_repo(Some(folder.clone()), true);
-                        d.send_in_scratch(folder, pick, sent, cx);
+                        d.new_form.composer.draft.choose(Some(folder), pick);
+                        d.start_session(window, cx);
                     }
                     Err(e) => {
                         d.new_form.draft.reply.error = Some(("Couldn't make a folder for the session".to_string(), e));
@@ -1008,11 +1013,12 @@ mod tests {
     }
 
     #[test]
-    fn a_scratch_folder_starts_at_once_but_not_while_a_send_is_out_or_its_folder_is_being_made() {
+    fn a_scratch_folder_starts_at_once_but_not_while_a_send_is_out_its_folder_is_being_made_or_attachments_copy() {
         let scratch = Draft { repo: Some("/s".into()), scratch: true, ..Draft::default() };
         assert!(scratch.ready("") && !scratch.no_project());
         assert!(!Draft { reply: sent("r1"), repo: Some("/s".into()), scratch: true, ..Draft::default() }.ready(""));
         assert!(!Draft { making_scratch: true, scratch: true, ..Draft::default() }.ready(""));
+        assert!(!Draft { copying: true, repo: Some("//devbox/s".into()), scratch: true, ..Draft::default() }.ready(""));
     }
 
     #[test]
