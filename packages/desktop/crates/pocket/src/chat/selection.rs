@@ -1,6 +1,7 @@
 use super::markdown::Press;
 use crate::add_to_chat::blockquote;
 use crate::desktop::Desktop;
+use crate::desktop::chrome::Screen;
 use gpui_kit::base::TextSelection;
 use gpui_kit::*;
 use theme::*;
@@ -90,7 +91,8 @@ impl Desktop {
                 // The window settles its selection in its own mouse-up, which runs after this capture.
                 cx.defer_in(window, move |this, window, cx| this.offer_pill(agent, at, window, cx));
             }))
-            .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, window, cx| this.offer_menu(right.clone(), ev.position, None, window, cx)))
+            // On release, so a link under the pointer, whose handler stops the event, opens its own menu instead.
+            .on_mouse_up(MouseButton::Right, cx.listener(move |this, ev: &MouseUpEvent, window, cx| this.offer_menu(right.clone(), ev.position, None, window, cx)))
             .on_scroll(cx.listener(|this, _: &ScrollEvent, _, cx| {
                 if this.chats.select.offer.take().is_some() {
                     cx.notify();
@@ -163,7 +165,8 @@ impl Desktop {
     }
 
     pub(crate) fn chat_select_offer(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let offer = self.chats.select.offer.as_ref()?;
+        // Nothing else drops the offer when a key or the app leaves its chat.
+        let offer = self.chats.select.offer.as_ref().filter(|o| self.screen == Screen::Sessions && self.overlay.is_none() && self.session() == Some(o.agent.as_str()))?;
         let close = cx.listener(|this, _: &MouseDownEvent, _, cx| {
             this.chats.select.offer = None;
             cx.notify();

@@ -782,7 +782,7 @@ impl Render for Desktop {
             .children(overlay)
             .children(shown.then(|| self.chat_pill(cx)).flatten())
             .children(shown.then(|| self.chat_popover(cx)).flatten())
-            .children(self.chat_select_offer(cx))
+            .children(shown.then(|| self.chat_select_offer(cx)).flatten())
             .children(welcome)
     }
 }
