@@ -158,7 +158,7 @@ pub(super) enum Press {
     Menu,
 }
 
-fn press(event: &ClickEvent) -> Press {
+pub(super) fn press(event: &ClickEvent) -> Press {
     match event {
         ClickEvent::Mouse(m) if m.up.button == MouseButton::Right => Press::Menu,
         _ => Press::Follow,
