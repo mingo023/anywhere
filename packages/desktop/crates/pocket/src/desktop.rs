@@ -141,7 +141,7 @@ pub struct Desktop {
     pub(crate) row_menu: Option<RowMenu>,
     pub(crate) preview: Entity<Previews>,
     pub(crate) new_form: Entity<new_session::NewForm>,
-    pub(crate) repo_form: add_project::RepoForm,
+    pub(crate) repo_form: Entity<add_project::RepoForm>,
     pub(crate) host_finder: Entity<crate::modals::host_finder::HostFinder>,
     pub(crate) clone_form: Entity<clone_project::CloneForm>,
     pub(crate) pair: Entity<PairPhone>,
@@ -173,7 +173,8 @@ impl Desktop {
         let (pr, pr_subs) = PullRequest::new(window, cx);
         let new_form = cx.new(|cx| new_session::NewForm::new(window, cx));
         let new_subs = Self::watch_new_form(&new_form, window, cx);
-        let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
+        let repo_form = cx.new(|cx| add_project::RepoForm::new(window, cx));
+        let repo_subs = cx.subscribe_in(&repo_form, window, Self::on_repo_event);
         let host_finder = cx.new(|cx| crate::modals::host_finder::HostFinder::new(cx));
         let host_finder_subs = cx.subscribe_in(&host_finder, window, Self::on_finder_event);
         let confirm = cx.new(|_| crate::modals::confirm::ConfirmSheet::default());
@@ -253,7 +254,7 @@ impl Desktop {
         _subs.push(preview_subs);
         _subs.extend(pr_subs);
         _subs.extend(new_subs);
-        _subs.extend(repo_subs);
+        _subs.push(repo_subs);
         _subs.push(confirm_subs);
         _subs.push(host_finder_subs);
         _subs.push(clone_subs);
@@ -806,7 +807,7 @@ impl Render for Desktop {
         let page = shown.then(|| if settings { self.settings_page(cx) } else { self.main_view(window, cx) });
         let workspace = (shown && self.screen == Screen::Sessions && self.sidebar.unfocused() > 0.).then(|| self.workspace_side());
         // The finder opened from the new-session page has no overlay under it.
-        let overlay = if shown { self.overlay_view(window, cx).or_else(|| self.host_finder_view(cx)) } else { None };
+        let overlay = if shown { self.overlay_view(cx).or_else(|| self.host_finder_view(cx)) } else { None };
         div()
             .relative()
             .size_full()

@@ -1,11 +1,9 @@
-use crate::desktop::Desktop;
+use super::{Menu, RepoForm};
 use crate::util::initials;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use store::ProjectIcon;
 use theme::*;
-
-pub(crate) const EMOJI_MENU: &str = "repo-emoji";
 
 pub(crate) const EMOJI: [&str; 40] = [
     "🚀", "⚡", "🔥", "✨", "🌟", "💎", "🎯", "🎨", "🧪", "🔬", "🛠️", "⚙️", "🧩", "📦", "📱", "💻", "🖥️", "🌐", "🔒", "🔑", "📊", "📈", "🧠", "🤖", "👾", "🎮",
@@ -16,10 +14,10 @@ const MARK: f32 = 76.;
 const MARK_RADIUS: f32 = 20.;
 const CELL: f32 = 30.;
 
-impl Desktop {
+impl RepoForm {
     /// The project's mark, which opens the icon menu: an emoji or picture as it is, else its initials on a plain tile.
     pub(super) fn mark_picker(&self, name: &str, cx: &mut Context<Self>) -> Div {
-        let chosen = self.repo_form.draft.icon.clone();
+        let chosen = self.draft.icon.clone();
         let letters = initials(name);
         let mark = match &chosen {
             Some(ProjectIcon::Emoji(e)) => div().text_size(px(60.)).child(e.clone()),
@@ -49,7 +47,7 @@ impl Desktop {
             .bg(POPOVER)
             .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(rgba(0x00000040), 2., 6.)])
             .child(icon("pencil", 11., TEXT));
-        let open = self.settings.menu == Some(EMOJI_MENU);
+        let open = self.menu == Some(Menu::Mark);
         let button = ui::popover_trigger(
             div()
                 .id("repo-icon")
@@ -64,7 +62,7 @@ impl Desktop {
                 .child(badge),
             open,
             cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.settings.menu = Some(EMOJI_MENU);
+                this.menu = Some(Menu::Mark);
                 cx.notify();
             }),
         );
@@ -72,10 +70,25 @@ impl Desktop {
         div().relative().child(button).children(menu)
     }
 
+    fn pick_image(&self, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: true, prompt: None });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = rx.await else { return };
+            this.update(cx, |f, cx| {
+                if let Some(p) = paths.into_iter().next() {
+                    f.draft.icon = Some(ProjectIcon::Image(p));
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Emoji to pick from, then a picture from disk, then back to initials. Choosing the chosen emoji again clears it.
     fn icon_menu(&self, chosen: Option<ProjectIcon>, cx: &mut Context<Self>) -> Div {
         let close = cx.listener(|this, _: &MouseDownEvent, _, cx| {
-            this.settings.menu = None;
+            this.menu = None;
             cx.notify();
         });
         let cells = EMOJI.iter().enumerate().map(|(i, &e)| {
@@ -93,24 +106,20 @@ impl Desktop {
                 .hover(|d| d.bg(FILL_2))
                 .child(e)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let draft = &mut this.repo_form.draft;
+                    let draft = &mut this.draft;
                     draft.icon = (draft.icon != Some(ProjectIcon::Emoji(e.into()))).then(|| ProjectIcon::Emoji(e.into()));
-                    this.settings.menu = None;
+                    this.menu = None;
                     cx.notify();
                 }))
         });
-        let image = ui::menu_row("repo-icon-image", "folder", "Choose image\u{2026}", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-            this.settings.menu = None;
-            this.pick_path(false, window, cx, |d, paths, _, _| {
-                if let Some(p) = paths.into_iter().next() {
-                    d.repo_form.draft.icon = Some(ProjectIcon::Image(p));
-                }
-            })
+        let image = ui::menu_row("repo-icon-image", "folder", "Choose image\u{2026}", None).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.menu = None;
+            this.pick_image(cx);
         }));
         let letters = chosen.is_some().then(|| {
             ui::menu_row("repo-icon-letters", "x", "Use initials", None).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.repo_form.draft.icon = None;
-                this.settings.menu = None;
+                this.draft.icon = None;
+                this.menu = None;
                 cx.notify();
             }))
         });

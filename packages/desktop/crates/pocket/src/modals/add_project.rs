@@ -3,10 +3,13 @@ pub(crate) mod agents;
 pub(crate) mod host_folder;
 pub(crate) mod icon;
 
+use crate::accounts::host_of;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, Screen};
 use crate::modals::form::{footer, typed_or};
+use crate::modals::host_finder::{HostRow, Opener};
 use crate::util::{basename, tilde};
+use daemon::Account;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -15,7 +18,7 @@ use host_folder::Browse;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::time::Duration;
-use store::{ProjectIcon, RepoConfig};
+use store::{LaunchPick, ProjectIcon, RepoConfig};
 use theme::*;
 use ui::Variant;
 
@@ -33,7 +36,8 @@ enum Probe {
     NotGit,
 }
 
-pub struct RepoForm {
+/// The form, drawn over the page by `Desktop`, which hands it what it reads of the app each frame.
+pub(crate) struct RepoForm {
     name: Entity<InputState>,
     setup: Entity<InputState>,
     teardown: Entity<InputState>,
@@ -41,7 +45,49 @@ pub struct RepoForm {
     host_scroll: UniformListScrollHandle,
     scroll: ScrollHandle,
     draft: RepoDraft,
+    menu: Option<Menu>,
+    side: Side,
+    _subs: Vec<Subscription>,
 }
+
+/// The popover open over the form.
+#[derive(Clone, Copy, PartialEq)]
+enum Menu {
+    Mark,
+    /// The account menu of a provider.
+    Account(&'static str),
+}
+
+/// What `Desktop` hands the form each frame.
+#[derive(Default)]
+pub(crate) struct Side {
+    /// The saved project at the form's folder, whose settings the form doesn't edit.
+    pub stored: Option<RepoConfig>,
+    /// The agents on offer.
+    pub offered: Vec<&'static str>,
+    pub names: BTreeMap<&'static str, String>,
+    /// The accounts of the folder's machine.
+    pub accounts: Vec<Account>,
+    /// The name of the machine the folder is on, when it isn't this Mac.
+    pub path_host: Option<String>,
+    pub hosts: Vec<HostRow>,
+}
+
+pub(crate) enum RepoEvent {
+    Close,
+    Save {
+        path: String,
+        cfg: Box<RepoConfig>,
+    },
+    Remove(String),
+    /// Browse… asks for the host finder at `dir`.
+    Browse {
+        host: String,
+        dir: String,
+    },
+}
+
+impl EventEmitter<RepoEvent> for RepoForm {}
 
 /// The form's choices besides its text inputs.
 struct RepoDraft {
@@ -52,8 +98,6 @@ struct RepoDraft {
     icon: Option<ProjectIcon>,
     /// The account by provider its new sessions start on.
     accounts: BTreeMap<String, String>,
-    /// The provider whose account menu is open.
-    account_menu: Option<&'static str>,
     /// The agents its model panel leaves out.
     hidden: BTreeSet<String>,
     /// Reset is asking to be confirmed.
@@ -74,7 +118,6 @@ impl Default for RepoDraft {
             color: PALETTE[0],
             icon: None,
             accounts: BTreeMap::new(),
-            account_menu: None,
             hidden: BTreeSet::new(),
             resetting: false,
             editing: None,
@@ -229,7 +272,7 @@ fn script_row(label: &str, hint: &str, input: &Entity<InputState>) -> AnyElement
 }
 
 impl RepoForm {
-    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+    pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let name = cx.new(|cx| InputState::new(window, cx));
         let setup = cx.new(|cx| InputState::new(window, cx).placeholder("pnpm install"));
         let teardown = cx.new(|cx| InputState::new(window, cx).placeholder("docker compose down"));
@@ -243,7 +286,353 @@ impl RepoForm {
             }),
             cx.subscribe(&name, |_, _, _: &InputEvent, cx| cx.notify()),
         ];
-        (Self { name, setup, teardown, host_path, host_scroll: UniformListScrollHandle::new(), scroll: ScrollHandle::new(), draft: RepoDraft::default() }, subs)
+        Self {
+            name,
+            setup,
+            teardown,
+            host_path,
+            host_scroll: UniformListScrollHandle::new(),
+            scroll: ScrollHandle::new(),
+            draft: RepoDraft::default(),
+            menu: None,
+            side: Side::default(),
+            _subs: subs,
+        }
+    }
+
+    pub(crate) fn hand(&mut self, side: Side) {
+        self.side = side;
+    }
+
+    /// The folder the form is on.
+    pub(crate) fn path(&self) -> Option<&str> {
+        self.draft.path.as_deref()
+    }
+
+    fn agent_name(&self, provider: &str) -> String {
+        self.side.names.get(provider).cloned().unwrap_or_else(|| theme::provider_name(provider).into())
+    }
+
+    fn form_name(&self, cx: &App) -> String {
+        typed_or(&self.name, || self.draft.fallback_name(), cx)
+    }
+
+    pub(crate) fn show_mark_menu(&mut self) {
+        self.menu = Some(Menu::Mark);
+    }
+
+    pub(crate) fn set_source(&mut self, v: Source) {
+        let f = &mut self.draft;
+        f.source = v;
+        f.path = None;
+        f.probe = None;
+        f.browse = None;
+    }
+
+    /// Opens the form on the project `editing`, whose saved settings are `stored`, or on a new one.
+    pub(crate) fn reset(&mut self, editing: Option<String>, stored: Option<RepoConfig>, color: u32, window: &mut Window, cx: &mut Context<Self>) {
+        let cfg = stored.clone().unwrap_or_default();
+        self.side.stored = stored;
+        self.menu = None;
+        self.draft = RepoDraft { color, icon: cfg.icon, accounts: cfg.accounts, hidden: cfg.hidden, editing: editing.clone(), ..RepoDraft::default() };
+        self.scroll = ScrollHandle::new();
+        self.name.update(cx, |s, cx| {
+            s.set_value(cfg.name, window, cx);
+            s.set_placeholder("", window, cx);
+        });
+        self.setup.update(cx, |s, cx| s.set_value(cfg.setup, window, cx));
+        self.teardown.update(cx, |s, cx| s.set_value(cfg.teardown, window, cx));
+        if let Some(p) = editing {
+            self.set_path(p.clone(), window, cx);
+            self.draft.saved = Some(self.config(self.form_name(cx), cx));
+        }
+    }
+
+    /// Takes `dir` on `host`, picked in the host finder, as the project's folder, with the host browser moved there too.
+    pub(crate) fn pick_host_folder(&mut self, host: String, dir: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.draft.browse = Some(Browse::at(&host, &dir));
+        self.browse_to(dir.clone(), window, cx);
+        self.set_path(hosts::place(&host, &dir), window, cx);
+    }
+
+    fn set_path(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.draft.path = Some(path.clone());
+        self.draft.probe = Some(Probe::Loading);
+        self.name.update(cx, |s, cx| s.set_placeholder(basename(&path), window, cx));
+        let dir = path.clone();
+        let task = cx.background_executor().spawn(async move {
+            let runner = hosts::runner_for(&dir);
+            (git::read(&runner, &dir, true), git::remotes(&runner, &dir))
+        });
+        cx.spawn(async move |this, cx| {
+            let (repo, remotes) = task.await;
+            this.update(cx, |f, cx| {
+                let f = &mut f.draft;
+                if f.path.as_ref() != Some(&path) {
+                    return;
+                }
+                f.probe = Some(match repo {
+                    Some(r) => Probe::Git { clean: r.files.is_empty(), branch: r.branch, remotes },
+                    None => Probe::NotGit,
+                });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn ready(&self, cx: &App) -> bool {
+        self.draft.ready(&self.form_name(cx))
+    }
+
+    fn unsaved(&self, cx: &App) -> bool {
+        let f = &self.draft;
+        f.editing.is_none() || f.unsaved(&self.config(self.form_name(cx), cx))
+    }
+
+    fn copy_path(&mut self, path: String, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(path));
+        // A second copy inside the window would have the first timer clear the check early.
+        if self.draft.copied {
+            return;
+        }
+        self.draft.copied = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_millis(1200)).await;
+            this.update(cx, |f, cx| {
+                f.draft.copied = false;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub(crate) fn save(&mut self, cx: &mut Context<Self>) {
+        if !self.ready(cx) {
+            return;
+        }
+        let Some(path) = self.draft.path.clone() else { return };
+        let cfg = self.config(self.form_name(cx), cx);
+        cx.emit(RepoEvent::Save { path, cfg: Box::new(cfg) });
+    }
+
+    /// The project as the form now has it; its dev server URL is set in Settings › Browser.
+    fn config(&self, name: String, cx: &App) -> RepoConfig {
+        let saved = self.side.stored.as_ref();
+        RepoConfig {
+            name,
+            color: self.draft.color,
+            icon: self.draft.icon.clone(),
+            setup: self.setup.read(cx).value().trim().to_string(),
+            teardown: self.teardown.read(cx).value().trim().to_string(),
+            launch: saved.map(|r| r.launch.clone()).unwrap_or_default(),
+            dev_url: saved.map(|r| r.dev_url.clone()).unwrap_or_default(),
+            gh_account: saved.map(|r| r.gh_account.clone()).unwrap_or_default(),
+            accounts: self.draft.accounts.clone(),
+            hidden: self.draft.hidden.clone(),
+        }
+    }
+
+    /// Puts the form back on the app's defaults; Save keeps it.
+    fn reset_defaults(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.draft.resetting = false;
+        self.draft.accounts.clear();
+        self.draft.hidden.clear();
+        for input in [&self.setup, &self.teardown] {
+            input.update(cx, |s, cx| s.set_value("", window, cx));
+        }
+        cx.notify();
+    }
+
+    /// Reset and Remove, on their own plate under an edited project's settings.
+    fn project_actions(&self, path: &str, name: &str, cx: &mut Context<Self>) -> Div {
+        let changed = match project_changes(&self.config(name.into(), cx), &self.side.offered).len() {
+            0 => "At defaults".to_string(),
+            n => format!("{n} changed"),
+        };
+        let row = |id: &'static str, glyph: &str, label: &str, color: Token, aside: String| {
+            plate_row()
+                .id(id)
+                .cursor_pointer()
+                .hover(|d| d.bg(FILL_1))
+                .child(icon(glyph, 14., color))
+                .child(div().flex_1().text_size(px(13.)).text_color(color).child(label.to_string()))
+                .child(div().text_size(px(12.)).text_color(TEXT_4).child(aside))
+        };
+        let reset =
+            row("repo-reset", "discard", "Reset to defaults\u{2026}", TEXT, changed).rounded_t(px(12.)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.draft.resetting ^= true;
+                cx.notify();
+            }));
+        let p = path.to_string();
+        let remove = row("repo-remove", "trash", "Remove from Anywhere\u{2026}", FAILED, "Files and worktrees stay on disk".into())
+            .rounded_b(px(12.))
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(RepoEvent::Remove(p.clone()))));
+        let mut rows = vec![reset.into_any_element()];
+        if self.draft.resetting {
+            rows.push(div().p(px(12.)).child(self.reset_confirm(name, cx)).into_any_element());
+        }
+        rows.push(remove.into_any_element());
+        group(None, rows, None)
+    }
+
+    /// The settings Reset would put back, asking to be confirmed.
+    fn reset_confirm(&self, name: &str, cx: &mut Context<Self>) -> Div {
+        let changes = project_changes(&self.config(name.into(), cx), &self.side.offered);
+        let lead = match changes.len() {
+            0 => "Every setting here is already at its default.".to_string(),
+            1 => "Only this project changes. 1 setting will go back:".to_string(),
+            n => format!("Only this project changes. {n} settings will go back:"),
+        };
+        let lines = changes.into_iter().map(|(label, now, default)| {
+            div()
+                .py(px(5.))
+                .flex()
+                .justify_between()
+                .gap(px(12.))
+                .border_t(px(0.5))
+                .border_color(SEPARATOR)
+                .child(div().text_color(TEXT).child(label))
+                .child(div().flex_none().text_color(TEXT_3).child(format!("{now} \u{2192} {default}")))
+        });
+        let cancel = ui::button("repo-reset-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.draft.resetting = false;
+            cx.notify();
+        }));
+        let reset = ui::button("repo-reset-go", Variant::Primary, None, "Reset")
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.reset_defaults(window, cx)));
+        div()
+            .p(px(12.))
+            .flex()
+            .flex_col()
+            .gap(px(6.))
+            .rounded(px(10.))
+            .bg(FILL_1)
+            .text_size(px(12.5))
+            .child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(format!("Reset {name} to defaults?")))
+            .child(div().pb(px(4.)).text_color(TEXT_2).child(lead))
+            .children(lines)
+            .child(div().pt(px(4.)).flex().justify_end().gap(px(8.)).child(cancel).child(reset))
+    }
+
+    /// The project's mark, name, folder and what git says of it, centred over its settings.
+    fn repo_hero(&self, name: &str, cx: &mut Context<Self>) -> Div {
+        let f = self;
+        let (title, copy) = match &f.draft.path {
+            Some(p) => match hosts::split(p) {
+                (Some(h), path) => (format!("{}:{path}", self.side.path_host.as_deref().unwrap_or(h)), Some(path.to_string())),
+                (None, _) => (tilde(p), Some(p.clone())),
+            },
+            None => ("No folder chosen".into(), None),
+        };
+        let copied = f.draft.copied;
+        let copy = copy.map(|path| {
+            div()
+                .id("repo-copy-path")
+                .size(px(20.))
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .rounded(px(5.))
+                .cursor_pointer()
+                .hover(|d| d.bg(FILL_3))
+                .child(if copied { icon("check", 12., SUCCESS_TEXT) } else { icon("copy", 12., TEXT_4) })
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.copy_path(path.clone(), cx)))
+        });
+        let name_field =
+            div().mt(px(10.)).w(px(360.)).h(px(40.)).px(px(10.)).flex().items_center().rounded(px(8.)).hover(|d| d.bg(FILL_1)).child(div().flex_1().child(
+                Input::new(&f.name).appearance(false).p_0().h(px(36.)).line_height(px(30.)).text_size(px(22.)).font_weight(FontWeight::BOLD).text_center(),
+            ));
+        let path = div()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .font_family(MONO)
+            .text_size(px(12.))
+            .text_color(TEXT_3)
+            .child(div().max_w(px(480.)).truncate().child(title))
+            .children(copy);
+        let facts = div().pt(px(6.)).flex().flex_wrap().justify_center().gap(px(6.)).children(folder_facts(f.draft.probe.as_ref()).into_iter().map(fact_chip));
+        div().pb(px(4.)).flex().flex_col().items_center().gap(px(6.)).child(self.mark_picker(name, cx)).child(name_field).child(path).child(facts)
+    }
+}
+
+impl Render for RepoForm {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let name = self.form_name(cx);
+        let editing = self.draft.editing.clone();
+        let mut body: Vec<AnyElement> = Vec::new();
+        if self.draft.source == Source::Host && editing.is_none() {
+            body.push(self.host_browser(cx).into_any_element());
+        }
+        body.push(self.repo_hero(&name, cx).into_any_element());
+        let accounts = self.project_account_rows(cx);
+        if !accounts.is_empty() {
+            body.push(group(Some("Sessions"), accounts, Some("New chats in this project start on these accounts.")).into_any_element());
+        }
+        let agents = self.project_agent_rows(cx);
+        if !agents.is_empty() {
+            body.push(group(Some("Agents"), agents, Some("One switched off stays out of this project\u{2019}s model menu.")).into_any_element());
+        }
+        let f = &*self;
+        if !f.draft.plain_folder() {
+            let scripts = vec![
+                script_row("When one is created", "Runs in the new worktree", &f.setup),
+                script_row("When one is deleted", "Runs before it\u{2019}s removed", &f.teardown),
+            ];
+            body.push(group(Some("Worktrees"), scripts, Some("Leave empty to skip.")).into_any_element());
+        }
+        if let Some(p) = &editing {
+            body.push(self.project_actions(p, &name, cx).into_any_element());
+        }
+        let unsaved = self.unsaved(cx);
+        let note = match &editing {
+            Some(_) if unsaved => div().flex().items_center().gap(px(7.)).child(ui::dot(6., WAITING_DOT)).child("Unsaved changes"),
+            None if !name.is_empty() => div().truncate().child(format!("Adds {name} to the project rail")),
+            _ => div(),
+        };
+        let ready = self.ready(cx) && unsaved;
+        let label = if editing.is_some() { "Save" } else { "Add project" };
+        let cancel = ui::large(ui::button("repo-cancel", Variant::Secondary, None, "Cancel"))
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(RepoEvent::Close)));
+        let submit = ui::large(ui::button("repo-submit", Variant::Primary, None, label))
+            .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.save(cx))))
+            .when(!ready, |d| d.opacity(0.5).cursor_default());
+        let close = ui::icon_button("repo-close", "x").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(RepoEvent::Close)));
+        let title = if editing.is_some() { "Project settings" } else { "Add project" };
+        let header =
+            div().flex().items_center().child(div().flex_1().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(title)).child(close);
+        // The settings scroll between a fixed header and footer when the window is too short for them.
+        let max_h = window.viewport_size().height - px(2. * SHEET_TOP);
+        let scroll =
+            div().id("repo-scroll").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.scroll).px(px(24.)).flex().flex_col().gap(px(20.)).children(body);
+        let handle = &self.scroll;
+        // The scrollbar hides at rest, so a line over the footer shows the settings run on below it. A sheet just
+        // opened has no layout to tell by until its next frame.
+        if handle.bounds().size.height <= px(0.) {
+            window.request_animation_frame();
+        }
+        let more = more_below(f32::from(handle.offset().y), f32::from(handle.max_offset().y));
+        let scroll = div()
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .border_b(px(0.5))
+            .border_color(if more { SEPARATOR.into() } else { transparent_black() })
+            .child(scroll)
+            .vertical_scrollbar(handle);
+        ui::pop(div().w(px(600.)).max_h(max_h).pt(px(14.)).pb(px(20.)).flex().flex_col().gap(px(14.)))
+            .rounded(px(R_DIALOG))
+            .occlude()
+            .child(header.px(px(18.)))
+            .child(scroll)
+            .child(footer(note, cancel, submit).px(px(24.)))
     }
 }
 
@@ -265,11 +654,6 @@ impl Desktop {
             .ok();
         })
         .detach();
-    }
-
-    fn repo_form_name(&self, cx: &App) -> String {
-        let f = &self.repo_form;
-        typed_or(&f.name, || f.draft.fallback_name(), cx)
     }
 
     pub fn project_settings(&mut self, _: &crate::actions::ProjectSettings, window: &mut Window, cx: &mut Context<Self>) {
@@ -305,214 +689,30 @@ impl Desktop {
     /// Opens Add project on Folder on a host.
     pub(crate) fn open_host_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open(Overlay::AddRepo, window, cx);
-        self.set_repo_source(Source::Host);
+        self.repo_form.update(cx, |f, _| f.set_source(Source::Host));
         cx.notify();
     }
 
-    pub(crate) fn set_repo_source(&mut self, v: Source) {
-        let f = &mut self.repo_form.draft;
-        f.source = v;
-        f.path = None;
-        f.probe = None;
-        f.browse = None;
-    }
-
     pub fn reset_repo_form(&mut self, editing: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
-        let cfg = editing.as_ref().and_then(|p| self.store.repos.get(p)).cloned().unwrap_or_default();
+        let stored = editing.as_ref().and_then(|p| self.store.repos.get(p)).cloned();
         let color = match &editing {
             Some(p) => self.repo_color(p),
             None => self.next_color(),
         };
         self.settings.menu = None;
-        let f = &mut self.repo_form;
-        f.draft = RepoDraft { color, icon: cfg.icon, accounts: cfg.accounts, hidden: cfg.hidden, editing: editing.clone(), ..RepoDraft::default() };
-        f.scroll = ScrollHandle::new();
-        f.name.update(cx, |s, cx| {
-            s.set_value(cfg.name, window, cx);
-            s.set_placeholder("", window, cx);
-        });
-        f.setup.update(cx, |s, cx| s.set_value(cfg.setup, window, cx));
-        f.teardown.update(cx, |s, cx| s.set_value(cfg.teardown, window, cx));
-        if let Some(p) = editing {
-            self.set_repo_path(p.clone(), window, cx);
-            self.repo_form.draft.saved = Some(self.repo_config(&p, self.repo_form_name(cx), cx));
-        }
+        self.repo_form.update(cx, |f, cx| f.reset(editing, stored, color, window, cx));
     }
 
-    /// Takes `dir` on `host`, picked in the host finder, as the project's folder, with the host browser moved there too.
-    pub(crate) fn pick_host_folder(&mut self, host: String, dir: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.repo_form.draft.browse = Some(Browse::at(&host, &dir));
-        self.browse_to(dir.clone(), window, cx);
-        self.set_repo_path(hosts::place(&host, &dir), window, cx);
-    }
-
-    fn set_repo_path(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
-        let f = &mut self.repo_form;
-        f.draft.path = Some(path.clone());
-        f.draft.probe = Some(Probe::Loading);
-        f.name.update(cx, |s, cx| s.set_placeholder(basename(&path), window, cx));
-        let dir = path.clone();
-        let task = cx.background_executor().spawn(async move {
-            let runner = hosts::runner_for(&dir);
-            (git::read(&runner, &dir, true), git::remotes(&runner, &dir))
-        });
-        cx.spawn(async move |this, cx| {
-            let (repo, remotes) = task.await;
-            this.update(cx, |d, cx| {
-                let f = &mut d.repo_form.draft;
-                if f.path.as_ref() != Some(&path) {
-                    return;
-                }
-                f.probe = Some(match repo {
-                    Some(r) => Probe::Git { clean: r.files.is_empty(), branch: r.branch, remotes },
-                    None => Probe::NotGit,
-                });
+    pub(crate) fn on_repo_event(&mut self, _: &Entity<RepoForm>, ev: &RepoEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            RepoEvent::Close => self.close_overlay(window, cx),
+            RepoEvent::Save { path, cfg } => self.add_repo(path.clone(), RepoConfig::clone(cfg), window, cx),
+            RepoEvent::Remove(path) => {
+                self.ask(Confirm::RemoveProject(path.clone()), cx);
                 cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    fn repo_ready(&self, cx: &App) -> bool {
-        self.repo_form.draft.ready(&self.repo_form_name(cx))
-    }
-
-    fn repo_unsaved(&self, cx: &App) -> bool {
-        let f = &self.repo_form.draft;
-        f.editing.as_ref().is_none_or(|path| f.unsaved(&self.repo_config(path, self.repo_form_name(cx), cx)))
-    }
-
-    fn copy_repo_path(&mut self, path: String, cx: &mut Context<Self>) {
-        cx.write_to_clipboard(ClipboardItem::new_string(path));
-        // A second copy inside the window would have the first timer clear the check early.
-        if self.repo_form.draft.copied {
-            return;
+            }
+            RepoEvent::Browse { host, dir } => self.open_host_finder(host.clone(), Some(dir.clone()), Opener::AddProject, window, cx),
         }
-        self.repo_form.draft.copied = true;
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(Duration::from_millis(1200)).await;
-            this.update(cx, |d, cx| {
-                d.repo_form.draft.copied = false;
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    pub(crate) fn save_repo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.repo_ready(cx) {
-            return;
-        }
-        let Some(path) = self.repo_form.draft.path.clone() else { return };
-        let cfg = self.repo_config(&path, self.repo_form_name(cx), cx);
-        self.add_repo(path, cfg, window, cx);
-    }
-
-    /// The project as the form now has it; its dev server URL is set in Settings › Browser.
-    fn repo_config(&self, path: &str, name: String, cx: &App) -> RepoConfig {
-        let f = &self.repo_form;
-        let saved = self.store.repos.get(path);
-        RepoConfig {
-            name,
-            color: f.draft.color,
-            icon: f.draft.icon.clone(),
-            setup: f.setup.read(cx).value().trim().to_string(),
-            teardown: f.teardown.read(cx).value().trim().to_string(),
-            launch: saved.map(|r| r.launch.clone()).unwrap_or_default(),
-            dev_url: saved.map(|r| r.dev_url.clone()).unwrap_or_default(),
-            gh_account: saved.map(|r| r.gh_account.clone()).unwrap_or_default(),
-            accounts: f.draft.accounts.clone(),
-            hidden: f.draft.hidden.clone(),
-        }
-    }
-
-    /// Puts the form back on the app's defaults; Save keeps it.
-    fn reset_repo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let f = &mut self.repo_form;
-        f.draft.resetting = false;
-        f.draft.accounts.clear();
-        f.draft.hidden.clear();
-        for input in [&f.setup, &f.teardown] {
-            input.update(cx, |s, cx| s.set_value("", window, cx));
-        }
-        cx.notify();
-    }
-
-    /// Reset and Remove, on their own plate under an edited project's settings.
-    fn project_actions(&self, path: &str, name: &str, cx: &mut Context<Self>) -> Div {
-        let changed = match project_changes(&self.repo_config(path, name.into(), cx), &self.offered()).len() {
-            0 => "At defaults".to_string(),
-            n => format!("{n} changed"),
-        };
-        let row = |id: &'static str, glyph: &str, label: &str, color: Token, aside: String| {
-            plate_row()
-                .id(id)
-                .cursor_pointer()
-                .hover(|d| d.bg(FILL_1))
-                .child(icon(glyph, 14., color))
-                .child(div().flex_1().text_size(px(13.)).text_color(color).child(label.to_string()))
-                .child(div().text_size(px(12.)).text_color(TEXT_4).child(aside))
-        };
-        let reset =
-            row("repo-reset", "discard", "Reset to defaults\u{2026}", TEXT, changed).rounded_t(px(12.)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.repo_form.draft.resetting ^= true;
-                cx.notify();
-            }));
-        let p = path.to_string();
-        let remove = row("repo-remove", "trash", "Remove from Anywhere\u{2026}", FAILED, "Files and worktrees stay on disk".into())
-            .rounded_b(px(12.))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.ask(Confirm::RemoveProject(p.clone()), cx);
-                cx.notify();
-            }));
-        let mut rows = vec![reset.into_any_element()];
-        if self.repo_form.draft.resetting {
-            rows.push(div().p(px(12.)).child(self.reset_confirm(path, name, cx)).into_any_element());
-        }
-        rows.push(remove.into_any_element());
-        group(None, rows, None)
-    }
-
-    /// The settings Reset would put back, asking to be confirmed.
-    fn reset_confirm(&self, path: &str, name: &str, cx: &mut Context<Self>) -> Div {
-        let changes = project_changes(&self.repo_config(path, name.into(), cx), &self.offered());
-        let lead = match changes.len() {
-            0 => "Every setting here is already at its default.".to_string(),
-            1 => "Only this project changes. 1 setting will go back:".to_string(),
-            n => format!("Only this project changes. {n} settings will go back:"),
-        };
-        let lines = changes.into_iter().map(|(label, now, default)| {
-            div()
-                .py(px(5.))
-                .flex()
-                .justify_between()
-                .gap(px(12.))
-                .border_t(px(0.5))
-                .border_color(SEPARATOR)
-                .child(div().text_color(TEXT).child(label))
-                .child(div().flex_none().text_color(TEXT_3).child(format!("{now} \u{2192} {default}")))
-        });
-        let cancel = ui::button("repo-reset-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.repo_form.draft.resetting = false;
-            cx.notify();
-        }));
-        let reset =
-            ui::button("repo-reset-go", Variant::Primary, None, "Reset").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.reset_repo(window, cx)));
-        div()
-            .p(px(12.))
-            .flex()
-            .flex_col()
-            .gap(px(6.))
-            .rounded(px(10.))
-            .bg(FILL_1)
-            .text_size(px(12.5))
-            .child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(format!("Reset {name} to defaults?")))
-            .child(div().pb(px(4.)).text_color(TEXT_2).child(lead))
-            .children(lines)
-            .child(div().pt(px(4.)).flex().justify_end().gap(px(8.)).child(cancel).child(reset))
     }
 
     pub(crate) fn add_repo(&mut self, path: String, cfg: RepoConfig, window: &mut Window, cx: &mut Context<Self>) {
@@ -533,130 +733,20 @@ impl Desktop {
         self.refresh_git(cx);
     }
 
-    /// The project's mark, name, folder and what git says of it, centred over its settings.
-    fn repo_hero(&self, name: &str, cx: &mut Context<Self>) -> Div {
-        let f = &self.repo_form;
-        let (title, copy) = match &f.draft.path {
-            Some(p) => match hosts::split(p) {
-                (Some(h), path) => (format!("{}:{path}", self.host_name(h)), Some(path.to_string())),
-                (None, _) => (tilde(p), Some(p.clone())),
-            },
-            None => ("No folder chosen".into(), None),
+    pub fn repo_view(&mut self, cx: &mut Context<Self>) -> Div {
+        let path = self.repo_form.read(cx).path().map(str::to_string);
+        let host = host_of(path.as_deref());
+        let offered = self.offered();
+        let side = Side {
+            stored: path.as_deref().and_then(|p| self.store.repos.get(p)).cloned(),
+            names: LaunchPick::PROVIDERS.into_iter().chain(offered.iter().copied()).map(|p| (p, self.agent_name(p))).collect(),
+            offered,
+            accounts: self.accounts.list(&host).to_vec(),
+            path_host: host.map(|h| self.host_name(&h)),
+            hosts: self.host_choices(),
         };
-        let copied = f.draft.copied;
-        let copy = copy.map(|path| {
-            div()
-                .id("repo-copy-path")
-                .size(px(20.))
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .rounded(px(5.))
-                .cursor_pointer()
-                .hover(|d| d.bg(FILL_3))
-                .child(if copied { icon("check", 12., SUCCESS_TEXT) } else { icon("copy", 12., TEXT_4) })
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.copy_repo_path(path.clone(), cx)))
-        });
-        let name_field =
-            div().mt(px(10.)).w(px(360.)).h(px(40.)).px(px(10.)).flex().items_center().rounded(px(8.)).hover(|d| d.bg(FILL_1)).child(div().flex_1().child(
-                Input::new(&f.name).appearance(false).p_0().h(px(36.)).line_height(px(30.)).text_size(px(22.)).font_weight(FontWeight::BOLD).text_center(),
-            ));
-        let path = div()
-            .flex()
-            .items_center()
-            .gap(px(4.))
-            .font_family(MONO)
-            .text_size(px(12.))
-            .text_color(TEXT_3)
-            .child(div().max_w(px(480.)).truncate().child(title))
-            .children(copy);
-        let facts = div().pt(px(6.)).flex().flex_wrap().justify_center().gap(px(6.)).children(folder_facts(f.draft.probe.as_ref()).into_iter().map(fact_chip));
-        div().pb(px(4.)).flex().flex_col().items_center().gap(px(6.)).child(self.mark_picker(name, cx)).child(name_field).child(path).child(facts)
-    }
-
-    pub fn repo_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let name = self.repo_form_name(cx);
-        let editing = self.repo_form.draft.editing.clone();
-        let mut body: Vec<AnyElement> = Vec::new();
-        if self.repo_form.draft.source == Source::Host && editing.is_none() {
-            body.push(self.host_browser(cx).into_any_element());
-        }
-        body.push(self.repo_hero(&name, cx).into_any_element());
-        let accounts = self.project_account_rows(cx);
-        if !accounts.is_empty() {
-            body.push(group(Some("Sessions"), accounts, Some("New chats in this project start on these accounts.")).into_any_element());
-        }
-        let agents = self.project_agent_rows(cx);
-        if !agents.is_empty() {
-            body.push(group(Some("Agents"), agents, Some("One switched off stays out of this project\u{2019}s model menu.")).into_any_element());
-        }
-        let f = &self.repo_form;
-        if !f.draft.plain_folder() {
-            let scripts = vec![
-                script_row("When one is created", "Runs in the new worktree", &f.setup),
-                script_row("When one is deleted", "Runs before it\u{2019}s removed", &f.teardown),
-            ];
-            body.push(group(Some("Worktrees"), scripts, Some("Leave empty to skip.")).into_any_element());
-        }
-        if let Some(p) = &editing {
-            body.push(self.project_actions(p, &name, cx).into_any_element());
-        }
-        let unsaved = self.repo_unsaved(cx);
-        let note = match &editing {
-            Some(_) if unsaved => div().flex().items_center().gap(px(7.)).child(ui::dot(6., WAITING_DOT)).child("Unsaved changes"),
-            None if !name.is_empty() => div().truncate().child(format!("Adds {name} to the project rail")),
-            _ => div(),
-        };
-        let ready = self.repo_ready(cx) && unsaved;
-        let label = if editing.is_some() { "Save" } else { "Add project" };
-        let cancel = ui::large(ui::button("repo-cancel", Variant::Secondary, None, "Cancel"))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
-        let submit = ui::large(ui::button("repo-submit", Variant::Primary, None, label))
-            .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.save_repo(window, cx))))
-            .when(!ready, |d| d.opacity(0.5).cursor_default());
-        let close = ui::icon_button("repo-close", "x").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
-        let title = if editing.is_some() { "Project settings" } else { "Add project" };
-        let header =
-            div().flex().items_center().child(div().flex_1().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(title)).child(close);
-        // The settings scroll between a fixed header and footer when the window is too short for them.
-        let max_h = window.viewport_size().height - px(2. * SHEET_TOP);
-        let scroll = div()
-            .id("repo-scroll")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .track_scroll(&self.repo_form.scroll)
-            .px(px(24.))
-            .flex()
-            .flex_col()
-            .gap(px(20.))
-            .children(body);
-        let handle = &self.repo_form.scroll;
-        // The scrollbar hides at rest, so a line over the footer shows the settings run on below it. A sheet just
-        // opened has no layout to tell by until its next frame.
-        if handle.bounds().size.height <= px(0.) {
-            window.request_animation_frame();
-        }
-        let more = more_below(f32::from(handle.offset().y), f32::from(handle.max_offset().y));
-        let scroll = div()
-            .relative()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .border_b(px(0.5))
-            .border_color(if more { SEPARATOR.into() } else { transparent_black() })
-            .child(scroll)
-            .vertical_scrollbar(handle);
-        div().absolute().top(px(SHEET_TOP)).left_0().right_0().flex().justify_center().child(
-            ui::pop(div().w(px(600.)).max_h(max_h).pt(px(14.)).pb(px(20.)).flex().flex_col().gap(px(14.)))
-                .rounded(px(R_DIALOG))
-                .occlude()
-                .child(header.px(px(18.)))
-                .child(scroll)
-                .child(footer(note, cancel, submit).px(px(24.))),
-        )
+        self.repo_form.update(cx, |f, _| f.hand(side));
+        div().absolute().top(px(SHEET_TOP)).left_0().right_0().flex().justify_center().child(self.repo_form.clone())
     }
 }
 

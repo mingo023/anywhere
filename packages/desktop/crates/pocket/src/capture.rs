@@ -645,12 +645,12 @@ const STEPS: [(&str, Step); 303] = [
     }),
     ("vm-add", |d, window, cx| {
         d.open(Overlay::AddRepo, window, cx);
-        d.set_repo_source(crate::modals::add_project::Source::Host);
-        if let Some(h) = d.fleet.hosts.list.first() {
-            d.browse_host(h.id.clone(), window, cx);
+        d.repo_form.update(cx, |f, _| f.set_source(crate::modals::add_project::Source::Host));
+        if let Some(id) = d.fleet.hosts.list.first().map(|h| h.id.clone()) {
+            d.repo_form.update(cx, |f, cx| f.browse_host(id, window, cx));
         }
     }),
-    ("vm-browse", |d, window, cx| d.browse_to("/home/mingo/vm-app".into(), window, cx)),
+    ("vm-browse", |d, window, cx| d.repo_form.update(cx, |f, cx| f.browse_to("/home/mingo/vm-app".into(), window, cx))),
     // The host finder over Add project, on the fixture's devbox (FIXTURE_HOST_FILES=1).
     ("finder", |d, window, cx| {
         d.open_host_folder(window, cx);
@@ -691,8 +691,8 @@ const STEPS: [(&str, Step); 303] = [
         d.open_host_finder("devbox".into(), Some("/home/dev/code".into()), crate::modals::host_finder::Opener::NewSession, window, cx)
     }),
     ("finder-choose", |d, _, cx| d.host_finder.update(cx, |f, cx| f.choose(cx))),
-    ("vm-open", |d, window, cx| d.open_browsed(window, cx)),
-    ("vm-save", |d, window, cx| d.save_repo(window, cx)),
+    ("vm-open", |d, window, cx| d.repo_form.update(cx, |f, cx| f.open_browsed(window, cx))),
+    ("vm-save", |d, _, cx| d.repo_form.update(cx, |f, cx| f.save(cx))),
     ("vm-shell", |d, _, cx| d.new_shell(workspace::Place::Pane(None), cx)),
     ("vm-uname", |d, _, _| {
         if let Some(id) = d.terminals.sessions.items.iter().rev().map(|s| s.info.id.clone()).find(|id| hosts::session::untag(id).0.is_some()) {
@@ -887,7 +887,7 @@ const STEPS: [(&str, Step); 303] = [
             d.store.repos.entry(p).or_default().icon = Some(icon);
         }
     }),
-    ("emoji-menu", |d, _, _| d.settings.menu = Some(crate::modals::add_project::icon::EMOJI_MENU)),
+    ("emoji-menu", |d, _, cx| d.repo_form.update(cx, |f, _| f.show_mark_menu())),
     ("pair-phone", |d, window, cx| d.open(Overlay::PairPhone, window, cx)),
     ("owner", |d, _, _| {
         let strings = |v: &[&str]| v.iter().map(|s| s.to_string()).collect();

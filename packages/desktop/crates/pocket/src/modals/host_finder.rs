@@ -358,7 +358,7 @@ impl Desktop {
                 self.finder_closed(*opener, window, cx);
                 let (host, dir) = (host.clone(), dir.clone());
                 match opener {
-                    Opener::AddProject => self.pick_host_folder(host, dir, window, cx),
+                    Opener::AddProject => self.repo_form.update(cx, |f, cx| f.pick_host_folder(host, dir, window, cx)),
                     Opener::NewSession => self.pick_new_project(hosts::place(&host, &dir), window, cx),
                     Opener::Sidebar => self.open_chosen_folder(hosts::place(&host, &dir), window, cx),
                     Opener::CloneInto => self.clone_into(host, dir, window, cx),
@@ -376,6 +376,15 @@ impl Desktop {
         }
     }
 
+    pub(crate) fn host_choices(&self) -> Vec<HostRow> {
+        self.fleet
+            .hosts
+            .list
+            .iter()
+            .map(|h| HostRow { id: h.id.clone(), name: self.host_name(&h.id), glyph: self.space_glyph(&Space::Host(h.id.clone())) })
+            .collect()
+    }
+
     /// The finder, when it's open, over what `Desktop` hands it.
     pub(crate) fn host_finder_view(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let finder = self.host_finder.read(cx);
@@ -383,13 +392,7 @@ impl Desktop {
         let side = Side {
             name: self.host_name(&host),
             glyph: self.space_glyph(&Space::Host(host)),
-            hosts: self
-                .fleet
-                .hosts
-                .list
-                .iter()
-                .map(|h| HostRow { id: h.id.clone(), name: self.host_name(&h.id), glyph: self.space_glyph(&Space::Host(h.id.clone())) })
-                .collect(),
+            hosts: self.host_choices(),
             projects: self.projects(),
             clone: (opener == Opener::CloneInto).then(|| self.clone_form.read(cx).repo_name(cx)),
         };
