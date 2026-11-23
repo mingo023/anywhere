@@ -4,7 +4,9 @@ package holder
 
 import (
 	"bufio"
+	"encoding/json"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -45,12 +47,20 @@ func dial(t *testing.T, sock string) *Client {
 	return c
 }
 
+// vanish drops c as a pocketd that died would: no redial, and no ack of an exit.
+func vanish(c *Client) {
+	c.mu.Lock()
+	c.closing = true
+	c.mu.Unlock()
+	c.conn.Close()
+}
+
 // readUntil reads c until it has shown want, and returns all it read.
 func readUntil(t *testing.T, c *Client, want string) string {
 	t.Helper()
 	got := string(c.Tail)
 	buf := make([]byte, 4096)
-	deadline := time.AfterFunc(5*time.Second, func() { c.conn.Close() })
+	deadline := time.AfterFunc(5*time.Second, func() { vanish(c) })
 	defer deadline.Stop()
 	for !strings.Contains(got, want) {
 		n, err := c.Read(buf)
@@ -97,7 +107,7 @@ func TestAClientThatComesBackGetsTheLastCheckpointAndTheOutputSinceIt(t *testing
 	c.Checkpoint(int64(len(read)-len(c.Tail)), []byte("SCREEN"))
 	c.Write([]byte("go\r"))
 	readUntil(t, c, "two")
-	c.conn.Close()
+	vanish(c)
 
 	again := dial(t, sock)
 	defer again.Stop(0)
@@ -151,7 +161,7 @@ func TestAClientThatFindsTheProcessEndedLetsTheHolderGo(t *testing.T) {
 	sock, done := serve(t, `exit 3`)
 	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 		c := dial(t, sock)
-		c.conn.Close()
+		vanish(c)
 		if c.Exited {
 			break
 		}
@@ -206,4 +216,115 @@ func TestAStopGetsThroughInputTheProcessDoesntRead(t *testing.T) {
 		t.Fatal("the stop waited behind the input")
 	}
 	c.Close()
+}
+
+func TestAClientWhoseConnectionDropsRedialsAndMissesNothing(t *testing.T) {
+	sock, _ := serve(t, `echo one; read x; echo "two $x"; read y; exit 4`)
+	c := dial(t, sock)
+	readUntil(t, c, "one")
+	// What a holder does to a client that took more than its write deadline.
+	c.conn.Close()
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if _, err := c.Write([]byte("go\r")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the client never came back")
+		}
+	}
+	got := readUntil(t, c, "two go")
+	if strings.Contains(got, "one") {
+		t.Fatalf("output replayed twice: %q", got)
+	}
+	c.Write([]byte("y\r"))
+	if code := c.Wait(); code != 4 {
+		t.Fatalf("exit code %d", code)
+	}
+	c.Close()
+}
+
+func TestAClientAnotherOneReplacedStopsInsteadOfTakingTheHolderBack(t *testing.T) {
+	sock, _ := serve(t, `echo ready; sleep 60`)
+	first := dial(t, sock)
+	readUntil(t, first, "ready")
+	second := dial(t, sock)
+	defer second.Stop(0)
+	done := make(chan error, 1)
+	go func() {
+		_, err := io.ReadAll(first)
+		done <- err
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		vanish(first)
+		t.Fatal("the replaced client kept reading")
+	}
+	if pg, err := second.Foreground(); err != nil || pg <= 0 {
+		t.Fatalf("the newer client lost the holder: %d, %v", pg, err)
+	}
+}
+
+func TestAProcessKilledByASignalExitsWith128PlusIt(t *testing.T) {
+	sock, _ := serve(t, `kill -9 $$`)
+	c := dial(t, sock)
+	defer c.Close()
+	if code := c.Wait(); code != 128+9 {
+		t.Fatalf("exit code %d", code)
+	}
+}
+
+func TestFindWaitsForAHolderSlowToAnswer(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "hold")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	ln, err := net.Listen("unix", filepath.Join(dir, "slow.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		// A holder on a Mac too busy to answer for seconds.
+		time.Sleep(3 * time.Second)
+		hello, _ := json.Marshal(Hello{Version: Version, ID: "slow", Pid: 1})
+		writeFrame(conn, kHello, hello)
+		writeFrame(conn, kLive, nil)
+		io.Copy(io.Discard, conn)
+	}()
+	found := Find(dir)
+	if len(found) != 1 || found[0].ID != "slow" {
+		t.Fatalf("found %d", len(found))
+	}
+	vanish(found[0])
+}
+
+func TestAClientTheHoldersRingNoLongerReachesRedrawsFromTheCheckpoint(t *testing.T) {
+	sock, _ := serve(t, `echo ready; sleep 60`)
+	c := dial(t, sock)
+	defer c.Stop(0)
+	readUntil(t, c, "ready")
+	c.mu.Lock()
+	queued, base := c.queued, c.base
+	c.mu.Unlock()
+	mine, theirs := net.Pipe()
+	defer theirs.Close()
+
+	c.resume(mine, replayed{Hello: Hello{From: queued + 100}, snapshot: []byte("SCREEN"), tail: []byte("later")})
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if got := string(c.queue); !strings.HasSuffix(got, "SCREENlater") {
+		t.Fatalf("queue %q", got)
+	}
+	// What Read hands on lines up with the holder's offsets again.
+	if end := c.base + (queued - base) + int64(len("SCREENlater")); end != queued+100+int64(len("later")) || c.queued != end {
+		t.Fatalf("base %d, queued %d", c.base, c.queued)
+	}
 }

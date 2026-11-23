@@ -77,7 +77,7 @@ func Serve(spec Spec, adopted *os.File, ready io.Writer) error {
 		s.pid = cmd.Process.Pid
 		wait = func() int {
 			if st, err := cmd.Process.Wait(); err == nil {
-				return st.ExitCode()
+				return proc.ExitCode(st)
 			}
 			return -1
 		}
@@ -196,6 +196,9 @@ func (s *server) pump(wait func() int) {
 func (s *server) attach(conn net.Conn) {
 	s.mu.Lock()
 	if s.client != nil {
+		// Told, so it doesn't dial back and take the holder from conn.
+		s.client.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
+		writeFrame(s.client, kBye, nil)
 		s.client.Close()
 	}
 	s.client = conn

@@ -85,6 +85,7 @@ type Terminal struct {
 	done   chan struct{}
 	code   int
 	closed bool
+	final  string // the screen as the Terminal ended, which says why it did
 	input  func(id string, b []byte)
 	origin string
 	muted  bool  // replaying a screen: its queries were asked of a pocketd that is gone
@@ -364,6 +365,7 @@ func (s *Terminal) pump(sess session) {
 	s.mu.Lock()
 	s.code = code
 	s.broadcast(Event{Kind: "exit", Code: s.code})
+	s.final = s.vt.Plain()
 	s.vt.Free()
 	s.sess.Close()
 	s.mu.Unlock()
@@ -561,7 +563,7 @@ func (s *Terminal) Screen() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return ""
+		return s.final
 	}
 	return s.vt.Plain()
 }

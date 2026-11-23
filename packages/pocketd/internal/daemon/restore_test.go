@@ -17,6 +17,7 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/codex/codextest"
+	"pocketd/internal/handoff"
 	"pocketd/internal/proto"
 	"pocketd/internal/shellenv"
 	"pocketd/internal/state"
@@ -359,6 +360,7 @@ func TestNoPresenceInTimeFailsTheRestore(t *testing.T) {
 	reports := resuming(d, "/bin/sh", "-c", "sleep 30")
 	d.Restore(savedAgent(t.TempDir(), "claude"), "/bin/sh")
 	restoredIn(t, d)
+	d.poll()
 	if r := report(t, reports); r.ok || r.reason != "resume_timeout" {
 		t.Fatalf("report = %+v", r)
 	}
@@ -559,19 +561,150 @@ func TestAnAgentTheUserStartedComesBackAsAShell(t *testing.T) {
 	}
 }
 
-func TestAResumeSlowerThanItsWaitIsStillOneTheUserDidNotStart(t *testing.T) {
+func TestAnAgentThatShowsUpAfterItsWaitKeepsItsSession(t *testing.T) {
+	old, settle := RestoreWait, RestoreSettle
+	RestoreWait, RestoreSettle = 10*time.Millisecond, 50*time.Millisecond
+	t.Cleanup(func() { RestoreWait, RestoreSettle = old, settle })
+	d := newDaemon(t)
+	reports := resuming(d, "/bin/sh", "-c", "sleep 0.5; exec "+fakeAgent(t, "claude"))
+	d.Restore(savedAgent(t.TempDir(), "claude"), "/bin/sh")
+	term, a := restoredIn(t, d)
+	d.poll()
+	if r := report(t, reports); r.reason != "resume_timeout" {
+		t.Fatalf("report = %+v", r)
+	}
+	pr := waitPresent(t, d, term)
+	if pr.a != a {
+		t.Fatalf("the late agent came back as %s, not a-1", pr.a.ID())
+	}
+	if pr.typed {
+		t.Fatal("a late resume counts as one the user started")
+	}
+	if r := report(t, reports); !r.ok {
+		t.Fatalf("report = %+v", r)
+	}
+	if got, err := d.Agents.Get("a-1"); err != nil || got != a || a.Summary().Restore == proto.RestoreFailed {
+		t.Fatalf("a-1 = %v, %v", got, err)
+	}
+}
+
+func TestARestoreWaitStartsWithThePoller(t *testing.T) {
+	old := RestoreWait
+	RestoreWait = 50 * time.Millisecond
+	t.Cleanup(func() { RestoreWait = old })
+	d := newDaemon(t)
+	reports := resuming(d, "/bin/sh", "-c", "sleep 30")
+	d.Restore(savedAgent(t.TempDir(), "claude"), "/bin/sh")
+	restoredIn(t, d)
+	select {
+	case r := <-reports:
+		t.Fatalf("failed before the poller looked: %+v", r)
+	case <-time.After(300 * time.Millisecond):
+	}
+	d.poll()
+	if r := report(t, reports); r.reason != "resume_timeout" {
+		t.Fatalf("report = %+v", r)
+	}
+}
+
+func TestAHandedDownAgentIsNotFailedByAClock(t *testing.T) {
 	old := RestoreWait
 	RestoreWait = 10 * time.Millisecond
 	t.Cleanup(func() { RestoreWait = old })
 	d := newDaemon(t)
-	reports := resuming(d, fakeAgent(t, "claude"))
-	d.Restore(savedAgent(t.TempDir(), "claude"), "/bin/sh")
-	term, _ := restoredIn(t, d)
-	if r := report(t, reports); r.reason != "resume_timeout" {
+	reports := resuming(d, "/bin/sh")
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "claude"), Env: []string{"PATH=/bin:/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	saved := savedAgent(t.TempDir(), "claude").Terminals[0]
+	saved.TerminalID = term.Info().ID
+
+	d.expect(saved, term, "", &handoff.Agent{Phase: "idle"})
+	select {
+	case r := <-reports:
+		t.Fatalf("a handed-down agent no poll had looked for failed: %+v", r)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	if pr := waitPresent(t, d, term); pr.a.ID() != "a-1" {
+		t.Fatalf("came back as %s", pr.a.ID())
+	}
+}
+
+func TestAHandedDownAgentAPollFindsGoneFailsItsRestore(t *testing.T) {
+	d := newDaemon(t)
+	reports := resuming(d, "/bin/sh")
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: "/bin/sh", Args: []string{"-c", "sleep 30"}, Env: []string{"PATH=/bin:/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	saved := savedAgent(t.TempDir(), "claude").Terminals[0]
+	saved.TerminalID = term.Info().ID
+	d.expect(saved, term, "", &handoff.Agent{Phase: "idle"})
+
+	d.poll()
+
+	if r := report(t, reports); r.ok || r.reason != "agent_exited" {
 		t.Fatalf("report = %+v", r)
 	}
-	if pr := waitPresent(t, d, term); pr.typed {
-		t.Fatal("a late resume counts as one the user started")
+}
+
+func TestAHandedDownAgentSeenAfterItFailedShowsNoFailure(t *testing.T) {
+	d := newDaemon(t)
+	reports := resuming(d, "/bin/sh")
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: "/bin/sh", Args: []string{"-c", "sleep 0.3; exec " + fakeAgent(t, "claude")}, Env: []string{"PATH=/bin:/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	saved := savedAgent(t.TempDir(), "claude").Terminals[0]
+	saved.TerminalID = term.Info().ID
+	d.expect(saved, term, "", &handoff.Agent{Phase: "idle"})
+	d.poll()
+	if r := report(t, reports); r.reason != "agent_exited" {
+		t.Fatalf("report = %+v", r)
+	}
+
+	pr := waitPresent(t, d, term)
+
+	if s := pr.a.Summary(); s.ID != "a-1" || s.Restore != "" || !s.Attached {
+		t.Fatalf("summary = %+v", s)
+	}
+}
+
+func TestARestoreWhoseTerminalEndedStaysListedAsFailed(t *testing.T) {
+	d := newDaemon(t)
+	reports := resuming(d, "/bin/sh", "-c", "exit 1")
+	saved := savedAgent(t.TempDir(), "claude")
+	d.Restore(saved, "/bin/sh")
+	if r := report(t, reports); r.ok || r.reason != "agent_exited" {
+		t.Fatalf("report = %+v", r)
+	}
+	a, err := d.Agents.Get("a-1")
+	if err != nil {
+		t.Fatal("the failed restore is gone")
+	}
+	if s := a.Summary(); s.Restore != proto.RestoreFailed || s.TerminalID != "" {
+		t.Fatalf("summary = %+v", s)
+	}
+	if got := d.Snapshot().Terminals; len(got) != 1 || got[0].AgentID != "a-1" || got[0].ConversationID != "c1" {
+		t.Fatalf("a restart wouldn't try it again: %+v", got)
+	}
+}
+
+func TestAFailedRestoreKeepsItsEntryForTheNextRestart(t *testing.T) {
+	d := newDaemon(t)
+	reports := resuming(d, "/bin/sh", "-c", "sleep 30")
+	saved := savedAgent(t.TempDir(), "claude")
+	d.Restore(saved, "/bin/sh")
+	restoredIn(t, d)
+	d.RestoreExited("t-1")
+	report(t, reports)
+	if got := d.Snapshot().Terminals; !reflect.DeepEqual(got, saved.Terminals) {
+		t.Fatalf("Snapshot = %+v", got)
 	}
 }
 
@@ -583,6 +716,7 @@ func TestWaitRestoredReturnsOnceTheRestoreHasFailed(t *testing.T) {
 	resuming(d, "/bin/sh", "-c", "sleep 30")
 	d.Restore(savedAgent(t.TempDir(), "claude"), "/bin/sh")
 	_, a := restoredIn(t, d)
+	d.poll()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := d.WaitRestored(ctx); err != nil {

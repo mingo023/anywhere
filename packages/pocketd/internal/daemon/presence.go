@@ -596,6 +596,6 @@ func (pr *presence) setOptions(options map[string]string) {
 }
 
 func (c termDriver) inForeground() bool {
-	_, procs := foreground(c.t)
+	_, procs, _ := foreground(c.t)
 	return slices.ContainsFunc(procs, func(p proc.Proc) bool { return p.Pid == c.pid })
 }

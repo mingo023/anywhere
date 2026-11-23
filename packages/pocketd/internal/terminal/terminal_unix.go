@@ -35,7 +35,7 @@ func (s ptySession) Foreground() (int, error)    { return proc.Foreground(s.f) }
 
 func (s ptySession) Wait() int {
 	if st, err := s.p.Wait(); err == nil {
-		return st.ExitCode()
+		return proc.ExitCode(st)
 	}
 	return -1
 }

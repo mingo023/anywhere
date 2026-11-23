@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"pocketd/internal/config"
@@ -427,6 +428,14 @@ func gitFailure(err error) *Failure {
 	return &Failure{Code: "spawn_failed", Message: "git couldn't make the worktree", Detail: Tail(err.Error())}
 }
 
+// terminalExited says how a terminal ended: a code over 128 is a signal's, as a shell reports one.
+func terminalExited(code int) string {
+	if code > 128 && code < 128+65 {
+		return fmt.Sprintf("terminal exited %d (%v)", code, syscall.Signal(code-128))
+	}
+	return fmt.Sprintf("terminal exited %d", code)
+}
+
 // wait is over once the agent runs, and attaches if it is one that does.
 func (l *Launcher) wait(t *terminal.Terminal, id string, exits chan exit, attaches bool, progress func(step, note string)) Result {
 	tick := time.NewTicker(poll)
@@ -455,8 +464,7 @@ func (l *Launcher) wait(t *terminal.Terminal, id string, exits chan exit, attach
 					return r
 				}
 			}
-			msg := fmt.Sprintf("terminal exited %d", t.ExitCode())
-			return Result{TerminalID: id, Err: &Failure{Code: "spawn_failed", Message: msg, Detail: msg}}
+			return Result{TerminalID: id, Err: &Failure{Code: "spawn_failed", Message: terminalExited(t.ExitCode()), Detail: Tail(t.Screen())}}
 		case <-tick.C:
 			a, ok := l.agentIn(id)
 			switch {

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -80,6 +81,7 @@ const (
 	kCheckpoint kind = 'K' // an 8-byte output offset, then the screen at it
 	kQuery      kind = 'Q' // asks the pty's foreground process group
 	kAck        kind = 'A' // the exit is seen: the holder may go
+	kBye        kind = 'B' // holder → client: another client took over
 )
 
 const maxFrame = 64 << 20
@@ -130,82 +132,127 @@ type Client struct {
 	// Snapshot and Tail redraw the screen as it stands: the last checkpoint and the output after it.
 	Snapshot, Tail []byte
 
-	conn net.Conn
-	r    *bufio.Reader
 	wmu  sync.Mutex
+	conn net.Conn // swapped under wmu when the client redials
+	r    *bufio.Reader
 	qmu  sync.Mutex // one foreground query at a time
 	fg   chan foreground
 
-	mu     sync.Mutex
-	cond   *sync.Cond
-	queue  []byte
-	ended  bool
-	exited bool // the holder reported the exit, rather than going away
-	code   int
-	base   int64 // the output offset of the first byte Read returns
+	mu      sync.Mutex
+	cond    *sync.Cond
+	queue   []byte
+	ended   bool
+	exited  bool // the holder reported the exit, rather than going away
+	closing bool // Close ran, so the connection ending is no drop to redial
+	code    int
+	base    int64 // the output offset of the first byte Read returns
+	queued  int64 // the output offset after the last byte queued
+}
+
+// The holder drops a client that takes more than its write deadline, as a
+// pocketd on a loaded Mac may; the client dials it again until it answers.
+const (
+	redialFirst = 100 * time.Millisecond
+	redialMax   = 2 * time.Second
+	redialWait  = 10 * time.Second
+	// findWait is how long Find gives each holder to replay: a busy Mac may take seconds.
+	findWait = 10 * time.Second
+)
+
+var errReplaced = errors.New("holder: another client took over")
+
+type replayed struct {
+	Hello
+	snapshot, tail []byte
 }
 
 // Dial attaches to the holder on sock and reads its replay.
 func Dial(sock string, timeout time.Duration) (*Client, error) {
-	conn, err := net.DialTimeout("unix", sock, timeout)
+	conn, r, rp, err := attach(sock, timeout)
 	if err != nil {
 		return nil, err
 	}
-	c := &Client{Sock: sock, conn: conn, r: bufio.NewReaderSize(conn, 64<<10), fg: make(chan foreground, 1), code: -1}
+	base := rp.From + int64(len(rp.tail))
+	c := &Client{Hello: rp.Hello, Sock: sock, Snapshot: rp.snapshot, Tail: rp.tail, conn: conn, r: r, fg: make(chan foreground, 1), code: -1, base: base, queued: base}
 	c.cond = sync.NewCond(&c.mu)
-	conn.SetReadDeadline(time.Now().Add(timeout))
-	if err := c.replay(); err != nil {
-		conn.Close()
-		return nil, err
-	}
-	conn.SetReadDeadline(time.Time{})
 	go c.demux()
 	return c, nil
 }
 
-func (c *Client) replay() error {
-	k, p, err := readFrame(c.r)
+func attach(sock string, timeout time.Duration) (net.Conn, *bufio.Reader, replayed, error) {
+	conn, err := net.DialTimeout("unix", sock, timeout)
 	if err != nil {
-		return err
+		return nil, nil, replayed{}, err
+	}
+	r := bufio.NewReaderSize(conn, 64<<10)
+	conn.SetReadDeadline(time.Now().Add(timeout))
+	rp, err := replay(r)
+	if err != nil {
+		conn.Close()
+		return nil, nil, replayed{}, err
+	}
+	conn.SetReadDeadline(time.Time{})
+	return conn, r, rp, nil
+}
+
+func replay(r *bufio.Reader) (replayed, error) {
+	var rp replayed
+	k, p, err := readFrame(r)
+	if err != nil {
+		return rp, err
 	}
 	if k != kHello {
-		return fmt.Errorf("holder: %c before hello", k)
+		return rp, fmt.Errorf("holder: %c before hello", k)
 	}
-	if err := json.Unmarshal(p, &c.Hello); err != nil {
-		return err
+	if err := json.Unmarshal(p, &rp.Hello); err != nil {
+		return rp, err
 	}
-	if c.Version < MinVersion {
-		return fmt.Errorf("holder: version %d, this pocketd reads %d and later", c.Version, MinVersion)
+	if rp.Version < MinVersion {
+		return rp, fmt.Errorf("holder: version %d, this pocketd reads %d and later", rp.Version, MinVersion)
 	}
 	for {
-		k, p, err := readFrame(c.r)
+		k, p, err := readFrame(r)
 		if err != nil {
-			return err
+			return rp, err
 		}
 		switch k {
 		case kSnapshot:
-			c.Snapshot = p
+			rp.snapshot = p
 		case kOutput:
-			c.Tail = append(c.Tail, p...)
+			rp.tail = append(rp.tail, p...)
 		case kLive:
-			c.base = c.From + int64(len(c.Tail))
-			return nil
+			return rp, nil
+		case kBye:
+			return rp, errReplaced
 		default:
-			return fmt.Errorf("holder: %c during replay", k)
+			return rp, fmt.Errorf("holder: %c during replay", k)
 		}
 	}
 }
 
 func (c *Client) demux() {
-	for {
-		k, p, err := readFrame(c.r)
-		if err != nil {
+	for r := c.r; r != nil; r = c.redial() {
+		if errors.Is(c.relay(r), errReplaced) {
 			break
+		}
+	}
+	c.mu.Lock()
+	c.ended = true
+	c.cond.Broadcast()
+	c.mu.Unlock()
+}
+
+func (c *Client) relay(r *bufio.Reader) error {
+	for {
+		k, p, err := readFrame(r)
+		if err != nil {
+			return err
 		}
 		switch k {
 		case kOutput:
 			c.mu.Lock()
 			c.queue = append(c.queue, p...)
+			c.queued += int64(len(p))
 			c.cond.Broadcast()
 			c.mu.Unlock()
 		case kExit:
@@ -222,12 +269,61 @@ func (c *Client) demux() {
 			case c.fg <- f:
 			default:
 			}
+		case kBye:
+			return errReplaced
 		}
 	}
+}
+
+// redial attaches to the holder again, and returns nil once there is nothing
+// to come back to: the holder is gone, the exit was seen, or Close ran.
+func (c *Client) redial() *bufio.Reader {
+	for wait := redialFirst; ; wait = min(2*wait, redialMax) {
+		c.mu.Lock()
+		over := c.closing || c.exited
+		c.mu.Unlock()
+		if over {
+			return nil
+		}
+		conn, r, rp, err := attach(c.Sock, redialWait)
+		if err == nil {
+			if c.resume(conn, rp) {
+				return r
+			}
+			return nil
+		}
+		if errors.Is(err, errReplaced) || errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED) {
+			return nil
+		}
+		time.Sleep(wait)
+	}
+}
+
+func (c *Client) resume(conn net.Conn, rp replayed) bool {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
 	c.mu.Lock()
-	c.ended = true
+	if c.closing || c.exited {
+		c.mu.Unlock()
+		conn.Close()
+		return false
+	}
+	if skip := c.queued - rp.From; skip >= 0 {
+		if skip < int64(len(rp.tail)) {
+			c.queue = append(c.queue, rp.tail[skip:]...)
+		}
+	} else {
+		// The holder's ring no longer reaches what came last: redraw from its checkpoint.
+		given := c.queued - c.base
+		c.queue = append(append(c.queue, rp.snapshot...), rp.tail...)
+		c.base = rp.From - given - int64(len(rp.snapshot))
+	}
+	c.queued = max(c.queued, rp.From+int64(len(rp.tail)))
 	c.cond.Broadcast()
 	c.mu.Unlock()
+	c.conn.Close()
+	c.conn = conn
+	return true
 }
 
 // Read returns output in order; io.EOF once the process ended or the holder went away.
@@ -272,8 +368,11 @@ func (c *Client) Stop(grace time.Duration) {
 
 // Checkpoint gives the holder screen, the screen after the first read bytes Read returned.
 func (c *Client) Checkpoint(read int64, screen []byte) {
+	c.mu.Lock()
+	at := c.base + read
+	c.mu.Unlock()
 	p := make([]byte, 8, 8+len(screen))
-	binary.BigEndian.PutUint64(p, uint64(c.base+read))
+	binary.BigEndian.PutUint64(p, uint64(at))
 	c.send(kCheckpoint, append(p, screen...))
 }
 
@@ -315,11 +414,14 @@ func (c *Client) Wait() int {
 // a holder whose process runs keeps it running.
 func (c *Client) Close() error {
 	c.mu.Lock()
+	c.closing = true
 	exited := c.exited || c.Hello.Exited
 	c.mu.Unlock()
 	if exited {
 		c.send(kAck, nil)
 	}
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
 	return c.conn.Close()
 }
 
@@ -328,20 +430,33 @@ func (c *Client) Close() error {
 // middle of a Replace leaves, keep the newer; the older one's session ends.
 func Find(dir string) []*Client {
 	entries, _ := os.ReadDir(dir)
-	newest := map[string]*Client{}
+	var (
+		wg  sync.WaitGroup
+		mu  sync.Mutex
+		all []*Client
+	)
 	for _, e := range entries {
 		if !strings.HasSuffix(e.Name(), ".sock") {
 			continue
 		}
 		sock := filepath.Join(dir, e.Name())
-		c, err := Dial(sock, 2*time.Second)
-		if err != nil {
-			var op *net.OpError
-			if errors.As(err, &op) && op.Op == "dial" {
-				os.Remove(sock)
+		wg.Go(func() {
+			c, err := Dial(sock, findWait)
+			if err != nil {
+				var op *net.OpError
+				if errors.As(err, &op) && op.Op == "dial" {
+					os.Remove(sock)
+				}
+				return
 			}
-			continue
-		}
+			mu.Lock()
+			all = append(all, c)
+			mu.Unlock()
+		})
+	}
+	wg.Wait()
+	newest := map[string]*Client{}
+	for _, c := range all {
 		if old := newest[c.ID]; old != nil {
 			if old.Started > c.Started {
 				old, c = c, old
