@@ -56,7 +56,8 @@ pub(crate) fn layer(color: Hsla) -> impl IntoElement {
 
 fn paint(bounds: Bounds<Pixels>, color: Hsla, window: &mut Window, cx: &mut App) {
     let viewport = window.viewport_size();
-    let display = window.display(cx).map_or(viewport, |d| d.bounds().size);
+    // Display bounds are in platform points, while the viewport and scale factor are zoomed.
+    let display = window.display(cx).map_or(viewport, |d| d.bounds().size.map(|v| v / window.zoom()));
     let area = size(display.width.max(viewport.width), display.height.max(viewport.height));
     let key = Key::new(area, window.scale_factor(), color);
     DOTS.with_borrow_mut(|dots| {
