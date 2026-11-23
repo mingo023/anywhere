@@ -337,6 +337,30 @@ func TestAnAppUpdateWhoseDMGFailsItsChecksumKeepsTheAppThere(t *testing.T) {
 	}
 }
 
+func TestAnAppUpdateThatCantMoveTheAppLeavesItThere(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only a Mac runs the app")
+	}
+	dmg := releaseDMG(t, "#!/bin/sh\n# 1.2.0\necho '{\"version\": \"1.2.0\"}'\n")
+	var app string
+	out, _ := forceUpdate(t, func(dir string) string {
+		app = filepath.Join(filepath.Dir(filepath.Dir(dir)), "Applications", "Anywhere.app")
+		exe := anywhereApp(t, app, "dev.mingo.anywhere", "#!/bin/sh\n# old\n")
+		if b, err := exec.Command("chflags", "uchg", app).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %s", err, b)
+		}
+		t.Cleanup(func() { exec.Command("chflags", "nouchg", app).Run() })
+		return exe
+	}, serveRelease(t, dmg, fmt.Sprintf("%x  Anywhere.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
+	now, _ := os.ReadFile(filepath.Join(app, appPocketd))
+	if string(now) != "#!/bin/sh\n# old\n" || !strings.Contains(out, "ANYWHERE error can't replace "+app) {
+		t.Errorf("app's pocketd %q:\n%s", now, out)
+	}
+	if left, _ := filepath.Glob(app + ".*"); len(left) > 0 {
+		t.Errorf("left beside the app: %v", left)
+	}
+}
+
 const appPocketd = "Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd"
 
 func anywhereApp(t *testing.T, app, id, script string) string {
