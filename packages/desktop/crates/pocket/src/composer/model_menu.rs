@@ -360,15 +360,15 @@ pub(crate) struct PanelData {
     note: Option<String>,
 }
 
-enum Models {
+pub(crate) enum Models {
     Listed(Rc<Listed>),
     Nothing(String),
 }
 
-struct EffortData {
-    word: &'static str,
-    levels: Vec<String>,
-    on: Option<String>,
+pub(crate) struct EffortData {
+    pub(crate) word: &'static str,
+    pub(crate) levels: Vec<String>,
+    pub(crate) on: Option<String>,
 }
 
 impl Composer {
@@ -617,12 +617,7 @@ impl Desktop {
         favorite_lines(saved(&self.store.agents.favorites), saved(&self.store.agents.recent))
     }
 
-    /// What the panel says while `viewed` lists nothing for `query`.
-    pub(crate) fn no_models(&self, viewed: &str, query: &str) -> Div {
-        empty_list(self.no_models_note(viewed, query))
-    }
-
-    fn no_models_note(&self, viewed: &str, query: &str) -> String {
+    pub(crate) fn no_models_note(&self, viewed: &str, query: &str) -> String {
         empty_note(viewed, &self.agent_name(viewed), !query.trim().is_empty(), self.installed(viewed), self.models.loading(viewed))
     }
 

@@ -4,7 +4,7 @@ pub(crate) mod attachments;
 mod background;
 pub(crate) mod btw;
 mod goal;
-mod model_pill;
+pub(crate) mod model_pill;
 pub(crate) mod queue;
 pub(crate) mod send_button;
 pub(crate) mod suggest;
@@ -183,6 +183,7 @@ pub(crate) enum ChatBoxEvent {
         what: queue::Queue,
     },
     Account(account_chip::Ask),
+    Model(model_pill::Model),
 }
 
 impl EventEmitter<ChatBoxEvent> for ComposerState {}
@@ -229,13 +230,6 @@ impl ComposerState {
             pressing_send: false,
         };
         (cx.new(|_| state), subs)
-    }
-
-    /// What the model panel draws with: the agent it views, and the handles it shares with the draft.
-    pub(crate) fn panel(
-        &self,
-    ) -> (Option<&'static str>, ScrollHandle, std::rc::Rc<std::cell::RefCell<crate::composer::effort_slider::EffortSlider>>, Entity<InputState>) {
-        (self.draft.viewing, self.draft.rail.clone(), self.draft.slider.clone(), self.search.clone())
     }
 }
 
@@ -441,6 +435,7 @@ impl Desktop {
             ChatBoxEvent::ShowBlock { agent, turn, block } => self.chat_show_block(agent, *turn, *block, cx),
             ChatBoxEvent::Queue { agent, what } => self.on_queue(agent, what, window, cx),
             ChatBoxEvent::Account(ask) => self.on_account_ask(ask, window, cx),
+            ChatBoxEvent::Model(ev) => self.on_model(ev, cx),
         }
         cx.notify();
     }
@@ -1016,9 +1011,10 @@ impl Desktop {
         };
         let (t, a) = (terminal.to_string(), agent.id.clone());
         let text = crate::composer::prompt_text().child(input);
+        let pill = self.chat_model(agent, view_only, &composer, cx);
         let bar = crate::composer::prompt_bar()
             .children(composer.update(cx, |c, cx| c.goal_pill(agent, view_only, cx)))
-            .child(self.chat_model_pill(agent, view_only, cx))
+            .child(composer.update(cx, |c, cx| c.model_pill(&pill, cx)))
             .children(self.chat_access(agent, view_only).map(|shown| composer.update(cx, |c, cx| c.access_pill(&agent.id, shown, cx))))
             .children(self.chats.views.get(&agent.id).map(|v| v.read(cx).transcript()).and_then(|t| self.chats.map.update(cx, |m, cx| m.chip(agent, &t, cx))))
             .child(div().flex_1())
