@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -277,6 +278,27 @@ func TestAFailedCaptureKeepsTheEnvThatWorked(t *testing.T) {
 	d.Recapture()
 	if !slices.Contains(d.LoginEnv(), "POCKET_LOGIN=yes") {
 		t.Fatal("a timed-out capture replaced the login env")
+	}
+}
+
+func TestRecapturesAtOnceShareOneCapture(t *testing.T) {
+	d := newDaemon(t)
+	var n atomic.Int32
+	release := make(chan struct{})
+	d.Capture = func() shellenv.Result {
+		n.Add(1)
+		<-release
+		return shellenv.Result{Env: []string{"A=1"}}
+	}
+	var wg sync.WaitGroup
+	wg.Go(d.Recapture)
+	eventually(t, "the first capture", func() bool { return n.Load() == 1 })
+	wg.Go(d.Recapture)
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	wg.Wait()
+	if got := n.Load(); got != 1 {
+		t.Fatalf("%d captures", got)
 	}
 }
 

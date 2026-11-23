@@ -217,6 +217,24 @@ func TestACreateWhoseAgentNeverShowsUpFailsAtItsDeadline(t *testing.T) {
 	}
 }
 
+func TestACreateWhoseTerminalDiesSaysWhatItShowed(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\necho 'claude: the config is corrupt'\nsleep 0.2\nkill -9 $PPID\nsleep 5\n"), 0o755)
+	t.Setenv("PATH", dir+":/usr/bin:/bin")
+	t.Setenv("SHELL", "/bin/sh")
+	project, _ := filepath.EvalSymlinks(t.TempDir())
+	git(t, project, "init", "-q", "-b", "main")
+	git(t, project, "commit", "-q", "--allow-empty", "-m", "init")
+	l := launcher(t, `["`+project+`"]`)
+	l.d = &daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}
+	s := spec("claude", "ask", false)
+	s.Project, s.Checkout.Worktree = project, project
+	r := l.Create(Who{Owner: true, Key: "owner"}, "r1", s, quiet, func(Creating) {})
+	if r.Err == nil || r.Err.Code != "spawn_failed" || !strings.Contains(r.Err.Message, "killed") || !strings.Contains(r.Err.Detail, "the config is corrupt") {
+		t.Fatalf("got %+v", r.Err)
+	}
+}
+
 func TestACreateIsStartingUntilItEndsAndOnlyItsFirstWatcherHearsIt(t *testing.T) {
 	defer func(w time.Duration) { createWait = w }(createWait)
 	createWait = time.Second

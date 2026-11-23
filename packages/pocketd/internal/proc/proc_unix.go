@@ -4,6 +4,7 @@ package proc
 
 import (
 	"os"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -21,4 +22,12 @@ func Foreground(f *os.File) (int, error) {
 		return 0, err
 	}
 	return pgid, ioErr
+}
+
+// ExitCode is st's exit status, or 128 plus the signal that ended it, as a shell reports one.
+func ExitCode(st *os.ProcessState) int {
+	if ws, ok := st.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return 128 + int(ws.Signal())
+	}
+	return st.ExitCode()
 }

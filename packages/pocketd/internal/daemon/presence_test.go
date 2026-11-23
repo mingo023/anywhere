@@ -18,6 +18,7 @@ import (
 	"pocketd/internal/broker"
 	"pocketd/internal/codex"
 	"pocketd/internal/codex/codextest"
+	"pocketd/internal/holder"
 	"pocketd/internal/ops"
 	"pocketd/internal/proc"
 	"pocketd/internal/proto"
@@ -29,6 +30,14 @@ import (
 // would not do, the kernel shows its argv as /bin/sh <script>. It reports each
 // state in FAKE_AGENT_REPORT: the first at start, the rest after a line of input.
 func TestMain(m *testing.M) {
+	if len(os.Args) == 2 && os.Args[1] == "hold" {
+		var spec holder.Spec
+		if err := json.NewDecoder(os.Stdin).Decode(&spec); err != nil {
+			os.Exit(1)
+		}
+		holder.Serve(spec, nil, os.Stdout)
+		os.Exit(0)
+	}
 	name := filepath.Base(os.Args[0])
 	if name == "pocketd" || name == "python3" || slices.ContainsFunc(providers.All, func(p *providers.Spec) bool { return name == p.Cmd() }) {
 		lines := bufio.NewScanner(os.Stdin)
@@ -94,7 +103,7 @@ func waitGone(t *testing.T, d *Daemon, id string) {
 }
 
 func agentPid(term *terminal.Terminal) int {
-	_, procs := foreground(term)
+	_, procs, _ := foreground(term)
 	_, p, _ := agentProc(procs)
 	return p.Pid
 }

@@ -4,11 +4,16 @@ package daemon
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
+	"pocketd/internal/holder"
 	"pocketd/internal/proc"
 	"pocketd/internal/terminal"
 )
@@ -26,7 +31,7 @@ func shell(t *testing.T, d *Daemon) *terminal.Terminal {
 
 func TestForegroundAtThePromptIsEmptyButListsTheShell(t *testing.T) {
 	term := shell(t, newDaemon(t))
-	text, procs := foreground(term)
+	text, procs, _ := foreground(term)
 	if text != "" || !slices.ContainsFunc(procs, func(p proc.Proc) bool { return p.Pid == term.Pid() }) {
 		t.Fatalf("foreground = %q, %+v", text, procs)
 	}
@@ -48,4 +53,44 @@ func TestWatchFollowsTheForegroundJob(t *testing.T) {
 	eventually(t, "the pipeline's last member", func() bool { return term.Info().Foreground == "sleep 30" })
 	term.Write([]byte{0x03})
 	eventually(t, "back at the prompt", func() bool { return term.Info().Foreground == "" })
+}
+
+// held runs d's Terminals under holders, as pocketd does on a Mac.
+func held(t *testing.T, d *Daemon) {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err := os.MkdirTemp("/tmp", "held")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		holder.EndAll(dir, 0)
+		os.RemoveAll(dir)
+	})
+	d.Terminals.Holder = &holder.Starter{Exe: exe, Dir: dir}
+}
+
+func TestAHolderTooBusyToAnswerLeavesItsAgentListed(t *testing.T) {
+	d := newDaemon(t)
+	held(t, d)
+	term, pr := claudeIn(t, d)
+	out, err := exec.Command("ps", "-o", "ppid=", "-p", strconv.Itoa(pr.pid)).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	holderPid, _ := strconv.Atoi(strings.TrimSpace(string(out)))
+	syscall.Kill(holderPid, syscall.SIGSTOP)
+	defer syscall.Kill(holderPid, syscall.SIGCONT)
+
+	d.poll()
+
+	if d.presentIn(term.Info().ID) != pr {
+		t.Fatal("a foreground the holder didn't answer for ended the agent")
+	}
+	if _, err := d.Agents.Get(pr.a.ID()); err != nil {
+		t.Fatal(err)
+	}
 }

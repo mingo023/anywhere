@@ -65,6 +65,8 @@ type Daemon struct {
 	binding  sync.Mutex                    // one claude binds a transcript it found at a time
 
 	restoring map[string]*hint // by terminal id; under mu
+	polled    bool             // the poller has looked once, so a resume's wait runs; under mu
+	capturing chan struct{}    // closed once the capture under way is read; under mu
 	held      []*presence      // the presences whose tails Carry holds until Release
 }
 
@@ -111,7 +113,24 @@ const captureRetryMax = 5 * time.Minute
 // Recapture reads the login shell's environment again. A failed read keeps one
 // that worked; with none, it is read again later until it works, as a shell
 // that timed out while the Mac was busy logging in starts in time once idle.
+// A call while a read is under way waits for that one rather than start a
+// second shell.
 func (d *Daemon) Recapture() {
+	d.mu.Lock()
+	if wait := d.capturing; wait != nil {
+		d.mu.Unlock()
+		<-wait
+		return
+	}
+	done := make(chan struct{})
+	d.capturing = done
+	d.mu.Unlock()
+	defer func() {
+		d.mu.Lock()
+		d.capturing = nil
+		d.mu.Unlock()
+		close(done)
+	}()
 	r := d.Capture()
 	if r.Err != "" {
 		log.Printf("login shell env: %s", r)

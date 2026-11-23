@@ -88,6 +88,8 @@ type Terminal struct {
 	done   chan struct{}
 	code   int
 	closed bool
+	final  string // the screen as the Terminal ended, which says why it did
+	asked  bool
 	input  func(id string, b []byte)
 	origin string
 	muted  bool  // replaying a screen: its queries were asked of a pocketd that is gone
@@ -367,6 +369,7 @@ func (s *Terminal) pump(sess session) {
 	s.mu.Lock()
 	s.code = code
 	s.broadcast(Event{Kind: "exit", Code: s.code})
+	s.final = s.vt.Plain()
 	s.vt.Free()
 	s.sess.Close()
 	s.mu.Unlock()
@@ -564,7 +567,7 @@ func (s *Terminal) Screen() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return ""
+		return s.final
 	}
 	return s.vt.Plain()
 }
@@ -573,7 +576,19 @@ func (s *Terminal) Screen() string {
 var CloseGrace = 2 * time.Second
 
 // Close ends the Terminal's whole session in the background; Done reports the end.
-func (s *Terminal) Close() { go s.stop(CloseGrace) }
+func (s *Terminal) Close() {
+	s.mu.Lock()
+	s.asked = true
+	s.mu.Unlock()
+	go s.stop(CloseGrace)
+}
+
+// Asked is whether Close ended it, rather than its process.
+func (s *Terminal) Asked() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.asked
+}
 
 // CloseAll stops every Terminal at once. It returns when all have ended or grace+500ms has passed.
 func (m *Manager) CloseAll(grace time.Duration) {

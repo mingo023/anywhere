@@ -21,7 +21,8 @@ import (
 )
 
 var (
-	// RestoreWait is how long a resumed agent has to show up in its Terminal.
+	// RestoreWait is how long a resumed agent has to show up in its Terminal,
+	// counted from the poller's first look.
 	RestoreWait = 30 * time.Second
 	// RestoreSettle is how long an adopted agent has to reach its Conversation
 	// before it counts as resumed anyway: an untrusted claude sends no hooks.
@@ -39,6 +40,7 @@ type hint struct {
 	pr      *presence
 	live    agent.Driver // pr's driver, which takes over once the restore settles
 	over    bool
+	late    bool // failed for want of its agent in time, which may still come
 	settled bool // finish has returned: the agent shows how its restore went
 	timer   *time.Timer
 	handoff bool   // handed down by the pocketd before exec; its agent never stopped
@@ -74,7 +76,9 @@ func (p pending) Commands() ([]proto.Command, error) { return nil, p.refuse() }
 func (p pending) Close()                             { p.d.drop(p.h) }
 
 // Snapshot is what a restart needs to bring every Terminal back. An Agent
-// still resuming keeps its saved entry, so a second restart doesn't lose it.
+// still resuming keeps its saved entry, so a second restart doesn't lose it, as
+// does one that failed in a Terminal the restart started: the next one tries
+// again. A handed-down Terminal's next restart only hands it down again, to fail again.
 func (d *Daemon) Snapshot() state.File {
 	f := state.File{Version: state.Version, Terminals: []state.Terminal{}}
 	for _, info := range d.Terminals.List() {
@@ -86,7 +90,7 @@ func (d *Daemon) Snapshot() state.File {
 		var resuming *agent.Agent
 		d.mu.Lock()
 		h := d.restoring[info.ID]
-		if h != nil && !h.over {
+		if h != nil && (!h.over || !h.handoff) {
 			e = h.saved
 			e.Cols, e.Rows = info.Cols, info.Rows
 			resuming = h.a
@@ -98,6 +102,19 @@ func (d *Daemon) Snapshot() state.File {
 		if pr := d.presentIn(info.ID); pr != nil && e.AgentID == "" {
 			pr.save(&e)
 		}
+		f.Terminals = append(f.Terminals, e)
+	}
+	var placeholders []*hint
+	d.mu.Lock()
+	for id, h := range d.restoring {
+		if !slices.ContainsFunc(f.Terminals, func(e state.Terminal) bool { return e.TerminalID == id }) {
+			placeholders = append(placeholders, h)
+		}
+	}
+	d.mu.Unlock()
+	for _, h := range placeholders {
+		e := h.saved
+		e.Pinned = h.a.Summary().Pinned
 		f.Terminals = append(f.Terminals, e)
 	}
 	slices.SortFunc(f.Terminals, func(a, b state.Terminal) int { return strings.Compare(a.TerminalID, b.TerminalID) })
@@ -152,7 +169,8 @@ func (d *Daemon) reopen(e state.Terminal, shell string) (*terminal.Terminal, str
 }
 
 // expect lists e's Agent under its old id until its provider shows up in t.
-// Without t, or with a reason, it is a failed placeholder at once.
+// Without t, or with a reason, it is a failed placeholder at once. A carried
+// Agent never stopped, so no clock fails it: a look at t that finds no agent does.
 func (d *Daemon) expect(e state.Terminal, t *terminal.Terminal, reason string, carried *handoff.Agent) {
 	h := &hint{saved: e, started: time.Now(), handoff: carried != nil}
 	x := agent.Restored{ID: e.AgentID, Cwd: e.LaunchDir, Provider: e.Provider, Conversation: e.ConversationID,
@@ -173,8 +191,8 @@ func (d *Daemon) expect(e state.Terminal, t *terminal.Terminal, reason string, c
 		d.restoring = map[string]*hint{}
 	}
 	d.restoring[e.TerminalID] = h
-	if reason == "" {
-		h.timer = time.AfterFunc(RestoreWait, func() { d.finish(h, "resume_timeout") })
+	if reason == "" && carried == nil && d.polled {
+		d.wait(h)
 	}
 	d.mu.Unlock()
 	if reason != "" {
@@ -186,28 +204,87 @@ func (d *Daemon) expect(e state.Terminal, t *terminal.Terminal, reason string, c
 	}
 	go func() {
 		<-t.Done()
-		d.drop(h)
+		d.ended(h, t)
 	}()
+}
+
+// wait starts h's RestoreWait. Under mu.
+func (d *Daemon) wait(h *hint) {
+	h.timer = time.AfterFunc(RestoreWait, func() { d.finish(h, "resume_timeout") })
+}
+
+// looked starts the wait of each resume the poller's first look didn't find:
+// a start slowed by a busy Mac would otherwise use it up.
+func (d *Daemon) looked() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.polled {
+		return
+	}
+	d.polled = true
+	for _, h := range d.restoring {
+		if !h.over && !h.handoff && h.pr == nil && h.timer == nil {
+			d.wait(h)
+		}
+	}
+}
+
+// absent starts the wait of the handed-down restore in t once a look finds no
+// agent there. An agent stopped with Ctrl+Z, or under a shell for a moment, hasn't exited.
+func (d *Daemon) absent(t *terminal.Terminal) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if h := d.restoring[t.Info().ID]; h != nil && h.handoff && !h.over && h.pr == nil && h.timer == nil {
+		d.wait(h)
+	}
+}
+
+// ended fails h once t is gone, unless it settled, and keeps it listed as a
+// placeholder: the session didn't come back, but it isn't lost. One the user
+// closed goes.
+func (d *Daemon) ended(h *hint, t *terminal.Terminal) {
+	d.mu.Lock()
+	listed := d.restoring[h.saved.TerminalID] == h
+	d.mu.Unlock()
+	if !listed {
+		return
+	}
+	if t.Asked() {
+		d.drop(h)
+		return
+	}
+	d.finish(h, "agent_exited")
+	h.a.SetTerminal("")
+	time.AfterFunc(PlaceholderTTL, func() { d.drop(h) })
 }
 
 func (d *Daemon) waiting(h *hint) agent.Driver {
 	return pending{d, h}
 }
 
-// adopt hands pr the hint waiting in its Terminal, if pr is the same provider
-// and the hint is still resuming. The Agent keeps refusing prompts until the
-// restore settles, as the provider may still be loading. Any other hint's
-// placeholder closes.
+// adopt hands pr the hint waiting in its Terminal, if pr is the same provider,
+// even one whose resume was too slow: it keeps its id. A handed-down Terminal
+// falls back to a shell, where a late agent is one the user started. The Agent keeps refusing prompts until the restore
+// settles, as the provider may still be loading. Any other hint's placeholder
+// closes.
 func (d *Daemon) adopt(pr *presence, driver func(*agent.Agent) agent.Driver) *hint {
 	d.mu.Lock()
 	h := d.restoring[pr.t.Info().ID]
-	fits := h != nil && !h.over && h.pr == nil && h.saved.Provider == pr.provider
+	fits := h != nil && h.pr == nil && h.saved.Provider == pr.provider && (!h.over || h.late && !h.handoff)
+	revived := fits && h.over
 	if fits {
+		h.over = false
 		h.pr, h.live = pr, driver(h.a)
-		h.timer.Stop()
+		if h.timer != nil {
+			h.timer.Stop()
+		}
 		h.timer = time.AfterFunc(RestoreSettle, func() { d.finish(h, "") })
 	}
 	d.mu.Unlock()
+	if revived {
+		h.a.SetAttached(true)
+		h.a.SetRestore("")
+	}
 	if h != nil && !fits {
 		d.drop(h)
 		return nil
@@ -256,10 +333,15 @@ func (d *Daemon) RestoreExited(id string) {
 func (d *Daemon) finish(h *hint, reason string) {
 	d.mu.Lock()
 	if h.over || reason == "resume_timeout" && h.pr != nil {
+		if reason == "agent_exited" {
+			// What shows up in its Terminal now is an agent the user started.
+			h.late = false
+		}
 		d.mu.Unlock()
 		return
 	}
 	h.over = true
+	h.late = reason == "resume_timeout"
 	defer d.markSettled(h)
 	if h.timer != nil {
 		h.timer.Stop()

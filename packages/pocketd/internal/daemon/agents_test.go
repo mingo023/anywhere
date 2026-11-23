@@ -66,7 +66,7 @@ func TestANotSessionCommandOfANewAgentIsNoAgent(t *testing.T) {
 	t.Cleanup(term.Close)
 	eventually(t, "opencode serve to run", func() bool {
 		d.poll()
-		_, procs := foreground(term)
+		_, procs, _ := foreground(term)
 		return slices.ContainsFunc(procs, func(p proc.Proc) bool { return slices.Contains(p.Argv, "serve") })
 	})
 	d.poll()
