@@ -152,8 +152,9 @@ impl Desktop {
     pub(crate) fn close_trashed(&mut self, path: &Path, cx: &mut Context<Self>) -> Option<String> {
         let preview = self.preview.read(cx);
         let open = preview.file(self.focused_pane(cx)).filter(|f| Path::new(f).starts_with(path) && !preview.dirty(f)).map(String::from);
+        let drafts = preview.draft_paths();
         let path = path.to_string_lossy();
-        self.workspaces.values_mut().for_each(|w| w.close_files(&path, |f| preview.dirty(f)));
+        self.workspaces.update(cx, |all, _| all.values_mut().for_each(|w| w.close_files(&path, |f| drafts.iter().any(|d| d == f))));
         self.load_active(cx);
         self.save_soon(cx);
         open
@@ -161,7 +162,7 @@ impl Desktop {
 
     pub(crate) fn tabs_follow(&mut self, from: &Path, to: &Path, cx: &mut Context<Self>) {
         let (from, to) = (from.to_string_lossy(), to.to_string_lossy());
-        self.workspaces.values_mut().for_each(|w| w.move_files(&from, &to));
+        self.workspaces.update(cx, |all, _| all.values_mut().for_each(|w| w.move_files(&from, &to)));
         self.preview.update(cx, |p, _| p.state.move_files(&from, &to));
         self.save_soon(cx);
     }

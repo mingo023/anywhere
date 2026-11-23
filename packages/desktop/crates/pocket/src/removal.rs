@@ -961,7 +961,7 @@ impl Desktop {
         for trees in self.worktrees.values_mut() {
             trees.retain(|w| w.path != tree);
         }
-        self.workspaces.remove(tree);
+        self.workspaces.update(cx, |w, _| w.remove(tree));
         self.repos.remove(tree);
         self.prs.forget(tree);
         self.store.layouts.remove(tree);

@@ -55,7 +55,7 @@ impl Desktop {
             Source::Pane(p) => Some(p),
             Source::Top(_) => None,
         };
-        let Some(w) = self.workspaces.get(tree) else { return };
+        let Some(w) = self.workspaces.read(cx).get(tree) else { return };
         let aim = match self.bar_index(tree, at, cx) {
             Some(i) => Some(Drop::Top(i)),
             None => pane_aim(&w.tree.drawn_layout(self.panels.bounds), at, from).map(|(p, e)| Drop::Pane(p, e)),
@@ -72,11 +72,19 @@ impl Desktop {
     pub(super) fn drop_pane(&mut self, from: PaneId, window: &mut Window, cx: &mut Context<Self>) {
         let Some(Held { aim, .. }) = self.panels.pane_drag.take() else { return };
         let Some(tree) = self.place(cx) else { return };
-        let w = self.workspace(&tree, cx);
-        match aim {
-            Some(Drop::Pane(to, edge)) => w.tree.move_pane(from, to, edge),
-            Some(Drop::Top(i)) => w.detach_pane(from, i),
-            None => return cx.notify(),
+        let moved = self.workspace(&tree, cx, |w| match aim {
+            Some(Drop::Pane(to, edge)) => {
+                w.tree.move_pane(from, to, edge);
+                true
+            }
+            Some(Drop::Top(i)) => {
+                w.detach_pane(from, i);
+                true
+            }
+            None => false,
+        });
+        if !moved {
+            return cx.notify();
         }
         self.show_focused(&tree, window, cx);
         self.save_soon(cx);
@@ -85,7 +93,7 @@ impl Desktop {
 
     /// Follows top tab `i`, held below the bar, over worktree `tree`'s panes, redrawing only when where it would drop changes.
     pub(super) fn aim_top(&mut self, i: usize, tree: &str, at: (f32, f32), cx: &mut Context<Self>) {
-        let Some(w) = self.workspaces.get(tree) else { return };
+        let Some(w) = self.workspaces.read(cx).get(tree) else { return };
         let aim = pane_aim(&w.tree.drawn_layout(self.panels.bounds), at, None).map(|(p, e)| Drop::Pane(p, e));
         let held = self.panels.pane_drag.get_or_insert(Held { from: Source::Top(i), aim: None, at });
         held.at = at;
@@ -99,7 +107,7 @@ impl Desktop {
     pub(super) fn drop_top(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(Held { from: Source::Top(i), aim: Some(Drop::Pane(pane, edge)), .. }) = self.panels.pane_drag.take() else { return false };
         let Some(tree) = self.place(cx) else { return false };
-        self.workspace(&tree, cx).place_top(i, pane, edge);
+        self.workspace(&tree, cx, |w| w.place_top(i, pane, edge));
         self.show_focused(&tree, window, cx);
         self.save_soon(cx);
         cx.notify();
@@ -113,7 +121,7 @@ impl Desktop {
     }
 
     fn top_slots(&self, tree: &str, cx: &App) -> Vec<(f32, f32)> {
-        self.workspaces.get(tree).map(|w| self.panels.top.read(cx).slots(w.others.len() + 1)).unwrap_or_default()
+        self.workspaces.read(cx).get(tree).map(|w| self.panels.top.read(cx).slots(w.others.len() + 1)).unwrap_or_default()
     }
 
     /// The caret before top tab `i` of worktree `tree`, within the box whose origin is `o`.
@@ -127,7 +135,7 @@ impl Desktop {
     /// Drawn within the box that starts at the bar.
     pub(super) fn pane_marks(&self, tree: &str, cx: &App) -> Option<Deferred> {
         let aim = self.panels.pane_drag.as_ref()?.aim?;
-        let (o, w) = (self.panels.top.read(cx).bounds, self.workspaces.get(tree)?);
+        let (o, w) = (self.panels.top.read(cx).bounds, self.workspaces.read(cx).get(tree)?);
         let place = |r: Rect| div().absolute().left(px(r.x - o.x)).top(px(r.y - o.y)).w(px(r.w)).h(px(r.h));
         let mark = match aim {
             Drop::Pane(p, edge) => {

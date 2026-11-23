@@ -51,8 +51,10 @@ pub(crate) fn show(cx: &App) {
 impl Desktop {
     pub fn close_active_tab(&mut self, _: &CloseTab, _: &mut Window, cx: &mut Context<Self>) {
         let tab = self.session_tree(cx).and_then(|tree| {
-            let p = self.workspace(&tree, cx).tree.focused();
-            p.active().map(|_| (p.id, p.active))
+            self.workspace(&tree, cx, |w| {
+                let p = w.tree.focused();
+                p.active().map(|_| (p.id, p.active))
+            })
         });
         match cmd_w(self.overlay.is_some(), tab, hides(self.store.general.close_quits)) {
             CmdW::Tab(pane, i) => self.close_tab(pane, i, cx),

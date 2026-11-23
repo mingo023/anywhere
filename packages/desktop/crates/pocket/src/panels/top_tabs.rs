@@ -5,7 +5,7 @@ use gpui_kit::*;
 use std::path::Path;
 use theme::*;
 use workspace::tree::Tree;
-use workspace::{Doc, Tab};
+use workspace::{Doc, Tab, Workspace};
 
 /// What a top tab says: the tab it is named after, and the tab its second line names. In a split, a focused doc leads and the first terminal shown follows; otherwise the focused terminal, else the first shown, leads and the first doc shown follows.
 pub(crate) fn copy(t: &Tree<Tab>) -> (Option<&Tab>, Option<&Tab>) {
@@ -26,9 +26,9 @@ impl Desktop {
     /// The bar over worktree `tree`'s panes: its top tabs and a + whose menu opens a new one. It moves the window.
     pub(super) fn top_bar(&mut self, tree: &str, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let (pad, toggle) = self.bar_start(6., cx);
-        let w = &self.workspaces[tree];
+        let w = &self.workspaces.read(cx)[tree];
         let (at, closable) = (w.at, !w.others.is_empty());
-        let tabs = w.tops().into_iter().enumerate().map(|(i, t)| self.top_face(tree, i, t, cx)).collect();
+        let tabs = w.tops().into_iter().enumerate().map(|(i, t)| self.top_face(w, i, t, cx)).collect();
         let bar = Bar {
             tree: tree.to_string(),
             at,
@@ -45,9 +45,8 @@ impl Desktop {
         self.panels.top.update(cx, |b, cx| b.view(bar, window, cx))
     }
 
-    /// Top tab `i` of worktree `tree`, holding the panes of `t`.
-    fn top_face(&self, tree: &str, i: usize, t: &Tree<Tab>, cx: &mut Context<Self>) -> Face {
-        let w = &self.workspaces[tree];
+    /// Top tab `i` of `w`, holding the panes of `t`.
+    fn top_face(&self, w: &Workspace, i: usize, t: &Tree<Tab>, cx: &App) -> Face {
         let ink = if i == w.at { TEXT } else { TEXT_3 };
         let (head, meta) = copy(t);
         let panes = t.panes().len();
@@ -106,11 +105,10 @@ impl Desktop {
         }
         let Some((from, to)) = moved else { return };
         let Some(tree) = self.place(cx) else { return };
-        let at = {
-            let w = self.workspace(&tree, cx);
+        let at = self.workspace(&tree, cx, |w| {
             w.move_top(from, to);
             w.at
-        };
+        });
         // The shown tab was dragged into view already; scrolling to its new index would jump the bar.
         self.panels.top.update(cx, |b, _| b.revealed(tree, at));
         self.save_soon(cx);
@@ -143,11 +141,10 @@ impl Desktop {
     /// Shows top tab `i`, and what its focused pane shows.
     fn switch_top(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tree) = self.place(cx) else { return };
-        self.workspace(&tree, cx).switch(i);
-        let (p, a) = {
-            let t = &self.workspace(&tree, cx).tree;
-            (t.focused, t.focused().active)
-        };
+        let (p, a) = self.workspace(&tree, cx, |w| {
+            w.switch(i);
+            (w.tree.focused, w.tree.focused().active)
+        });
         self.select_tab(p, a, window, cx);
         self.load_active(cx);
     }

@@ -204,7 +204,7 @@ impl Desktop {
     pub(crate) fn delete_scratch(&mut self, path: &str, cx: &mut Context<Self>) {
         let trash = self.store.worktree.trash;
         self.remove_project(path, cx);
-        self.workspaces.remove(path);
+        self.workspaces.update(cx, |w, _| w.remove(path));
         self.store.forget_scratch(path);
         self.store.save();
         let folder = path.to_string();

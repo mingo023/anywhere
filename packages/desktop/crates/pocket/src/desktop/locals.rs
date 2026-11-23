@@ -35,7 +35,7 @@ impl Desktop {
         }
         self.outbox.local.local_delete(id);
         self.agents.remove_local(id);
-        self.workspaces.remove(id);
+        self.workspaces.update(cx, |w, _| w.remove(id));
         self.store.layouts.remove(id);
         self.store.sections.unpin_tree(id);
         self.leave_gone_local(cx);

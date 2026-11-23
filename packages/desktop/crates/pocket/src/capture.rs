@@ -1893,7 +1893,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     for s in d.commit.panes.values() {
         s.view.update(cx, |v, _| v.state.sha = None);
     }
-    d.workspaces.clear();
+    d.workspaces.update(cx, |w, _| w.clear());
     d.creates.update(cx, |c, _| c.list.clear());
     d.graph.update(cx, |g, _| *g = Graph::default());
     d.pr.track.tab = PrTab::default();

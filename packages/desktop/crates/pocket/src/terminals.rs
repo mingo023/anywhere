@@ -331,7 +331,7 @@ impl Desktop {
                     .collect();
                 // Already listed, so adopting syncs them into the top-left pane unless each has its tab first.
                 for (id, tree, place) in &arrived {
-                    self.workspaces.entry(tree.clone()).or_default().open_term(id.clone(), *place);
+                    self.workspaces.update(cx, |all, _| all.entry(tree).open_term(id.clone(), *place));
                 }
                 for (id, tree, place) in arrived {
                     self.adopt(id, tree, place, window, cx);
@@ -386,7 +386,7 @@ impl Desktop {
 
     /// Opens a terminal in its worktree, focusing it only if that worktree is still on screen: it arrives after the user may have moved on.
     fn adopt(&mut self, id: String, tree: String, place: Place, window: &mut Window, cx: &mut Context<Self>) {
-        self.workspace(&tree, cx).open_term(id.clone(), place);
+        self.workspace(&tree, cx, |w| w.open_term(id.clone(), place));
         if self.place(cx).as_deref() == Some(tree.as_str()) {
             self.show_tree(&tree, cx);
             self.load_active(cx);
@@ -497,9 +497,7 @@ impl Desktop {
             self.terminal.menu = None;
         }
         let ids = [id.to_string()];
-        for w in self.workspaces.values_mut() {
-            w.remove(&ids);
-        }
+        self.workspaces.update(cx, |all, _| all.values_mut().for_each(|w| w.remove(&ids)));
         self.load_active(cx);
         self.save_soon(cx);
         cx.notify();
@@ -521,7 +519,7 @@ impl Desktop {
 
     pub fn close_tab(&mut self, pane: PaneId, i: usize, cx: &mut Context<Self>) {
         let Some(tree) = self.place(cx) else { return };
-        let ids = match self.workspace(&tree, cx).tree.pane(pane).and_then(|p| p.tabs.get(i)).cloned() {
+        let ids = match self.workspace(&tree, cx, |w| w.tree.pane(pane).and_then(|p| p.tabs.get(i)).cloned()) {
             Some(Tab::Term(id)) => vec![id],
             Some(Tab::Doc(Doc::File(path))) if self.preview.read(cx).dirty(&path) => {
                 self.ask(Confirm::CloseFile(path), cx);
@@ -534,7 +532,7 @@ impl Desktop {
         if !ids.iter().all(|id| self.terminals.read(cx).may_close(id, observe)) || self.ask_close(ids.clone(), cx) {
             return;
         }
-        self.workspace(&tree, cx).close(pane, i);
+        self.workspace(&tree, cx, |w| w.close(pane, i));
         for id in ids {
             self.close_pane(&id, cx);
         }
@@ -546,17 +544,20 @@ impl Desktop {
     /// Closes top tab `i` with all its tabs, asking first as `close_tab` does: an unsaved file is shown and asked about, busy terminals are asked about together.
     pub fn close_top(&mut self, i: usize, cx: &mut Context<Self>) {
         let Some(tree) = self.place(cx) else { return };
-        let Some(tabs) = self.workspace(&tree, cx).tops().get(i).map(|t| t.panes().iter().flat_map(|p| p.tabs.clone()).collect::<Vec<_>>()) else { return };
+        let Some(tabs) = self.workspace(&tree, cx, |w| w.tops().get(i).map(|t| t.panes().iter().flat_map(|p| p.tabs.clone()).collect::<Vec<_>>())) else {
+            return;
+        };
         let unsaved = tabs.iter().find_map(|t| match t {
             Tab::Doc(Doc::File(path)) if self.preview.read(cx).dirty(path) => Some(path.clone()),
             _ => None,
         });
         if let Some(path) = unsaved {
-            let w = self.workspace(&tree, cx);
-            w.switch(i);
-            if let Some((pane, j)) = w.tree.find(|t| matches!(t, Tab::Doc(Doc::File(p)) if *p == path)) {
-                w.tree.select(pane, j);
-            }
+            self.workspace(&tree, cx, |w| {
+                w.switch(i);
+                if let Some((pane, j)) = w.tree.find(|t| matches!(t, Tab::Doc(Doc::File(p)) if *p == path)) {
+                    w.tree.select(pane, j);
+                }
+            });
             self.load_active(cx);
             self.ask(Confirm::CloseFile(path), cx);
             cx.notify();
@@ -573,7 +574,7 @@ impl Desktop {
         if !ids.iter().all(|id| self.terminals.read(cx).may_close(id, observe)) || self.ask_close(ids.clone(), cx) {
             return;
         }
-        self.workspace(&tree, cx).close_top(i);
+        self.workspace(&tree, cx, |w| w.close_top(i));
         for id in ids {
             self.close_pane(&id, cx);
         }

@@ -369,7 +369,7 @@ impl Desktop {
         let terminal = self.agents.get(from)?.terminal_id.clone();
         let on_screen = self
             .session_tree(cx)
-            .and_then(|t| self.workspaces.get(&t))
+            .and_then(|t| self.workspaces.read(cx).get(&t))
             .is_some_and(|w| w.shown().iter().any(|(_, tab)| matches!(tab, Tab::Term(id) if self.delegated_term(id) == terminal)));
         if on_screen {
             return None;

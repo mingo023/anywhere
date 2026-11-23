@@ -213,7 +213,7 @@ impl Desktop {
         self.hand_off_creates(cx);
         self.focus_arrived_chat(window, cx);
         self.refresh_chats(cx);
-        if let Some(term) = exited.filter(|t| self.workspaces.values().any(|w| w.holds_term(t))) {
+        if let Some(term) = exited.filter(|t| self.workspaces.read(cx).values().any(|w| w.holds_term(t))) {
             self.close_pane(&term, cx);
         }
         if connected && host.is_none() {
@@ -366,10 +366,10 @@ impl Desktop {
     }
 
     /// The terminals on screen: those of the tabs the drawn panes show.
-    fn visible_panes(&mut self, cx: &App) -> Vec<String> {
+    fn visible_panes(&mut self, cx: &mut App) -> Vec<String> {
         let Some(tree) = self.place(cx).filter(|_| self.screen == Screen::Sessions) else { return Vec::new() };
         let shown: Vec<String> =
-            self.workspace(&tree, cx).shown().into_iter().filter_map(|(_, t)| if let Tab::Term(id) = t { Some(id.clone()) } else { None }).collect();
+            self.workspace(&tree, cx, |w| w.shown().into_iter().filter_map(|(_, t)| if let Tab::Term(id) = t { Some(id.clone()) } else { None }).collect());
         shown.iter().map(|id| self.delegated_term(id)).collect()
     }
 

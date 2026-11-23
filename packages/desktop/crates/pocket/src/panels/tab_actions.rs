@@ -18,7 +18,8 @@ impl Desktop {
 
     /// Closes every tab of `pane` but tab `keep`, highest index first so the rest keep theirs, stopping at the first that asks to be confirmed.
     fn close_others(&mut self, pane: PaneId, keep: usize, cx: &mut Context<Self>) {
-        let count = |this: &Self, cx: &App| this.place(cx).and_then(|t| this.workspaces.get(&t)?.tree.pane(pane).map(|p| p.tabs.len())).unwrap_or_default();
+        let count =
+            |this: &Self, cx: &App| this.place(cx).and_then(|t| this.workspaces.read(cx).get(&t)?.tree.pane(pane).map(|p| p.tabs.len())).unwrap_or_default();
         for i in (0..count(self, cx)).rev().filter(|i| *i != keep) {
             let before = count(self, cx);
             self.close_tab(pane, i, cx);
@@ -39,9 +40,10 @@ impl Desktop {
                 this.move_tab(pane, i, to, cx);
             }))
         };
-        let t = &self.workspaces[tree].tree;
-        let split = |id: &'static str, icon: &str, label: &str, edge: Edge, cx: &mut Context<Self>| {
-            (tabs.len() > 1 && t.can_split(pane, edge, self.panels.bounds)).then(|| {
+        let bounds = self.panels.bounds;
+        let [can_right, can_down] = [Edge::Right, Edge::Bottom].map(|edge| self.workspaces.read(cx)[tree].tree.can_split(pane, edge, bounds));
+        let split = |id: &'static str, icon: &str, label: &str, edge: Edge, can: bool, cx: &mut Context<Self>| {
+            (tabs.len() > 1 && can).then(|| {
                 ui::menu_row(id, icon, label, None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     this.panels.actions = None;
                     this.move_tab_to(pane, i, Target::Split { pane, edge }, window, cx);
@@ -51,8 +53,8 @@ impl Desktop {
         let moves: Vec<Stateful<Div>> = [
             left.map(|to| row("tab-move-left", "back", "Move left", to, cx)),
             right.map(|to| row("tab-move-right", "forward", "Move right", to, cx)),
-            split("tab-split-right", "split-right", "Move to new split right", Edge::Right, cx),
-            split("tab-split-down", "split-down", "Move to new split down", Edge::Bottom, cx),
+            split("tab-split-right", "split-right", "Move to new split right", Edge::Right, can_right, cx),
+            split("tab-split-down", "split-down", "Move to new split down", Edge::Bottom, can_down, cx),
         ]
         .into_iter()
         .flatten()

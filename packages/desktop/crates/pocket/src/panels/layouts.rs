@@ -6,7 +6,7 @@ use workspace::Workspace;
 impl Desktop {
     /// Brings back last launch's panels, once, after pocketd's first terminal list says which terminals still run.
     /// A host's worktrees wait for that host's list instead.
-    pub(crate) fn restore_layouts(&mut self, cx: &App) {
+    pub(crate) fn restore_layouts(&mut self, cx: &mut App) {
         if std::mem::replace(&mut self.panels.restored, true) || self.capturing {
             return;
         }
@@ -21,28 +21,30 @@ impl Desktop {
     }
 
     /// Brings back the panels of `host`'s worktrees, once it has listed its terminals.
-    pub(crate) fn restore_host_layouts(&mut self, host: &str, cx: &App) {
+    pub(crate) fn restore_host_layouts(&mut self, host: &str, cx: &mut App) {
         if self.panels.restored {
             let saved = take_host(&mut self.panels.waiting, host);
             self.restore(saved, cx);
         }
     }
 
-    fn restore(&mut self, saved: BTreeMap<String, Workspace>, cx: &App) {
+    fn restore(&mut self, saved: BTreeMap<String, Workspace>, cx: &mut App) {
         let live: Vec<String> = self.terminals.read(cx).sessions.items.iter().map(|s| s.info.id.clone()).collect();
-        for (tree, saved) in saved {
-            if self.workspaces.get(&tree).is_none_or(Workspace::is_empty) {
-                self.workspaces.insert(tree, saved.restored(&live));
+        self.workspaces.update(cx, |all, _| {
+            for (tree, saved) in saved {
+                if all.get(&tree).is_none_or(Workspace::is_empty) {
+                    all.insert(tree, saved.restored(&live));
+                }
             }
-        }
+        });
         // The store gave its layouts up above; any `save()` before the next panel change would write none.
-        self.remember_layouts();
+        self.remember_layouts(cx);
     }
 
     /// Copies every worktree's panels that hold a tab into the store, once they have been restored; hosts' still waiting stay as saved.
-    pub(crate) fn remember_layouts(&mut self) {
+    pub(crate) fn remember_layouts(&mut self, cx: &App) {
         if self.panels.restored {
-            let shown = self.workspaces.iter().map(|(t, w)| (t.clone(), w.saved())).filter(|(_, w)| !w.is_empty());
+            let shown = self.workspaces.read(cx).iter().map(|(t, w)| (t.clone(), w.saved())).filter(|(_, w)| !w.is_empty());
             let waiting = self.panels.waiting.iter().map(|(t, w)| (t.clone(), w.saved()));
             self.store.layouts = waiting.chain(shown).collect();
         }

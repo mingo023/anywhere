@@ -257,11 +257,14 @@ impl Desktop {
         self.repos.get(&self.cwd(cx)?).cloned()
     }
 
-    pub(crate) fn workspace(&mut self, tree: &str, cx: &App) -> &mut Workspace {
+    /// Runs `f` on worktree `tree`'s panels, once the terminals pocketd holds for it are in.
+    pub(crate) fn workspace<R>(&mut self, tree: &str, cx: &mut App, f: impl FnOnce(&mut Workspace) -> R) -> R {
         let (mine, theirs) = held(tree, &self.placed_terminals(cx));
-        let w = self.workspaces.entry(tree.to_string()).or_default();
-        w.sync(&mine, &theirs);
-        w
+        self.workspaces.update(cx, |all, _| {
+            let w = all.entry(tree);
+            w.sync(&mine, &theirs);
+            f(w)
+        })
     }
 
     pub(crate) fn project_terminals(&self, p: &str, cx: &App) -> Vec<String> {
@@ -278,7 +281,7 @@ impl Desktop {
 
     /// Whether `tree` has a terminal or a tab open.
     pub(crate) fn in_use(&self, tree: &str, cx: &App) -> bool {
-        self.workspaces.get(tree).is_some_and(|w| !w.is_empty()) || !held(tree, &self.placed_terminals(cx)).0.is_empty()
+        self.workspaces.read(cx).get(tree).is_some_and(|w| !w.is_empty()) || !held(tree, &self.placed_terminals(cx)).0.is_empty()
     }
 
     pub(crate) fn tree_terminals(&self, tree: &str, cx: &App) -> Vec<String> {

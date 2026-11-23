@@ -68,7 +68,7 @@ use std::time::Instant;
 use store::Store;
 use theme::*;
 use workspace::tree::PaneId;
-use workspace::{Doc, Tab, Workspace};
+use workspace::{Doc, Tab, Workspaces};
 
 /// The pane a worktree starts with.
 pub(crate) const MAIN: PaneId = 0;
@@ -94,7 +94,7 @@ pub struct Desktop {
     pub(crate) layout: Layout,
     /// Indexed by `Column`; `None` keeps the design's width.
     pub(crate) widths: [Option<f32>; 2],
-    pub(crate) workspaces: HashMap<String, Workspace>,
+    pub(crate) workspaces: Entity<Workspaces>,
     pub(crate) repos: HashMap<String, Arc<Repo>>,
     pub(crate) diff: DiffState,
     pub(crate) chat: Entity<ChatComposer>,
@@ -297,7 +297,7 @@ impl Desktop {
             side: Side::Sessions,
             layout,
             widths,
-            workspaces: HashMap::new(),
+            workspaces: cx.new(|_| Workspaces::default()),
             repos: HashMap::new(),
             diff,
             chat,
@@ -361,10 +361,11 @@ impl Desktop {
         let Some(tree) = self.terminals.read(cx).sessions.get(&term).and_then(|s| self.place_of(&s.info, cx)) else { return };
         self.show_tree(&tree, cx);
         self.side = Side::Sessions;
-        let w = self.workspace(&tree, cx);
-        if let Some((pane, i)) = w.show_term(&term) {
-            w.tree.select(pane, i);
-        }
+        self.workspace(&tree, cx, |w| {
+            if let Some((pane, i)) = w.show_term(&term) {
+                w.tree.select(pane, i);
+            }
+        });
         self.load_active(cx);
         self.focus_pane(term, window, cx);
         self.save_soon(cx);
@@ -428,7 +429,7 @@ impl Desktop {
     /// Shows tab `i` of `pane` and focuses the pane.
     pub fn select_tab(&mut self, pane: PaneId, i: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tree) = self.place(cx) else { return };
-        self.workspace(&tree, cx).tree.select(pane, i);
+        self.workspace(&tree, cx, |w| w.tree.select(pane, i));
         match self.pane_tab(pane, cx) {
             Some(Tab::Term(id)) => {
                 if let Some(agent) = self.summary(&id).map(|a| a.id.clone()) {
@@ -446,16 +447,16 @@ impl Desktop {
 
     /// The pane keys and actions go to.
     pub(crate) fn focused_pane(&self, cx: &App) -> PaneId {
-        self.place(cx).and_then(|t| self.workspaces.get(&t)).map_or(MAIN, |w| w.tree.focused)
+        self.place(cx).and_then(|t| self.workspaces.read(cx).get(&t)).map_or(MAIN, |w| w.tree.focused)
     }
 
     pub(crate) fn pane_ids(&self, cx: &App) -> Vec<PaneId> {
-        self.place(cx).and_then(|t| self.workspaces.get(&t)).map_or(vec![MAIN], |w| w.tops().iter().flat_map(|t| t.panes()).map(|p| p.id).collect())
+        self.place(cx).and_then(|t| self.workspaces.read(cx).get(&t)).map_or(vec![MAIN], |w| w.tops().iter().flat_map(|t| t.panes()).map(|p| p.id).collect())
     }
 
     /// The tab `pane` shows in the worktree on screen.
     pub(crate) fn pane_tab(&self, pane: PaneId, cx: &App) -> Option<Tab> {
-        self.workspaces.get(&self.place(cx)?)?.tree.pane(pane)?.active().cloned()
+        self.workspaces.read(cx).get(&self.place(cx)?)?.tree.pane(pane)?.active().cloned()
     }
 
     /// The file or changes the focused pane shows.
@@ -475,22 +476,23 @@ impl Desktop {
         let bounds = self.panels.bounds;
         let files = &self.store.files;
         let (pin, next) = (pin || !files.preview_tabs, files.new_tabs == store::prefs::files::NewTabs::AfterCurrent);
-        let w = self.workspace(&tree, cx);
-        let pane = w.doc_pane(bounds);
-        let (pane, _) = w.place_doc(doc.clone(), pin, pane, next);
+        let (pane, _) = self.workspace(&tree, cx, |w| {
+            let pane = w.doc_pane(bounds);
+            w.place_doc(doc.clone(), pin, pane, next)
+        });
         self.show_doc(pane, doc, cx);
         self.save_soon(cx);
     }
 
     pub(crate) fn pin_doc(&mut self, doc: &Doc, cx: &mut Context<Self>) {
         if let Some(tree) = self.place(cx) {
-            self.workspace(&tree, cx).pin(doc);
+            self.workspace(&tree, cx, |w| w.pin(doc));
             self.save_soon(cx);
         }
     }
 
     pub(crate) fn close_doc(&mut self, doc: &Doc, cx: &mut Context<Self>) {
-        if let Some((pane, i)) = self.place(cx).and_then(|t| self.workspaces.get(&t)?.doc_tab(doc)) {
+        if let Some((pane, i)) = self.place(cx).and_then(|t| self.workspaces.read(cx).get(&t)?.doc_tab(doc)) {
             self.close_tab(pane, i, cx);
         }
     }

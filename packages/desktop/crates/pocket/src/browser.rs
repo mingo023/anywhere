@@ -136,11 +136,12 @@ impl Desktop {
             || self.sidebar.menu_at.is_some()
             || self.shown_create(cx).is_some()
             || self.panels.parks_pages();
-        let shown: Vec<u64> = match self.session_tree(cx).and_then(|t| self.workspaces.get(&t)) {
+        let shown: Vec<u64> = match self.session_tree(cx).and_then(|t| self.workspaces.read(cx).get(&t)) {
             Some(w) if !covered => w.shown().into_iter().filter_map(|(_, t)| web(t)).collect(),
             _ => Vec::new(),
         };
-        let live: HashSet<u64> = self.workspaces.values().flat_map(|w| w.tops()).flat_map(|t| t.panes()).flat_map(|p| &p.tabs).filter_map(web).collect();
+        let live: HashSet<u64> =
+            self.workspaces.read(cx).values().flat_map(|w| w.tops()).flat_map(|t| t.panes()).flat_map(|p| &p.tabs).filter_map(web).collect();
         let ended = !self.panels.holding(cx);
         for shot in self.browsers.tabs.iter_mut().filter(|(id, _)| ended || !live.contains(*id)).filter_map(|(_, b)| b.shot.take()) {
             window.drop_image(shot).ok();
@@ -157,7 +158,7 @@ impl Desktop {
 
     /// Asks each shown page for a picture of itself, to draw while a held tab parks the pages.
     pub(crate) fn freeze_pages(&mut self, window: &mut Window, cx: &App) {
-        let Some(w) = self.session_tree(cx).and_then(|t| self.workspaces.get(&t)) else { return };
+        let Some(w) = self.session_tree(cx).and_then(|t| self.workspaces.read(cx).get(&t)) else { return };
         let shown: Vec<u64> = w.shown().into_iter().filter_map(|(_, t)| web(t)).collect();
         for id in shown {
             let Some(b) = self.browsers.tabs.get_mut(&id) else { continue };
@@ -183,7 +184,7 @@ impl Desktop {
         let dev_url = self.project.as_ref().and_then(|p| self.store.repos.get(p)).map(|r| r.dev_url.as_str()).unwrap_or_default();
         let url = url.or_else(|| self.store.browser.home_page(dev_url).map(|u| web::resolve(&u, self.store.browser.search_url())));
         let id = self.browsers.open();
-        self.workspace(&tree, cx).open_web(id, place);
+        self.workspace(&tree, cx, |w| w.open_web(id, place));
         self.screen = Screen::Sessions;
         self.new_form.update(cx, |f, _| f.shown = false);
         match url {
@@ -251,11 +252,19 @@ impl Desktop {
                 }
             }
             web::Event::Pressed => {
-                if let Some(w) = self.place(cx).and_then(|t| self.workspaces.get_mut(&t))
-                    && let Some((pane, _)) = w.tree.find(|t| *t == Tab::Web(id))
-                    && w.tree.focused != pane
-                {
-                    w.tree.focus(pane);
+                let focused = self.place(cx).is_some_and(|tree| {
+                    self.workspaces.update(cx, |all, _| {
+                        let Some(w) = all.get_mut(&tree) else { return false };
+                        match w.tree.find(|t| *t == Tab::Web(id)) {
+                            Some((pane, _)) if w.tree.focused != pane => {
+                                w.tree.focus(pane);
+                                true
+                            }
+                            _ => false,
+                        }
+                    })
+                });
+                if focused {
                     self.save_soon(cx);
                 }
                 window.focus(&self.browsers.focus, cx);

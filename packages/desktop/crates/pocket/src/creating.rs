@@ -611,7 +611,7 @@ impl Desktop {
         let (request, tree, project, name) = (c.request.clone(), c.path.clone(), c.project().to_string(), c.name());
         let host = self.project_host_name(&project);
         let bar = self.page_bar(crate::spaces::crumbs(host, [self.repo_name(&project), name]), Vec::new(), div(), cx);
-        let has_terminal = self.workspaces.get(&tree).is_some_and(|w| w.tree.panes().iter().any(|p| !p.tabs.is_empty()));
+        let has_terminal = self.workspaces.read(cx).get(&tree).is_some_and(|w| w.tree.panes().iter().any(|p| !p.tabs.is_empty()));
         self.creates.update(cx, |c, _| c.show(request, has_terminal));
         div().flex_1().flex().flex_col().child(bar).child(self.creates.clone())
     }

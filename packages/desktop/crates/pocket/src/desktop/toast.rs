@@ -9,7 +9,7 @@ const STRIP: f32 = 40.;
 impl Desktop {
     /// Floats `toast` `offset` in from the main area's bottom-right corner, or from its top-right under the pane strip while a chat shows, clear of the chat's composer.
     pub(crate) fn float<E: Styled>(&self, toast: E, offset: f32, cx: &App) -> E {
-        let shown = self.session_tree(cx).and_then(|t| self.workspaces.get(&t)).map(|w| w.shown()).unwrap_or_default();
+        let shown = self.session_tree(cx).and_then(|t| self.workspaces.read(cx).get(&t)).map(|w| w.shown()).unwrap_or_default();
         let toast = toast.absolute().right(px(16.));
         if over_chat(shown.iter().map(|(_, t)| *t), |t| self.chat_shown(t)) { toast.top(px(STRIP + offset)) } else { toast.bottom(px(offset)) }
     }

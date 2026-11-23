@@ -199,7 +199,7 @@ impl Desktop {
     /// Moves tab `from` of `pane` to `to` in the same strip.
     pub(crate) fn move_tab(&mut self, pane: PaneId, from: usize, to: usize, cx: &mut Context<Self>) {
         let Some(tree) = self.place(cx) else { return };
-        self.workspace(&tree, cx).tree.move_tab(pane, from, Target::Into { pane, index: to });
+        self.workspace(&tree, cx, |w| w.tree.move_tab(pane, from, Target::Into { pane, index: to }));
         self.save_soon(cx);
         cx.notify();
     }
@@ -214,7 +214,7 @@ impl Desktop {
             (None, Some(Aim::To(to))) => self.move_tab_to(pane, from, to, window, cx),
             (None, Some(Aim::Top(i))) => {
                 let Some(tree) = self.place(cx) else { return };
-                self.workspace(&tree, cx).detach_tab(pane, from, i);
+                self.workspace(&tree, cx, |w| w.detach_tab(pane, from, i));
                 self.show_focused(&tree, window, cx);
             }
             _ => {}
@@ -253,8 +253,7 @@ impl Desktop {
     /// `pane`'s tabs in worktree `tree`.
     pub(super) fn strip_tabs(&mut self, tree: &str, pane: &Pane<Tab>, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let (p, active, tabs) = (pane.id, pane.active, &pane.tabs);
-        let w = &self.workspaces[tree];
-        let preview = w.preview.clone();
+        let preview = self.workspaces.read(cx)[tree].preview.clone();
         let observe = self.agents.observe_only();
         let reduce_motion = cx.reduce_motion();
         let strip = self.panels.strips.entry(p).or_default();

@@ -159,26 +159,28 @@ pub(crate) fn head(t: &Tree<Tab>, pane: PaneId) -> Head {
 
 impl Desktop {
     /// Points keys at the focused pane's terminal, and forgets what closed panes held.
-    pub(crate) fn sync_panels(&mut self, cx: &App) {
+    pub(crate) fn sync_panels(&mut self, cx: &mut App) {
         self.terminal.forget_panes(|id| self.terminals.read(cx).sessions.get(id).is_some());
         let Some(tree) = self.session_tree(cx) else {
             self.panels.drag = None;
             return;
         };
-        let at = self.workspace(&tree, cx).at;
+        let at = self.workspace(&tree, cx, |w| w.at);
         if self.panels.tree.as_ref() != Some(&(tree.clone(), at)) {
             self.panels.drag = None;
             self.panels.tree = Some((tree.clone(), at));
             // Pane ids repeat between trees, so one new here was not born of a split.
             (self.panels.panes, self.panels.born) = (Vec::new(), None);
         }
-        let w = self.workspace(&tree, cx);
-        let focused = match w.tree.focused().active() {
-            Some(Tab::Term(id)) => Some(id.clone()),
-            _ => None,
-        };
-        let live: Vec<PaneId> = w.tree.panes().iter().map(|p| p.id).collect();
-        let drawn: Vec<PaneId> = w.tree.drawn().iter().map(|p| p.id).collect();
+        let (focused, live, drawn) = self.workspace(&tree, cx, |w| {
+            let focused = match w.tree.focused().active() {
+                Some(Tab::Term(id)) => Some(id.clone()),
+                _ => None,
+            };
+            let live: Vec<PaneId> = w.tree.panes().iter().map(|p| p.id).collect();
+            let drawn: Vec<PaneId> = w.tree.drawn().iter().map(|p| p.id).collect();
+            (focused, live, drawn)
+        });
         self.terminal.focused = focused.map(|id| self.delegated_term(&id));
         if let Some(pane) = born(&self.panels.panes, &live) {
             self.panels.born = Some((pane, Glide::from(0.)));
@@ -204,8 +206,10 @@ impl Desktop {
         if !cx.has_active_drag() {
             self.panels.pane_drag = None;
         }
-        let t = &self.workspace(tree, cx).tree;
-        let (root, zoomed) = (t.root.clone(), t.zoomed.and_then(|z| t.pane(z)).cloned());
+        let (root, zoomed) = self.workspace(tree, cx, |w| {
+            let t = &w.tree;
+            (t.root.clone(), t.zoomed.and_then(|z| t.pane(z)).cloned())
+        });
         let body = match zoomed {
             Some(p) => self.pane_view(tree, &p, window, cx).into_any_element(),
             None => self.node_view(tree, &root, Vec::new(), window, cx),
@@ -248,7 +252,7 @@ impl Desktop {
         };
         let born = self.panels.born.as_ref().and_then(|(pane, glide)| {
             let j = children.iter().position(|c| matches!(c, Node::Pane(p) if p.id == *pane))?;
-            let (_, at) = self.workspaces[tree].tree.layout(self.panels.bounds).into_iter().find(|(p, _)| p == pane)?;
+            let (_, at) = self.workspaces.read(cx).get(tree)?.tree.layout(self.panels.bounds).into_iter().find(|(p, _)| p == pane)?;
             Some((j, glide.at(), at))
         });
         let sizes = born.map_or_else(|| sizes.clone(), |(j, t, _)| growing(sizes, j, t));
@@ -294,9 +298,10 @@ impl Desktop {
 
     fn pane_view(&mut self, tree: &str, pane: &Pane<Tab>, window: &mut Window, cx: &mut Context<Self>) -> Stateful<Div> {
         let p = pane.id;
-        let t = &self.workspaces[tree].tree;
-        let focused = t.focused == p;
-        let (shape, split) = (head(t, p), t.panes().len() > 1);
+        let (focused, shape, split) = {
+            let t = &self.workspaces.read(cx)[tree].tree;
+            (t.focused == p, head(t, p), t.panes().len() > 1)
+        };
         let bar = match shape {
             Head::Bare => None,
             Head::Title => Some(self.title_head(pane, focused, cx)),
@@ -445,14 +450,15 @@ impl Desktop {
     /// Moves the focus to pane `p`, and the keys with it.
     fn focus_panel(&mut self, p: PaneId, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tree) = self.place(cx) else { return };
-        let t = &mut self.workspace(&tree, cx).tree;
-        if t.focused == p {
+        if self.workspace(&tree, cx, |w| w.tree.focused == p) {
             return;
         }
         self.release_page(cx);
-        let t = &mut self.workspace(&tree, cx).tree;
-        t.focus(p);
-        match t.focused().active().cloned() {
+        let active = self.workspace(&tree, cx, |w| {
+            w.tree.focus(p);
+            w.tree.focused().active().cloned()
+        });
+        match active {
             Some(Tab::Term(id)) => self.focus_chat_or_terminal(id, window, cx),
             Some(Tab::Web(_)) => window.focus(&self.browsers.focus, cx),
             Some(Tab::Doc(_)) | None => window.focus(&self.root, cx),
@@ -469,7 +475,7 @@ impl Desktop {
         }
         let top = self.bar_index(&tree, at, cx);
         let Some((from, d)) = self.panels.drag.as_mut() else { return };
-        let Some(w) = self.workspaces.get(&tree) else { return };
+        let Some(w) = self.workspaces.read(cx).get(&tree) else { return };
         let t = &w.tree;
         let layout = t.drawn_layout(self.panels.bounds);
         let tabs = t.pane(*from).map_or(0, |p| p.tabs.len());
@@ -489,15 +495,13 @@ impl Desktop {
     /// Moves tab `i` of `pane` to `to`, then shows what the focused pane shows and loads what the moved tab needs.
     pub(crate) fn move_tab_to(&mut self, pane: PaneId, i: usize, to: Target, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tree) = self.place(cx) else { return };
-        let t = &mut self.workspace(&tree, cx).tree;
-        t.move_tab(pane, i, to);
+        self.workspace(&tree, cx, |w| w.tree.move_tab(pane, i, to));
         self.show_focused(&tree, window, cx);
     }
 
     /// Shows what worktree `tree`'s focused pane shows, once its panes have moved.
     fn show_focused(&mut self, tree: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let t = &self.workspace(tree, cx).tree;
-        let (focused, active) = (t.focused, t.focused().active);
+        let (focused, active) = self.workspace(tree, cx, |w| (w.tree.focused, w.tree.focused().active));
         self.select_tab(focused, active, window, cx);
         self.load_active(cx);
     }

@@ -21,9 +21,8 @@ impl Desktop {
     fn split_focused(&mut self, edge: Edge, cx: &mut Context<Self>) {
         let Some(tree) = self.panel_tree(cx) else { return };
         let bounds = self.panels.bounds;
-        let t = &self.workspace(&tree, cx).tree;
-        let pane = t.focused;
-        if t.can_split(pane, edge, bounds) {
+        let (pane, can) = self.workspace(&tree, cx, |w| (w.tree.focused, w.tree.can_split(w.tree.focused, edge, bounds)));
+        if can {
             self.release_page(cx);
             self.open_tab(Place::Split(pane, edge), cx);
         }
@@ -31,8 +30,7 @@ impl Desktop {
 
     pub(crate) fn focus_toward(&mut self, a: &FocusPane, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tree) = self.panel_tree(cx) else { return };
-        let t = &self.workspace(&tree, cx).tree;
-        if let Some(to) = t.neighbour(t.focused, a.0) {
+        if let Some(to) = self.workspace(&tree, cx, |w| w.tree.neighbour(w.tree.focused, a.0)) {
             self.focus_panel(to, window, cx);
         }
     }
@@ -47,27 +45,27 @@ impl Desktop {
 
     fn step_tab(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tree) = self.panel_tree(cx) else { return };
-        if let Some((pane, i)) = self.workspace(&tree, cx).tree.step(forward) {
+        if let Some((pane, i)) = self.workspace(&tree, cx, |w| w.tree.step(forward)) {
             self.select_tab(pane, i, window, cx);
         }
     }
 
     pub(crate) fn jump_to_tab(&mut self, a: &JumpToTab, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tree) = self.panel_tree(cx) else { return };
-        if let Some((pane, i)) = self.workspace(&tree, cx).tree.nth_tab(a.0) {
+        if let Some((pane, i)) = self.workspace(&tree, cx, |w| w.tree.nth_tab(a.0)) {
             self.select_tab(pane, i, window, cx);
         }
     }
 
     pub(crate) fn zoom_pane(&mut self, _: &ZoomPane, _: &mut Window, cx: &mut Context<Self>) {
         let Some(tree) = self.panel_tree(cx) else { return };
-        self.workspace(&tree, cx).tree.toggle_zoom();
+        self.workspace(&tree, cx, |w| w.tree.toggle_zoom());
         cx.notify();
     }
 
     pub(crate) fn equalize_panes(&mut self, _: &EqualizePanes, _: &mut Window, cx: &mut Context<Self>) {
         let Some(tree) = self.panel_tree(cx) else { return };
-        self.workspace(&tree, cx).tree.equalize_all();
+        self.workspace(&tree, cx, |w| w.tree.equalize_all());
         self.save_soon(cx);
         cx.notify();
     }

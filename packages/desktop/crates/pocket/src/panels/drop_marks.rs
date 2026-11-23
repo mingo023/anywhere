@@ -12,7 +12,7 @@ impl Desktop {
         if !d.away {
             return None;
         }
-        let t = &self.workspaces[tree].tree;
+        let t = &self.workspaces.read(cx)[tree].tree;
         let o = self.panels.bounds;
         let mark = match self.panels.aim {
             Some(Aim::To(target)) => self.drop_mark(t, target, y),
