@@ -3268,8 +3268,13 @@ extern "C" fn window_did_change_key_status(this: &AnyObject, selector: Sel, _: *
         let window_state = unsafe { get_window_state(this) };
         let mut lock = window_state.lock();
 
+        // A synchronous draw would invalidate an attached Metal link, which
+        // races QuartzCore and crashes (zed-industries/zed#66980). Activation
+        // refreshes the window, so the link draws the frame instead.
+        let link_attached =
+            matches!(&lock.frame_source, FrameSource::Metal(frames) if frames.is_attached());
         if lock.activated_least_once {
-            if let Some(mut callback) = lock.request_frame_callback.take() {
+            if !link_attached && let Some(mut callback) = lock.request_frame_callback.take() {
                 lock.renderer.set_presents_with_transaction(true);
                 lock.stop_display_link();
                 drop(lock);

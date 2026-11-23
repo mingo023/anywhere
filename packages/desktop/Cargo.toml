@@ -104,6 +104,7 @@ zstd = "0.13"
 gpui-pre = { path = "vendor/gpui-pre" }
 # gpui-pre-macos 0.3.11 giving prompts the app icon explicitly, since macOS 26 sheet alerts drop the default one; drop once upstream does.
 # It also asks for the Badge permission, without which macOS hides the Dock badge; upstream has no equivalent.
+# It also skips the synchronous draw on window activation while a CAMetalDisplayLink is attached, since invalidating the link for it crashes QuartzCore; drop once upstream fixes zed-industries/zed#66980.
 gpui-pre-macos = { path = "vendor/gpui-pre-macos" }
 # gpui-pre-apple 0.3.11 blurring what lies behind a `backdrop_blur` element, for frosted popovers; upstream has no equivalent.
 # Reading the drawable back makes every layer `framebufferOnly = false`, where only debug test builds were.
