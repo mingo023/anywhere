@@ -64,13 +64,13 @@ impl Desktop {
         if view_only || !self.agents.settings_offered() {
             return pill;
         }
-        let (open, id) = (self.chats.composer.draft.menu == Some(Menu::Model), agent.id.clone());
+        let (open, id) = (self.chats.composer.read(cx).draft.menu == Some(Menu::Model), agent.id.clone());
         let chip = ui::popover_trigger(
             composer::picker(pill, "chat-model", open),
             open,
             cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-                if this.chats.composer.draft.toggle(Menu::Model) {
-                    let search = this.chats.composer.search.clone();
+                let (opened, search) = this.chats.composer.update(cx, |c, _| (c.draft.toggle(Menu::Model), c.search.clone()));
+                if opened {
                     focus_search(&search, window, cx);
                     this.chat_models_opened(&id, cx);
                 }
@@ -78,20 +78,17 @@ impl Desktop {
             }),
         );
         let menu = open.then(|| {
-            let viewed = self.chats.composer.draft.viewing.unwrap_or(agent.provider.as_str());
+            let (viewing, rail_scroll, slider, search) = self.chats.composer.read(cx).panel();
+            let viewed = viewing.unwrap_or(agent.provider.as_str());
             let project = self.chat_project(agent, cx);
             let view: View = Rc::new(|this, entry, cx| this.view_models(&Held::Chat, entry, cx));
-            let rail = model_rail(viewed, &self.rail_tabs(project.as_deref(), &agent.provider), &self.chats.composer.draft.rail, view, cx);
+            let rail = model_rail(viewed, &self.rail_tabs(project.as_deref(), &agent.provider), &rail_scroll, view, cx);
             let own = viewed == agent.provider;
             let effort = (own && !levels.is_empty()).then(|| self.chat_effort_slider(agent, &levels, default, cx));
             let settings = if own { self.chat_setting_menus(agent, cx) } else { Vec::new() };
-            let hidden = effort
-                .is_none()
-                .then(|| effort_slider::hand_back(&self.chats.composer.draft.slider, self.chats.composer.search.read(cx).focus_handle(cx)))
-                .flatten();
-            let panel =
-                panel(rail, &self.chats.composer.search, self.chat_models(agent, viewed, project.as_deref(), cx), self.models_note(viewed), effort, settings);
-            hang("chat-model-menu", panel.children(hidden), cx)
+            let hidden = effort.is_none().then(|| effort_slider::hand_back(&slider, search.read(cx).focus_handle(cx))).flatten();
+            let panel = panel(rail, &search, self.chat_models(agent, viewed, project.as_deref(), cx), self.models_note(viewed), effort, settings);
+            hang("chat-model-menu", panel.children(hidden), close_menu, cx)
         });
         div().relative().min_w_0().flex_shrink(1.).child(chip).children(menu)
     }
@@ -107,7 +104,7 @@ impl Desktop {
         self.models_opened(&Held::Chat, &provider, project.as_deref(), cx);
         let Some(agent) = self.agents.get(id) else { return };
         if let Some(on) = self.chat_listed(agent, &provider, "", project.as_deref()).on {
-            self.chats.composer.draft.scroll.scroll_to_item(on, ScrollStrategy::Center);
+            self.chats.composer.read(cx).draft.scroll.scroll_to_item(on, ScrollStrategy::Center);
         }
     }
 
@@ -121,8 +118,9 @@ impl Desktop {
     /// What `viewed` lists that holds the search, the model the agent runs checked. Picking one of its provider's switches
     /// it; one from another provider has to start a new chat.
     fn chat_models(&self, agent: &Summary, viewed: &str, project: Option<&str>, cx: &mut Context<Self>) -> Div {
-        let draft = &self.chats.composer.draft;
-        let query = self.chats.composer.search.read(cx).value();
+        let composer = self.chats.composer.clone();
+        let draft = &composer.read(cx).draft;
+        let query = composer.read(cx).search.read(cx).value();
         let listed =
             draft.listed.get((viewed, &*query, &agent.provider, &agent.model, self.lines_from(project)), || self.chat_listed(agent, viewed, &query, project));
         if listed.lines.is_empty() {
@@ -139,7 +137,8 @@ impl Desktop {
             }
         });
         let star: Star = Rc::new(|this, entry, cx| this.star_model(&entry.provider, &entry.value, cx));
-        model_list("chat-model-row", listed, viewed == FAVORITES, &draft.scroll, (choose, star), cx)
+        let scroll = draft.scroll.clone();
+        model_list("chat-model-row", listed, viewed == FAVORITES, &scroll, (choose, star), cx)
     }
 
     /// The model's efforts, naming the one it runs on, else `default`; picking one switches it.
@@ -147,13 +146,21 @@ impl Desktop {
         let id = agent.id.clone();
         let pick: launch::Pick = Rc::new(move |this, effort, _| this.outbox.settings(&id, "", &effort));
         let on = running_effort(agent, levels, default).map(String::from);
-        effort_slider("chat-effort", agents::providers::known(&agent.provider).effort_word, (levels, on.as_ref()), &self.chats.composer.draft.slider, pick, cx)
+        effort_slider(
+            "chat-effort",
+            agents::providers::known(&agent.provider).effort_word,
+            (levels, on.as_ref()),
+            &self.chats.composer.read(cx).draft.slider.clone(),
+            pick,
+            cx,
+        )
     }
 
     /// The running model's own settings, each naming the value it's on, else the model's default; picking one switches it.
     fn chat_setting_menus(&self, agent: &Summary, cx: &mut Context<Self>) -> Vec<Effort> {
         let model = agent.model.as_deref().unwrap_or_default();
         let settings = self.listed_model(&agent.provider, model).map_or(&[][..], |m| &m.settings);
+        let effort = self.chats.composer.read(cx).draft.effort.clone();
         let menus = settings.iter().enumerate().map(|(i, s)| {
             let (id, setting) = (agent.id.clone(), s.id.clone());
             let pick: launch::Pick = Rc::new(move |this, value, _| this.outbox.option(&id, &setting, &value));
@@ -161,8 +168,8 @@ impl Desktop {
                 ("chat-setting", i),
                 s.name.clone().into(),
                 (&s.choices, Some(running_option(agent, s))),
-                &self.chats.composer.draft.effort,
-                |d| &mut d.chats.composer.draft,
+                &effort,
+                |d, cx, f| d.chats.composer.update(cx, |c, _| f(&mut c.draft.effort)),
                 pick,
                 cx,
             )

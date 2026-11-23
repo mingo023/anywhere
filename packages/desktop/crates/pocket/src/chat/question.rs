@@ -155,29 +155,42 @@ impl Wizard {
 
 impl Desktop {
     /// The wizard for `terminal`'s open question, started afresh when the ask is new.
-    fn wizard(&mut self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<(String, &mut Wizard)> {
+    fn wizard(&mut self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<String> {
         let (ask, _) = self.chat_ask(terminal)?;
         let agent = self.summary(terminal)?.id.clone();
-        let c = &mut self.chats.composer;
-        if c.wizard.as_ref().is_none_or(|w| w.request_id != ask.request_id) {
-            c.wizard = Some(Wizard::new(&ask));
-            c.advance = None;
-            c.answer.update(cx, |s, cx| {
-                s.set_value("", window, cx);
-                s.set_placeholder(PLACEHOLDER, window, cx);
-            });
-        }
-        c.wizard.as_mut().filter(|w| !w.sent).map(|w| (agent, w))
+        let live = self.chats.composer.update(cx, |c, cx| {
+            if c.wizard.as_ref().is_none_or(|w| w.request_id != ask.request_id) {
+                c.wizard = Some(Wizard::new(&ask));
+                c.advance = None;
+                c.answer.update(cx, |s, cx| {
+                    s.set_value("", window, cx);
+                    s.set_placeholder(PLACEHOLDER, window, cx);
+                });
+            }
+            c.wizard.as_ref().is_some_and(|w| !w.sent)
+        });
+        live.then_some(agent)
+    }
+
+    /// Edits the wizard `wizard` just made live.
+    fn wizard_edit<R>(&self, cx: &mut App, f: impl FnOnce(&mut Wizard) -> R) -> Option<R> {
+        self.chats.composer.update(cx, |c, _| c.wizard.as_mut().map(f))
     }
 
     /// Ends the wizard with `answer`: the answers, or a deny that skips the ask and stops the agent's turn.
     fn wizard_close(&mut self, terminal: &str, answer: impl FnOnce(String) -> Command, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((agent, w)) = self.wizard(terminal, window, cx) else { return };
-        let command = answer(w.request_id.clone());
-        w.sent = true;
-        let c = &mut self.chats.composer;
-        c.advance = None;
-        c.answer.update(cx, |s, cx| s.set_value("", window, cx));
+        let Some(agent) = self.wizard(terminal, window, cx) else { return };
+        let Some(command) = self.wizard_edit(cx, |w| {
+            let command = answer(w.request_id.clone());
+            w.sent = true;
+            command
+        }) else {
+            return;
+        };
+        self.chats.composer.update(cx, |c, cx| {
+            c.advance = None;
+            c.answer.update(cx, |s, cx| s.set_value("", window, cx));
+        });
         self.chat_command(&agent, command, cx);
     }
 
@@ -185,10 +198,11 @@ impl Desktop {
         match step {
             Step::AutoAdvance => {
                 let t = terminal.to_string();
-                self.chats.composer.advance = Some(cx.spawn_in(window, async move |this, cx| {
+                let advance = cx.spawn_in(window, async move |this, cx| {
                     cx.background_executor().timer(AUTO_ADVANCE).await;
                     this.update_in(cx, |d, window, cx| d.wizard_advance(&t, window, cx)).ok();
-                }));
+                });
+                self.chats.composer.update(cx, |c, _| c.advance = Some(advance));
             }
             Step::Done(answers) => self.wizard_close(terminal, |request| Command::Answer { request, answers }, window, cx),
             Step::Stay => {}
@@ -197,13 +211,19 @@ impl Desktop {
     }
 
     fn wizard_select(&mut self, terminal: &str, option: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let typed = self.chats.composer.answer.read(cx).value().to_string();
-        let Some((_, w)) = self.wizard(terminal, window, cx) else { return };
-        w.set_typed(typed.clone());
-        let step = w.select(option);
-        let cleared = w.typed() != typed;
-        let placeholder = if w.page_has_pick() { PLACEHOLDER_PICKED } else { PLACEHOLDER };
-        self.chats.composer.answer.update(cx, |s, cx| {
+        let answer = self.chats.composer.read(cx).answer.clone();
+        let typed = answer.read(cx).value().to_string();
+        if self.wizard(terminal, window, cx).is_none() {
+            return;
+        }
+        let Some((step, cleared, placeholder)) = self.wizard_edit(cx, |w| {
+            w.set_typed(typed.clone());
+            let step = w.select(option);
+            (step, w.typed() != typed, if w.page_has_pick() { PLACEHOLDER_PICKED } else { PLACEHOLDER })
+        }) else {
+            return;
+        };
+        answer.update(cx, |s, cx| {
             if cleared {
                 s.set_value("", window, cx);
             }
@@ -213,18 +233,25 @@ impl Desktop {
     }
 
     pub(super) fn wizard_advance(&mut self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let typed = self.chats.composer.answer.read(cx).value().to_string();
-        let Some((_, w)) = self.wizard(terminal, window, cx) else { return };
-        if !w.can_advance(typed.trim().is_empty()) {
+        let answer = self.chats.composer.read(cx).answer.clone();
+        let typed = answer.read(cx).value().to_string();
+        if self.wizard(terminal, window, cx).is_none() {
             return;
         }
-        w.set_typed(typed);
-        let step = w.advance();
-        let next = w.typed().to_string();
-        let placeholder = if w.page_has_pick() { PLACEHOLDER_PICKED } else { PLACEHOLDER };
-        self.chats.composer.advance = None;
+        let Some(moved) = self.wizard_edit(cx, |w| {
+            if !w.can_advance(typed.trim().is_empty()) {
+                return None;
+            }
+            w.set_typed(typed);
+            let step = w.advance();
+            Some((step, w.typed().to_string(), if w.page_has_pick() { PLACEHOLDER_PICKED } else { PLACEHOLDER }))
+        }) else {
+            return;
+        };
+        let Some((step, next, placeholder)) = moved else { return };
+        self.chats.composer.update(cx, |c, _| c.advance = None);
         if step == Step::Stay {
-            self.chats.composer.answer.update(cx, |s, cx| {
+            answer.update(cx, |s, cx| {
                 s.set_value(next, window, cx);
                 s.set_placeholder(placeholder, window, cx);
             });
@@ -234,16 +261,22 @@ impl Desktop {
 
     /// Back a page, or from the first, skips the ask.
     fn wizard_back(&mut self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let typed = self.chats.composer.answer.read(cx).value().to_string();
-        let Some((_, w)) = self.wizard(terminal, window, cx) else { return };
-        w.set_typed(typed);
-        if !w.back() {
-            return self.wizard_close(terminal, Command::Deny, window, cx);
+        let answer = self.chats.composer.read(cx).answer.clone();
+        let typed = answer.read(cx).value().to_string();
+        if self.wizard(terminal, window, cx).is_none() {
+            return;
         }
-        let prev = w.typed().to_string();
-        let placeholder = if w.page_has_pick() { PLACEHOLDER_PICKED } else { PLACEHOLDER };
-        self.chats.composer.advance = None;
-        self.chats.composer.answer.update(cx, |s, cx| {
+        let Some(back) = self.wizard_edit(cx, |w| {
+            w.set_typed(typed);
+            w.back().then(|| (w.typed().to_string(), if w.page_has_pick() { PLACEHOLDER_PICKED } else { PLACEHOLDER }))
+        }) else {
+            return;
+        };
+        let Some((prev, placeholder)) = back else {
+            return self.wizard_close(terminal, Command::Deny, window, cx);
+        };
+        self.chats.composer.update(cx, |c, _| c.advance = None);
+        answer.update(cx, |s, cx| {
             s.set_value(prev, window, cx);
             s.set_placeholder(placeholder, window, cx);
         });
@@ -252,12 +285,17 @@ impl Desktop {
 
     /// Digits pick unless they're typed into the answer, Enter advances from outside it, Esc goes back unless it clears.
     fn wizard_key(&mut self, terminal: &str, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let input = self.chats.composer.answer.read(cx);
+        let answer = self.chats.composer.read(cx).answer.clone();
+        let input = answer.read(cx);
         let focused = input.focus_handle(cx).is_focused(window);
         let empty = input.value().trim().is_empty();
         let key = e.keystroke.key.as_str();
         let n = key.parse::<usize>().ok().filter(|_| !e.keystroke.modifiers.modified() && (!focused || empty));
-        if let Some(option) = n.and_then(|n| self.wizard(terminal, window, cx)?.1.key_option(n)) {
+        let option = n.and_then(|n| {
+            self.wizard(terminal, window, cx)?;
+            self.wizard_edit(cx, |w| w.key_option(n)).flatten()
+        });
+        if let Some(option) = option {
             self.wizard_select(terminal, option, window, cx);
             return cx.stop_propagation();
         }
@@ -278,7 +316,8 @@ impl Desktop {
 
     /// The questions panel in the pill's place; read-only when this client can't answer.
     pub(super) fn question_panel(&self, terminal: &str, ask: &Ask, answerable: bool, cx: &mut Context<Self>) -> Stateful<Div> {
-        let c = &self.chats.composer;
+        let composer = self.chats.composer.clone();
+        let c = composer.read(cx);
         let fresh;
         let w = match &c.wizard {
             Some(w) if w.request_id == ask.request_id => w,

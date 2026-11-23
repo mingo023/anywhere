@@ -49,7 +49,7 @@ impl Desktop {
             let pct = div().text_color(ink(accounts::tone(p))).font_weight(FontWeight::MEDIUM).child(format!("{p}%"));
             div().flex().items_center().gap(px(5.)).child(bar(p, 22., 4.)).child(pct)
         });
-        let open = matches!(self.chats.composer.draft.menu, Some(Menu::Usage { .. } | Menu::Switch));
+        let open = matches!(self.chats.composer.read(cx).draft.menu, Some(Menu::Usage { .. } | Menu::Switch));
         let chip = ui::popover_trigger(
             div()
                 .id("chat-account")
@@ -67,7 +67,7 @@ impl Desktop {
                 .children(meter),
             open,
             cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.chats.composer.draft.toggle_account();
+                this.chats.composer.update(cx, |c, _| c.draft.toggle_account());
                 cx.notify();
             }),
         );
@@ -76,14 +76,14 @@ impl Desktop {
     }
 
     fn chat_account_menu(&self, agent: &Summary, host: &Host, a: &Account, switch: bool, cx: &mut Context<Self>) -> Div {
-        let page = match self.chats.composer.draft.menu {
+        let page = match self.chats.composer.read(cx).draft.menu {
             Some(Menu::Switch) if switch => slide("chat-account-switch-in", SLIDE, self.chat_account_switch(agent, host, a, cx)),
             Some(Menu::Usage { back: true }) => slide("chat-account-usage-back", -SLIDE, self.chat_account_usage(agent, host, a, switch, cx)),
             _ => self.chat_account_usage(agent, host, a, switch, cx).into_any_element(),
         };
         let pop = ui::pop(div().id("chat-account-menu")).w(px(WIDTH)).overflow_hidden().occlude().child(page).on_mouse_down_out(cx.listener(
             |this, _: &MouseDownEvent, _, cx| {
-                this.chats.composer.draft.menu = None;
+                this.chats.composer.update(cx, |c, _| c.draft.menu = None);
                 cx.notify();
             },
         ));
@@ -93,8 +93,7 @@ impl Desktop {
         )
     }
 
-    pub(crate) fn escape_composer_menu(&mut self) -> bool {
-        let draft = &mut self.chats.composer.draft;
-        draft.escape_account() || draft.escape_model()
+    pub(crate) fn escape_composer_menu(&mut self, cx: &mut App) -> bool {
+        self.chats.composer.update(cx, |c, _| c.draft.escape_account() || c.draft.escape_model())
     }
 }

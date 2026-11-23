@@ -164,7 +164,7 @@ const STEPS: [(&str, Step); 303] = [
         }
     }),
     ("chat-background-folded", |d, _, cx| {
-        d.chats.composer.background_folded = true;
+        d.chats.composer.update(cx, |c, _| c.background_folded = true);
         cx.notify();
     }),
     ("chat-background-show", |d, _, cx| {
@@ -249,7 +249,7 @@ const STEPS: [(&str, Step); 303] = [
     // A draft with a list, emphasis, links, a fenced block and a dropped file.
     ("chat-rich", |d, window, cx| {
         d.set_chat_text(RICH, window, cx);
-        d.chats.composer.draft.drop_files(&[RICH_FILE.into()]);
+        d.chats.composer.update(cx, |c, _| c.draft.drop_files(&[RICH_FILE.into()]));
     }),
     // The same draft sent, as its bubble shows it.
     ("chat-rich-sent", |d, _, cx| {
@@ -260,7 +260,7 @@ const STEPS: [(&str, Step); 303] = [
         }
     }),
     ("chat-model-open", |d, _, cx| {
-        d.chats.composer.draft.toggle(Menu::Model);
+        d.chats.composer.update(cx, |c, _| c.draft.toggle(Menu::Model));
         cx.notify();
     }),
     ("chat-access", |d, _, cx| {
@@ -270,7 +270,7 @@ const STEPS: [(&str, Step); 303] = [
         cx.notify();
     }),
     ("chat-access-open", |d, _, cx| {
-        d.chats.composer.draft.toggle(Menu::Access);
+        d.chats.composer.update(cx, |c, _| c.draft.toggle(Menu::Access));
         cx.notify();
     }),
     ("chat-slash", |d, window, cx| d.type_text(Prompt::Chat, "/", window, cx)),
@@ -316,7 +316,7 @@ const STEPS: [(&str, Step); 303] = [
         cx.notify();
     }),
     ("chat-goal-open", |d, _, cx| {
-        d.chats.composer.draft.toggle(Menu::Goal);
+        d.chats.composer.update(cx, |c, _| c.draft.toggle(Menu::Goal));
         cx.notify();
     }),
     ("chat-typed-long", |d, window, cx| {
@@ -799,11 +799,11 @@ const STEPS: [(&str, Step); 303] = [
     }),
     ("accounts-auto", |d, _, _| _ = d.accounts.auto_switch.insert(None, true)),
     ("account-usage", |d, _, cx| {
-        d.chats.composer.draft.menu = Some(Menu::Usage { back: false });
+        d.chats.composer.update(cx, |c, _| c.draft.menu = Some(Menu::Usage { back: false }));
         cx.notify();
     }),
     ("account-switch", |d, _, cx| {
-        d.chats.composer.draft.menu = Some(Menu::Switch);
+        d.chats.composer.update(cx, |c, _| c.draft.menu = Some(Menu::Switch));
         cx.notify();
     }),
     ("account-switching", |d, _, cx| {

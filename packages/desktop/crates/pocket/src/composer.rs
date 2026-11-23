@@ -8,6 +8,7 @@ pub(crate) mod model_menu;
 pub(crate) mod pills;
 pub(crate) mod rich;
 
+use crate::chat::composer::ComposerState;
 use crate::chat::composer::attachments::attach_button;
 use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, frame, hand_focus, marks_overlay};
 use crate::desktop::Desktop;
@@ -229,7 +230,10 @@ pub(crate) enum Held {
 impl Held {
     pub(crate) fn edit<R>(&self, d: &mut Desktop, cx: &mut App, f: impl FnOnce(&mut Draft) -> R) -> R {
         match self {
-            Held::Chat => f(&mut d.chats.composer.draft),
+            Held::Chat => d.chats.composer.update(cx, |c, cx| {
+                cx.notify();
+                f(&mut c.draft)
+            }),
             Held::Composer(c) => c.update(cx, |c, cx| {
                 cx.notify();
                 f(&mut c.draft)
@@ -774,12 +778,14 @@ fn paste_in(this: &WeakEntity<Composer>, input: &Entity<TextareaState>, dir: &Pa
 /// For a prompt's `on_drop_paths`: dropped files attach to the draft `draft` picks, so none is typed in as its path.
 pub(crate) fn drop_handler(
     desktop: WeakEntity<Desktop>,
-    draft: impl Fn(&mut Desktop) -> &mut Draft + 'static,
+    draft: impl Fn(&Desktop) -> Entity<ComposerState> + 'static,
 ) -> impl Fn(&[PathBuf], &mut Window, &mut App) -> Vec<PathBuf> {
     move |paths, _, cx| match desktop.upgrade() {
         Some(d) => d.update(cx, |d, cx| {
-            cx.notify();
-            draft(d).drop_files(paths);
+            draft(d).update(cx, |c, cx| {
+                cx.notify();
+                c.draft.drop_files(paths);
+            });
             Vec::new()
         }),
         None => paths.to_vec(),

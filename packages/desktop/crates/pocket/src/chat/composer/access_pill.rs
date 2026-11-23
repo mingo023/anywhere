@@ -1,4 +1,4 @@
-use super::{chip_menu, close_menu};
+use super::{ChatBoxEvent, ComposerState, chip_menu};
 use crate::composer::launch::{self, Pick};
 use crate::composer::{self, Menu};
 use crate::desktop::Desktop;
@@ -14,35 +14,56 @@ fn access_pill(access: &str) -> Div {
         .child(div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(launch::access_color(access)).child(launch::access_shown(access, "")))
 }
 
+/// How the agent's access shows.
+pub(super) enum Shown {
+    /// The agent never asks, so it has one access to run with.
+    Full(String),
+    /// Read where it can't be switched.
+    Plain(String),
+    /// A picker.
+    Pick(String),
+}
+
 impl Desktop {
     /// The agent's access, once pocketd names it; a picker on a chat agent, as only those switch it. An agent with one
     /// access to run with shows that, whatever pocketd names.
-    pub(super) fn chat_access_pill(&self, agent: &Summary, view_only: bool, cx: &mut Context<Self>) -> Option<Div> {
+    pub(super) fn chat_access(&self, agent: &Summary, view_only: bool) -> Option<Shown> {
         if self.agents.provider_info(&agent.provider).never_asks() {
-            return Some(div().child(launch::full_access_chip("chat-access", self.agent_name(&agent.provider))));
+            return Some(Shown::Full(self.agent_name(&agent.provider)));
         }
-        let access = agent.access.as_deref().filter(|a| !a.is_empty())?;
+        let access = agent.access.as_deref().filter(|a| !a.is_empty())?.to_string();
         if view_only || !agent.chat_only || !self.agents.access_offered() {
-            return Some(access_pill(access));
+            return Some(Shown::Plain(access));
         }
-        let open = self.chats.composer.draft.menu == Some(Menu::Access);
+        Some(Shown::Pick(access))
+    }
+}
+
+impl ComposerState {
+    pub(super) fn access_pill(&self, agent: &str, shown: Shown, cx: &mut Context<Self>) -> Div {
+        let access = match shown {
+            Shown::Full(name) => return div().child(launch::full_access_chip("chat-access", name)),
+            Shown::Plain(access) => return access_pill(&access),
+            Shown::Pick(access) => access,
+        };
+        let open = self.draft.menu == Some(Menu::Access);
         let chip = ui::popover_trigger(
-            composer::picker(access_pill(access), "chat-access", open),
+            composer::picker(access_pill(&access), "chat-access", open),
             open,
             cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.chats.composer.draft.toggle(Menu::Access);
+                this.draft.toggle(Menu::Access);
                 cx.notify();
             }),
         );
         let menu = open.then(|| {
-            let id = agent.id.clone();
-            let pick: Pick = Rc::new(move |this, access, cx| {
-                this.outbox.access(&id, &access);
-                close_menu(this, cx);
+            let id = agent.to_string();
+            let pick: Pick<Self> = Rc::new(move |this, access, cx| {
+                cx.emit(ChatBoxEvent::Access { agent: id.clone(), access });
+                this.close_menu(cx);
             });
-            let rows = launch::access_rows("chat-access-row", launch::switch_choices(), access, pick, cx);
-            chip_menu("chat-access-menu", "Access", 300., rows, cx)
+            let rows = launch::access_rows("chat-access-row", launch::switch_choices(), &access, pick, cx);
+            chip_menu("chat-access-menu", "Access", 300., rows, Self::close_menu, cx)
         });
-        Some(div().relative().child(chip).children(menu))
+        div().relative().child(chip).children(menu)
     }
 }

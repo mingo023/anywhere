@@ -114,7 +114,7 @@ impl Desktop {
             .child(div().font_weight(FontWeight::NORMAL).text_size(px(12.)).text_color(TEXT_3).child(format!("{more} more")))
             .child(icon("chevron-right", 12., TEXT_4))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.chats.composer.draft.menu = Some(Menu::Switch);
+                this.chats.composer.update(cx, |c, _| c.draft.menu = Some(Menu::Switch));
                 cx.notify();
             }));
         page.child(hero).child(next)

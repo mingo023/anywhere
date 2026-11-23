@@ -330,14 +330,14 @@ impl Desktop {
 
     fn suggest_state<'a>(&'a self, p: Prompt, cx: &'a App) -> &'a Suggest {
         match p {
-            Prompt::Chat => &self.chats.composer.suggest,
+            Prompt::Chat => &self.chats.composer.read(cx).suggest,
             Prompt::Launch => &self.new_form.read(cx).suggest,
         }
     }
 
     pub(crate) fn with_suggest<R>(&mut self, p: Prompt, cx: &mut App, f: impl FnOnce(&mut Suggest) -> R) -> R {
         match p {
-            Prompt::Chat => f(&mut self.chats.composer.suggest),
+            Prompt::Chat => self.chats.composer.update(cx, |c, _| f(&mut c.suggest)),
             Prompt::Launch => self.new_form.update(cx, |form, _| f(&mut form.suggest)),
         }
     }
@@ -544,15 +544,15 @@ impl Desktop {
 
     /// Asks `agent`'s servers again shortly while they settle and the chat lists them.
     pub(crate) fn recheck_servers(&mut self, agent: String, cx: &mut Context<Self>) {
-        if !self.chats.composer.suggest.rechecks(&agent) {
+        if !self.chats.composer.update(cx, |c, _| c.suggest.rechecks(&agent)) {
             return;
         }
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SETTLE_CHECK).await;
             _ = this.update(cx, |d, cx| {
-                d.chats.composer.suggest.rechecking.remove(&agent);
+                d.chats.composer.update(cx, |c, _| c.suggest.rechecking.remove(&agent));
                 let listing = d.suggestions(Prompt::Chat, cx).is_some_and(|l| l.agent == agent && matches!(l.rows, Rows::Servers { .. }));
-                if listing && d.chats.composer.suggest.settling(&agent) {
+                if listing && d.chats.composer.read(cx).suggest.settling(&agent) {
                     d.outbox.mcp(&agent);
                 }
             });

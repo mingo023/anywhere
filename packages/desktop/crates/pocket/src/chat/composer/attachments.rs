@@ -33,7 +33,7 @@ pub(crate) fn attach_files(d: &mut Desktop, held: Held, window: &mut Window, cx:
 }
 
 /// The draft's attached images and files over the input; none when it has none.
-pub(super) fn strip(draft: &Draft, cx: &mut Context<Desktop>) -> Option<Div> {
+pub(super) fn strip(draft: &Draft, cx: &Context<Desktop>) -> Option<Div> {
     if !draft.has_attachments() {
         return None;
     }
@@ -56,7 +56,7 @@ pub(super) fn strip(draft: &Draft, cx: &mut Context<Desktop>) -> Option<Div> {
             .active(|s| s.opacity(0.6))
             .child(icon("circle-x", 14., TEXT_3))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                take(&mut this.chats.composer.draft, i);
+                this.chats.composer.update(cx, |c, _| take(&mut c.draft, i));
                 cx.notify();
             }))
     };

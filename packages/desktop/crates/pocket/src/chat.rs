@@ -92,7 +92,7 @@ pub(crate) struct ChatState {
     view_subs: HashMap<String, Subscription>,
     /// Each agent's transcript drawn as its own region, by agent id, with the terminal it draws: its scroll redraws only it.
     transcripts: HashMap<String, (String, Entity<Region>)>,
-    pub(crate) composer: composer::ComposerState,
+    pub(crate) composer: Entity<composer::ComposerState>,
     pub(crate) files: Option<locate::Choice>,
     pub(crate) select: Entity<selection::Select>,
     /// The error toast that tells of a closed chat's unsent text, and that text, which the toast copies.
@@ -113,6 +113,8 @@ impl ChatState {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let input = composer::input(window, cx);
         let (composer, mut subs) = composer::ComposerState::new(&input, window, cx);
+        subs.push(cx.observe(&composer, |_, _, cx| cx.notify()));
+        subs.push(cx.subscribe(&composer, |this, _, ev: &composer::ChatBoxEvent, cx| this.on_chat_box_event(ev, cx)));
         let map = cx.new(|cx| agent_map::AgentMap::new(cx));
         subs.push(cx.subscribe_in(&map, window, |this, _, ev: &agent_map::MapEvent, window, cx| this.on_map_event(ev, window, cx)));
         subs.push(cx.observe(&map, |_, _, cx| cx.notify()));
@@ -182,8 +184,11 @@ impl Desktop {
     /// Hands the input to `agent`'s chat; the chat that had it keeps its draft for when it's back.
     pub(crate) fn chat_take_input(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
         let ChatState { input, drafts, composer, .. } = &mut self.chats;
-        let Some((text, draft)) = drafts.switch(agent, || (input.read(cx).value().to_string(), std::mem::take(&mut composer.draft))) else { return };
-        composer.draft = draft;
+        let Some((text, draft)) = drafts.switch(agent, || (input.read(cx).value().to_string(), composer.update(cx, |c, _| std::mem::take(&mut c.draft))))
+        else {
+            return;
+        };
+        composer.update(cx, |c, _| c.draft = draft);
         input.update(cx, |s, cx| s.set_value(text, window, cx));
     }
 
@@ -191,7 +196,7 @@ impl Desktop {
     pub(crate) fn chat_closed(&mut self, agent: &str, who: &str, window: &mut Window, cx: &mut Context<Self>) {
         let (typed, _) = self.chat_draft(agent, cx);
         if self.chats.drafts.close(agent) {
-            self.chats.composer.draft.clear();
+            self.chats.composer.update(cx, |c, _| c.draft.clear());
             self.chats.input.update(cx, |s, cx| s.set_value("", window, cx));
         }
         self.chats.transcripts.remove(agent);

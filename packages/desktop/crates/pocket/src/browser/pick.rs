@@ -44,7 +44,7 @@ impl Desktop {
         };
         match self.route(&terminal, cx) {
             Route::Chat => {
-                if !self.chat_draft_mut(&agent).pick_element(element) {
+                if !self.chat_draft_edit(&agent, cx, |d| d.pick_element(element)) {
                     return;
                 }
                 if let Some(b) = self.browsers.tabs.get_mut(&id) {

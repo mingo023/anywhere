@@ -28,16 +28,18 @@ impl Desktop {
     fn chat_resolve(&mut self, terminal: &str, allow: bool, cx: &mut Context<Self>) {
         let (Some(a), Some((ask, _))) = (self.summary(terminal), self.chat_ask(terminal)) else { return };
         let agent = a.id.clone();
-        self.chats.composer.replying = None;
+        self.chats.composer.update(cx, |c, _| c.replying = None);
         self.chat_command(&agent, if allow { Command::Allow(ask.request_id) } else { Command::Deny(ask.request_id) }, cx);
     }
 
     fn chat_start_reply(&mut self, request: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.chats.composer.replying = Some(request);
-        self.chats.composer.answer.update(cx, |s, cx| {
-            s.set_value("", window, cx);
-            s.set_placeholder(REPLY_PLACEHOLDER, window, cx);
-            s.focus(window, cx);
+        self.chats.composer.update(cx, |c, cx| {
+            c.replying = Some(request);
+            c.answer.update(cx, |s, cx| {
+                s.set_value("", window, cx);
+                s.set_placeholder(REPLY_PLACEHOLDER, window, cx);
+                s.focus(window, cx);
+            });
         });
         cx.notify();
     }
@@ -47,11 +49,11 @@ impl Desktop {
         if e.keystroke.modifiers.modified() {
             return;
         }
-        let replying = self.chats.composer.replying.is_some();
+        let replying = self.chats.composer.read(cx).replying.is_some();
         match e.keystroke.key.as_str() {
             "escape" if replying => {
-                self.chats.composer.replying = None;
-                self.chats.composer.ask_focus.focus(window, cx);
+                self.chats.composer.update(cx, |c, _| c.replying = None);
+                self.chats.composer.read(cx).ask_focus.clone().focus(window, cx);
                 cx.notify();
             }
             _ if replying => return,
@@ -65,21 +67,23 @@ impl Desktop {
 
     /// Denies the ask with the typed reply, which pocketd hands the agent as its next prompt.
     pub(super) fn chat_reply(&mut self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.chats.composer.answer.read(cx).value().trim().to_string();
-        let (Some(a), Some(request)) = (self.summary(terminal), self.chats.composer.replying.clone()) else { return };
+        let text = self.chats.composer.read(cx).answer.read(cx).value().trim().to_string();
+        let (Some(a), Some(request)) = (self.summary(terminal), self.chats.composer.read(cx).replying.clone()) else { return };
         if text.is_empty() {
             return;
         }
         let agent = a.id.clone();
-        self.chats.composer.replying = None;
-        self.chats.composer.answer.update(cx, |s, cx| s.set_value("", window, cx));
+        self.chats.composer.update(cx, |c, cx| {
+            c.replying = None;
+            c.answer.update(cx, |s, cx| s.set_value("", window, cx));
+        });
         self.chat_command(&agent, Command::Reply { request, text }, cx);
     }
 
     /// The ask in the pill's place: what the tool wants to do, and Deny / Reply / Allow when this client may answer.
     pub(super) fn permission_card(&self, terminal: &str, ask: &Ask, feedback: bool, answerable: bool, cx: &mut Context<Self>) -> Div {
         let (glyph, verb, what) = subject(&ask.tool, &ask.tool_name);
-        let replying = answerable && self.chats.composer.replying.as_deref() == Some(ask.request_id.as_str());
+        let replying = answerable && self.chats.composer.read(cx).replying.as_deref() == Some(ask.request_id.as_str());
         let name = self.summary(terminal).map(|a| self.agent_name(&a.provider)).unwrap_or_default();
         let header = div()
             .flex()
@@ -110,7 +114,7 @@ impl Desktop {
             .child(div().flex_none().pt(px(2.)).child(icon(glyph, 14., TEXT_2)))
             .child(div().flex_none().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(verb))
             .child(div().flex_1().min_w_0().max_h(px(120.)).overflow_hidden().font_family(MONO).text_size(px(13.)).text_color(TEXT).child(what.to_string()));
-        let reply = replying.then(|| div().mx(px(-6.)).text_size(px(14.)).child(Textarea::new(&self.chats.composer.answer).appearance(false)));
+        let reply = replying.then(|| div().mx(px(-6.)).text_size(px(14.)).child(Textarea::new(&self.chats.composer.read(cx).answer).appearance(false)));
         let t = terminal.to_string();
         let (keys, key_request) = (t.clone(), ask.request_id.clone());
         let footer = answerable.then(|| {
@@ -151,7 +155,7 @@ impl Desktop {
         });
         div()
             .when(answerable, |el| {
-                el.track_focus(&self.chats.composer.ask_focus)
+                el.track_focus(&self.chats.composer.read(cx).ask_focus)
                     .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| this.permission_key(&keys, &key_request, feedback, e, window, cx)))
             })
             .flex()

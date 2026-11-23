@@ -1,6 +1,6 @@
 use super::effort_menu::{Effort, choice_menu};
 use super::effort_slider::{self, effort_slider};
-use super::{Composer, ComposerEvent, Draft, Held, Menu, launch};
+use super::{Composer, ComposerEvent, Held, Menu, launch};
 use crate::desktop::Desktop;
 use crate::modals::new_session::picker::menu_input;
 use crate::models::{by_upstream, couldnt_list, effort_label, listed_agents, model_options, model_or_default, not_found};
@@ -435,7 +435,7 @@ impl Composer {
             let (current, project, id) = (pick.clone(), project.clone(), s.id.clone());
             let choose: launch::Pick<Self> = Rc::new(move |this, value, cx| this.adjusted(project.clone(), current.with_option(&id, value), cx));
             let on = pick.options.get(&s.id).unwrap_or(&s.default);
-            choice_menu(("composer-setting", i), s.name.clone().into(), (&s.choices, Some(on)), &view.effort, draft_of, choose, cx)
+            choice_menu(("composer-setting", i), s.name.clone().into(), (&s.choices, Some(on)), &view.effort, |c, _, f| f(&mut c.draft.effort), choose, cx)
         });
         panel(rail, &search, list, data.note.clone(), effort, settings.collect()).children(hidden)
     }
@@ -445,10 +445,6 @@ impl Composer {
         self.draft.adjust(project, pick);
         cx.notify();
     }
-}
-
-fn draft_of(c: &mut Composer) -> &mut Draft {
-    &mut c.draft
 }
 
 /// Favorites over the agents of `tabs`; pointing at one asks `view` to list its models, and only picking a model acts

@@ -1,5 +1,5 @@
+use super::launch;
 use super::model_menu::{GAP, PAD, check, row};
-use super::{Draft, launch};
 use gpui_kit::*;
 use theme::*;
 
@@ -41,6 +41,9 @@ pub(crate) struct Effort {
     pub(super) list: Option<Div>,
 }
 
+/// Edits the menu's state wherever its owner keeps it.
+pub(crate) type EditEffort<V> = fn(&mut V, &mut Context<V>, &mut dyn FnMut(&mut EffortMenu));
+
 /// A row headed `word`, a model's setting, naming the value in use, `on` unless `menu` holds a newer one, that opens
 /// `levels`, each value it takes and what the list calls it, beside the panel. Picking one hands it to `pick`.
 pub(crate) fn choice_menu<V: 'static>(
@@ -48,7 +51,7 @@ pub(crate) fn choice_menu<V: 'static>(
     word: SharedString,
     (levels, on): (&[(String, String)], Option<&String>),
     menu: &EffortMenu,
-    draft: fn(&mut V) -> &mut Draft,
+    edit: EditEffort<V>,
     pick: launch::Pick<V>,
     cx: &mut Context<V>,
 ) -> Effort {
@@ -63,7 +66,7 @@ pub(crate) fn choice_menu<V: 'static>(
         .child(div().text_color(TEXT_3).child(name))
         .child(icon("chevron-right", 14., TEXT_3))
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            draft(this).effort.toggle(&heads);
+            edit(this, cx, &mut |menu| menu.toggle(&heads));
             cx.notify();
         }));
     let list = open.then(|| {
@@ -72,7 +75,7 @@ pub(crate) fn choice_menu<V: 'static>(
             let on = at == Some(i);
             row(("effort-level", i), on).pr(px(6.)).child(div().flex_1().font_weight(FontWeight::MEDIUM).child(label.clone())).child(check(on)).on_click(
                 cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    draft(this).effort.pick(word.clone(), level.clone());
+                    edit(this, cx, &mut |menu| menu.pick(word.clone(), level.clone()));
                     pick(this, level.clone(), cx);
                     cx.notify();
                 }),

@@ -283,7 +283,7 @@ impl Desktop {
                 cx.notify();
             }
             Event::Commands { agent, commands } => {
-                self.chats.composer.suggest.listed(agent, commands);
+                self.chats.composer.update(cx, |c, _| c.suggest.listed(agent, commands));
                 self.suggest(crate::chat::composer::suggest::Prompt::Chat, cx);
             }
             Event::Skills { provider, account, project, commands } => {
@@ -295,12 +295,12 @@ impl Desktop {
                 if !auth_url.is_empty() {
                     cx.open_url(&auth_url);
                 }
-                self.chats.composer.suggest.mcp_listed(agent.clone(), servers, &auth_url, acted);
+                self.chats.composer.update(cx, |c, _| c.suggest.mcp_listed(agent.clone(), servers, &auth_url, acted));
                 self.recheck_servers(agent, cx);
                 self.suggest(crate::chat::composer::suggest::Prompt::Chat, cx);
             }
             Event::McpActFailed { agent, reason } => {
-                self.chats.composer.suggest.mcp_act_failed(&agent);
+                self.chats.composer.update(cx, |c, _| c.suggest.mcp_act_failed(&agent));
                 // The servers may have moved on from what the rows show, as when a sign-in ended.
                 self.outbox.mcp(&agent);
                 self.error = Some(reason);

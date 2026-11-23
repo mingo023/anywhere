@@ -124,7 +124,7 @@ fn text_view_focused(contexts: &[KeyContext]) -> bool {
 
 /// The prompt input, built here since dropped files and Enter are wired at construction.
 pub(crate) fn input(window: &mut Window, cx: &mut Context<Desktop>) -> Entity<TextareaState> {
-    let drop = crate::composer::drop_handler(cx.weak_entity(), |d| &mut d.chats.composer.draft);
+    let drop = crate::composer::drop_handler(cx.weak_entity(), |d| d.chats.composer.clone());
     cx.new(|cx| {
         TextareaState::new(window, cx)
             .placeholder(PLACEHOLDER)
@@ -161,8 +161,34 @@ pub(crate) struct ComposerState {
     pressing_send: bool,
 }
 
+/// What the composer's pills and trays ask of `Desktop`, which sends to pocketd and owns the chats.
+pub(crate) enum ChatBoxEvent {
+    /// Text sent at once rather than queued behind the turn.
+    Prompt {
+        agent: String,
+        text: &'static str,
+    },
+    Access {
+        agent: String,
+        access: String,
+    },
+    Interrupt(String),
+    ShowBlock {
+        agent: String,
+        turn: usize,
+        block: usize,
+    },
+}
+
+impl EventEmitter<ChatBoxEvent> for ComposerState {}
+
 impl ComposerState {
-    pub(crate) fn new(input: &Entity<TextareaState>, window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+    pub(crate) fn close_menu(&mut self, cx: &mut Context<Self>) {
+        self.draft.menu = None;
+        cx.notify();
+    }
+
+    pub(crate) fn new(input: &Entity<TextareaState>, window: &mut Window, cx: &mut Context<Desktop>) -> (Entity<Self>, Vec<Subscription>) {
         let answer = cx.new(|cx| TextareaState::new(window, cx).placeholder(super::question::PLACEHOLDER).auto_grow(1, MAX_ROWS).submit_on_enter(true));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search models"));
         let subs = vec![
@@ -197,7 +223,14 @@ impl ComposerState {
             clicked_send: None,
             pressing_send: false,
         };
-        (state, subs)
+        (cx.new(|_| state), subs)
+    }
+
+    /// What the model panel draws with: the agent it views, and the handles it shares with the draft.
+    pub(crate) fn panel(
+        &self,
+    ) -> (Option<&'static str>, ScrollHandle, std::rc::Rc<std::cell::RefCell<crate::composer::effort_slider::EffortSlider>>, Entity<InputState>) {
+        (self.draft.viewing, self.draft.rail.clone(), self.draft.slider.clone(), self.search.clone())
     }
 }
 
@@ -297,24 +330,31 @@ pub(crate) fn hand_focus(from: Vec<FocusHandle>, to: FocusHandle) -> impl IntoEl
 }
 
 fn close_menu(this: &mut Desktop, cx: &mut Context<Desktop>) {
-    this.chats.composer.draft.menu = None;
+    this.chats.composer.update(cx, |c, _| c.draft.menu = None);
     cx.notify();
 }
 
 /// A chip's menu of `rows` under `title`, opening upward from the chip's left edge as the composer sits at the bottom;
-/// a press outside closes it.
-fn chip_menu(id: &'static str, title: &'static str, width: f32, rows: impl IntoIterator<Item = impl IntoElement>, cx: &mut Context<Desktop>) -> Div {
-    hang(id, crate::composer::menu_list(id, title, width, rows), cx)
+/// a press outside it runs `close`.
+fn chip_menu<V: 'static>(
+    id: &'static str,
+    title: &'static str,
+    width: f32,
+    rows: impl IntoIterator<Item = impl IntoElement>,
+    close: fn(&mut V, &mut Context<V>),
+    cx: &mut Context<V>,
+) -> Div {
+    hang(id, crate::composer::menu_list(id, title, width, rows), close, cx)
 }
 
-/// `menu` opening upward from the chip's left edge; a press outside it closes it.
-fn hang(id: &'static str, menu: impl IntoElement, cx: &mut Context<Desktop>) -> Div {
+/// `menu` opening upward from the chip's left edge; a press outside it runs `close`.
+fn hang<V: 'static>(id: &'static str, menu: impl IntoElement, close: fn(&mut V, &mut Context<V>), cx: &mut Context<V>) -> Div {
     let menu = div()
         .id(SharedString::from(format!("{id}-out")))
         // Menus hang over the transcript; without this a click on one also lands on what it covers.
         .occlude()
         .child(menu)
-        .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| close_menu(this, cx)));
+        .on_mouse_down_out(cx.listener(move |this, _: &MouseDownEvent, _, cx| close(this, cx)));
     let menu = ui::menu_in(SharedString::from(format!("{id}-in")), menu);
     div()
         .absolute()
@@ -386,6 +426,16 @@ impl Desktop {
         let a = self.summary(terminal)?;
         let p = self.agents.pending.iter().find(|p| p.agent_id == a.id)?;
         Some((chat::for_provider(&a.provider).ask(p), p.feedback))
+    }
+
+    pub(super) fn on_chat_box_event(&mut self, ev: &ChatBoxEvent, cx: &mut Context<Self>) {
+        match ev {
+            ChatBoxEvent::Prompt { agent, text } => _ = self.outbox.prompt(agent, text),
+            ChatBoxEvent::Access { agent, access } => self.outbox.access(agent, access),
+            ChatBoxEvent::Interrupt(agent) => self.chat_command(agent, Command::Interrupt, cx),
+            ChatBoxEvent::ShowBlock { agent, turn, block } => self.chat_show_block(agent, *turn, *block, cx),
+        }
+        cx.notify();
     }
 
     pub(crate) fn chat_command(&mut self, agent: &str, c: Command, cx: &mut Context<Self>) {
@@ -475,7 +525,7 @@ impl Desktop {
         if self.keys_free(window, cx) && self.panes_on_screen(cx) && mode == Mode::Prompt {
             return;
         }
-        let c = &self.chats.composer;
+        let c = self.chats.composer.read(cx);
         let named = [
             ("root", self.root.clone()),
             ("terminal", self.terminal.focus.clone()),
@@ -545,7 +595,7 @@ impl Desktop {
         self.chat_take_input(&agent, window, cx);
         let typed = self.chats.input.read(cx).value().to_string();
         let copied = self.chats.copied.get(&agent).cloned().unwrap_or_default();
-        let text = self.chats.composer.draft.prompt_with(&typed, &copied);
+        let text = self.chats.composer.read(cx).draft.prompt_with(&typed, &copied);
         if text.is_empty() {
             return;
         }
@@ -554,7 +604,7 @@ impl Desktop {
         if let Some((Kind::Unsupported, name, _)) = slash {
             return self.show_notice(Notice::InChat { agent, icon: "terminal", text: terminal_only_said(&format!("/{name}"), &provider, chat_only) }, cx);
         }
-        match crate::composer::host_copies(&self.chats.composer.draft, &cwd, &self.store.home().join("attachments")) {
+        match crate::composer::host_copies(&self.chats.composer.read(cx).draft, &cwd, &self.store.home().join("attachments")) {
             Ok(Some(copies)) if copies.files != copied => return self.chat_copy_first(terminal, agent, &cwd, queue, copies, window, cx),
             Ok(_) => {}
             Err(host) => {
@@ -563,7 +613,7 @@ impl Desktop {
             }
         }
         self.chats.copied.remove(&agent);
-        self.chats.composer.draft.clear();
+        self.chats.composer.update(cx, |c, _| c.draft.clear());
         self.chats.input.update(cx, |s, cx| s.set_value("", window, cx));
         if let Some((Kind::Local(local), _, arg)) = slash {
             return self.chat_local(&agent, local, &arg, window, cx);
@@ -573,7 +623,7 @@ impl Desktop {
             return cx.notify();
         }
         // A command's name must lead what it sends.
-        let text = if slash.is_some() { text } else { self.chats.composer.suggest.with_mcp_context(&agent, &provider, &text) };
+        let text = if slash.is_some() { text } else { self.chats.composer.read(cx).suggest.with_mcp_context(&agent, &provider, &text) };
         if chat::skips_queue(&typed) {
             self.outbox.prompt(&agent, &text);
             return cx.notify();
@@ -647,8 +697,9 @@ impl Desktop {
     fn chat_local(&mut self, agent: &str, local: Local, arg: &str, window: &mut Window, cx: &mut Context<Self>) {
         match (local, arg) {
             (Local::Model | Local::Effort, "") => {
-                if self.chats.composer.draft.menu != Some(Menu::Model) && self.chats.composer.draft.toggle(Menu::Model) {
-                    let search = self.chats.composer.search.clone();
+                let (opened, search) =
+                    self.chats.composer.update(cx, |c, _| (c.draft.menu != Some(Menu::Model) && c.draft.toggle(Menu::Model), c.search.clone()));
+                if opened {
                     focus_search(&search, window, cx);
                     self.chat_models_opened(agent, cx);
                 }
@@ -658,7 +709,7 @@ impl Desktop {
             (Local::Compact, _) => self.chat_command(agent, Command::Compact, cx),
             (Local::New, _) => self.new_chat_tab(Place::Pane(None), cx),
             (Local::Btw, "") => {}
-            (Local::Btw, question) => self.chat_btw_ask(agent, question),
+            (Local::Btw, question) => self.chat_btw_ask(agent, question, cx),
             (Local::Mcp, query) => self.type_text(Prompt::Chat, &format!("{}{query}", chat::mcp::TAG), window, cx),
             (Local::RemoteControl, arg) => match remote_control_on(arg) {
                 Some(on) => self.outbox.remote_control(agent, on),
@@ -673,8 +724,8 @@ impl Desktop {
         let Some(agent) = self.summary(terminal).map(|a| a.id.clone()) else { return };
         if action != Action::Stop {
             self.chat_send(terminal, false, window, cx);
-            self.chats.composer.clicked_send = Some((agent, now_ms()));
-        } else if !guards_stop(self.chats.composer.clicked_send.as_ref(), &agent, now_ms()) {
+            self.chats.composer.update(cx, |c, _| c.clicked_send = Some((agent, now_ms())));
+        } else if !guards_stop(self.chats.composer.read(cx).clicked_send.as_ref(), &agent, now_ms()) {
             self.chat_command(&agent, Command::Interrupt, cx);
         }
     }
@@ -691,9 +742,9 @@ impl Desktop {
     }
 
     /// What `agent`'s chat has typed and attached: the input's while it holds that chat, else what waits for it.
-    pub(crate) fn chat_draft(&self, agent: &str, cx: &App) -> (String, Option<&Draft>) {
+    pub(crate) fn chat_draft<'a>(&'a self, agent: &str, cx: &'a App) -> (String, Option<&'a Draft>) {
         if self.chats.drafts.owner() == Some(agent) {
-            return (self.chats.input.read(cx).value().to_string(), Some(&self.chats.composer.draft));
+            return (self.chats.input.read(cx).value().to_string(), Some(&self.chats.composer.read(cx).draft));
         }
         self.chats.drafts.parked(agent).map_or((String::new(), None), |(text, draft)| (text.clone(), Some(draft)))
     }
@@ -715,12 +766,15 @@ impl Desktop {
         cx.notify();
     }
 
-    /// `agent`'s draft to attach to: the input's while its chat holds it, else the one parked for it.
-    pub(crate) fn chat_draft_mut(&mut self, agent: &str) -> &mut Draft {
+    /// Edits `agent`'s draft to attach to: the input's while its chat holds it, else the one parked for it.
+    pub(crate) fn chat_draft_edit<R>(&mut self, agent: &str, cx: &mut App, f: impl FnOnce(&mut Draft) -> R) -> R {
         if self.chats.drafts.owner() == Some(agent) {
-            return &mut self.chats.composer.draft;
+            return self.chats.composer.update(cx, |c, cx| {
+                cx.notify();
+                f(&mut c.draft)
+            });
         }
-        &mut self.chats.drafts.parked_mut(agent).1
+        f(&mut self.chats.drafts.parked_mut(agent).1)
     }
 
     /// `set_value` emits no change, so the composer redraws here.
@@ -731,7 +785,7 @@ impl Desktop {
 
     fn chat_answer_enter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(t) = self.focused_chat() else { return };
-        if self.chats.composer.replying.is_some() {
+        if self.chats.composer.read(cx).replying.is_some() {
             self.chat_reply(&t, window, cx);
         } else {
             self.wizard_advance(&t, window, cx);
@@ -745,7 +799,8 @@ impl Desktop {
         let ask = self.chat_ask(terminal);
         let mark = self.handoff_mark(&agent.id, cx);
         let mode = self.chat_mode(terminal, cx);
-        let c = &self.chats.composer;
+        let composer = self.chats.composer.clone();
+        let c = composer.read(cx);
         let input = self.chats.input.read(cx).focus_handle(cx);
         let handoff = match mode {
             _ if self.focused_chat().as_deref() != Some(terminal) => None,
@@ -789,11 +844,13 @@ impl Desktop {
         let tray = tray.map(|t| fade_in(id(format!("chat-queue:{terminal}")), t));
         let interrupt = self.chat_caps(&agent.provider).interrupt;
         let stop = |tasks: &[&chat::ToolCall]| mode == Mode::Prompt && background::stops(agent.chat_only, interrupt, busy, tasks);
-        let background = matches!(mode, Mode::Prompt | Mode::ViewOnly).then(|| transcript.and_then(|t| self.background_tray(&agent.id, t, stop, cx))).flatten();
+        let background = matches!(mode, Mode::Prompt | Mode::ViewOnly)
+            .then(|| transcript.and_then(|t| composer.update(cx, |c, cx| c.background_tray(&agent.id, t, stop, cx))))
+            .flatten();
         let background = background.map(|t| fade_in(id(format!("chat-background-in:{terminal}")), t));
         let tools = self.chats.views.get(&agent.id).map(|v| v.read(cx).tools());
         let map = transcript.zip(tools).and_then(|(t, tools)| self.chats.map.update(cx, |m, cx| m.view(agent, t, &tools, cx)));
-        let btw = matches!(mode, Mode::Prompt).then(|| self.btw_card(&agent.id, cx)).flatten();
+        let btw = matches!(mode, Mode::Prompt).then(|| composer.update(cx, |c, cx| c.btw_card(&agent.id, cx))).flatten();
         let (typed, draft) = self.chat_draft(&agent.id, cx);
         let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
         let asking = matches!(mode, Mode::Permission { .. } | Mode::Question { .. });
@@ -882,6 +939,7 @@ impl Desktop {
     /// `locked` names why the box takes no prompt; `None` takes one.
     fn prompt_box(&self, terminal: &str, agent: &Summary, locked: Option<&'static str>, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let view_only = locked.is_some();
+        let composer = self.chats.composer.clone();
         let caps = self.chat_caps(&agent.provider);
         let held = self.chats.drafts.owner() == Some(agent.id.as_str());
         let (typed, draft) = self.chat_draft(&agent.id, cx);
@@ -894,17 +952,19 @@ impl Desktop {
             let t = t.to_string();
             cx.listener(move |this, _: &ClickEvent, window, cx| this.chat_press(&t, action, window, cx))
         };
-        let left = cx.listener(|this, over: &bool, _, _| {
-            if pointer_left(*over, this.chats.composer.pressing_send) {
-                this.chats.composer.clicked_send = None;
-            }
+        let left = cx.listener(|this, over: &bool, _, cx| {
+            this.chats.composer.update(cx, |c, _| {
+                if pointer_left(*over, c.pressing_send) {
+                    c.clicked_send = None;
+                }
+            });
         });
-        let released = || cx.listener(|this, _: &MouseUpEvent, _, _| this.chats.composer.pressing_send = false);
+        let released = || cx.listener(|this, _: &MouseUpEvent, _, cx| this.chats.composer.update(cx, |c, _| c.pressing_send = false));
         // The id names the action so the tooltip of the button a send was clicked on doesn't stay on the Stop that replaced it.
         let send = (!view_only && shows_button(action, empty)).then(|| {
             send_button::send_button(id(format!("chat-send:{terminal}:{action:?}")), action, empty, blocked)
                 .on_hover(left)
-                .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, _, _| this.chats.composer.pressing_send = true))
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, _, cx| this.chats.composer.update(cx, |c, _| c.pressing_send = true)))
                 .on_mouse_up(MouseButton::Left, released())
                 .on_mouse_up_out(MouseButton::Left, released())
                 .when(!blocked, |b| b.on_click(press(terminal)))
@@ -923,7 +983,7 @@ impl Desktop {
             div().px(px(10.)).py(px(8.)).text_color(TEXT_3).child(why).into_any_element()
         } else if !held {
             // Another chat's draft is in the input; this one's shows until a press here takes the input.
-            let shown = if typed.is_empty() { (self.chats.composer.placeholder.get().to_string(), TEXT_3) } else { (typed, TEXT) };
+            let shown = if typed.is_empty() { (self.chats.composer.read(cx).placeholder.get().to_string(), TEXT_3) } else { (typed, TEXT) };
             div()
                 .px(px(10.))
                 .py(px(8.))
@@ -947,9 +1007,9 @@ impl Desktop {
         let (t, a) = (terminal.to_string(), agent.id.clone());
         let text = crate::composer::prompt_text().child(input);
         let bar = crate::composer::prompt_bar()
-            .children(self.chat_goal_pill(agent, view_only, cx))
+            .children(composer.update(cx, |c, cx| c.goal_pill(agent, view_only, cx)))
             .child(self.chat_model_pill(agent, view_only, cx))
-            .children(self.chat_access_pill(agent, view_only, cx))
+            .children(self.chat_access(agent, view_only).map(|shown| composer.update(cx, |c, cx| c.access_pill(&agent.id, shown, cx))))
             .children(self.chats.views.get(&agent.id).map(|v| v.read(cx).transcript()).and_then(|t| self.chats.map.update(cx, |m, cx| m.chip(agent, &t, cx))))
             .child(div().flex_1())
             .children(attach)
@@ -960,7 +1020,7 @@ impl Desktop {
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| this.chat_focus_input(&a, window, cx)))
             .on_key_down(cx.listener(move |this, e: &KeyDownEvent, _, cx| {
                 if e.keystroke.key == "escape" {
-                    if this.escape_composer_menu() {
+                    if this.escape_composer_menu(cx) {
                         cx.stop_propagation();
                         return cx.notify();
                     }

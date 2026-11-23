@@ -851,7 +851,7 @@ impl Render for Desktop {
                     || this.sidebar.cancel_rename()
                     || this.sidebar.space_header.update(cx, |h, _| h.cancel_rename())
                     || this.new_form.update(cx, |f, cx| f.close_picker(cx))
-                    || this.escape_composer_menu()
+                    || this.escape_composer_menu(cx)
                     || this.close_menus(cx)
                     || this.chat_escape_dock(cx)
                     || this.delegated_escape(window, cx)

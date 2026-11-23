@@ -32,7 +32,7 @@ impl Desktop {
             .child(icon("back", 13., TEXT_2))
             .child("Usage")
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.chats.composer.draft.menu = Some(Menu::Usage { back: true });
+                this.chats.composer.update(cx, |c, _| c.draft.menu = Some(Menu::Usage { back: true }));
                 cx.notify();
             }));
         let title = div()
@@ -63,7 +63,7 @@ impl Desktop {
             .text_color(TEXT_2)
             .child("Manage\u{2026}")
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.chats.composer.draft.menu = None;
+                this.chats.composer.update(cx, |c, _| c.draft.menu = None);
                 this.open_settings(&crate::actions::OpenSettings, window, cx);
                 this.show_section(Section::Accounts, cx);
             }));
@@ -133,7 +133,7 @@ impl Desktop {
         let (id, provider, theirs) = (a.id.clone(), agent.provider.clone(), hosts::session::untag(&agent.id).1.to_string());
         let host = host.clone();
         row.cursor_pointer().hover(|d| d.bg(FILL_3)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.chats.composer.draft.menu = None;
+            this.chats.composer.update(cx, |c, _| c.draft.menu = None);
             this.account_op(host.clone(), json!({"op": "accounts.switch", "key": provider, "id": id, "text": theirs}), cx);
             cx.notify();
         }))
