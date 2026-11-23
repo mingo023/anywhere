@@ -160,25 +160,26 @@ impl Changes {
         });
         cx.spawn(async move |this, cx| {
             let read = task.await;
-            this.update(cx, |c, cx| {
-                if c.inputs.cwd.as_ref() != Some(&cwd) || c.compare_branch().as_ref() != Some(&against) {
-                    return;
-                }
-                let mut scope = c.inputs.scope.clone();
-                match c.view.land(&cwd, against, read, &mut scope) {
-                    Landed::Same => {}
-                    Landed::Changed => cx.notify(),
-                    Landed::Again => {
-                        c.inputs.scope = scope.clone();
-                        cx.emit(ChangesEvent::Scope(cwd, scope));
-                        cx.notify();
-                        c.load_compare(cx);
-                    }
-                }
-            })
-            .ok();
+            this.update(cx, |_, cx| cx.emit(ChangesEvent::Compared { cwd, against, read })).ok();
         })
         .detach();
+    }
+
+    pub(crate) fn land_compare(&mut self, cwd: String, against: String, read: Result<Option<Vec<FileStat>>, String>, cx: &mut Context<Self>) {
+        if self.inputs.cwd.as_ref() != Some(&cwd) || self.compare_branch().as_ref() != Some(&against) {
+            return;
+        }
+        let mut scope = self.inputs.scope.clone();
+        match self.view.land(&cwd, against, read, &mut scope) {
+            Landed::Same => {}
+            Landed::Changed => cx.notify(),
+            Landed::Again => {
+                self.inputs.scope = scope.clone();
+                cx.emit(ChangesEvent::Scope(cwd, scope));
+                cx.notify();
+                self.load_compare(cx);
+            }
+        }
     }
 
     /// Changes the shown worktree's scope and reads its Compare again.

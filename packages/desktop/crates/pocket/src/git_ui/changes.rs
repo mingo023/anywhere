@@ -256,6 +256,11 @@ pub(crate) enum ChangesEvent {
     CreatePr,
     ShipMenu(bool),
     Refresh,
+    Compared {
+        cwd: String,
+        against: String,
+        read: Result<Option<Vec<FileStat>>, String>,
+    },
     /// A commit made and pushed, with the repo read after it, so the PR composer can title itself from its commits.
     Shipped(String, Repo),
 }
@@ -622,6 +627,13 @@ impl Desktop {
     pub(crate) fn on_changes_event(&mut self, _: &Entity<Changes>, ev: &ChangesEvent, window: &mut Window, cx: &mut Context<Self>) {
         match ev {
             ChangesEvent::Stage { paths, staged } => self.stage(paths.clone(), *staged, cx),
+            ChangesEvent::Compared { cwd, against, read } => {
+                if self.cwd().as_ref() != Some(cwd) {
+                    return;
+                }
+                self.sync_changes(cx);
+                self.changes.update(cx, |c, cx| c.land_compare(cwd.clone(), against.clone(), read.clone(), cx));
+            }
             ChangesEvent::Discard(paths) => self.ask_discard(paths.clone(), cx),
             ChangesEvent::Open { path, pin } => self.open_changes(Some(path.clone()), *pin, cx),
             ChangesEvent::OpenDoc(doc, pin) => self.open_doc(doc.clone(), *pin, cx),
