@@ -1,5 +1,5 @@
+use super::HostFinder;
 use super::nav::Preview;
-use crate::desktop::Desktop;
 use crate::explorer::preview::size;
 use crate::util::folder;
 use gpui_kit::*;
@@ -9,10 +9,10 @@ use theme::*;
 
 const LINE: f32 = 19.;
 
-impl Desktop {
+impl HostFinder {
     /// What's picked, beside the columns: a file's text, a repository's branch and remote, or a folder's count.
     pub(super) fn finder_detail(&self) -> Div {
-        let Some(f) = self.host_finder.finder.as_ref() else { return div() };
+        let Some(f) = self.finder.as_ref() else { return div() };
         let pane = div().flex_1().min_w(px(240.)).p(px(16.)).flex().flex_col().gap(px(12.)).overflow_hidden();
         let head = |glyph: &str, title: String, sub: String| {
             div()
@@ -33,10 +33,8 @@ impl Desktop {
             let row_size = f.listing(&f.dir).and_then(|l| l.as_ref().ok()).and_then(|l| l.shown.iter().find(|r| &r.name == file)).map_or(0, |r| r.size);
             let body = match f.preview.as_ref().map(|(_, p)| p) {
                 Some(Preview::Text(lines)) => {
-                    let list = uniform_list("finder-preview", lines.len(), preview_rows(lines.clone()))
-                        .track_scroll(&self.host_finder.preview_scroll)
-                        .size_full()
-                        .py(px(8.));
+                    let list =
+                        uniform_list("finder-preview", lines.len(), preview_rows(lines.clone())).track_scroll(&self.preview_scroll).size_full().py(px(8.));
                     div().flex_1().min_h_0().rounded(px(9.)).bg(FILL_1).border(px(0.5)).border_color(SEPARATOR).child(list)
                 }
                 Some(Preview::TooBig(_)) => note("Too big to preview."),

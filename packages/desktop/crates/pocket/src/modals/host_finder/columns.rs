@@ -1,5 +1,5 @@
+use super::HostFinder;
 use super::nav::Row;
-use crate::desktop::Desktop;
 use crate::modals::add_project::host_folder::child;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -14,10 +14,10 @@ const COLUMNS: usize = 3;
 /// A column as drawn: its place in the chain, its folder, the name picked in it, and its rows once listed.
 type Column = (usize, String, Option<String>, Option<Result<Rc<Vec<Row>>, String>>);
 
-impl Desktop {
+impl HostFinder {
     /// The folder columns from the chain's tail; `projects` lists the keys of the projects on this host.
     pub(super) fn finder_columns(&mut self, projects: Rc<Vec<String>>, cx: &mut Context<Self>) -> Div {
-        let Some(f) = self.host_finder.finder.as_ref() else { return div() };
+        let Some(f) = self.finder.as_ref() else { return div() };
         let chain = f.chain();
         let host = f.host.clone();
         let shown = if f.file.is_some() || f.is_repo(&f.dir) { COLUMNS - 1 } else { COLUMNS };
@@ -44,7 +44,7 @@ impl Desktop {
                 }
                 Some(Ok(rows)) => rows,
             };
-            let scroll = self.host_finder.scroll(&dir);
+            let scroll = self.scroll(&dir);
             let (projects, host) = (projects.clone(), host.clone());
             let here = i == current;
             let list = uniform_list(
@@ -83,7 +83,7 @@ impl Desktop {
                                         })
                                         .when(row.dir, |d| d.child(icon("chevron-right", 12., TEXT_4))),
                                 )
-                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.finder_select(column.clone(), name.clone(), cx)))
+                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select(column.clone(), name.clone(), cx)))
                         })
                         .collect::<Vec<_>>()
                 }),

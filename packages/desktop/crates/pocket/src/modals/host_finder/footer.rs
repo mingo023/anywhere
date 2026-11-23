@@ -1,15 +1,15 @@
+use super::HostFinder;
 use super::nav::Hint;
-use crate::desktop::Desktop;
 use crate::modals::add_project::host_folder::child;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 use ui::Variant;
 
-impl Desktop {
+impl HostFinder {
     pub(super) fn finder_footer(&self, online: bool, cx: &mut Context<Self>) -> Div {
-        let f = self.host_finder.finder.as_ref();
-        let ask = self.finder_ask(cx);
+        let f = self.finder.as_ref();
+        let ask = self.finder_ask();
         let path = f.filter(|f| online && !f.dir.is_empty()).map(|f| f.pretty(&f.dir)).unwrap_or_default();
         let hint = match (f, ask.as_ref().and_then(|a| a.hint.as_ref())) {
             (Some(_), Some(Hint::Taken)) => Some(("warning", "Already a project".to_string(), WAITING_TEXT)),
@@ -23,11 +23,11 @@ impl Desktop {
         };
         let ready = ask.as_ref().is_some_and(|a| a.ready);
         let primary = ask.map_or("Use this folder", |a| a.primary);
-        let cancel = ui::button("finder-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-            this.close_host_finder(window, cx);
+        let cancel = ui::button("finder-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.close(cx);
         }));
         let choose = ui::button("finder-choose", Variant::Primary, None, primary)
-            .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.finder_choose(window, cx))))
+            .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.choose(cx))))
             .when(!ready, |d| d.opacity(0.5).cursor_default());
         div()
             .px(px(14.))

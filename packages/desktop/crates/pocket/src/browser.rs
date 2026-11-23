@@ -131,7 +131,7 @@ impl Desktop {
             return;
         }
         let covered = self.overlay.is_some()
-            || self.host_finder.finder.is_some()
+            || self.host_finder.read(cx).is_open()
             || self.menu_open(cx)
             || self.sidebar.menu_at.is_some()
             || self.shown_create(cx).is_some()

@@ -1,8 +1,8 @@
-use crate::desktop::Desktop;
+use super::HostFinder;
 use gpui_kit::*;
 use theme::*;
 
-impl Desktop {
+impl HostFinder {
     pub(super) fn finder_note(&self, glyph: &str, title: String, detail: impl Into<SharedString>) -> Div {
         div()
             .flex_1()

@@ -465,7 +465,7 @@ impl Desktop {
                 }
                 d.fleet.tokens.insert(id.clone(), endpoint.token.clone());
                 hosts::remote::register(client);
-                d.finder_host_back(&id, window, cx);
+                d.host_finder.update(cx, |f, cx| f.host_back(&id, window, cx));
                 d.handoff_host_back(&id, cx);
                 d.sweep_host_leftovers(cx);
                 d.clone_form.update(cx, |f, cx| f.fetch_home(window, cx));

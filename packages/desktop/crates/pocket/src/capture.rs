@@ -656,11 +656,11 @@ const STEPS: [(&str, Step); 303] = [
         d.open_host_folder(window, cx);
         d.open_host_finder("devbox".into(), Some("/home/dev/code".into()), crate::modals::host_finder::Opener::AddProject, window, cx);
     }),
-    ("finder-app", |d, _, cx| d.finder_select("/home/dev/code".into(), "app".into(), cx)),
-    ("finder-readme", |d, _, cx| d.finder_select("/home/dev/code/app".into(), "README.md".into(), cx)),
-    ("finder-down", |d, _, cx| d.finder_step("down", cx)),
-    ("finder-left", |d, _, cx| d.finder_step("left", cx)),
-    ("finder-hidden", |d, _, cx| d.finder_toggle_hidden(cx)),
+    ("finder-app", |d, _, cx| d.host_finder.update(cx, |f, cx| f.select("/home/dev/code".into(), "app".into(), cx))),
+    ("finder-readme", |d, _, cx| d.host_finder.update(cx, |f, cx| f.select("/home/dev/code/app".into(), "README.md".into(), cx))),
+    ("finder-down", |d, _, cx| d.host_finder.update(cx, |f, cx| f.step("down", cx))),
+    ("finder-left", |d, _, cx| d.host_finder.update(cx, |f, cx| f.step("left", cx))),
+    ("finder-hidden", |d, _, cx| d.host_finder.update(cx, |f, cx| f.toggle_hidden(cx))),
     // The sidebar's spaces, with devbox online and 10.0.4.12 retrying (FIXTURE_HOST_FILES=1).
     ("space-mac", |d, window, cx| d.switch_space(Space::Local, window, cx)),
     ("space-devbox", |d, window, cx| d.switch_space(Space::Host("devbox".into()), window, cx)),
@@ -690,7 +690,7 @@ const STEPS: [(&str, Step); 303] = [
     ("form-host-folder", |d, window, cx| {
         d.open_host_finder("devbox".into(), Some("/home/dev/code".into()), crate::modals::host_finder::Opener::NewSession, window, cx)
     }),
-    ("finder-choose", |d, window, cx| d.finder_choose(window, cx)),
+    ("finder-choose", |d, _, cx| d.host_finder.update(cx, |f, cx| f.choose(cx))),
     ("vm-open", |d, window, cx| d.open_browsed(window, cx)),
     ("vm-save", |d, window, cx| d.save_repo(window, cx)),
     ("vm-shell", |d, _, cx| d.new_shell(workspace::Place::Pane(None), cx)),

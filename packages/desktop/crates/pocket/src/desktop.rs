@@ -142,7 +142,7 @@ pub struct Desktop {
     pub(crate) preview: Entity<Previews>,
     pub(crate) new_form: Entity<new_session::NewForm>,
     pub(crate) repo_form: add_project::RepoForm,
-    pub(crate) host_finder: crate::modals::host_finder::HostFinder,
+    pub(crate) host_finder: Entity<crate::modals::host_finder::HostFinder>,
     pub(crate) clone_form: Entity<clone_project::CloneForm>,
     pub(crate) pair: Entity<PairPhone>,
     pub(crate) capturing: bool,
@@ -174,7 +174,8 @@ impl Desktop {
         let new_form = cx.new(|cx| new_session::NewForm::new(window, cx));
         let new_subs = Self::watch_new_form(&new_form, window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
-        let host_finder = crate::modals::host_finder::HostFinder::new(cx);
+        let host_finder = cx.new(|cx| crate::modals::host_finder::HostFinder::new(cx));
+        let host_finder_subs = cx.subscribe_in(&host_finder, window, Self::on_finder_event);
         let confirm = cx.new(|_| crate::modals::confirm::ConfirmSheet::default());
         let confirm_subs = cx.subscribe_in(&confirm, window, Self::on_confirm_event);
         let clone_form = cx.new(|cx| clone_project::CloneForm::new(window, cx));
@@ -254,6 +255,7 @@ impl Desktop {
         _subs.extend(new_subs);
         _subs.extend(repo_subs);
         _subs.push(confirm_subs);
+        _subs.push(host_finder_subs);
         _subs.push(clone_subs);
         _subs.extend(geometry_subs);
         _subs.extend(automations_subs);
@@ -804,7 +806,7 @@ impl Render for Desktop {
         let page = shown.then(|| if settings { self.settings_page(cx) } else { self.main_view(window, cx) });
         let workspace = (shown && self.screen == Screen::Sessions && self.sidebar.unfocused() > 0.).then(|| self.workspace_side());
         // The finder opened from the new-session page has no overlay under it.
-        let overlay = if shown { self.overlay_view(window, cx).or_else(|| self.host_finder_view(window, cx)) } else { None };
+        let overlay = if shown { self.overlay_view(window, cx).or_else(|| self.host_finder_view(cx)) } else { None };
         div()
             .relative()
             .size_full()
@@ -829,7 +831,7 @@ impl Render for Desktop {
                 if ev.keystroke.key != "escape" {
                     return;
                 }
-                if this.close_host_finder(window, cx)
+                if this.close_host_finder(cx)
                     || this.cancel_drag()
                     || this.explorer.update(cx, |e, _| e.cancel_edit())
                     || this.sidebar.cancel_rename()

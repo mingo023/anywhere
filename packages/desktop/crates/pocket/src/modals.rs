@@ -47,7 +47,7 @@ impl Desktop {
             }
             _ => {}
         }
-        self.host_finder.finder = None;
+        self.host_finder.update(cx, |f, _| f.drop_finder());
         self.refocus(window, cx);
     }
 
@@ -73,7 +73,7 @@ impl Desktop {
             Overlay::Handoff => (self.handoff_view(cx), 0x2e, Some((200, 8.))),
         };
         let backdrop = ui::backdrop("backdrop", alpha).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
-        let finder = self.host_finder_view(window, cx);
+        let finder = self.host_finder_view(cx);
         let layer = div().absolute().inset_0();
         let Some((ms, rise)) = entrance else {
             return Some(layer.child(backdrop).child(body).children(finder).into_any_element());
