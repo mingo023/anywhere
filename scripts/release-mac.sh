@@ -175,10 +175,12 @@ publish() {
   "$ROOT/scripts/package-pocketd.sh" "$VERSION"
   "$ROOT/scripts/package-pocketd-windows.sh" "$VERSION"
   hosts=$(find "$ROOT/packages/pocketd/dist" -name 'pocketd-*.tar.gz*' -o -name 'pocketd-windows-*.zip*')
+  # A desktop updating a Mac host whose pocketd the app there runs checks the DMG against this (bootstrap.sh).
+  (cd "$OUT" && shasum -a 256 Anywhere.dmg > Anywhere.dmg.sha256)
   case "$VERSION" in
     *-*)
       # shellcheck disable=SC2086
-      gh release create "$tag" "$DMG" $hosts --repo "$REPO" --verify-tag --prerelease --title "Anywhere $VERSION" --notes-file "$OUT/Anywhere.md"
+      gh release create "$tag" "$DMG" "$DMG.sha256" $hosts --repo "$REPO" --verify-tag --prerelease --title "Anywhere $VERSION" --notes-file "$OUT/Anywhere.md"
       return
       ;;
   esac
@@ -199,7 +201,7 @@ publish() {
     "$ROOT/third_party/sparkle/bin/generate_appcast" "$@" "$feed"
   fi
   # shellcheck disable=SC2086
-  gh release create "$tag" "$DMG" "$feed/appcast.xml" $hosts --repo "$REPO" --verify-tag --latest --title "Anywhere $VERSION" --notes-file "$OUT/Anywhere.md"
+  gh release create "$tag" "$DMG" "$DMG.sha256" "$feed/appcast.xml" $hosts --repo "$REPO" --verify-tag --latest --title "Anywhere $VERSION" --notes-file "$OUT/Anywhere.md"
 }
 
 main() {

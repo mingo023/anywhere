@@ -4,7 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -276,22 +279,142 @@ func TestTheChecksumComesFromTheFileBesideTheArchive(t *testing.T) {
 	}
 }
 
-func TestAnUpdateLeavesThePocketdAnAnywhereAppRunsThereAlone(t *testing.T) {
-	const app = "/Applications/Anywhere.app/Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd"
-	out, linked := forceUpdate(t, func(dir string) string { return app })
-	if runtime.GOOS != "darwin" {
-		if !linked {
-			t.Errorf("only a Mac runs the app, yet the update stopped:\n%s", out)
+func TestAnUpdateLeavesAloneThePocketdOfAnywhereDevOrAnUploadedBuild(t *testing.T) {
+	for name, c := range map[string]struct{ app, id, url string }{
+		"Anywhere Dev":          {"Anywhere Dev.app", "dev.mingo.anywhere.dev", "https://x/v1.2.0"},
+		"an uploaded dev build": {"Anywhere.app", "dev.mingo.anywhere", ""},
+	} {
+		var exe string
+		out, linked := forceUpdate(t, func(dir string) string {
+			exe = anywhereApp(t, filepath.Join(dir, "..", "..", c.app), c.id, "#!/bin/sh\n")
+			return exe
+		}, c.url)
+		if runtime.GOOS != "darwin" {
+			if !linked {
+				t.Errorf("%s: only a Mac runs the app, yet the update stopped:\n%s", name, out)
+			}
+			continue
 		}
-		return
-	}
-	if linked || !strings.Contains(out, "ANYWHERE error pocketd here runs from "+app+", which an update can't replace") {
-		t.Errorf("linked %v:\n%s", linked, out)
+		if linked || !strings.Contains(out, "ANYWHERE error pocketd here runs from "+exe+", which an update can't replace") {
+			t.Errorf("%s: linked %v:\n%s", name, linked, out)
+		}
 	}
 }
 
+func TestAnUpdateReplacesTheAnywhereAppWhosePocketdRunsThere(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only a Mac runs the app")
+	}
+	const newer = "#!/bin/sh\n# 1.2.0\necho '{\"version\": \"1.2.0\"}'\n"
+	dmg := releaseDMG(t, newer)
+	var app string
+	out, linked := forceUpdate(t, func(dir string) string {
+		app = filepath.Join(filepath.Dir(filepath.Dir(dir)), "Applications", "Anywhere.app")
+		return anywhereApp(t, app, "dev.mingo.anywhere", "#!/bin/sh\n")
+	}, serveRelease(t, dmg, fmt.Sprintf("%x  Anywhere.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
+	now, _ := os.ReadFile(filepath.Join(app, appPocketd))
+	if linked || string(now) != newer || !strings.HasSuffix(out, "ANYWHERE done\n") {
+		t.Errorf("linked %v, app's pocketd %q:\n%s", linked, now, out)
+	}
+	if left, _ := filepath.Glob(app + ".*"); len(left) > 0 {
+		t.Errorf("left beside the app: %v", left)
+	}
+}
+
+func TestAnAppUpdateWhoseDMGFailsItsChecksumKeepsTheAppThere(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only a Mac runs the app")
+	}
+	dmg := releaseDMG(t, "#!/bin/sh\n# 1.2.0\n")
+	var app string
+	out, _ := forceUpdate(t, func(dir string) string {
+		app = filepath.Join(filepath.Dir(filepath.Dir(dir)), "Applications", "Anywhere.app")
+		return anywhereApp(t, app, "dev.mingo.anywhere", "#!/bin/sh\n# old\n")
+	}, serveRelease(t, dmg, strings.Repeat("ab", 32)+"  Anywhere.dmg\n"), "ANYWHERE_ALLOW_HTTP=1")
+	now, _ := os.ReadFile(filepath.Join(app, appPocketd))
+	if string(now) != "#!/bin/sh\n# old\n" || !strings.Contains(out, "ANYWHERE error checksum mismatch") {
+		t.Errorf("app's pocketd %q:\n%s", now, out)
+	}
+}
+
+func TestAnAppUpdateThatCantMoveTheAppLeavesItThere(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only a Mac runs the app")
+	}
+	dmg := releaseDMG(t, "#!/bin/sh\n# 1.2.0\necho '{\"version\": \"1.2.0\"}'\n")
+	var app string
+	out, _ := forceUpdate(t, func(dir string) string {
+		app = filepath.Join(filepath.Dir(filepath.Dir(dir)), "Applications", "Anywhere.app")
+		exe := anywhereApp(t, app, "dev.mingo.anywhere", "#!/bin/sh\n# old\n")
+		if b, err := exec.Command("chflags", "uchg", app).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %s", err, b)
+		}
+		t.Cleanup(func() { exec.Command("chflags", "nouchg", app).Run() })
+		return exe
+	}, serveRelease(t, dmg, fmt.Sprintf("%x  Anywhere.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
+	now, _ := os.ReadFile(filepath.Join(app, appPocketd))
+	if string(now) != "#!/bin/sh\n# old\n" || !strings.Contains(out, "ANYWHERE error can't replace "+app) {
+		t.Errorf("app's pocketd %q:\n%s", now, out)
+	}
+	if left, _ := filepath.Glob(app + ".*"); len(left) > 0 {
+		t.Errorf("left beside the app: %v", left)
+	}
+}
+
+const appPocketd = "Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd"
+
+func anywhereApp(t *testing.T, app, id, script string) string {
+	exe := filepath.Join(app, appPocketd)
+	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plist := `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>` + id + `</string></dict></plist>
+`
+	if err := os.WriteFile(filepath.Join(app, "Contents", "Info.plist"), []byte(plist), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exe, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return exe
+}
+
+func releaseDMG(t *testing.T, script string) []byte {
+	dir := t.TempDir()
+	anywhereApp(t, filepath.Join(dir, "stage", "Anywhere.app"), "dev.mingo.anywhere", script)
+	dmg := filepath.Join(dir, "Anywhere.dmg")
+	if b, err := exec.Command("hdiutil", "create", "-quiet", "-volname", "Anywhere", "-srcfolder", filepath.Join(dir, "stage"), "-format", "UDZO", dmg).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, b)
+	}
+	b, err := os.ReadFile(dmg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func serveRelease(t *testing.T, dmg []byte, sums string) string {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/Anywhere.dmg":
+			w.Write(dmg)
+		case "/Anywhere.dmg.sha256":
+			io.WriteString(w, sums)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
 func TestAnUpdateReplacesThePocketdItsOwnServiceRuns(t *testing.T) {
-	out, linked := forceUpdate(t, func(dir string) string { return filepath.Join(dir, "bin", "pocketd") })
+	out, linked := forceUpdate(t, func(dir string) string { return filepath.Join(dir, "bin", "pocketd") }, "https://x/v1.2.0")
 	if !linked || !strings.HasSuffix(out, "ANYWHERE done\n") {
 		t.Errorf("linked %v:\n%s", linked, out)
 	}
@@ -301,7 +424,7 @@ func TestAnUpdateReplacesThePocketdItsOwnServiceRuns(t *testing.T) {
 // it, against a pocketd that answers on its socket with the pid of a process whose argv[0] is running(dir), dir being
 // the resolved path. An earlier update's bin/pocketd is already there. Every pocketd it runs is a stub, so nothing
 // reaches launchd or systemd.
-func forceUpdate(t *testing.T, running func(dir string) string) (out string, linked bool) {
+func forceUpdate(t *testing.T, running func(dir string) string, releaseURL string, env ...string) (out string, linked bool) {
 	if runtime.GOOS == "windows" {
 		t.Skip("bootstrap.sh runs on unix hosts")
 	}
@@ -350,16 +473,17 @@ func forceUpdate(t *testing.T, running func(dir string) string) (out string, lin
 		t.Fatal(err)
 	}
 	defer func() { holder.Process.Kill(); holder.Wait() }()
-	rendered, err := fill(bootstrapSh, "1.2.0", "https://x/v1.2.0", ".cp", "dev.mingo.anywhere.test.host.pocketd")
+	rendered, err := fill(bootstrapSh, "1.2.0", releaseURL, ".cp", "dev.mingo.anywhere.test.host.pocketd")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "sh", "-s")
 	cmd.Stdin = strings.NewReader(rendered)
 	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH"), "STUB_PID=" + strconv.Itoa(holder.Process.Pid), "ANYWHERE_FORCE=1",
 		"ANYWHERE_ARCHIVE=" + archive, fmt.Sprintf("ANYWHERE_SHA256=%x", sha256.Sum256(b))}
+	cmd.Env = append(cmd.Env, env...)
 	got, _ := cmd.CombinedOutput()
 	now, _ := os.ReadFile(filepath.Join(dir, "bin", "pocketd"))
 	return string(got), string(now) == script
