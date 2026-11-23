@@ -1,7 +1,6 @@
 use super::RADIUS;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
-use crate::util::now_ms;
 use agents::queue::Entry;
 use chat::{Delivery, Pending};
 use gpui_kit::component::input::RopeExt as _;
@@ -219,15 +218,15 @@ impl Desktop {
     }
 
     pub(crate) fn chat_queue_remove(&mut self, agent: &str, send: u64, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(v) = self.chats.views.get_mut(agent) {
-            v.session.outgoing.withdraw(send);
+        if let Some(v) = self.chats.views.get(agent) {
+            v.update(cx, |v, _| v.withdraw(send));
             cx.notify();
         }
     }
 
     /// Takes a held send back into the composer to rework.
     pub(crate) fn chat_queue_edit(&mut self, agent: &str, send: u64, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(text) = self.chats.views.get_mut(agent).and_then(|v| v.session.outgoing.withdraw(send)) else { return };
+        let Some(text) = self.chats.views.get(agent).and_then(|v| v.update(cx, |v, _| v.withdraw(send))) else { return };
         self.chat_take_back(agent, &text, window, cx);
     }
 
@@ -244,20 +243,19 @@ impl Desktop {
 
     /// Lets the queue go on past the turn it was paused behind; the next send goes once the agent is idle.
     pub(crate) fn chat_queue_resume(&mut self, agent: &str, cx: &mut Context<Self>) {
-        if let Some(v) = self.chats.views.get_mut(agent) {
-            v.session.outgoing.resume(&v.session.transcript);
-            self.refresh_chats();
+        if let Some(v) = self.chats.views.get(agent) {
+            v.update(cx, |v, _| v.resume_queue());
+            self.refresh_chats(cx);
             cx.notify();
         }
     }
 
     /// Sends a held send now: the agent takes it mid-turn.
     pub(crate) fn chat_queue_steer(&mut self, agent: &str, send: u64, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(v) = self.chats.views.get_mut(agent) else { return };
-        let Some(text) = v.session.outgoing.steer(send, now_ms()) else { return };
-        v.steered();
+        let Some(v) = self.chats.views.get(agent) else { return };
+        let Some(text) = v.update(cx, |v, _| v.steer_held(send)) else { return };
         if let Some(request) = self.outbox.prompt(agent, &text) {
-            v.session.outgoing.sent_as(send, request);
+            v.update(cx, |v, _| v.sent_as(send, request));
         }
         cx.notify();
     }

@@ -1,6 +1,6 @@
+use super::transcript::View;
 use super::{meta, user_bubble};
 use crate::composer::{Sent, split_attachments};
-use crate::desktop::Desktop;
 use chat::Row;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -290,12 +290,12 @@ fn card(
     div().absolute().inset_0().overflow_hidden().child(cover).child(card)
 }
 
-impl Desktop {
-    /// The prompt whose turn the top of `agent`'s chat is in, floated over the top once it scrolls past. A click scrolls
+impl View {
+    /// The prompt whose turn the top of the chat is in, floated over the top once it scrolls past. A click scrolls
     /// back to the prompt; the next prompt pushes it out as it arrives. Also how far down its card ends, which the
     /// transcript paints only below.
-    pub(super) fn chat_sticky(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<(Div, f32)> {
-        let view = self.chats.views.get(agent)?;
+    pub(super) fn sticky(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<(Div, f32)> {
+        let view = &*self;
         let s = &view.session;
         let (top, offset) = view.top_row();
         let ix = stuck(&s.rows, top, offset)?;
@@ -335,13 +335,10 @@ impl Desktop {
         if shift <= -bottom {
             return None;
         }
-        let on_jump = {
-            let agent = agent.to_string();
-            cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_jump_to_prompt(&agent, ix, cx))
-        };
+        let on_jump = cx.listener(move |this, _: &ClickEvent, _, cx| this.jump_to_prompt(ix, cx));
         let on_more = {
-            let (agent, row) = (agent.to_string(), id.clone());
-            cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_sticky(&agent, &row, cx))
+            let row = id.clone();
+            cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_sticky(&row, cx))
         };
         let cover = covered(view.inset, bottom, shift);
         Some((
@@ -350,9 +347,8 @@ impl Desktop {
         ))
     }
 
-    fn chat_toggle_sticky(&mut self, agent: &str, row: &str, cx: &mut Context<Self>) {
-        let Some(view) = self.chats.views.get_mut(agent) else { return };
-        view.sticky_open = if view.sticky_open.as_deref() == Some(row) { None } else { Some(row.to_string()) };
+    fn toggle_sticky(&mut self, row: &str, cx: &mut Context<Self>) {
+        self.sticky_open = if self.sticky_open.as_deref() == Some(row) { None } else { Some(row.to_string()) };
         cx.notify();
     }
 }

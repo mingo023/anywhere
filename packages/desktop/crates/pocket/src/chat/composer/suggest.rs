@@ -424,7 +424,7 @@ impl Desktop {
             let root = format!("{}/", hosts::split(&t.cwd).1.trim_end_matches('/'));
             let views = (p == Prompt::Chat).then(|| self.chats.views.get(&t.key)).flatten();
             let touched: Vec<String> =
-                views.map(|v| touched(&v.session.transcript)).unwrap_or_default().iter().filter_map(|p| p.strip_prefix(&root).map(String::from)).collect();
+                views.map(|v| touched(&v.read(cx).transcript())).unwrap_or_default().iter().filter_map(|p| p.strip_prefix(&root).map(String::from)).collect();
             let changed: HashSet<&str> = self.repos.get(&t.cwd).map(|r| r.files.iter().map(|f| f.path.as_str()).collect()).unwrap_or_default();
             let files = s.files.get(&t.cwd).map_or(&[][..], Vec::as_slice);
             Some(Rows::Files { at, query: query.into(), paths: rank(query, &touched, &changed, files) })

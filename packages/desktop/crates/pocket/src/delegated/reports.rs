@@ -1,7 +1,7 @@
 use super::delivered;
 use crate::chat::shimmer::shimmer;
 use crate::chat::sub_agent::{self, Mark};
-use crate::desktop::Desktop;
+use crate::chat::transcript::View;
 use agents::delegations::{Delegation, Phase};
 use chat::{Child, Delivered, Outcome, Span};
 use gpui_kit::*;
@@ -124,7 +124,7 @@ pub(crate) fn drawn(open: bool, toggled: Option<Instant>) -> bool {
 
 /// One line for the group, the questions sessions in it wait on under it, and, opened, each report and what the agent
 /// made of it, hung from a hairline. They come and go on a spring, or a fade when motion is reduced.
-pub(crate) fn group(g: Group, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, window: &mut Window, cx: &mut Context<Desktop>) -> Div {
+pub(crate) fn group(g: Group, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, window: &mut Window, cx: &mut Context<View>) -> Div {
     let (id, updates) = (g.id, g.reports.iter().map(|r| r.deliveries.len()).sum());
     let pins: Vec<Div> = g.sessions.iter().filter(|s| s.phase == Phase::Asking).map(|s| pin(id, s, window, cx)).collect();
     if !g.open && drawn(g.open, g.toggled) {
@@ -212,7 +212,7 @@ fn head(
 }
 
 /// A question a session waits on, held outside the group until it is answered; a click opens the session to answer it.
-fn pin(id: &str, s: &Standing, window: &mut Window, cx: &mut Context<Desktop>) -> Div {
+fn pin(id: &str, s: &Standing, window: &mut Window, cx: &mut Context<View>) -> Div {
     let asks = Delivered { id: format!("{id}-asks-{}", s.child.id), outcome: Outcome::Asks, question: s.question.clone(), children: vec![s.child.clone()] };
     div().ml(px(8.)).pl(px(8.)).rounded(px(10.)).bg(WAITING_BG).child(delivered(&asks.id, &asks, None, window, cx))
 }

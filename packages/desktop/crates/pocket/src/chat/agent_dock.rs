@@ -136,7 +136,8 @@ impl Desktop {
 
     fn chat_step_dock(&mut self, down: bool, cx: &mut Context<Self>) -> bool {
         let Some(view) = self.chats.dock.pick.open.as_ref().and_then(|s| self.chats.views.get(&s.agent)) else { return false };
-        let calls: Vec<&str> = agent_calls(&view.session.transcript).iter().map(|(c, _)| c.id.as_str()).collect();
+        let t = view.read(cx).transcript();
+        let calls: Vec<&str> = agent_calls(&t).iter().map(|(c, _)| c.id.as_str()).collect();
         let moved = self.chats.dock.pick.step(down, &calls);
         if moved {
             cx.notify();
@@ -158,9 +159,9 @@ impl Desktop {
     }
 
     /// Closes the dock once its sub-agent is gone from its chat, or its chat is.
-    pub(crate) fn chat_prune_dock(&mut self) {
+    pub(crate) fn chat_prune_dock(&mut self, cx: &App) {
         let views = &self.chats.views;
-        self.chats.dock.pick.keep_if(|agent, call| views.get(agent).is_some_and(|v| agent_calls(&v.session.transcript).iter().any(|(c, _)| c.id == call)));
+        self.chats.dock.pick.keep_if(|agent, call| views.get(agent).is_some_and(|v| agent_calls(&v.read(cx).transcript()).iter().any(|(c, _)| c.id == call)));
     }
 
     /// `agent`'s dock while it shows or slides out: as wide as it has slid in, so the chat beside it narrows.
@@ -172,7 +173,11 @@ impl Desktop {
             return None;
         }
         let view = self.chats.views.get(agent)?;
-        let (call, sub) = agent_calls(&view.session.transcript).into_iter().find(|(c, _)| c.id == shown.call)?;
+        let (tools, transcript) = {
+            let v = view.read(cx);
+            (v.tools(), v.transcript())
+        };
+        let (call, sub) = agent_calls(&transcript).into_iter().find(|(c, _)| c.id == shown.call)?;
         let key = format!("dock-{agent}");
         let actions = vec![
             agent_detail::action(format!("{key}-up"), "chevron-up", cx.listener(|this, _: &ClickEvent, _, cx| _ = this.chat_step_dock(false, cx))),
@@ -189,7 +194,7 @@ impl Desktop {
         });
         let links = self.chat_links(agent, cx);
         let detail = Detail { key: key.clone(), call, agent: sub, now: now_ms(), all_steps: dock.pick.all_steps, brief_open: dock.pick.brief_open };
-        let body = agent_detail::view(detail, None, actions, on_brief, on_more, &view.tools, &links, cx);
+        let body = agent_detail::view(detail, None, actions, on_brief, on_more, &tools, &links, cx);
         // Laid out at its full width as it slides, so its text doesn't rewrap every frame.
         let inner = div().absolute().top_0().bottom_0().left_0().w(relative(1. / t)).opacity(t).child(body);
         let focus = dock.focus.clone();

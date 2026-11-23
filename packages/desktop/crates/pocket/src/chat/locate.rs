@@ -48,7 +48,7 @@ impl Desktop {
     pub(super) fn chat_open_file(&mut self, agent: &str, path: String, cwd: &str, at: Point<Pixels>, cx: &mut Context<Self>) {
         let written = path.strip_prefix(cwd).map(|w| w.trim_start_matches('/').to_string());
         let (Some(written), (None, _)) = (written, hosts::split(cwd)) else { return self.open_doc(Doc::File(path), false, cx) };
-        let touched = self.chats.views.get(agent).map(|v| touched(&v.session.transcript)).unwrap_or_default();
+        let touched = self.chats.views.get(agent).map(|v| touched(&v.read(cx).transcript())).unwrap_or_default();
         let (cwd, runner) = (cwd.to_string(), hosts::runner_for(cwd));
         let task = cx.background_executor().spawn(async move {
             if Path::new(&path).exists() {

@@ -77,15 +77,17 @@ const STEPS: [(&str, Step); 303] = [
     }),
     ("chat-fold-open", |d, _, cx| {
         let Some(agent) = d.session().map(str::to_string) else { return };
-        let Some(view) = d.chats.views.get(&agent) else { return };
-        let s = &view.session;
-        let Some(ix) = s.rows.iter().position(|r| matches!(r, Row::Fold { turn } if !chat::at_work_on(&s.transcript, chat::folded(&s.transcript, *turn))))
-        else {
-            return;
-        };
-        let id = s.ids[ix].clone();
-        view.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
-        d.chat_toggle(&agent, &id, false, cx);
+        let Some(view) = d.chats.views.get(&agent).cloned() else { return };
+        view.update(cx, |v, cx| {
+            let s = v.session();
+            let Some(ix) = s.rows.iter().position(|r| matches!(r, Row::Fold { turn } if !chat::at_work_on(&s.transcript, chat::folded(&s.transcript, *turn))))
+            else {
+                return;
+            };
+            let id = s.ids[ix].clone();
+            v.list().scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
+            v.toggle_row(&id, false, cx);
+        });
     }),
     ("chat-tools-open", |d, _, cx| _ = open_phase(d, is_call, cx)),
     ("chat-thinking-open", |d, _, cx| {
@@ -101,19 +103,21 @@ const STEPS: [(&str, Step); 303] = [
     ("chat-sub-open", |d, _, cx| open_agent(d, |c| c.status != chat::ToolStatus::Running, cx)),
     ("chat-details-open", |d, _, cx| {
         let Some(agent) = d.session().map(str::to_string) else { return };
-        let Some(v) = d.chats.views.get(&agent) else { return };
-        let s = &v.session;
-        let shut: Vec<String> = s
-            .rows
-            .iter()
-            .zip(&s.ids)
-            .filter(|(r, id)| matches!(r, Row::Fold { .. } | Row::Phase { .. }) && !s.open(id, false))
-            .map(|(_, id)| id.clone())
-            .collect();
-        let calls: Vec<_> = s.transcript.turns.iter().flat_map(|t| &t.blocks).filter(|b| opens(b)).cloned().collect();
-        let tools = v.tools.clone();
+        let Some(v) = d.chats.views.get(&agent).cloned() else { return };
+        let (shut, calls, tools) = {
+            let (s, tools) = (v.read(cx).session(), v.read(cx).tools());
+            let shut: Vec<String> = s
+                .rows
+                .iter()
+                .zip(&s.ids)
+                .filter(|(r, id)| matches!(r, Row::Fold { .. } | Row::Phase { .. }) && !s.open(id, false))
+                .map(|(_, id)| id.clone())
+                .collect();
+            let calls: Vec<_> = s.transcript.turns.iter().flat_map(|t| &t.blocks).filter(|b| opens(b)).cloned().collect();
+            (shut, calls, tools)
+        };
         for id in shut {
-            d.chat_toggle(&agent, &id, false, cx);
+            v.update(cx, |v, cx| v.toggle_row(&id, false, cx));
         }
         tools.update(cx, |t, cx| {
             for b in calls {
@@ -125,17 +129,21 @@ const STEPS: [(&str, Step); 303] = [
     }),
     ("chat-question-open", |d, _, cx| {
         let Some(agent) = d.session().map(str::to_string) else { return };
-        let Some(view) = d.chats.views.get(&agent) else { return };
-        let Some(ix) = view.session.rows.iter().position(|r| matches!(r, Row::Question { .. })) else { return };
-        let id = view.session.ids[ix].clone();
-        d.chat_reveal(&agent, ix, cx);
-        d.chat_toggle_expanded(&agent, &id, cx);
+        let Some(view) = d.chats.views.get(&agent).cloned() else { return };
+        view.update(cx, |v, cx| {
+            let Some(ix) = v.session().rows.iter().position(|r| matches!(r, Row::Question { .. })) else { return };
+            let id = v.session().ids[ix].clone();
+            v.reveal(ix, cx);
+            v.toggle_expanded(&id, cx);
+        });
     }),
     ("chat-mcp-open", |d, _, cx| _ = open_phase(d, |b| matches!(b, Block::Tool(c) if c.name.starts_with("mcp__")), cx)),
     ("chat-scrolled-down", |d, _, cx| {
         if let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) {
-            v.list.scroll_by(px(560.));
-            cx.notify();
+            v.update(cx, |v, cx| {
+                v.list().scroll_by(px(560.));
+                cx.notify();
+            });
         }
     }),
     ("chat-sub-open-running", |d, _, cx| open_agent(d, |c| c.status == chat::ToolStatus::Running, cx)),
@@ -161,7 +169,8 @@ const STEPS: [(&str, Step); 303] = [
     }),
     ("chat-background-show", |d, _, cx| {
         let Some(agent) = d.session().map(str::to_string) else { return };
-        let task = d.chats.views.get(&agent).and_then(|v| chat::in_background(&v.session.transcript.turns).last().map(|(turn, block, _)| (turn, block)));
+        let task =
+            d.chats.views.get(&agent).and_then(|v| chat::in_background(&v.read(cx).session().transcript.turns).last().map(|(turn, block, _)| (turn, block)));
         if let Some((turn, block)) = task {
             d.chat_show_block(&agent, turn, block, cx);
         }
@@ -175,13 +184,14 @@ const STEPS: [(&str, Step); 303] = [
     ("chat-agent-map-detail", |d, _, cx| {
         let Some(agent) = d.session().map(str::to_string) else { return };
         let Some(v) = d.chats.views.get(&agent) else { return };
-        let map = chat::spawned(&v.session.transcript);
+        let t = v.read(cx).transcript();
+        let map = chat::spawned(&t);
         let Some(ix) = map.iter().position(|s| s.call.status == chat::ToolStatus::Running).or((!map.is_empty()).then_some(0)) else { return };
         let call = map[ix].call.id.clone();
         d.chat_map_show(ix + 1, &call, cx);
     }),
-    ("chat-scrolled-up", |d, _, cx| d.scroll_chat_back(30, cx)),
-    ("chat-top", |d, _, cx| d.scroll_chat_back(usize::MAX, cx)),
+    ("chat-scrolled-up", |d, _, cx| scroll_back(d, 30, cx)),
+    ("chat-top", |d, _, cx| scroll_back(d, usize::MAX, cx)),
     // Into the first reply, so the first prompt sticks.
     ("chat-sticky", |d, _, cx| scroll_from_prompt(d, 0, 2, cx)),
     // The row over the second prompt at the top, so that prompt shows just under it and pushes the first one's card.
@@ -189,17 +199,21 @@ const STEPS: [(&str, Step); 303] = [
     // After `chat-sticky-pushed` has laid that row out: on until the second prompt's bubble is 30px from the top, partway into the card.
     ("chat-sticky-push-in", |d, _, cx| {
         let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) else { return };
-        let Some(ix) = v.session.rows.iter().enumerate().filter(|(_, r)| matches!(r, Row::Prompt { .. })).nth(1).map(|(ix, _)| ix) else { return };
-        let Some(above) = ix.checked_sub(1).and_then(|i| v.list.bounds_for_item(i)) else { return };
-        let gap = chat::top_gap(v.session.rows.get(ix - 1), &v.session.rows[ix]);
-        v.list.scroll_to(ListOffset { item_ix: ix - 1, offset_in_item: px((f32::from(above.size.height) + gap - 30.).max(0.)) });
-        cx.notify();
+        v.update(cx, |v, cx| {
+            let Some(ix) = v.session().rows.iter().enumerate().filter(|(_, r)| matches!(r, Row::Prompt { .. })).nth(1).map(|(ix, _)| ix) else { return };
+            let Some(above) = ix.checked_sub(1).and_then(|i| v.list().bounds_for_item(i)) else { return };
+            let gap = chat::top_gap(v.session().rows.get(ix - 1), &v.session().rows[ix]);
+            v.list().scroll_to(ListOffset { item_ix: ix - 1, offset_in_item: px((f32::from(above.size.height) + gap - 30.).max(0.)) });
+            cx.notify();
+        });
     }),
     ("chat-sticky-open", |d, _, cx| {
         let Some(agent) = d.session().map(str::to_string) else { return };
-        if let Some(v) = d.chats.views.get_mut(&agent) {
-            v.sticky_open = v.session.rows.iter().position(|r| matches!(r, Row::Prompt { .. })).map(|ix| v.session.ids[ix].clone());
-            cx.notify();
+        if let Some(v) = d.chats.views.get(&agent) {
+            v.update(cx, |v, cx| {
+                v.sticky_open = v.session().rows.iter().position(|r| matches!(r, Row::Prompt { .. })).map(|ix| v.session().ids[ix].clone());
+                cx.notify();
+            });
         }
     }),
     // The first reply's last two blocks over its wide table (chat/wide-table.json), so the narrow table above shows
@@ -207,17 +221,19 @@ const STEPS: [(&str, Step); 303] = [
     // skips were never laid out.
     ("chat-table", |d, _, cx| {
         let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) else { return };
-        let Some(ix) = first_reply_end(d) else { return };
-        v.list.scroll_to(ListOffset { item_ix: ix.saturating_sub(2), offset_in_item: px(0.) });
-        cx.notify();
+        let Some(ix) = first_reply_end(d, cx) else { return };
+        v.update(cx, |v, cx| {
+            v.list().scroll_to(ListOffset { item_ix: ix.saturating_sub(2), offset_in_item: px(0.) });
+            cx.notify();
+        });
     }),
     // A sideways swipe over the wide table, so it shows scrolled partway.
     ("chat-table-swipe", |d, window, cx| swipe(d, first_reply_end, -160., window, cx)),
     // A swipe past its far end, so it shows scrolled all the way.
     ("chat-table-end", |d, window, cx| swipe(d, first_reply_end, -4000., window, cx)),
     ("chat-jump", |d, window, cx| {
-        if let Some(agent) = d.session().map(str::to_string) {
-            d.chat_jump_to_bottom(&agent, window, cx);
+        if let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) {
+            v.update(cx, |v, cx| v.jump_to_bottom(window, cx));
         }
     }),
     ("chat-code-swipe", |d, window, cx| swipe(d, last_code, -160., window, cx)),
@@ -325,21 +341,25 @@ const STEPS: [(&str, Step); 303] = [
     }),
     // Queues a send as the composer does while the agent works, without the fixture echoing it.
     ("chat-queued", |d, _, cx| {
-        if let Some(v) = d.session().map(str::to_string).and_then(|a| d.chats.views.get_mut(&a)) {
-            v.session.outgoing.push("Now run the parser tests".into(), true, crate::util::now_ms());
-            cx.notify();
+        if let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) {
+            v.update(cx, |v, cx| {
+                v.session_mut().outgoing.push("Now run the parser tests".into(), true, crate::util::now_ms());
+                cx.notify();
+            });
         }
     }),
     // A command sent into the running turn, which Claude holds until the turn ends, without the fixture echoing it.
     ("chat-command-steered", |d, _, cx| {
-        if let Some(v) = d.session().map(str::to_string).and_then(|a| d.chats.views.get_mut(&a)) {
-            v.session.outgoing.steer_text("/goal Every parser test passes".into(), crate::util::now_ms());
-            cx.notify();
+        if let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) {
+            v.update(cx, |v, cx| {
+                v.session_mut().outgoing.steer_text("/goal Every parser test passes".into(), crate::util::now_ms());
+                cx.notify();
+            });
         }
     }),
     ("chat-queued-away", |d, window, cx| {
-        if let Some(v) = d.session().map(str::to_string).and_then(|a| d.chats.views.get_mut(&a)) {
-            v.session.outgoing.push("Now run the parser tests".into(), true, crate::util::now_ms());
+        if let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) {
+            v.update(cx, |v, _| _ = v.session_mut().outgoing.push("Now run the parser tests".into(), true, crate::util::now_ms()));
         }
         d.new_session(None, true, window, cx);
     }),
@@ -359,17 +379,17 @@ const STEPS: [(&str, Step); 303] = [
         }
     }),
     ("chat-queue-remove", |d, window, cx| {
-        if let Some((agent, send)) = first_queued(d) {
+        if let Some((agent, send)) = first_queued(d, cx) {
             d.chat_queue_remove(&agent, send, window, cx);
         }
     }),
     ("chat-queue-edit", |d, window, cx| {
-        if let Some((agent, send)) = first_queued(d) {
+        if let Some((agent, send)) = first_queued(d, cx) {
             d.chat_queue_edit(&agent, send, window, cx);
         }
     }),
     ("chat-queue-steer", |d, window, cx| {
-        if let Some((agent, send)) = first_queued(d) {
+        if let Some((agent, send)) = first_queued(d, cx) {
             d.chat_queue_steer(&agent, send, window, cx);
         }
     }),
@@ -1297,7 +1317,13 @@ const INPUT_STEPS: [(&str, Step); 21] = [
                     for (i, touch_phase) in phases.into_iter().enumerate() {
                         let delta = if i == 2 { point(px(0.), px(0.)) } else { by };
                         window.dispatch_event(
-                            PlatformInput::Scroll(ScrollEvent { position: at, delta: ScrollDelta::Pixels(delta), modifiers, touch_phase, source: ScrollSource::Pointer }),
+                            PlatformInput::Scroll(ScrollEvent {
+                                position: at,
+                                delta: ScrollDelta::Pixels(delta),
+                                modifiers,
+                                touch_phase,
+                                source: ScrollSource::Pointer,
+                            }),
                             cx,
                         );
                     }
@@ -1308,7 +1334,12 @@ const INPUT_STEPS: [(&str, Step); 21] = [
             took.sort();
             let over = took.iter().filter(|d| d.as_secs_f64() * 1e3 > 8.3).count();
             let ms = |d: Duration| d.as_secs_f64() * 1e3;
-            eprintln!("[bench-scroll] frames={frames} p50={:.2}ms p90={:.2}ms max={:.2}ms over8.3={over}", ms(took[frames / 2]), ms(took[frames * 9 / 10]), ms(took[frames - 1]));
+            eprintln!(
+                "[bench-scroll] frames={frames} p50={:.2}ms p90={:.2}ms max={:.2}ms over8.3={over}",
+                ms(took[frames / 2]),
+                ms(took[frames * 9 / 10]),
+                ms(took[frames - 1])
+            );
         });
     }),
     // A click with a frame drawn while the button is down, as a hand's gets: what the press changed shows before the release lands.
@@ -1445,9 +1476,12 @@ const INPUT_STEPS: [(&str, Step); 21] = [
         else {
             return;
         };
-        if let Some(v) = d.chats.views.get_mut(&id) {
-            v.session.outgoing.settle(&v.session.transcript, working, crate::util::now_ms() + 121_000);
-            cx.notify();
+        if let Some(v) = d.chats.views.get(&id) {
+            v.update(cx, |v, cx| {
+                let transcript = v.transcript();
+                v.session_mut().outgoing.settle(&transcript, working, crate::util::now_ms() + 121_000);
+                cx.notify();
+            });
         }
     }),
 ];
@@ -1636,17 +1670,22 @@ fn opens(b: &Block) -> bool {
 /// Opens the shown chat's first phase holding a block `pick` takes, and the fold over it, and returns that block.
 fn open_phase(d: &mut Desktop, pick: impl Fn(&Block) -> bool, cx: &mut Context<Desktop>) -> Option<(Entity<Tools>, Block)> {
     let agent = d.session()?.to_string();
-    let view = d.chats.views.get(&agent)?;
-    let s = &view.session;
-    let (ix, block) = s.rows.iter().enumerate().find_map(|(ix, row)| match row {
-        Row::Phase { turn, blocks } => s.transcript.turns[*turn].blocks[blocks.clone()].iter().find(|b| pick(b)).map(|b| (ix, b.clone())),
-        _ => None,
-    })?;
-    let (phase, open, tools) = (s.ids[ix].clone(), s.open(&s.ids[ix], false), view.tools.clone());
-    d.chat_reveal(&agent, ix, cx);
-    if !open {
-        d.chat_toggle(&agent, &phase, false, cx);
-    }
+    let view = d.chats.views.get(&agent)?.clone();
+    let (ix, block, phase, open, tools) = {
+        let (v, tools) = (view.read(cx), view.read(cx).tools());
+        let s = v.session();
+        let (ix, block) = s.rows.iter().enumerate().find_map(|(ix, row)| match row {
+            Row::Phase { turn, blocks } => s.transcript.turns[*turn].blocks[blocks.clone()].iter().find(|b| pick(b)).map(|b| (ix, b.clone())),
+            _ => None,
+        })?;
+        (ix, block, s.ids[ix].clone(), s.open(&s.ids[ix], false), tools)
+    };
+    view.update(cx, |v, cx| {
+        v.reveal(ix, cx);
+        if !open {
+            v.toggle_row(&phase, false, cx);
+        }
+    });
     Some((tools, block))
 }
 
@@ -1662,9 +1701,16 @@ fn open_agent(d: &mut Desktop, pick: fn(&chat::ToolCall) -> bool, cx: &mut Conte
     });
 }
 
+/// Scrolls the shown chat to `rows` rows before its end.
+fn scroll_back(d: &Desktop, rows: usize, cx: &mut Context<Desktop>) {
+    if let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) {
+        v.update(cx, |v, cx| v.scroll_back(rows, cx));
+    }
+}
+
 /// The shown chat's last code block row.
-fn last_code(d: &Desktop) -> Option<usize> {
-    let s = &d.chats.views.get(d.session()?)?.session;
+fn last_code(d: &Desktop, cx: &App) -> Option<usize> {
+    let s = d.chats.views.get(d.session()?)?.read(cx).session();
     s.rows.iter().rposition(|row| {
         let Row::Text { turn, block, range } = row else { return false };
         let text = match s.transcript.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
@@ -1676,9 +1722,9 @@ fn last_code(d: &Desktop) -> Option<usize> {
 }
 
 /// The shown chat's agent and its first send held in the queue.
-fn first_queued(d: &Desktop) -> Option<(String, u64)> {
+fn first_queued(d: &Desktop, cx: &App) -> Option<(String, u64)> {
     let agent = d.session()?.to_string();
-    let send = d.chats.views.get(&agent)?.session.outgoing.list().iter().find(|p| p.delivery == chat::Delivery::Queued)?.id;
+    let send = d.chats.views.get(&agent)?.read(cx).session().outgoing.list().iter().find(|p| p.delivery == chat::Delivery::Queued)?.id;
     Some((agent, send))
 }
 
@@ -1791,15 +1837,17 @@ impl Capture {
 /// knows only measured heights, so a pixel scroll lands wherever the rows it skips were never laid out.
 fn scroll_from_prompt(d: &mut Desktop, n: usize, rows: isize, cx: &mut Context<Desktop>) {
     let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) else { return };
-    let Some(ix) = v.session.rows.iter().enumerate().filter(|(_, r)| matches!(r, Row::Prompt { .. })).nth(n).map(|(ix, _)| ix) else { return };
-    v.list.scroll_to(ListOffset { item_ix: ix.saturating_add_signed(rows), offset_in_item: px(0.) });
-    cx.notify();
+    v.update(cx, |v, cx| {
+        let Some(ix) = v.session().rows.iter().enumerate().filter(|(_, r)| matches!(r, Row::Prompt { .. })).nth(n).map(|(ix, _)| ix) else { return };
+        v.list().scroll_to(ListOffset { item_ix: ix.saturating_add_signed(rows), offset_in_item: px(0.) });
+        cx.notify();
+    });
 }
 
 /// Swipes the shown chat's `row` sideways by `dx` px.
-fn swipe(d: &mut Desktop, row: fn(&Desktop) -> Option<usize>, dx: f32, window: &mut Window, cx: &mut Context<Desktop>) {
+fn swipe(d: &mut Desktop, row: fn(&Desktop, &App) -> Option<usize>, dx: f32, window: &mut Window, cx: &mut Context<Desktop>) {
     let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) else { return };
-    let Some(at) = row(d).and_then(|ix| v.list.bounds_for_item(ix)).map(|b| b.center()) else { return };
+    let Some(at) = row(d, cx).and_then(|ix| v.read(cx).list().bounds_for_item(ix)).map(|b| b.center()) else { return };
     window.defer(cx, move |window, cx| {
         window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers: Modifiers::default() }), cx);
         let delta = ScrollDelta::Pixels(point(px(dx), px(0.)));
@@ -1808,8 +1856,8 @@ fn swipe(d: &mut Desktop, row: fn(&Desktop) -> Option<usize>, dx: f32, window: &
 }
 
 /// The last markdown block of the first reply.
-fn first_reply_end(d: &Desktop) -> Option<usize> {
-    let rows = &d.chats.views.get(d.session()?)?.session.rows;
+fn first_reply_end(d: &Desktop, cx: &App) -> Option<usize> {
+    let rows = &d.chats.views.get(d.session()?)?.read(cx).session().rows;
     rows.iter().rposition(|r| matches!(r, Row::Text { turn: 0, .. }))
 }
 

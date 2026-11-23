@@ -369,16 +369,16 @@ fn busy(agent: &Summary, session: Option<&Session>) -> bool {
 }
 
 impl Desktop {
-    pub(crate) fn chat_busy(&self, agent: &Summary) -> bool {
-        busy(agent, self.chats.views.get(&agent.id).map(|v| &v.session))
+    pub(crate) fn chat_busy(&self, agent: &Summary, cx: &App) -> bool {
+        busy(agent, self.chats.views.get(&agent.id).map(|v| v.read(cx).session()))
     }
 
     pub(super) fn chat_caps(&self, provider: &str) -> chat::Capabilities {
         chat::capabilities(provider, self.agents.provider_info(provider).chat)
     }
 
-    fn chat_stopping(&self, agent: &Summary) -> bool {
-        self.chats.views.get(&agent.id).is_some_and(|v| v.session.outgoing.stopping())
+    fn chat_stopping(&self, agent: &Summary, cx: &App) -> bool {
+        self.chats.views.get(&agent.id).is_some_and(|v| v.read(cx).session().outgoing.stopping())
     }
 
     /// The agent's open ask in `terminal`'s chat, and whether a deny can carry a reply.
@@ -391,41 +391,34 @@ impl Desktop {
     pub(crate) fn chat_command(&mut self, agent: &str, c: Command, cx: &mut Context<Self>) {
         match c {
             Command::Send(text) => {
-                let working = self.agents.get(agent).is_some_and(|a| self.chat_busy(a));
+                let working = self.agents.get(agent).is_some_and(|a| self.chat_busy(a, cx));
                 if working && self.agents.holds_queue(agent) {
                     self.outbox.prompt_queued(agent, &text);
                     return cx.notify();
                 }
-                let view = self.chats.views.get_mut(agent);
+                let view = self.chats.views.get(agent).cloned();
                 let held = working && view.is_some();
                 let request = if held { None } else { self.outbox.prompt(agent, &text) };
                 if let Some(v) = view {
-                    let send = v.session.outgoing.push(text, working, now_ms());
-                    if let Some((send, request)) = send.zip(request) {
-                        v.session.outgoing.sent_as(send, request);
-                    }
-                    if !working {
-                        v.pin();
-                    }
+                    v.update(cx, |v, _| v.send(text, working, request));
                 }
             }
             Command::Interrupt => {
                 self.outbox.interrupt(agent);
-                if let Some(v) = self.chats.views.get_mut(agent) {
-                    v.session.outgoing.stop(now_ms());
+                if let Some(v) = self.chats.views.get(agent) {
+                    v.update(cx, |v, _| v.interrupt());
                 }
             }
             Command::SendNow => {
-                if self.chats.views.get_mut(agent).is_some_and(|v| v.session.outgoing.send_now(now_ms())) {
+                if self.chats.views.get(agent).is_some_and(|v| v.update(cx, |v, _| v.send_now())) {
                     self.outbox.send_now(agent);
                 }
             }
             Command::Compact => {
                 self.outbox.compact(agent);
-                let busy = self.agents.get(agent).is_some_and(|a| self.chat_busy(a));
-                if let Some(v) = self.chats.views.get_mut(agent) {
-                    v.session.outgoing.compact(busy, now_ms());
-                    if busy { v.steered() } else { v.pin() }
+                let busy = self.agents.get(agent).is_some_and(|a| self.chat_busy(a, cx));
+                if let Some(v) = self.chats.views.get(agent) {
+                    v.update(cx, |v, _| v.compact(busy));
                 }
             }
             Command::Allow(r) => self.outbox.resolve(&r, Decision::Allow),
@@ -540,11 +533,11 @@ impl Desktop {
         if self.chat_mode(terminal, cx) != Mode::Prompt {
             return;
         }
-        let (busy, caps) = (self.chat_busy(a), self.chat_caps(&a.provider));
+        let (busy, caps) = (self.chat_busy(a, cx), self.chat_caps(&a.provider));
         if busy && !caps.send_while_working {
             return;
         }
-        let steer = busy && !self.chat_stopping(a) && !queue;
+        let steer = busy && !self.chat_stopping(a, cx) && !queue;
         let (agent, provider, cwd, chat_only) = (a.id.clone(), a.provider.clone(), a.cwd.clone(), a.chat_only);
         if self.chats.copying.contains(&agent) {
             return;
@@ -589,12 +582,8 @@ impl Desktop {
             return self.chat_command(&agent, Command::Send(text), cx);
         }
         let request = self.outbox.prompt(&agent, &text);
-        if let Some(v) = self.chats.views.get_mut(&agent) {
-            let send = v.session.outgoing.steer_text(text, now_ms());
-            if let Some(request) = request {
-                v.session.outgoing.sent_as(send, request);
-            }
-            v.steered();
+        if let Some(v) = self.chats.views.get(&agent) {
+            v.update(cx, |v, _| v.steer(text, request));
         }
         cx.notify();
     }
@@ -693,7 +682,7 @@ impl Desktop {
     /// Esc stops a working agent, but only from an empty input, where the agent can be interrupted and isn't being already.
     fn chat_escape(&mut self, terminal: &str, cx: &mut Context<Self>) {
         let Some(a) = self.summary(terminal) else { return };
-        let action = chat::action(self.chat_busy(a), self.chat_stopping(a), self.chats.input.read(cx).value().is_empty());
+        let action = chat::action(self.chat_busy(a, cx), self.chat_stopping(a, cx), self.chats.input.read(cx).value().is_empty());
         if action != Action::Stop || !self.chat_caps(&a.provider).interrupt {
             return;
         }
@@ -773,7 +762,7 @@ impl Desktop {
             _ => None,
         };
         let can_queue = self.chat_caps(&agent.provider).send_while_working;
-        let (busy, stopping) = (self.chat_busy(agent), self.chat_stopping(agent));
+        let (busy, stopping) = (self.chat_busy(agent, cx), self.chat_stopping(agent, cx));
         let placeholder = placeholder(busy, stopping, can_queue);
         if c.placeholder.replace(placeholder) != placeholder {
             self.chats.input.update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
@@ -790,17 +779,19 @@ impl Desktop {
                 self.prompt_box(terminal, agent, locked, window, cx).into_any_element()
             }
         };
-        let view = self.chats.views.get(&agent.id);
-        let pending = view.map_or(&[][..], |v| v.session.outgoing.list());
-        let paused = view.is_some_and(|v| v.session.outgoing.paused(&v.session.transcript));
+        let held = self.chats.views.get(&agent.id).map(|v| {
+            let s = v.read(cx).session();
+            (s.outgoing.list().to_vec(), s.outgoing.paused(&s.transcript), s.transcript.clone())
+        });
+        let (pending, paused) = held.as_ref().map_or((&[][..], false), |(pending, paused, _)| (pending.as_slice(), *paused));
+        let transcript = held.as_ref().map(|(_, _, t)| t);
         let tray = (mode == Mode::Prompt).then(|| self.queue_tray(&agent.id, pending, paused, cx)).flatten();
         let tray = tray.map(|t| fade_in(id(format!("chat-queue:{terminal}")), t));
         let interrupt = self.chat_caps(&agent.provider).interrupt;
         let stop = |tasks: &[&chat::ToolCall]| mode == Mode::Prompt && background::stops(agent.chat_only, interrupt, busy, tasks);
-        let background = matches!(mode, Mode::Prompt | Mode::ViewOnly)
-            .then(|| view.and_then(|v| self.background_tray(&agent.id, &v.session.transcript, stop, cx)))
-            .flatten();
+        let background = matches!(mode, Mode::Prompt | Mode::ViewOnly).then(|| transcript.and_then(|t| self.background_tray(&agent.id, t, stop, cx))).flatten();
         let background = background.map(|t| fade_in(id(format!("chat-background-in:{terminal}")), t));
+        let map = transcript.and_then(|t| self.chat_agent_map(agent, t, cx));
         let btw = matches!(mode, Mode::Prompt).then(|| self.btw_card(&agent.id, cx)).flatten();
         let (typed, draft) = self.chat_draft(&agent.id, cx);
         let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
@@ -809,7 +800,6 @@ impl Desktop {
         let said = said_in_chat(notice.as_ref(), &agent.id);
         let account = (mode != Mode::ViewOnly).then(|| self.chat_account_chip(agent, cx)).flatten();
         let footer = self.composer_footer(agent, account, hint(mode, busy, stopping, empty, can_queue), said, asking, cx.reduce_motion());
-        let map = view.and_then(|v| self.chat_agent_map(agent, &v.session.transcript, cx));
         let column = div()
             .w_full()
             .max_w(px(MAX_WIDTH))
@@ -896,8 +886,8 @@ impl Desktop {
         let (typed, draft) = self.chat_draft(&agent.id, cx);
         let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
         let typing = !empty || (held && self.chats.input.read(cx).focus_handle(cx).is_focused(window));
-        let stopping = self.chat_stopping(agent);
-        let action = chat::action(self.chat_busy(agent), stopping, empty);
+        let stopping = self.chat_stopping(agent, cx);
+        let action = chat::action(self.chat_busy(agent, cx), stopping, empty);
         let blocked = !caps.allows(action);
         let press = |t: &str| {
             let t = t.to_string();
@@ -959,7 +949,7 @@ impl Desktop {
             .children(self.chat_goal_pill(agent, view_only, cx))
             .child(self.chat_model_pill(agent, view_only, cx))
             .children(self.chat_access_pill(agent, view_only, cx))
-            .children(self.chats.views.get(&agent.id).and_then(|v| self.chat_agents_chip(agent, &v.session.transcript, cx)))
+            .children(self.chats.views.get(&agent.id).map(|v| v.read(cx).transcript()).and_then(|t| self.chat_agents_chip(agent, &t, cx)))
             .child(div().flex_1())
             .children(attach)
             .children(send);
@@ -1012,7 +1002,7 @@ mod tests {
 
     fn session(turns: Vec<Turn>) -> Session {
         let mut s = Session::default();
-        s.transcript = Transcript { turns };
+        s.transcript = Transcript { turns }.into();
         s
     }
 
@@ -1071,7 +1061,7 @@ mod tests {
         let mut s = session(vec![turn(Some(End::Done { duration_ms: 5, usage: None }))]);
         s.outgoing.push("Next".into(), false, 0);
         assert!(busy(&agent("idle"), Some(&s)));
-        s.transcript = Transcript::default();
+        s.transcript = Default::default();
         assert!(busy(&agent("idle"), Some(&s)));
     }
 

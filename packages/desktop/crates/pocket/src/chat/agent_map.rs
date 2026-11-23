@@ -207,8 +207,8 @@ impl Desktop {
     /// Shows in the chat the call `map[ix]` was spawned under, closing the map.
     fn chat_map_reveal(&mut self, agent: &str, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(view) = self.chats.views.get(agent) else { return };
-        let t = &view.session.transcript;
-        let at = place(t, &chat::spawned(t), ix);
+        let t = view.read(cx).transcript();
+        let at = place(&t, &chat::spawned(&t), ix);
         self.chats.map.nav.close(Instant::now());
         self.chats.input.update(cx, |s, cx| s.focus(window, cx));
         if let Some((turn, block)) = at {
@@ -297,7 +297,8 @@ impl Desktop {
 
     fn chat_map_key(&mut self, agent: &str, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let Some(view) = self.chats.views.get(agent) else { return };
-        let calls: Vec<&str> = chat::spawned(&view.session.transcript).iter().map(|s| s.call.id.as_str()).collect();
+        let t = view.read(cx).transcript();
+        let calls: Vec<&str> = chat::spawned(&t).iter().map(|s| s.call.id.as_str()).collect();
         if !self.chats.map.nav.key(&e.keystroke.key, &calls, Instant::now()) {
             return;
         }

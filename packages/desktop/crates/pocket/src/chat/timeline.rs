@@ -1,6 +1,6 @@
 use super::sticky;
+use super::transcript::View;
 use crate::composer::{Sent, split_attachments};
-use crate::desktop::Desktop;
 use chat::Row;
 use gpui_kit::*;
 use std::rc::Rc;
@@ -191,12 +191,12 @@ fn label(text: &str) -> String {
     }
 }
 
-impl Desktop {
+impl View {
     /// A tick per prompt down the chat's right edge, the one being read longer. Hovering shows the prompt beside it;
     /// a click, or a drag along the ticks, scrolls to it. The pointer's moves notify only the transcript's region.
-    pub(super) fn chat_timeline(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<Div> {
-        let (now, snap) = (Instant::now(), cx.reduce_motion() || self.capturing);
-        let view = self.chats.views.get_mut(agent)?;
+    pub(super) fn timeline(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<Div> {
+        let (now, snap) = (Instant::now(), cx.reduce_motion() || self.side.capturing);
+        let view = &mut *self;
         let s = &view.session;
         let prompts = prompt_rows(&s.rows);
         let viewport = view.list.viewport_bounds();
@@ -230,16 +230,15 @@ impl Desktop {
 
         let at = move |e: Point<Pixels>| f32::from(e.y) - origin;
         let jump = {
-            let (desktop, agent, prompts, rail) = (cx.weak_entity(), agent.to_string(), prompts.clone(), rail.clone());
+            let (this, prompts, rail) = (cx.weak_entity(), prompts.clone(), rail.clone());
             Rc::new(move |tick: usize, gesture: Gesture, window: &mut Window, cx: &mut App| {
                 let ix = prompts[rail.prompt(tick)];
-                desktop
-                    .update(cx, |d, cx| match gesture {
-                        Gesture::Press => d.chat_seek_prompt(&agent, ix, window, cx),
-                        Gesture::Drag => d.chat_jump_to_prompt(&agent, ix, cx),
-                        Gesture::Release => d.chat_land_on_prompt(&agent, ix, cx),
-                    })
-                    .ok();
+                this.update(cx, |v, cx| match gesture {
+                    Gesture::Press => v.seek_prompt(ix, window, cx),
+                    Gesture::Drag => v.jump_to_prompt(ix, cx),
+                    Gesture::Release => v.land_on_prompt(ix, cx),
+                })
+                .ok();
             })
         };
         let p = view.pointer.clone();

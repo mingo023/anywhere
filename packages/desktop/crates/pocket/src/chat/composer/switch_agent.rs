@@ -47,8 +47,8 @@ fn switching(conversation: bool, busy: bool, tokens_used: u64) -> Switch {
 }
 
 impl Desktop {
-    fn chat_conversation(&self, agent: &Summary) -> String {
-        self.chats.views.get(&agent.id).map_or_else(String::new, |v| chat::handoff::transcript(&v.session.transcript, &self.agent_name(&agent.provider)))
+    fn chat_conversation(&self, agent: &Summary, cx: &App) -> String {
+        self.chats.views.get(&agent.id).map_or_else(String::new, |v| chat::handoff::transcript(&v.read(cx).transcript(), &self.agent_name(&agent.provider)))
     }
 
     /// A chat can't change provider, so a model from another one opens a new chat: asked which kind if there's a
@@ -56,7 +56,7 @@ impl Desktop {
     pub(super) fn switch_chat_agent(&mut self, id: &str, provider: String, model: String, cx: &mut Context<Self>) {
         close_menu(self, cx);
         let Some(agent) = self.agents.get(id) else { return };
-        let switch = switching(!self.chat_conversation(agent).is_empty(), self.chat_busy(agent), agent.tokens_used);
+        let switch = switching(!self.chat_conversation(agent, cx).is_empty(), self.chat_busy(agent, cx), agent.tokens_used);
         let terminal = agent.terminal_id.clone();
         if switch == Switch::Ask {
             self.ask(Confirm::SwitchAgent { agent: id.to_string(), provider, model }, cx);
@@ -81,7 +81,7 @@ impl Desktop {
             cx.notify();
             return false;
         };
-        let prompt = if fork { chat::handoff::prompt(&self.chat_conversation(s), &self.agent_name(&s.provider)) } else { String::new() };
+        let prompt = if fork { chat::handoff::prompt(&self.chat_conversation(s, cx), &self.agent_name(&s.provider)) } else { String::new() };
         let spec = switched_spec(s, project, (provider, model), &prompt, &self.store.agents, &self.agents, &self.launch_efforts(provider, model));
         let request = self.send_create(spec);
         let sent = request.is_some();

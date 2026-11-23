@@ -211,7 +211,7 @@ impl Desktop {
         }
         self.hand_off_creates(cx);
         self.focus_arrived_chat(window, cx);
-        self.refresh_chats();
+        self.refresh_chats(cx);
         if let Some(term) = exited.filter(|t| self.workspaces.values().any(|w| w.holds_term(t))) {
             self.close_pane(&term, cx);
         }
@@ -260,14 +260,14 @@ impl Desktop {
             }
             Event::PromptFailed { agent, request } => {
                 // A chat not yet opened has no send to fail.
-                if let Some(v) = self.chats.views.get_mut(&agent) {
-                    v.session.outgoing.fail(&request);
+                if let Some(v) = self.chats.views.get(&agent) {
+                    v.update(cx, |v, _| v.send_failed(&request));
                 }
                 cx.notify();
             }
             Event::InterruptFailed { agent, reason } => {
-                if let Some(v) = self.chats.views.get_mut(&agent) {
-                    v.session.outgoing.stop_refused();
+                if let Some(v) = self.chats.views.get(&agent) {
+                    v.update(cx, |v, _| v.stop_refused());
                 }
                 self.error = Some(stop_failed(self.agents.get(&agent), &reason));
                 cx.notify();

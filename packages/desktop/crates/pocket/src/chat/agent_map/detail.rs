@@ -56,6 +56,7 @@ impl Desktop {
             }
         });
         let Some(view) = self.chats.views.get(agent) else { return div() };
+        let tools = view.read(cx).tools();
         let links = self.chat_links(agent, cx);
         let detail = Detail { key, call: s.call, agent: s.agent, now, all_steps: self.chats.map.nav.all_steps, brief_open: self.chats.map.nav.brief_open };
         let body = agent_detail::view(
@@ -64,7 +65,7 @@ impl Desktop {
             vec![agent_detail::action(format!("chat-map-close2:{agent}"), "x", close)],
             on_brief,
             on_more,
-            &view.tools,
+            &tools,
             &links,
             cx,
         );

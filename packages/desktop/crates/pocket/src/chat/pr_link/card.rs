@@ -1,6 +1,6 @@
 use super::Peek;
 use crate::chat::markdown::{Open, Press};
-use crate::desktop::Desktop;
+use crate::chat::transcript::{View, ViewEvent};
 use crate::git_ui::pull_request::{check_rows, glyph_slot, opening, plural, review_icon, review_lines, row, small, spot};
 use crate::git_ui::pull_requests::glyph;
 use git::github::{Outcome, Pr, PrState};
@@ -35,7 +35,7 @@ fn line(lead: impl IntoElement, text: String) -> Div {
 }
 
 /// The card a PR chip peeks: where the PR stands; while it's open, its checks, review and threads; and what can be done from here.
-pub(super) fn card(p: &Peek, open: Open, url: String, desktop: WeakEntity<Desktop>) -> Div {
+pub(super) fn card(p: &Peek, open: Open, url: String, view: WeakEntity<View>) -> Div {
     let pr = &p.pr;
     let (name, color) = glyph(pr);
     let checks = checks_line(pr).map(|(outcome, text)| {
@@ -67,15 +67,15 @@ pub(super) fn card(p: &Peek, open: Open, url: String, desktop: WeakEntity<Deskto
             .child(div().text_size(px(12.)).text_color(p.verdict.0).truncate().child(p.verdict.1.clone())),
     );
     let panel = p.here.then(|| {
-        let desktop = desktop.clone();
+        let view = view.clone();
         small("pr-peek-panel", Variant::Secondary, "Open in panel").on_click(move |_, _, cx| {
-            desktop.update(cx, |d, cx| d.show_pr_side(cx)).ok();
+            view.update(cx, |_, cx| cx.emit(ViewEvent::ShowPr)).ok();
         })
     });
     let web = ui::icon_button_sized("pr-peek-web", "external", 24., TEXT_3).on_click(move |_, window, cx| open(&url, Press::Follow, window, cx));
     let fix = p.fix.clone().map(|fix| {
         small("pr-peek-fix", Variant::Primary, format!("Send to {}", p.agent)).on_click(move |_, _, cx| {
-            desktop.update(cx, |d, cx| d.send_fix(&fix.checks, &fix.threads, cx)).ok();
+            view.update(cx, |_, cx| cx.emit(ViewEvent::SendFix(fix.checks.clone(), fix.threads.clone()))).ok();
         })
     });
     let foot =

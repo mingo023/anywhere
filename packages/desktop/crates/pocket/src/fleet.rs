@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 const STATUS_RETRY: Duration = Duration::from_secs(2);
 
 /// Each host's link as last reported; a host is listed only while it's in Settings.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct Links(pub(crate) HashMap<String, Link>);
 
 impl Links {

@@ -517,6 +517,17 @@ impl Render for Creates {
     }
 }
 
+/// `el`, rising into `agent`'s chat just opened from its create.
+pub(crate) fn arriving(creates: &Entity<Creates>, agent: &str, part: Part, el: Div, window: &mut Window, cx: &App) -> Div {
+    match creates.read(cx).arriving(agent, part, Instant::now(), cx.reduce_motion()) {
+        Some(r) => {
+            window.request_animation_frame();
+            r.on(el)
+        }
+        None => el,
+    }
+}
+
 impl Desktop {
     /// The create on screen, unless its worktree's terminal is.
     pub(crate) fn shown_create<'a>(&self, cx: &'a App) -> Option<&'a Create> {
@@ -534,13 +545,7 @@ impl Desktop {
 
     /// `el`, rising into `agent`'s chat just opened from its create.
     pub(crate) fn arriving(&self, agent: &str, part: Part, el: Div, window: &mut Window, cx: &App) -> Div {
-        match self.creates.read(cx).arriving(agent, part, Instant::now(), cx.reduce_motion()) {
-            Some(r) => {
-                window.request_animation_frame();
-                r.on(el)
-            }
-            None => el,
-        }
+        arriving(&self.creates, agent, part, el, window, cx)
     }
 
     fn tick_create(&mut self, cx: &mut Context<Self>) {

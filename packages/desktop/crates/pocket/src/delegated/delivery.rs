@@ -1,4 +1,4 @@
-use crate::desktop::Desktop;
+use crate::chat::transcript::{View, ViewEvent};
 use chat::{Child, Delivered, Outcome};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -44,7 +44,7 @@ fn faded_in(age: Duration) -> f32 {
 }
 
 /// What pocketd told the chat of the sessions it delegated to, one quiet line each: their logo and title, then how it went. A click opens the session.
-pub(crate) fn delivered(id: &str, d: &Delivered, age: Option<Duration>, window: &mut Window, cx: &mut Context<Desktop>) -> Div {
+pub(crate) fn delivered(id: &str, d: &Delivered, age: Option<Duration>, window: &mut Window, cx: &mut Context<View>) -> Div {
     div()
         .flex()
         .flex_col()
@@ -62,14 +62,7 @@ fn verb(d: &Delivered) -> (String, Token) {
     }
 }
 
-fn line(
-    key: &str,
-    child: &Child,
-    d: &Delivered,
-    age: Option<Duration>,
-    window: &mut Window,
-    cx: &mut Context<Desktop>,
-) -> SpringAnimationElement<Stateful<Div>> {
+fn line(key: &str, child: &Child, d: &Delivered, age: Option<Duration>, window: &mut Window, cx: &mut Context<View>) -> SpringAnimationElement<Stateful<Div>> {
     let (said, colour) = verb(d);
     let open = child.id.clone();
     let title = if child.title.is_empty() { "Session".to_string() } else { child.title.clone() };
@@ -108,7 +101,7 @@ fn line(
                 cx.notify();
             })
         })
-        .on_click(cx.listener(move |this, _, window, cx| this.delegated_open(&open, window, cx)))
+        .on_click(cx.listener(move |_, _, _, cx| cx.emit(ViewEvent::OpenSession(open.clone()))))
         .child(provider_icon(&child.agent, 13., TEXT_3))
         .child(div().min_w_0().truncate().font_weight(FontWeight::MEDIUM).text_color(TEXT_BODY).child(title))
         .child(div().min_w_0().truncate().text_color(colour).when(d.outcome == Outcome::Asks, |s| s.max_w(px(340.))).child(said))

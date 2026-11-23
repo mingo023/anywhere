@@ -35,13 +35,15 @@ mod working;
 
 use crate::composer::Draft;
 use crate::desktop::Desktop;
-use crate::explorer::mermaid::{Diagrams, Resized};
+use crate::explorer::mermaid::Diagrams;
 use crate::region::{self, Region};
 use agents::Summary;
 use gpui_kit::component::input::TextareaState;
 use gpui_kit::*;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Instant;
 use theme::*;
 use workspace::Tab;
 
@@ -86,8 +88,9 @@ pub(crate) struct ChatState {
     pub(crate) input: Entity<TextareaState>,
     /// The text and attachments of each chat the input doesn't hold now.
     drafts: drafts::Drafts<(String, Draft)>,
-    /// Each agent's transcript view, by agent id.
-    pub(crate) views: HashMap<String, transcript::View>,
+    /// Each agent's transcript, an entity by agent id, with the subscription that answers it.
+    pub(crate) views: HashMap<String, Entity<transcript::View>>,
+    view_subs: HashMap<String, Subscription>,
     /// Each agent's transcript drawn as its own region, by agent id, with the terminal it draws: its scroll redraws only it.
     transcripts: HashMap<String, (String, Entity<Region>)>,
     pub(crate) composer: composer::ComposerState,
@@ -110,14 +113,14 @@ pub(crate) struct ChatState {
 impl ChatState {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let input = composer::input(window, cx);
-        let (composer, mut subs) = composer::ComposerState::new(&input, window, cx);
+        let (composer, subs) = composer::ComposerState::new(&input, window, cx);
         let diagrams = cx.new(|_| Diagrams::standalone(MD_CODE_BG));
-        subs.push(cx.subscribe(&diagrams, |d, _, _: &Resized, _| d.chats.views.values().for_each(transcript::View::remeasure_under_pin)));
         (
             Self {
                 input,
                 drafts: Default::default(),
                 views: HashMap::new(),
+                view_subs: HashMap::new(),
                 transcripts: HashMap::new(),
                 composer,
                 files: None,
@@ -184,8 +187,9 @@ impl Desktop {
             self.chats.input.update(cx, |s, cx| s.set_value("", window, cx));
         }
         self.chats.transcripts.remove(agent);
-        let unsent = self.chats.views.remove(agent).map(|mut v| v.session.outgoing.drain()).unwrap_or_default();
-        self.chat_prune_dock();
+        self.chats.view_subs.remove(agent);
+        let unsent = self.chats.views.remove(agent).map(|v| v.update(cx, |v, _| v.drain_unsent())).unwrap_or_default();
+        self.chat_prune_dock(cx);
         if let Some((message, text)) = unsent_notice(who, unsent, typed) {
             self.error = Some(message.clone());
             self.chats.unsent = Some((message, text));
@@ -202,13 +206,16 @@ impl Desktop {
             Some(agent) => {
                 if self.chats.transcripts.get(agent).is_none_or(|(t, _)| t != terminal) {
                     let t = terminal.to_string();
-                    let region = Region::new(cx, move |d, window, cx| d.transcript(&t, window, cx).into_any_element());
+                    let region = Region::new(cx, move |d, window, cx| match d.chat_transcript(&t, window, cx) {
+                        Some(view) => view.into_any_element(),
+                        None => div().flex_1().into_any_element(),
+                    });
                     self.chats.transcripts.insert(agent.clone(), (terminal.to_string(), region));
                 }
                 let region = region::cached(&self.chats.transcripts[agent].1, StyleRefinement::default().flex_1().min_h_0());
                 self.offers_selection(agent, region, cx).into_any_element()
             }
-            None => self.transcript(terminal, window, cx).into_any_element(),
+            None => div().flex_1().into_any_element(),
         };
         let composer = self.chat_composer(terminal, window, cx);
         let composer = match &agent {
@@ -231,6 +238,136 @@ impl Desktop {
         let column =
             div().relative().flex_1().min_w_0().min_h_0().flex().flex_col().children(backdrop).child(stage).child(composer).children(files).children(drop);
         div().relative().flex_1().min_h_0().flex().border_t(px(0.5)).border_color(SEPARATOR).child(column).children(dock)
+    }
+
+    /// `terminal`'s agent's transcript, opened on first sight and handed what its rows read; refolded when its timeline moved.
+    fn chat_transcript(&mut self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<Entity<transcript::View>> {
+        let agent = self.summary(terminal)?.clone();
+        let id = agent.id.clone();
+        let view = match self.chats.views.get(&id) {
+            Some(view) => view.clone(),
+            None => {
+                let view = cx.new(|cx| transcript::View::new(&id, self.creates.clone(), self.chats.diagrams.clone(), cx));
+                // A chat opened from its create shows the prompt pocketd sent before the transcript holds it.
+                if let Some(prompt) = self.creates.read(cx).unsent(&id, terminal, Instant::now()).map(str::to_string) {
+                    view.update(cx, |v, _| v.echo(prompt));
+                }
+                let key = id.clone();
+                let sub = cx.subscribe_in(&view, window, move |this, _, ev: &transcript::ViewEvent, window, cx| this.on_chat_view(&key, ev, window, cx));
+                self.chats.view_subs.insert(id.clone(), sub);
+                self.chats.views.insert(id.clone(), view.clone());
+                view
+            }
+        };
+        let released = view.update(cx, |v, _| {
+            v.refresh(&agent, self.agents.revision(&id), self.agents.timelines.get(&id).map_or(&[][..], Vec::as_slice), self.agents.delegations.of(&id))
+        });
+        self.release_sends(&id, &view, released, cx);
+        let side = self.transcript_side(&agent, &view, cx);
+        view.update(cx, |v, _| v.set_side(side));
+        Some(view)
+    }
+
+    /// Hands each queued send `refresh` let go to the outbox, and notes the request it went as.
+    fn release_sends(&mut self, id: &str, view: &Entity<transcript::View>, released: Vec<(u64, String)>, cx: &mut Context<Self>) {
+        for (send, text) in released {
+            if let Some(request) = self.outbox.prompt(id, &text) {
+                view.update(cx, |v, _| v.sent_as(send, request));
+            }
+        }
+    }
+
+    /// What the rows of `agent`'s transcript read besides its session.
+    fn transcript_side(&self, agent: &Summary, view: &Entity<transcript::View>, cx: &App) -> transcript::Side {
+        let id = &agent.id;
+        let ask = self.agents.pending.iter().find(|p| p.agent_id == *id).map(|p| !chat::for_provider(&agent.provider).ask(p).questions.is_empty());
+        let (links_pr, has_host_link) = {
+            let v = view.read(cx);
+            (v.links_pr(), v.has_host_link())
+        };
+        transcript::Side {
+            agent: agent.clone(),
+            inset: self.delegated_inset(id),
+            ask,
+            send_now: self.chat_caps(&agent.provider).send_now,
+            delegated_by: self.delegated_by(id),
+            here: self.store.home().join("attachments"),
+            pick_open: self.chats.dock.pick.open_in(id).map(str::to_string),
+            delegations: self.agents.delegations.of(id).to_vec(),
+            hosts: has_host_link.then(|| (self.fleet.hosts.list.clone(), self.fleet.hosts.links.clone())),
+            capturing: self.capturing,
+            // `fix_agent` walks every agent, so only a chat that links a PR asks.
+            prs: links_pr.then(|| {
+                let to = pr_link::FixTo { tree: self.cwd(), agent: self.fix_agent(cx), can_send: !self.agents.observe_only() };
+                pr_link::peeks(&self.prs, &self.pr, &to)
+            }),
+        }
+    }
+
+    fn on_chat_view(&mut self, agent: &str, ev: &transcript::ViewEvent, window: &mut Window, cx: &mut Context<Self>) {
+        use transcript::ViewEvent::*;
+        match ev {
+            Open(link, press) => {
+                let cwd = self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default();
+                self.chat_link(agent, link, &cwd, *press, window, cx);
+            }
+            Command(command) => self.chat_command(agent, command.clone(), cx),
+            TakeBack(text) => self.chat_take_back(agent, text, window, cx),
+            Pick(call) => self.chat_pick_agent(agent, call, window, cx),
+            OpenSession(id) => self.delegated_open(id, window, cx),
+            LinkHost(hint) => self.link_host(hint.clone(), window, cx),
+            ShowHosts => self.show_hosts(window, cx),
+            ShowPr => self.show_pr_side(cx),
+            SendFix(checks, threads) => self.send_fix(checks, threads, cx),
+            Scrolled(away) => self.delegated_scrolled(agent, *away, cx),
+        }
+    }
+
+    /// Refolds every chat as its timeline moves, on screen or not, and sends each one's next queued send once its agent goes
+    /// idle. A chat away from the screen streams its text in as it arrives, so it isn't let out again on return.
+    pub(crate) fn refresh_chats(&mut self, cx: &mut Context<Self>) {
+        let views: Vec<(String, Entity<transcript::View>)> = self.chats.views.iter().map(|(id, v)| (id.clone(), v.clone())).collect();
+        for (id, view) in &views {
+            let Some(agent) = self.agents.get(id) else { continue };
+            let items = self.agents.timelines.get(id).map_or(&[][..], Vec::as_slice);
+            let released = view.update(cx, |v, _| v.refresh(agent, self.agents.revision(id), items, self.agents.delegations.of(id)));
+            self.release_sends(id, view, released, cx);
+        }
+        for id in self.chats.views.keys().filter(|id| self.agents.holds_queue(id)).cloned().collect::<Vec<_>>() {
+            if self.agents.queues.ask(&id) {
+                self.outbox.queue_list(&id);
+            }
+        }
+        self.chat_prune_dock(cx);
+    }
+
+    /// Where a link clicked in `agent`'s chat goes.
+    pub(super) fn chat_links(&self, agent: &str, cx: &Context<Self>) -> markdown::Open {
+        let (this, id, cwd) = (cx.weak_entity(), agent.to_string(), self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default());
+        Arc::new(move |link, press, window, cx| this.update(cx, |d, cx| d.chat_link(&id, link, &cwd, press, window, cx)).unwrap_or_default())
+    }
+
+    /// Scrolls `agent`'s chat to the row showing block `block` of turn `turn`, opened, and flashes it.
+    pub(crate) fn chat_show_block(&mut self, agent: &str, turn: usize, block: usize, cx: &mut Context<Self>) {
+        let Some(view) = self.chats.views.get(agent) else { return };
+        view.update(cx, |v, cx| v.show_block(turn, block, cx));
+        cx.notify();
+    }
+
+    /// Scrolls the shown chat a prompt up or down from the exchange at its top.
+    pub(crate) fn chat_step_prompt(&mut self, down: bool, cx: &mut Context<Self>) {
+        let Some(view) = self.session().and_then(|id| self.chats.views.get(id)) else { return };
+        view.update(cx, |v, cx| v.step_prompt(down, cx));
+    }
+
+    /// Opens a page in the browser the settings pick, or a file in the preview.
+    pub(super) fn chat_open(&mut self, agent: &str, link: &str, cwd: &str, window: &mut Window, cx: &mut Context<Self>) {
+        match markdown::target(link, cwd, &self.host_agents.home_of(cwd)) {
+            markdown::Target::Web(url) if self.store.terminal.system_browser => cx.open_url(&url),
+            markdown::Target::Web(url) => self.open_browser(Some(url), window, cx),
+            markdown::Target::Session(id) => self.delegated_open(&id, window, cx),
+            markdown::Target::File(path) => self.chat_open_file(agent, path, cwd, window.mouse_position(), cx),
+        }
     }
 
     /// The chat `from` as it was, sliding and fading out under the one arriving: the transcript as last drawn, with its breadcrumb and panel. None where it also shows in a pane, which draws it once.
