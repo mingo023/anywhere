@@ -311,20 +311,43 @@ func TestAClientTheHoldersRingNoLongerReachesRedrawsFromTheCheckpoint(t *testing
 	defer c.Stop(0)
 	readUntil(t, c, "ready")
 	c.mu.Lock()
-	queued, base := c.queued, c.base
+	c.queue = append(c.queue, "unread"...)
+	c.queued += int64(len("unread"))
+	read := c.queued - c.base - int64(len(c.queue))
+	from := c.queued + 100
 	c.mu.Unlock()
 	mine, theirs := net.Pipe()
 	defer theirs.Close()
+	go io.Copy(io.Discard, theirs)
 
-	c.resume(mine, replayed{Hello: Hello{From: queued + 100}, snapshot: []byte("SCREEN"), tail: []byte("later")})
+	c.resume(mine, replayed{Hello: Hello{From: from}, snapshot: []byte("SCREEN"), tail: []byte("later")})
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if got := string(c.queue); !strings.HasSuffix(got, "SCREENlater") {
+	if got := string(c.queue); got != "SCREENlater" {
 		t.Fatalf("queue %q", got)
 	}
 	// What Read hands on lines up with the holder's offsets again.
-	if end := c.base + (queued - base) + int64(len("SCREENlater")); end != queued+100+int64(len("later")) || c.queued != end {
+	if end := c.base + read + int64(len(c.queue)); end != from+int64(len("later")) || c.queued != end {
 		t.Fatalf("base %d, queued %d", c.base, c.queued)
 	}
+}
+
+func TestAStopSentWhileTheClientRedialsStillEndsTheProcess(t *testing.T) {
+	sock, _ := serve(t, `echo ready; sleep 60`)
+	c := dial(t, sock)
+	readUntil(t, c, "ready")
+	c.wmu.Lock()
+	c.conn.Close()
+	c.wmu.Unlock()
+	c.Stop(0)
+	ended := make(chan int, 1)
+	go func() { ended <- c.Wait() }()
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		vanish(c)
+		t.Fatal("the stop was lost with the dropped connection")
+	}
+	c.Close()
 }

@@ -40,6 +40,7 @@ type hint struct {
 	pr      *presence
 	live    agent.Driver // pr's driver, which takes over once the restore settles
 	over    bool
+	late    bool // failed for want of its agent in time, which may still come
 	settled bool // finish has returned: the agent shows how its restore went
 	timer   *time.Timer
 	handoff bool   // handed down by the pocketd before exec; its agent never stopped
@@ -191,7 +192,7 @@ func (d *Daemon) expect(e state.Terminal, t *terminal.Terminal, reason string, c
 	}
 	go func() {
 		<-t.Done()
-		d.ended(h)
+		d.ended(h, t)
 	}()
 }
 
@@ -216,23 +217,28 @@ func (d *Daemon) looked() {
 	}
 }
 
-// absent fails the handed-down restore in t once a look finds no agent there: it exited across the handoff.
+// absent starts the wait of the handed-down restore in t once a look finds no
+// agent there. An agent stopped with Ctrl+Z, or under a shell for a moment, hasn't exited.
 func (d *Daemon) absent(t *terminal.Terminal) {
 	d.mu.Lock()
-	h := d.restoring[t.Info().ID]
-	d.mu.Unlock()
-	if h != nil && h.handoff && h.pr == nil {
-		d.finish(h, "agent_exited")
+	defer d.mu.Unlock()
+	if h := d.restoring[t.Info().ID]; h != nil && h.handoff && !h.over && h.pr == nil && h.timer == nil {
+		d.wait(h)
 	}
 }
 
-// ended fails h once its Terminal is gone, unless it settled, and keeps it
-// listed as a placeholder: the session didn't come back, but it isn't lost.
-func (d *Daemon) ended(h *hint) {
+// ended fails h once t is gone, unless it settled, and keeps it listed as a
+// placeholder: the session didn't come back, but it isn't lost. One the user
+// closed goes.
+func (d *Daemon) ended(h *hint, t *terminal.Terminal) {
 	d.mu.Lock()
 	listed := d.restoring[h.saved.TerminalID] == h
 	d.mu.Unlock()
 	if !listed {
+		return
+	}
+	if t.Asked() {
+		d.drop(h)
 		return
 	}
 	d.finish(h, "agent_exited")
@@ -245,13 +251,14 @@ func (d *Daemon) waiting(h *hint) agent.Driver {
 }
 
 // adopt hands pr the hint waiting in its Terminal, if pr is the same provider,
-// even one that failed: an agent slower than its wait keeps its id. The Agent keeps refusing prompts until the restore
+// even one whose resume was too slow: it keeps its id. A handed-down Terminal
+// falls back to a shell, where a late agent is one the user started. The Agent keeps refusing prompts until the restore
 // settles, as the provider may still be loading. Any other hint's placeholder
 // closes.
 func (d *Daemon) adopt(pr *presence, driver func(*agent.Agent) agent.Driver) *hint {
 	d.mu.Lock()
 	h := d.restoring[pr.t.Info().ID]
-	fits := h != nil && h.pr == nil && h.saved.Provider == pr.provider
+	fits := h != nil && h.pr == nil && h.saved.Provider == pr.provider && (!h.over || h.late && !h.handoff)
 	revived := fits && h.over
 	if fits {
 		h.over = false
@@ -318,6 +325,7 @@ func (d *Daemon) finish(h *hint, reason string) {
 		return
 	}
 	h.over = true
+	h.late = reason == "resume_timeout"
 	defer d.markSettled(h)
 	if h.timer != nil {
 		h.timer.Stop()

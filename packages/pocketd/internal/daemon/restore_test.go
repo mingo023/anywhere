@@ -633,29 +633,58 @@ func TestAHandedDownAgentIsNotFailedByAClock(t *testing.T) {
 	}
 }
 
-func TestAHandedDownAgentAPollFindsGoneFailsItsRestore(t *testing.T) {
+func TestAHandedDownAgentAPollFindsGoneFailsItsRestoreAfterItsWait(t *testing.T) {
+	old := RestoreWait
+	RestoreWait = 50 * time.Millisecond
+	t.Cleanup(func() { RestoreWait = old })
 	d := newDaemon(t)
 	reports := resuming(d, "/bin/sh")
-	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: "/bin/sh", Args: []string{"-c", "sleep 30"}, Env: []string{"PATH=/bin:/usr/bin"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(term.Close)
-	saved := savedAgent(t.TempDir(), "claude").Terminals[0]
-	saved.TerminalID = term.Info().ID
-	d.expect(saved, term, "", &handoff.Agent{Phase: "idle"})
+	handedDown(t, d, "sleep 30")
 
 	d.poll()
 
-	if r := report(t, reports); r.ok || r.reason != "agent_exited" {
+	if r := report(t, reports); r.ok || r.reason != "resume_timeout" {
 		t.Fatalf("report = %+v", r)
 	}
 }
 
-func TestAHandedDownAgentSeenAfterItFailedShowsNoFailure(t *testing.T) {
+func TestAHandedDownAgentOutOfTheForegroundForAMomentIsNotFailed(t *testing.T) {
 	d := newDaemon(t)
 	reports := resuming(d, "/bin/sh")
-	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: "/bin/sh", Args: []string{"-c", "sleep 0.3; exec " + fakeAgent(t, "claude")}, Env: []string{"PATH=/bin:/usr/bin"}})
+	term := handedDown(t, d, "sleep 0.3; exec "+fakeAgent(t, "claude"))
+	d.poll()
+
+	pr := waitPresent(t, d, term)
+
+	select {
+	case r := <-reports:
+		t.Fatalf("report = %+v", r)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if s := pr.a.Summary(); s.ID != "a-1" || s.Restore != "" {
+		t.Fatalf("summary = %+v", s)
+	}
+}
+
+func TestAnAgentTheUserStartsWhereAHandedDownOneFailedGetsItsOwnSession(t *testing.T) {
+	old := RestoreWait
+	RestoreWait = 10 * time.Millisecond
+	t.Cleanup(func() { RestoreWait = old })
+	d := newDaemon(t)
+	reports := resuming(d, "/bin/sh")
+	term := handedDown(t, d, "sleep 0.5; exec "+fakeAgent(t, "claude"))
+	d.poll()
+	report(t, reports)
+
+	if pr := waitPresent(t, d, term); pr.a.ID() == "a-1" {
+		t.Fatal("a new agent took the failed session's id")
+	}
+}
+
+// handedDown is a Terminal running script whose saved claude a-1 the pocketd before handed down.
+func handedDown(t *testing.T, d *Daemon, script string) *terminal.Terminal {
+	t.Helper()
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: "/bin/sh", Args: []string{"-c", script}, Env: []string{"PATH=/bin:/usr/bin"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -663,15 +692,24 @@ func TestAHandedDownAgentSeenAfterItFailedShowsNoFailure(t *testing.T) {
 	saved := savedAgent(t.TempDir(), "claude").Terminals[0]
 	saved.TerminalID = term.Info().ID
 	d.expect(saved, term, "", &handoff.Agent{Phase: "idle"})
-	d.poll()
-	if r := report(t, reports); r.reason != "agent_exited" {
-		t.Fatalf("report = %+v", r)
-	}
+	return term
+}
 
-	pr := waitPresent(t, d, term)
+func TestARestoringTerminalTheUserClosedTakesItsSessionAlong(t *testing.T) {
+	d := newDaemon(t)
+	resuming(d, "/bin/sh", "-c", "sleep 30")
+	d.Restore(savedAgent(t.TempDir(), "claude"), "/bin/sh")
+	term, _ := restoredIn(t, d)
 
-	if s := pr.a.Summary(); s.ID != "a-1" || s.Restore != "" || !s.Attached {
-		t.Fatalf("summary = %+v", s)
+	term.Close()
+	<-term.Done()
+
+	eventually(t, "the session gone", func() bool {
+		_, err := d.Agents.Get("a-1")
+		return err != nil
+	})
+	if got := d.Snapshot().Terminals; len(got) != 0 {
+		t.Fatalf("Snapshot = %+v", got)
 	}
 }
 

@@ -145,8 +145,10 @@ type Client struct {
 	exited  bool // the holder reported the exit, rather than going away
 	closing bool // Close ran, so the connection ending is no drop to redial
 	code    int
-	base    int64 // the output offset of the first byte Read returns
-	queued  int64 // the output offset after the last byte queued
+	base    int64  // the output offset of the first byte Read returns
+	queued  int64  // the output offset after the last byte queued
+	sized   []byte // the last resize and stop asked, sent again to a holder redialed
+	stopped []byte
 }
 
 // The holder drops a client that takes more than its write deadline, as a
@@ -280,7 +282,7 @@ func (c *Client) relay(r *bufio.Reader) error {
 func (c *Client) redial() *bufio.Reader {
 	for wait := redialFirst; ; wait = min(2*wait, redialMax) {
 		c.mu.Lock()
-		over := c.closing || c.exited
+		over := c.exited || c.closing && c.stopped == nil
 		c.mu.Unlock()
 		if over {
 			return nil
@@ -303,7 +305,10 @@ func (c *Client) resume(conn net.Conn, rp replayed) bool {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	c.mu.Lock()
-	if c.closing || c.exited {
+	if c.exited || c.closing {
+		if c.stopped != nil && !c.exited {
+			writeFrame(conn, kStop, c.stopped)
+		}
 		c.mu.Unlock()
 		conn.Close()
 		return false
@@ -314,15 +319,23 @@ func (c *Client) resume(conn net.Conn, rp replayed) bool {
 		}
 	} else {
 		// The holder's ring no longer reaches what came last: redraw from its checkpoint.
-		given := c.queued - c.base
-		c.queue = append(append(c.queue, rp.snapshot...), rp.tail...)
-		c.base = rp.From - given - int64(len(rp.snapshot))
+		read := c.queued - c.base - int64(len(c.queue))
+		c.queue = append(append([]byte(nil), rp.snapshot...), rp.tail...)
+		c.base = rp.From - read - int64(len(rp.snapshot))
 	}
 	c.queued = max(c.queued, rp.From+int64(len(rp.tail)))
 	c.cond.Broadcast()
+	sized, stopped := c.sized, c.stopped
 	c.mu.Unlock()
 	c.conn.Close()
 	c.conn = conn
+	// Either may have gone to the dropped connection.
+	if sized != nil {
+		writeFrame(conn, kResize, sized)
+	}
+	if stopped != nil {
+		writeFrame(conn, kStop, stopped)
+	}
 	return true
 }
 
@@ -357,12 +370,18 @@ func (c *Client) Write(p []byte) (int, error) {
 
 func (c *Client) Resize(cols, rows int) error {
 	b, _ := json.Marshal(size{cols, rows})
+	c.mu.Lock()
+	c.sized = b
+	c.mu.Unlock()
 	return c.send(kResize, b)
 }
 
 // Stop ends the whole session: SIGHUP and SIGTERM, then SIGKILL after grace.
 func (c *Client) Stop(grace time.Duration) {
 	b, _ := json.Marshal(stop{grace.Milliseconds()})
+	c.mu.Lock()
+	c.stopped = b
+	c.mu.Unlock()
 	c.send(kStop, b)
 }
 
