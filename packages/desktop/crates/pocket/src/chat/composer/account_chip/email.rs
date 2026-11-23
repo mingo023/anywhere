@@ -1,4 +1,4 @@
-use crate::desktop::Desktop;
+use crate::chat::composer::ComposerState;
 use daemon::Account;
 use gpui_kit::*;
 use theme::*;
@@ -6,9 +6,9 @@ use theme::*;
 /// Stands in for every email alike, so its length gives nothing away.
 const MASK: &str = "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}";
 
-impl Desktop {
-    pub(super) fn chat_account_email(&self, a: &Account, size: f32, ink: impl Into<Hsla>, cx: &mut Context<Self>) -> Stateful<Div> {
-        let shown = self.chats.composer.read(cx).draft.reveals(&a.id);
+impl ComposerState {
+    pub(super) fn account_email(&self, a: &Account, size: f32, ink: impl Into<Hsla>, cx: &mut Context<Self>) -> Stateful<Div> {
+        let shown = self.draft.reveals(&a.id);
         let id = a.id.clone();
         div()
             .id(SharedString::from(format!("chat-account-email-{}", a.id)))
@@ -28,7 +28,7 @@ impl Desktop {
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 // A Switch account row switches on click; showing its email must not.
                 cx.stop_propagation();
-                this.chats.composer.update(cx, |c, _| c.draft.toggle_email(&id));
+                this.draft.toggle_email(&id);
                 cx.notify();
             }))
     }

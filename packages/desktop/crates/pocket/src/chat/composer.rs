@@ -1,5 +1,5 @@
 mod access_pill;
-mod account_chip;
+pub(crate) mod account_chip;
 pub(crate) mod attachments;
 mod background;
 pub(crate) mod btw;
@@ -182,6 +182,7 @@ pub(crate) enum ChatBoxEvent {
         agent: String,
         what: queue::Queue,
     },
+    Account(account_chip::Ask),
 }
 
 impl EventEmitter<ChatBoxEvent> for ComposerState {}
@@ -439,6 +440,7 @@ impl Desktop {
             ChatBoxEvent::Interrupt(agent) => self.chat_command(agent, Command::Interrupt, cx),
             ChatBoxEvent::ShowBlock { agent, turn, block } => self.chat_show_block(agent, *turn, *block, cx),
             ChatBoxEvent::Queue { agent, what } => self.on_queue(agent, what, window, cx),
+            ChatBoxEvent::Account(ask) => self.on_account_ask(ask, window, cx),
         }
         cx.notify();
     }
@@ -862,7 +864,9 @@ impl Desktop {
         let asking = matches!(mode, Mode::Permission { .. } | Mode::Question { .. });
         let notice = self.explorer.read(cx).notice.as_ref().map(|(n, _)| n.clone());
         let said = said_in_chat(notice.as_ref(), &agent.id);
-        let account = (mode != Mode::ViewOnly).then(|| self.chat_account_chip(agent, cx)).flatten();
+        let open = matches!(composer.read(cx).draft.menu, Some(Menu::Usage { .. } | Menu::Switch));
+        let account = (mode != Mode::ViewOnly).then(|| self.chat_account_chip(agent, open)).flatten();
+        let account = account.map(|chip| composer.update(cx, |c, cx| c.account_chip(&chip, cx)));
         let footer = self.composer_footer(agent, account, hint(mode, busy, stopping, empty, can_queue), said, asking, cx.reduce_motion());
         let column = div()
             .w_full()
