@@ -450,7 +450,7 @@ impl Desktop {
     /// Text typed while nothing holds the keys goes to the focused pane's chat, as in Discord. Returns whether it did.
     pub(crate) fn type_into_chat(&mut self, key: &Keystroke, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(text) = typed_text(key) else { return false };
-        if !self.keys_free(window) || !self.panes_on_screen(cx) {
+        if !self.keys_free(window, cx) || !self.panes_on_screen(cx) {
             return false;
         }
         let Some(t) = self.focused_chat().filter(|t| self.chat_mode(t, cx) == Mode::Prompt) else { return false };
@@ -461,8 +461,8 @@ impl Desktop {
     }
 
     /// Whether nothing that takes typing holds the keys.
-    fn keys_free(&self, window: &Window) -> bool {
-        self.root.is_focused(window) || self.chats.dock.focused(window) || text_view_focused(&window.context_stack())
+    fn keys_free(&self, window: &Window, cx: &App) -> bool {
+        self.root.is_focused(window) || self.chats.dock.read(cx).focused(window) || text_view_focused(&window.context_stack())
     }
 
     /// [DEBUG-focus] Logs text typed while a chat is focused that neither its input nor `type_into_chat` takes.
@@ -472,7 +472,7 @@ impl Desktop {
             return;
         }
         let mode = self.chat_mode(&t, cx);
-        if self.keys_free(window) && self.panes_on_screen(cx) && mode == Mode::Prompt {
+        if self.keys_free(window, cx) && self.panes_on_screen(cx) && mode == Mode::Prompt {
             return;
         }
         let c = &self.chats.composer;
@@ -481,7 +481,7 @@ impl Desktop {
             ("terminal", self.terminal.focus.clone()),
             ("ask", c.ask_focus.clone()),
             ("answer", c.answer.read(cx).focus_handle(cx)),
-            ("map", self.chats.map.focus.clone()),
+            ("map", self.chats.map.read(cx).focus.clone()),
             ("browser", self.browsers.focus.clone()),
             ("inbox", self.inbox.read(cx).focus.clone()),
             ("sidebar-filter", self.sidebar.filter.input.read(cx).focus_handle(cx)),
@@ -791,7 +791,8 @@ impl Desktop {
         let stop = |tasks: &[&chat::ToolCall]| mode == Mode::Prompt && background::stops(agent.chat_only, interrupt, busy, tasks);
         let background = matches!(mode, Mode::Prompt | Mode::ViewOnly).then(|| transcript.and_then(|t| self.background_tray(&agent.id, t, stop, cx))).flatten();
         let background = background.map(|t| fade_in(id(format!("chat-background-in:{terminal}")), t));
-        let map = transcript.and_then(|t| self.chat_agent_map(agent, t, cx));
+        let tools = self.chats.views.get(&agent.id).map(|v| v.read(cx).tools());
+        let map = transcript.zip(tools).and_then(|(t, tools)| self.chats.map.update(cx, |m, cx| m.view(agent, t, &tools, cx)));
         let btw = matches!(mode, Mode::Prompt).then(|| self.btw_card(&agent.id, cx)).flatten();
         let (typed, draft) = self.chat_draft(&agent.id, cx);
         let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
@@ -949,7 +950,7 @@ impl Desktop {
             .children(self.chat_goal_pill(agent, view_only, cx))
             .child(self.chat_model_pill(agent, view_only, cx))
             .children(self.chat_access_pill(agent, view_only, cx))
-            .children(self.chats.views.get(&agent.id).map(|v| v.read(cx).transcript()).and_then(|t| self.chat_agents_chip(agent, &t, cx)))
+            .children(self.chats.views.get(&agent.id).map(|v| v.read(cx).transcript()).and_then(|t| self.chats.map.update(cx, |m, cx| m.chip(agent, &t, cx))))
             .child(div().flex_1())
             .children(attach)
             .children(send);

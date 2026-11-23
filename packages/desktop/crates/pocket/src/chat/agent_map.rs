@@ -2,7 +2,9 @@ mod detail;
 mod graph;
 
 use super::agent_detail::{ran_ms, thousands};
+use super::markdown::{Open, Press};
 use super::sub_agent::{self, Mark};
+use super::tool_row::Tools;
 use super::working::format_elapsed;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
@@ -11,6 +13,7 @@ use agents::Summary;
 use chat::{Block, Spawned, ToolCall, ToolStatus, Transcript};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use theme::*;
 
@@ -104,10 +107,35 @@ impl Nav {
     }
 }
 
+/// The graph of an agent's sub-agents over its composer, with their details: one for the window, whichever chat it was opened from.
 pub(crate) struct AgentMap {
     pub(crate) nav: Nav,
     pub(super) focus: FocusHandle, // [DEBUG-focus]
 }
+
+/// What a sub-agent's details read from its chat.
+struct Of<'a> {
+    agent: &'a str,
+    tools: &'a Entity<Tools>,
+    transcript: &'a Arc<Transcript>,
+}
+
+pub(crate) enum MapEvent {
+    /// The map shut by its own hand: the chat's input takes the keys back.
+    Closed,
+    /// Shut to show the place in `agent`'s chat that a sub-agent was spawned at.
+    Reveal {
+        agent: String,
+        at: Option<(usize, usize)>,
+    },
+    Link {
+        agent: String,
+        link: String,
+        press: Press,
+    },
+}
+
+impl EventEmitter<MapEvent> for AgentMap {}
 
 impl AgentMap {
     pub(crate) fn new(cx: &mut App) -> Self {
@@ -164,12 +192,12 @@ fn place(t: &Transcript, map: &[Spawned], mut ix: usize) -> Option<(usize, usize
     t.turns.iter().enumerate().find_map(|(ti, turn)| turn.blocks.iter().position(|b| matches!(b, Block::Tool(c) if &c.id == call)).map(|bi| (ti, bi)))
 }
 
-impl Desktop {
+impl AgentMap {
     /// The composer's chip that opens the agent map, while an agent works or the map is open.
-    pub(super) fn chat_agents_chip(&self, agent: &Summary, t: &Transcript, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+    pub(super) fn chip(&self, agent: &Summary, t: &Transcript, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         let map = chat::spawned(t);
         let (live, label) = chip_label(&map);
-        let open = self.chats.map.nav.is_open(&agent.id);
+        let open = self.nav.is_open(&agent.id);
         if map.is_empty() || !(live || open) {
             return None;
         }
@@ -184,58 +212,64 @@ impl Desktop {
                 .map(|d| if live { d.child(ui::dot(6., SUCCESS)) } else { d.child(icon("agent-map", 13., if open { ACCENT } else { TEXT_3 })) })
                 .child(div().font_weight(FontWeight::MEDIUM).child(label)),
             open,
-            cx.listener(move |this, _: &MouseDownEvent, window, cx| this.chat_toggle_map(&a, window, cx)),
+            cx.listener(move |this, _: &MouseDownEvent, window, cx| this.toggle(&a, window, cx)),
         );
         Some(chip)
     }
 
-    pub(crate) fn chat_toggle_map(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
-        self.chats.map.nav.toggle(agent, Instant::now());
-        if self.chats.map.nav.is_open(agent) {
-            self.chats.map.focus.focus(window, cx);
+    pub(crate) fn toggle(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.nav.toggle(agent, Instant::now());
+        if self.nav.is_open(agent) {
+            self.focus.focus(window, cx);
         } else {
-            self.chats.input.update(cx, |s, cx| s.focus(window, cx));
+            cx.emit(MapEvent::Closed);
         }
         cx.notify();
     }
 
-    pub(crate) fn chat_map_show(&mut self, node: usize, call: &str, cx: &mut Context<Self>) {
-        self.chats.map.nav.show(node, call);
+    pub(crate) fn show(&mut self, node: usize, call: &str, cx: &mut Context<Self>) {
+        self.nav.show(node, call);
         cx.notify();
     }
 
-    /// Shows in the chat the call `map[ix]` was spawned under, closing the map.
-    fn chat_map_reveal(&mut self, agent: &str, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(view) = self.chats.views.get(agent) else { return };
-        let t = view.read(cx).transcript();
-        let at = place(&t, &chat::spawned(&t), ix);
-        self.chats.map.nav.close(Instant::now());
-        self.chats.input.update(cx, |s, cx| s.focus(window, cx));
-        if let Some((turn, block)) = at {
-            self.chat_show_block(agent, turn, block, cx);
-        }
+    /// Closes the map to show in the chat the call `map[ix]` was spawned under.
+    fn reveal(&mut self, agent: &str, t: &Transcript, ix: usize, cx: &mut Context<Self>) {
+        let at = place(t, &chat::spawned(t), ix);
+        self.nav.close(Instant::now());
+        cx.emit(MapEvent::Reveal { agent: agent.to_string(), at });
         cx.notify();
+    }
+
+    fn close(&mut self, cx: &mut Context<Self>) {
+        self.nav.close(Instant::now());
+        cx.emit(MapEvent::Closed);
+        cx.notify();
+    }
+
+    fn links(&self, agent: &str, cx: &Context<Self>) -> Open {
+        let (this, agent) = (cx.weak_entity(), agent.to_string());
+        Arc::new(move |link, press, _, cx| _ = this.update(cx, |_, cx| cx.emit(MapEvent::Link { agent: agent.clone(), link: link.to_string(), press })))
     }
 
     /// `agent`'s map over its composer column while it's open or fading out: the graph of who spawned whom, or one's details.
-    pub(super) fn chat_agent_map(&self, agent: &Summary, t: &Transcript, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let nav = &self.chats.map.nav;
+    pub(super) fn view(&self, agent: &Summary, t: &Arc<Transcript>, tools: &Entity<Tools>, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let nav = &self.nav;
         if !nav.drawn(&agent.id, Instant::now()) {
             return None;
         }
         let open = nav.is_open(&agent.id);
         let map = chat::spawned(t);
         let now = now_ms();
-        let (graph, graph_height) = self.chat_map_graph(agent, t, &map, open && nav.detail.is_none(), now, cx);
+        let (graph, graph_height) = self.graph(agent, t, &map, open && nav.detail.is_none(), now, cx);
         let detail = nav
             .shown
             .as_ref()
             .and_then(|call| map.iter().position(|s| &s.call.id == call))
-            .map(|ix| self.chat_map_detail(&agent.id, &map, ix, open && nav.detail.is_some(), now, cx));
+            .map(|ix| self.detail(&map, ix, open && nav.detail.is_some(), now, &Of { agent: &agent.id, tools, transcript: t }, cx));
         let on_detail = nav.detail.is_some() && detail.is_some();
         let height = if on_detail { DETAIL_HEIGHT } else { HEADER + graph_height + FOOTER }.min(MAX_HEIGHT);
 
-        let a = agent.id.clone();
+        let calls: Vec<String> = map.iter().map(|s| s.call.id.clone()).collect();
         let header = div()
             .h(px(HEADER))
             .flex_none()
@@ -247,11 +281,7 @@ impl Desktop {
             .child(div().text_size(px(15.)).font_weight(FontWeight::BOLD).text_color(TEXT).child("Agents"))
             .child(div().min_w_0().truncate().text_size(px(12.5)).text_color(TEXT_3).child(summary(&map)))
             .child(div().flex_1())
-            .child(close_button(format!("chat-map-close:{}", agent.id)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.chats.map.nav.close(Instant::now());
-                this.chats.input.update(cx, |s, cx| s.focus(window, cx));
-                cx.notify();
-            })));
+            .child(close_button(format!("chat-map-close:{}", agent.id)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.close(cx))));
         let list =
             div().absolute().top_0().bottom_0().w_full().flex().flex_col().child(header).child(graph).child(
                 div().h(px(FOOTER)).flex_none().px(px(18.)).text_size(px(11.5)).text_color(TEXT_4).child("Click an agent for its prompt, steps and report"),
@@ -270,14 +300,14 @@ impl Desktop {
             .flex()
             .flex_col()
             .overflow_hidden()
-            .track_focus(&self.chats.map.focus)
+            .track_focus(&self.focus)
             .when(open, |d| {
                 d.occlude()
                     .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                        this.chats.map.nav.close(Instant::now());
+                        this.nav.close(Instant::now());
                         cx.notify();
                     }))
-                    .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| this.chat_map_key(&a, e, window, cx)))
+                    .on_key_down(cx.listener(move |this, e: &KeyDownEvent, _, cx| this.key(&calls, e, cx)))
             })
             .child(pages)
             .with_spring(id(format!("chat-map-height:{}", agent.id)), SpringAnimation::new(SPRING).to(px(height)), |d, h| d.h(h));
@@ -295,18 +325,35 @@ impl Desktop {
         Some(div().relative().w_full().h_0().child(deferred(shown)).into_any_element())
     }
 
-    fn chat_map_key(&mut self, agent: &str, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(view) = self.chats.views.get(agent) else { return };
-        let t = view.read(cx).transcript();
-        let calls: Vec<&str> = chat::spawned(&t).iter().map(|s| s.call.id.as_str()).collect();
-        if !self.chats.map.nav.key(&e.keystroke.key, &calls, Instant::now()) {
+    fn key(&mut self, calls: &[String], e: &KeyDownEvent, cx: &mut Context<Self>) {
+        let calls: Vec<&str> = calls.iter().map(String::as_str).collect();
+        if !self.nav.key(&e.keystroke.key, &calls, Instant::now()) {
             return;
         }
-        if self.chats.map.nav.open.is_none() {
-            self.chats.input.update(cx, |s, cx| s.focus(window, cx));
+        if self.nav.open.is_none() {
+            cx.emit(MapEvent::Closed);
         }
         cx.stop_propagation();
         cx.notify();
+    }
+}
+
+impl Desktop {
+    pub(crate) fn on_map_event(&mut self, ev: &MapEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            MapEvent::Closed => self.chats.input.update(cx, |s, cx| s.focus(window, cx)),
+            MapEvent::Reveal { agent, at } => {
+                self.chats.input.update(cx, |s, cx| s.focus(window, cx));
+                if let Some((turn, block)) = at {
+                    self.chat_show_block(agent, *turn, *block, cx);
+                }
+                cx.notify();
+            }
+            MapEvent::Link { agent, link, press } => {
+                let cwd = self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default();
+                self.chat_link(agent, link, &cwd, *press, window, cx);
+            }
+        }
     }
 }
 

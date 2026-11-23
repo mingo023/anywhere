@@ -42,7 +42,6 @@ use gpui_kit::component::input::TextareaState;
 use gpui_kit::*;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Instant;
 use theme::*;
 use workspace::Tab;
@@ -102,8 +101,8 @@ pub(crate) struct ChatState {
     pub(crate) copying: HashSet<String>,
     /// Each chat's attachments copied to its host, by file here, for the send they were copied for.
     pub(crate) copied: HashMap<String, Vec<(PathBuf, String)>>,
-    pub(crate) map: agent_map::AgentMap,
-    pub(crate) dock: agent_dock::AgentDock,
+    pub(crate) map: Entity<agent_map::AgentMap>,
+    pub(crate) dock: Entity<agent_dock::AgentDock>,
     /// Mermaid fences drawn in every chat, sharing one image budget.
     pub(crate) diagrams: Entity<Diagrams>,
     /// The queued entry each agent's composer text was taken from, which its next send replaces.
@@ -114,6 +113,12 @@ impl ChatState {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let input = composer::input(window, cx);
         let (composer, mut subs) = composer::ComposerState::new(&input, window, cx);
+        let map = cx.new(|cx| agent_map::AgentMap::new(cx));
+        subs.push(cx.subscribe_in(&map, window, |this, _, ev: &agent_map::MapEvent, window, cx| this.on_map_event(ev, window, cx)));
+        subs.push(cx.observe(&map, |_, _, cx| cx.notify()));
+        let dock = cx.new(|cx| agent_dock::AgentDock::new(cx));
+        subs.push(cx.subscribe_in(&dock, window, |this, _, ev: &agent_dock::DockEvent, window, cx| this.on_dock_event(ev, window, cx)));
+        subs.push(cx.observe(&dock, |_, _, cx| cx.notify()));
         let select = cx.new(|_| selection::Select::default());
         subs.push(cx.subscribe_in(&select, window, |this, _, ev: &selection::SelectEvent, window, cx| this.on_select_event(ev, window, cx)));
         subs.push(cx.observe(&select, |_, _, cx| cx.notify()));
@@ -131,8 +136,8 @@ impl ChatState {
                 unsent: None,
                 copying: HashSet::new(),
                 copied: HashMap::new(),
-                map: agent_map::AgentMap::new(cx),
-                dock: agent_dock::AgentDock::new(cx),
+                map,
+                dock,
                 diagrams,
                 editing: HashMap::new(),
             },
@@ -295,7 +300,7 @@ impl Desktop {
             send_now: self.chat_caps(&agent.provider).send_now,
             delegated_by: self.delegated_by(id),
             here: self.store.home().join("attachments"),
-            pick_open: self.chats.dock.pick.open_in(id).map(str::to_string),
+            pick_open: self.chats.dock.read(cx).pick.open_in(id).map(str::to_string),
             delegations: self.agents.delegations.of(id).to_vec(),
             hosts: has_host_link.then(|| (self.fleet.hosts.list.clone(), self.fleet.hosts.links.clone())),
             capturing: self.capturing,
@@ -342,12 +347,6 @@ impl Desktop {
             }
         }
         self.chat_prune_dock(cx);
-    }
-
-    /// Where a link clicked in `agent`'s chat goes.
-    pub(super) fn chat_links(&self, agent: &str, cx: &Context<Self>) -> markdown::Open {
-        let (this, id, cwd) = (cx.weak_entity(), agent.to_string(), self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default());
-        Arc::new(move |link, press, window, cx| this.update(cx, |d, cx| d.chat_link(&id, link, &cwd, press, window, cx)).unwrap_or_default())
     }
 
     /// Scrolls `agent`'s chat to the row showing block `block` of turn `turn`, opened, and flashes it.

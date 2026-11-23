@@ -788,7 +788,7 @@ impl Render for Desktop {
         if self.sidebar.tick(self.layout, now, reduce_motion)
             | self.panels.tick(now, reduce_motion)
             | self.star.update(cx, |s, _| s.tick(now, capturing))
-            | self.chats.dock.tick(now, reduce_motion)
+            | self.chats.dock.update(cx, |d, _| d.tick(now, reduce_motion))
         {
             window.request_animation_frame();
         }
@@ -846,7 +846,7 @@ impl Render for Desktop {
                     || this.new_form.update(cx, |f, cx| f.close_picker(cx))
                     || this.escape_composer_menu()
                     || this.close_menus(cx)
-                    || this.chat_escape_dock(window, cx)
+                    || this.chat_escape_dock(cx)
                     || this.delegated_escape(window, cx)
                 {
                     cx.notify();

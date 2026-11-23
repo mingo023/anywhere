@@ -177,7 +177,7 @@ const STEPS: [(&str, Step); 303] = [
     }),
     ("chat-agent-map", |d, window, cx| {
         if let Some(agent) = d.session().map(str::to_string) {
-            d.chat_toggle_map(&agent, window, cx);
+            d.chats.map.update(cx, |m, cx| m.toggle(&agent, window, cx));
         }
     }),
     // After `chat-agent-map`: the details of the first sub-agent still at work, else the first.
@@ -188,7 +188,7 @@ const STEPS: [(&str, Step); 303] = [
         let map = chat::spawned(&t);
         let Some(ix) = map.iter().position(|s| s.call.status == chat::ToolStatus::Running).or((!map.is_empty()).then_some(0)) else { return };
         let call = map[ix].call.id.clone();
-        d.chat_map_show(ix + 1, &call, cx);
+        d.chats.map.update(cx, |m, cx| m.show(ix + 1, &call, cx));
     }),
     ("chat-scrolled-up", |d, _, cx| scroll_back(d, 30, cx)),
     ("chat-top", |d, _, cx| scroll_back(d, usize::MAX, cx)),

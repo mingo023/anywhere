@@ -1,7 +1,6 @@
-use super::{main_line, mark, meta, name, thousands};
+use super::{AgentMap, main_line, mark, meta, name, thousands};
 use crate::chat::agent_detail;
 use crate::chat::sub_agent::{self, Mark};
-use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
 use agents::Summary;
 use chat::{Spawned, ToolStatus, Transcript};
@@ -191,12 +190,12 @@ fn line(text: String, code: bool, color: Token) -> Div {
     if code { d.font_family(code_font()).text_size(px(11.)) } else { d.text_size(px(11.5)) }.child(text)
 }
 
-impl Desktop {
+impl AgentMap {
     /// The graph of who spawned whom and its height; `live` takes clicks, as the graph does while it's the page showing.
-    pub(super) fn chat_map_graph(&self, agent: &Summary, t: &Transcript, map: &[Spawned], live: bool, now: i64, cx: &mut Context<Self>) -> (AnyElement, f32) {
+    pub(super) fn graph(&self, agent: &Summary, t: &Transcript, map: &[Spawned], live: bool, now: i64, cx: &mut Context<Self>) -> (AnyElement, f32) {
         let parents: Vec<_> = map.iter().map(|s| s.parent).collect();
         let (at, size) = layout(&parents);
-        let selected = self.chats.map.nav.selected;
+        let selected = self.nav.selected;
         let center = |(x, y): Pt, right: bool| (if right { x + W } else { x }, y + H / 2.);
         let edges: Vec<Edge> = map
             .iter()
@@ -248,9 +247,7 @@ impl Desktop {
                 .child(sub(meta(s.call, s.agent.tokens, now)))
                 .child(third)
                 .when(live, |d| {
-                    d.cursor_pointer()
-                        .hover(|s| s.bg(AGENT_CARD_HOVER))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_map_show(node, &call, cx)))
+                    d.cursor_pointer().hover(|s| s.bg(AGENT_CARD_HOVER)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.show(node, &call, cx)))
                 })
                 // A node new to the map slides in from its parent's side as it fades in.
                 .with_spring(id(format!("chat-map-in:{}", s.call.id)), SpringAnimation::new(SPRING).to(true).from(false), move |d, t| {
