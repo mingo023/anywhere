@@ -868,6 +868,13 @@ impl MacWindowState {
         }
     }
 
+    /// Invalidating a `CAMetalDisplayLink` races QuartzCore, which can still
+    /// walk the link's item and crash in `CA::Display::MetalLinkItem::get_link`
+    /// (zed-industries/zed#66980), so activation keeps an attached link.
+    fn metal_link_attached(&self) -> bool {
+        matches!(&self.frame_source, FrameSource::Metal(frames) if frames.is_attached())
+    }
+
     fn stop_display_link(&mut self) {
         match &mut self.frame_source {
             FrameSource::Metal(metal_frames) => {
@@ -3065,7 +3072,11 @@ extern "C" fn window_did_change_occlusion_state(this: &AnyObject, _: Sel, _: *mu
         .contains(NSWindowOcclusionState::Visible)
     {
         lock.move_traffic_light();
-        lock.start_display_link(&window_state);
+        // Going hidden stops the link, so one attached now was just made for
+        // this activation; restarting would invalidate it.
+        if !lock.metal_link_attached() {
+            lock.start_display_link(&window_state);
+        }
     } else {
         lock.stop_display_link();
     }
@@ -3268,11 +3279,10 @@ extern "C" fn window_did_change_key_status(this: &AnyObject, selector: Sel, _: *
         let window_state = unsafe { get_window_state(this) };
         let mut lock = window_state.lock();
 
-        // A synchronous draw would invalidate an attached Metal link, which
-        // races QuartzCore and crashes (zed-industries/zed#66980). Activation
-        // refreshes the window, so the link draws the frame instead.
-        let link_attached =
-            matches!(&lock.frame_source, FrameSource::Metal(frames) if frames.is_attached());
+        // A synchronous draw would invalidate the Metal link (see
+        // `metal_link_attached`). Activation refreshes the window, so the link
+        // draws the frame instead.
+        let link_attached = lock.metal_link_attached();
         if lock.activated_least_once {
             if !link_attached && let Some(mut callback) = lock.request_frame_callback.take() {
                 lock.renderer.set_presents_with_transaction(true);
