@@ -28,7 +28,7 @@ struct DragScratch {
 impl Desktop {
     /// The Threads section above Projects; `None` when the sidebar's filter leaves nothing in it.
     pub(super) fn scratch_section(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let query = self.sidebar.read(cx).filter.query(cx);
+        let query = self.sidebar.read(cx).query(cx);
         let filtering = !query.is_empty();
         let space = self.space();
         let rows: Vec<String> =

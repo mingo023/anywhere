@@ -1,6 +1,7 @@
 pub(crate) mod column;
 mod filter;
 pub(crate) mod fold;
+pub(crate) mod header;
 pub(crate) mod host;
 pub(crate) mod panel;
 pub(crate) mod project_picker;
@@ -23,17 +24,17 @@ use crate::glide::Glide;
 use crate::modals::host_finder::Opener;
 use crate::region;
 use crate::renames::{self, Renames, Slot};
-use crate::sidebar::filter::Filter;
 use crate::sidebar::fold::{Closing, Fold};
+use crate::sidebar::header::{HeaderEvent, ProjectsHeader};
 use crate::sidebar::panel::PanelRail;
 use crate::sidebar::project_picker::ProjectPicker;
 use crate::sidebar::rail::Rail;
 use crate::sidebar::rename::Rename;
 use crate::sidebar::sections::{Kind, Organize, Section, TreeRow};
 use crate::sidebar::tree_card::Hover;
+use crate::spaces::SLIDE_MS;
 use crate::spaces::header::SpaceHeader;
 use crate::spaces::switcher::Switcher;
-use crate::spaces::{SLIDE_MS, on_host};
 use crate::status::{self, Card};
 use crate::util::{LOCAL_ICON, WORKTREE_ICON, ago_long, basename, now_ms};
 use agents::Agents;
@@ -168,18 +169,6 @@ struct DragTree {
     ix: usize,
 }
 
-/// What the sidebar asks `Desktop` for: its inputs hold what it can't answer alone.
-pub(crate) enum SidebarEvent {
-    /// The filter's text changed.
-    Filtered,
-    /// The filter lost focus.
-    FilterBlurred,
-    /// The sessions search changed.
-    Searched,
-}
-
-impl EventEmitter<SidebarEvent> for Sidebar {}
-
 /// The sidebar's state: folds, filter, rename, picker, menus, and how far the columns are open.
 pub struct Sidebar {
     pub(crate) search: Entity<InputState>,
@@ -193,15 +182,14 @@ pub struct Sidebar {
     /// The compact rail, and the rail at the window's right edge.
     pub(crate) rail: Entity<Rail>,
     pub(crate) panel_rail: Entity<PanelRail>,
-    /// The Projects + menu shows.
-    pub(crate) add_menu: bool,
     /// The right-hand panel shows; collapsed at launch.
     pub(crate) panel_open: bool,
     /// The worktree row being renamed.
     pub(crate) rename: Option<Rename>,
     /// Which row's hover card shows.
     pub(crate) hover: Hover,
-    pub(crate) filter: Filter,
+    /// The Projects header, with the filter and the organize and add menus.
+    pub(crate) header: Entity<ProjectsHeader>,
     pub(crate) organize: Organize,
     pub(crate) closing: Closing,
     /// Set only while the sidebar draws; see `Desktop::placed`.
@@ -210,7 +198,6 @@ pub struct Sidebar {
     pub(crate) lead: Glide,
     /// How far the right-hand panel is open.
     pub(crate) panel: Glide,
-    _subs: Vec<Subscription>,
 }
 
 impl Sidebar {
@@ -219,18 +206,10 @@ impl Sidebar {
         let picker = cx.new(|cx| ProjectPicker::new(window, cx));
         let rail = cx.new(|_| Rail::new(picker.clone()));
         let panel_rail = cx.new(|_| PanelRail::default());
-        let filter = Filter::new(window, cx);
+        let header = cx.new(|cx| ProjectsHeader::new(window, cx));
         let space_header = cx.new(|_| SpaceHeader::new());
         let aside_spaces = cx.new(|_| Switcher::new("aside", false));
         let rail_spaces = cx.new(|_| Switcher::new("nav", true));
-        let _subs = vec![
-            cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.emit(SidebarEvent::Searched)),
-            cx.subscribe(&filter.input, |_, _, ev: &InputEvent, cx| match ev {
-                InputEvent::Change => cx.emit(SidebarEvent::Filtered),
-                InputEvent::Blur => cx.emit(SidebarEvent::FilterBlurred),
-                _ => {}
-            }),
-        ];
         Self {
             search,
             space_header,
@@ -240,17 +219,15 @@ impl Sidebar {
             picker,
             rail,
             panel_rail,
-            add_menu: false,
             panel_open,
             rename: None,
             hover: Hover::default(),
-            filter,
+            header,
             organize: Organize::default(),
             closing: Closing::default(),
             placement: RefCell::default(),
             lead: Glide::default(),
             panel: Glide::default(),
-            _subs,
         }
     }
 
@@ -266,30 +243,50 @@ impl Sidebar {
         self.lead.at().clamp(0., 1.)
     }
 
+    /// The filter's text, lowercased; empty while it's closed.
+    pub(crate) fn query(&self, cx: &App) -> String {
+        self.header.read(cx).filter.query(cx)
+    }
+
+    /// Whether the filter's Enter would pick this row.
+    pub(crate) fn lit(&self, cx: &App, project: &str, tree: Option<&str>) -> bool {
+        self.header.read(cx).filter.lit(project, tree)
+    }
+
     /// Whether a menu of the sidebar's own is open.
     pub(crate) fn menu_open(&self, cx: &App) -> bool {
-        self.picker.read(cx).open || self.add_menu || self.organize.menu || self.space_header.read(cx).menu_open()
+        self.picker.read(cx).open || self.header.read(cx).menu_open() || self.space_header.read(cx).menu_open()
     }
 
     /// Shuts the sidebar's own menus.
     pub(crate) fn shut_menus(&mut self, cx: &mut App) {
         self.menu_at = None;
         self.picker.update(cx, |p, cx| p.shut(cx));
-        self.add_menu = false;
-        self.organize.menu = false;
+        self.header.update(cx, |h, cx| h.shut(cx));
         self.space_header.update(cx, |h, _| h.shut());
     }
 }
 
 impl Desktop {
     pub(crate) fn sidebar_subs(sidebar: &Entity<Sidebar>, window: &mut Window, cx: &mut Context<Self>) -> Vec<Subscription> {
-        let (space_header, aside, rail_spaces, picker, rail, panel_rail) = {
+        let (search, space_header, aside, rail_spaces, picker, rail, panel_rail, header) = {
             let s = sidebar.read(cx);
-            (s.space_header.clone(), s.aside_spaces.clone(), s.rail_spaces.clone(), s.picker.clone(), s.rail.clone(), s.panel_rail.clone())
+            (
+                s.search.clone(),
+                s.space_header.clone(),
+                s.aside_spaces.clone(),
+                s.rail_spaces.clone(),
+                s.picker.clone(),
+                s.rail.clone(),
+                s.panel_rail.clone(),
+                s.header.clone(),
+            )
         };
         vec![
-            cx.subscribe_in(sidebar, window, Self::on_sidebar_event),
             cx.observe(sidebar, |_, _, cx| cx.notify()),
+            cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify()),
+            cx.subscribe_in(&header, window, Self::on_header_event),
+            cx.observe(&header, |_, _, cx| cx.notify()),
             cx.subscribe_in(&picker, window, Self::on_picker_event),
             cx.observe(&picker, |_, _, cx| cx.notify()),
             cx.subscribe_in(&space_header, window, Self::on_space_header_event),
@@ -300,53 +297,41 @@ impl Desktop {
         ]
     }
 
-    fn on_sidebar_event(&mut self, _: &Entity<Sidebar>, ev: &SidebarEvent, window: &mut Window, cx: &mut Context<Self>) {
+    fn on_header_event(&mut self, header: &Entity<ProjectsHeader>, ev: &HeaderEvent, window: &mut Window, cx: &mut Context<Self>) {
         match ev {
-            SidebarEvent::Filtered => {
-                let lit = self.filter_hits(cx).into_iter().next();
-                self.sidebar.update(cx, |s, _| s.filter.lit = lit);
-                if self.sidebar.read(cx).filter.query(cx).is_empty() {
-                    self.shut_filtered_folds(cx);
-                }
+            HeaderEvent::Menu(menu) => {
+                self.close_menus(cx);
+                header.update(cx, |h, cx| h.show(*menu, cx));
             }
-            SidebarEvent::FilterBlurred if self.sidebar.read(cx).filter.query(cx).is_empty() => self.close_filter(window, cx),
-            _ => {}
+            HeaderEvent::OpenFilter => self.open_filter(window, cx),
+            HeaderEvent::FilterKey(key) => self.filter_key(key, window, cx),
+            HeaderEvent::Filtered => self.filtered(cx),
+            HeaderEvent::FilterClosed => self.shut_filtered_folds(cx),
+            HeaderEvent::NewGroup => self.new_group(None, window, cx),
+            HeaderEvent::Sort(sort) => {
+                self.store.sections.sort = *sort;
+                self.store.save();
+            }
+            HeaderEvent::FoldAll(fold) => {
+                let folds: Vec<Fold> = if *fold {
+                    self.store.projects.iter().filter(|p| !self.store.collapsed.contains(*p)).cloned().map(Fold::Project).collect()
+                } else {
+                    vec![]
+                };
+                self.sidebar.update(cx, |s, _| folds.into_iter().for_each(|f| s.closing.start(f)));
+                self.store.collapsed = if *fold { self.store.projects.iter().cloned().collect() } else { Default::default() };
+                self.store.save();
+            }
+            HeaderEvent::OpenFolder => self.open_folder(Opener::Sidebar, window, cx),
+            HeaderEvent::CloneProject => self.clone_project(window, cx),
         }
         cx.notify();
     }
 
-    /// The Projects add button and its menu: add a project, or clone one.
-    fn add_menu(&self, cx: &mut Context<Self>) -> Div {
-        let open = self.sidebar.read(cx).add_menu;
-        let button = ui::popover_trigger(
-            icon_button_sized("aside-add", "folder-plus", 22., TEXT_3).rounded(px(6.)),
-            open,
-            cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.close_menus(cx);
-                this.sidebar.update(cx, |s, _| s.add_menu = true);
-                cx.notify();
-            }),
-        );
-        div().relative().child(button).when(open, |d| {
-            let host = self.space_host_name(&self.space());
-            let add = ui::menu_row("aside-add-project", "folder", &on_host("Open folder", host.as_deref()), None)
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_folder(Opener::Sidebar, window, cx)));
-            let clone = ui::menu_row("aside-add-clone", "branch", &on_host("Clone from URL", host.as_deref()), None)
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clone_project(window, cx)));
-            let menu = ui::pop(div().id("aside-add-menu"))
-                .w(px(238.))
-                .p(px(6.))
-                .flex()
-                .flex_col()
-                .occlude()
-                .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                    this.sidebar.update(cx, |s, _| s.add_menu = false);
-                    cx.notify();
-                }))
-                .child(add)
-                .child(clone);
-            d.child(ui::dropdown_right(26., ui::menu_in("aside-add-menu-in", menu)))
-        })
+    pub(crate) fn open_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_menus(cx);
+        self.sidebar.read(cx).header.clone().update(cx, |h, cx| h.open_filter(window, cx));
+        cx.notify();
     }
 
     /// How wide the expanded sidebar is.
@@ -506,7 +491,7 @@ impl Desktop {
         let trail = (pins || renames).then(|| {
             ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.read(cx).hover.on(key))
         });
-        let lit = self.sidebar.read(cx).filter.lit(p, Some(key));
+        let lit = self.sidebar.read(cx).lit(cx, p, Some(key));
         let (target, path) = (p.to_string(), key.to_string());
         let glyph = if hosts::split(p).0.is_some() { "globe" } else { LOCAL_ICON };
         let row = ui::worktree_row(id(format!("aside-tree:{key}")), glyph, label, selected, mark)
@@ -655,7 +640,7 @@ impl Desktop {
         let row = ui::repo_row(("aside-repo", i), chevron, &name, &self.project_mark(p, ui::mark_letter(&name)), selected, state)
             .child(trail)
             .when(offline, |row| row.opacity(0.5))
-            .when(self.sidebar.read(cx).filter.lit(p, None), |row| row.bg(FILL_3))
+            .when(self.sidebar.read(cx).lit(cx, p, None), |row| row.bg(FILL_3))
             .when(self.spaces.flashed(p, Instant::now()), |row| row.bg(ACCENT_BG))
             .on_hover(cx.listener(move |this, over: &bool, _, cx| {
                 this.sidebar.update(cx, |s, _| s.hover.point_project(&pointed, *over));
@@ -754,7 +739,7 @@ impl Desktop {
         let row = ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, with_sub(label, sub, self.sidebar.read(cx).renaming(tree)), selected, mark)
             .child(trail)
             .when(pinned, |row| row.pl(px(6.)))
-            .when(self.sidebar.read(cx).filter.lit(p, Some(tree)), |row| row.bg(FILL_3))
+            .when(self.sidebar.read(cx).lit(cx, p, Some(tree)), |row| row.bg(FILL_3))
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                 // The rename input sits inside the row; its clicks must not restart or leave it.
                 if this.sidebar.read(cx).renaming(&path) {

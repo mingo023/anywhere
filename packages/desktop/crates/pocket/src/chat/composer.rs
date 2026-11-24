@@ -648,7 +648,7 @@ impl Desktop {
             ("map", self.chats.map.read(cx).focus.clone()),
             ("browser", self.browsers.focus.clone()),
             ("inbox", self.inbox.read(cx).focus.clone()),
-            ("sidebar-filter", self.sidebar.read(cx).filter.input.read(cx).focus_handle(cx)),
+            ("sidebar-filter", self.sidebar.read(cx).header.read(cx).filter.input.read(cx).focus_handle(cx)),
         ];
         let focus = match window.focused(cx) {
             None => "none",
@@ -665,8 +665,7 @@ impl Desktop {
             ("pr.merge_menu", self.pr.merge_menu),
             ("pr.create_menu", self.pr.create_menu),
             ("sidebar.picker", self.sidebar.read(cx).picker.read(cx).open),
-            ("sidebar.add_menu", self.sidebar.read(cx).add_menu),
-            ("sidebar.organize", self.sidebar.read(cx).organize.menu),
+            ("sidebar.header_menu", self.sidebar.read(cx).header.read(cx).menu_open()),
             ("automations.menu", self.automations.read(cx).menu.is_some()),
             ("explorer.menu", self.explorer.read(cx).menu_open()),
             ("terminal.menu", self.terminal.menu.is_some()),

@@ -2,6 +2,7 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::{RowMenu, Screen, id};
 use crate::sidebar::filter::FIELD_H;
 use crate::sidebar::fold::{self, Fold};
+use crate::sidebar::header::{HeaderFrame, ProjectsHeader};
 use crate::sidebar::rename::rename_field;
 use crate::sidebar::{DragProject, tree_label, tree_place};
 use crate::spaces::space_of;
@@ -10,12 +11,10 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use store::sections::{Group, Pin, Sort};
 use theme::*;
-use ui::{self, icon_button_sized};
 
-/// The Projects header's organize menu, and the group being renamed.
+/// The group being renamed.
 #[derive(Default)]
 pub(crate) struct Organize {
-    pub(crate) menu: bool,
     pub(crate) rename: Option<GroupRename>,
 }
 
@@ -184,80 +183,12 @@ impl Desktop {
         Listed { pinned, groups, other: arranged.other.into_iter().filter_map(block).collect() }
     }
 
-    /// The Projects header: its name and search button, or the filter's field while it's open, then its menus.
-    pub(super) fn projects_header(&self, cx: &mut Context<Self>) -> Div {
-        let header = section_head();
-        let header = if self.sidebar.read(cx).filter.open {
-            header.child(self.filter_field(cx))
-        } else {
-            let search = icon_button_sized("aside-filter", "search", 22., TEXT_3)
-                .rounded(px(6.))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_filter(window, cx)));
-            header.pl(px(6.)).child(div().flex_1().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(TEXT_3).child("PROJECTS")).child(search)
-        };
-        header.child(self.organize_menu(cx)).child(self.add_menu(cx))
-    }
-
-    /// The header's sort button and its menu: new group, the sort, folding every project.
-    fn organize_menu(&self, cx: &mut Context<Self>) -> Div {
-        let open = self.sidebar.read(cx).organize.menu;
-        let button = ui::popover_trigger(
-            icon_button_sized("aside-organize", "arrow-down-wide-narrow", 22., TEXT_3).rounded(px(6.)),
-            open,
-            cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.close_menus(cx);
-                this.sidebar.update(cx, |s, _| s.organize.menu = true);
-                cx.notify();
-            }),
-        );
-        div().relative().child(button).when(open, |d| {
-            let new = ui::menu_row("aside-new-group", "folder-plus", "New group", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.sidebar.update(cx, |s, _| s.organize.menu = false);
-                this.new_group(None, window, cx);
-            }));
-            let sort = self.store.sections.sort;
-            let sorts = [(Sort::Manual, "Manual"), (Sort::Name, "Name"), (Sort::Recent, "Recent activity")].map(|(s, label)| {
-                ui::menu_pick(SharedString::from(format!("aside-sort-{label}")), div(), label, s == sort).on_click(cx.listener(
-                    move |this, _: &ClickEvent, _, cx| {
-                        this.sidebar.update(cx, |s, _| s.organize.menu = false);
-                        this.store.sections.sort = s;
-                        this.store.save();
-                        cx.notify();
-                    },
-                ))
-            });
-            let fold = |id: &'static str, label: &'static str, fold: bool| {
-                ui::menu_row(id, if fold { "chevron-right" } else { "chevron-down" }, label, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.sidebar.update(cx, |s, _| s.organize.menu = false);
-                    if fold {
-                        for p in this.store.projects.iter().filter(|p| !this.store.collapsed.contains(*p)) {
-                            this.sidebar.update(cx, |s, _| s.closing.start(Fold::Project(p.clone())));
-                        }
-                    }
-                    this.store.collapsed = if fold { this.store.projects.iter().cloned().collect() } else { Default::default() };
-                    this.store.save();
-                    cx.notify();
-                }))
-            };
-            let menu = ui::pop(div().id("aside-organize-menu"))
-                .w(px(220.))
-                .p(px(6.))
-                .flex()
-                .flex_col()
-                .occlude()
-                .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                    this.sidebar.update(cx, |s, _| s.organize.menu = false);
-                    cx.notify();
-                }))
-                .child(new)
-                .child(ui::menu_divider())
-                .child(ui::menu_label("Sort projects"))
-                .children(sorts)
-                .child(ui::menu_divider())
-                .child(fold("aside-collapse-all", "Collapse all projects", true))
-                .child(fold("aside-expand-all", "Expand all projects", false));
-            d.child(ui::dropdown_right(26., ui::menu_in("aside-organize-menu-in", menu)))
-        })
+    /// The Projects header, handed what it draws from `Desktop`'s state.
+    pub(super) fn projects_header(&self, cx: &mut Context<Self>) -> Entity<ProjectsHeader> {
+        let frame = HeaderFrame { sort: self.store.sections.sort, host: self.space_host_name(&self.space()) };
+        let header = self.sidebar.read(cx).header.clone();
+        header.update(cx, |h, cx| h.set(frame, cx));
+        header
     }
 
     /// Adds a group, holding `project` if given, and names it in place.
@@ -309,7 +240,7 @@ impl Desktop {
 
     /// Pinned rows, each group, then the ungrouped projects; while filtering, only what matches.
     pub(super) fn sections(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let query = self.sidebar.read(cx).filter.query(cx);
+        let query = self.sidebar.read(cx).query(cx);
         let filtering = !query.is_empty();
         let listed = self.listed(&query, cx);
         let sections = &self.store.sections;
@@ -416,7 +347,7 @@ impl Desktop {
                         .py(px(12.))
                         .text_size(px(12.5))
                         .text_color(TEXT_3)
-                        .child(format!("No projects or worktrees match “{}”.", self.sidebar.read(cx).filter.input.read(cx).value().trim()))
+                        .child(format!("No projects or worktrees match “{}”.", self.sidebar.read(cx).header.read(cx).filter.input.read(cx).value().trim()))
                         .into_any_element(),
                 );
             }

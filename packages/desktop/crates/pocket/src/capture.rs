@@ -13,6 +13,7 @@ use crate::git_ui::graph::Graph;
 use crate::git_ui::pull_request::PrTab;
 use crate::modals::new_session::picker::Picker;
 use crate::settings::Section;
+use crate::sidebar::header::HeaderMenu;
 use crate::spaces::{Space, space_of};
 use crate::status::Status;
 use crate::updates::Update;
@@ -427,8 +428,8 @@ const STEPS: [(&str, Step); 303] = [
     ("focus", |d, window, cx| d.toggle_focus(&ToggleFocus, window, cx)),
     ("sidebar", |d, window, cx| d.toggle_sidebar(&ToggleSidebar, window, cx)),
     ("projects", |d, window, cx| d.toggle_project_picker(window, cx)),
-    ("add-menu", |d, _, cx| d.sidebar.update(cx, |s, _| s.add_menu = true)),
-    ("organize-menu", |d, _, cx| d.sidebar.update(cx, |s, _| s.organize.menu = true)),
+    ("add-menu", |d, _, cx| d.sidebar.read(cx).header.clone().update(cx, |h, cx| h.show(HeaderMenu::Add, cx))),
+    ("organize-menu", |d, _, cx| d.sidebar.read(cx).header.clone().update(cx, |h, cx| h.show(HeaderMenu::Organize, cx))),
     ("sections", |d, _, cx| {
         let projects = d.projects(cx);
         let sections = &mut d.store.sections;
@@ -447,7 +448,7 @@ const STEPS: [(&str, Step); 303] = [
     }),
     ("filter", |d, window, cx| {
         d.open_filter(window, cx);
-        d.sidebar.read(cx).filter.input.clone().update(cx, |s, cx| s.set_value("fix", window, cx));
+        d.sidebar.read(cx).header.read(cx).filter.input.clone().update(cx, |s, cx| s.set_value("fix", window, cx));
     }),
     ("explore", |d, _, cx| {
         d.side = Side::Explorer;
