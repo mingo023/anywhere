@@ -645,7 +645,7 @@ impl PrSide {
     pub(crate) fn set(&mut self, frame: PrFrame, cx: &mut Context<Self>) {
         if self.frame != frame {
             self.frame = frame;
-            cx.notify();
+            crate::region::notify_after_draw(cx);
         }
     }
 
@@ -658,8 +658,11 @@ impl PrSide {
         self.ship_menu || self.merge_menu || self.create_menu
     }
 
-    pub(crate) fn shut_menus(&mut self) {
-        (self.ship_menu, self.merge_menu, self.create_menu) = (false, false, false);
+    pub(crate) fn shut_menus(&mut self, cx: &mut Context<Self>) {
+        if self.ship_menu || self.merge_menu || self.create_menu {
+            (self.ship_menu, self.merge_menu, self.create_menu) = (false, false, false);
+            cx.notify();
+        }
     }
 
     /// Forgets what agents have finished with, as [`Track::settle`] does.

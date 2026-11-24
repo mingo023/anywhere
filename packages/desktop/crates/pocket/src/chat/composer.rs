@@ -227,6 +227,11 @@ impl crate::composer::Drafted for ComposerState {
 }
 
 impl ComposerState {
+    pub(crate) fn open_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
+        self.draft.menu = Some(menu);
+        cx.notify();
+    }
+
     pub(crate) fn close_menu(&mut self, cx: &mut Context<Self>) {
         self.draft.menu = None;
         cx.notify();
@@ -556,7 +561,7 @@ pub(crate) fn hand_focus(from: Vec<FocusHandle>, to: FocusHandle) -> impl IntoEl
 }
 
 fn close_menu(this: &mut Desktop, cx: &mut Context<Desktop>) {
-    this.chats.composer.update(cx, |c, _| c.draft.menu = None);
+    this.chats.composer.update(cx, |c, cx| c.close_menu(cx));
     cx.notify();
 }
 
@@ -779,10 +784,11 @@ impl Desktop {
             None => "none",
             Some(f) => named.iter().find(|(_, h)| *h == f).map_or("other", |(n, _)| n),
         };
+        let [menu, actions, top_actions] = self.panels.read(cx).menus_open();
         let menus = [
-            ("panels.menu", self.panels.read(cx).menu.is_some()),
-            ("panels.actions", self.panels.read(cx).actions.is_some()),
-            ("panels.top_actions", self.panels.read(cx).top_actions.is_some()),
+            ("panels.menu", menu),
+            ("panels.actions", actions),
+            ("panels.top_actions", top_actions),
             ("row_menu", self.row_menu.is_some()),
             ("changes.commit_menu", self.changes.read(cx).commit_menu),
             ("changes.menu", self.changes.read(cx).menu),
@@ -791,7 +797,7 @@ impl Desktop {
             ("pr.create_menu", self.pr.read(cx).create_menu),
             ("sidebar.picker", self.sidebar.read(cx).picker.read(cx).open),
             ("sidebar.header_menu", self.sidebar.read(cx).header.read(cx).menu_open()),
-            ("automations.menu", self.automations.read(cx).menu.is_some()),
+            ("automations.menu", self.automations.read(cx).menu_open()),
             ("explorer.menu", self.explorer.read(cx).menu_open()),
             ("terminal.menu", self.terminal.menu.is_some()),
             ("accounts.menu", self.accounts.menu.is_some()),

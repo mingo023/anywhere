@@ -83,11 +83,11 @@ pub(crate) struct Panels {
     creates: Entity<Creates>,
     strips: HashMap<PaneId, Strip>,
     /// Where the open + menu's new tabs go: its pane, or a new top tab.
-    pub(crate) menu: Option<Place>,
+    menu: Option<Place>,
     /// The tab whose right-click menu is open, its pane, and where the click was.
-    pub(crate) actions: Option<(PaneId, Tab, Point<Pixels>)>,
+    actions: Option<(PaneId, Tab, Point<Pixels>)>,
     /// The agent whose top tab's right-click menu is open, and where the click was.
-    pub(crate) top_actions: Option<(String, Point<Pixels>)>,
+    top_actions: Option<(String, Point<Pixels>)>,
     /// The tab held on a strip, and the strip's pane.
     drag: Option<(PaneId, strip::TabDrag)>,
     /// Where the click that opened the More menu was.
@@ -163,8 +163,38 @@ impl Panels {
         self.menu.is_some() || self.actions.is_some() || self.top_actions.is_some()
     }
 
-    pub(crate) fn close_menus(&mut self) {
-        (self.menu, self.actions, self.top_actions) = (None, None, None);
+    pub(crate) fn close_menus(&mut self, cx: &mut Context<Self>) {
+        if self.menu.is_some() || self.actions.is_some() || self.top_actions.is_some() {
+            (self.menu, self.actions, self.top_actions) = (None, None, None);
+            cx.notify();
+        }
+    }
+
+    /// Shuts the menu of the + button and a tab's, leaving a top tab's.
+    pub(crate) fn close_tab_menus(&mut self, cx: &mut Context<Self>) {
+        if self.menu.is_some() || self.actions.is_some() {
+            (self.menu, self.actions) = (None, None);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn set_menu(&mut self, menu: Option<Place>, cx: &mut Context<Self>) {
+        if self.menu != menu {
+            self.menu = menu;
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn set_top_actions(&mut self, actions: Option<(String, Point<Pixels>)>, cx: &mut Context<Self>) {
+        if self.top_actions != actions {
+            self.top_actions = actions;
+            cx.notify();
+        }
+    }
+
+    /// Which of the menus are open: the + button's, a tab's, a top tab's.
+    pub(crate) fn menus_open(&self) -> [bool; 3] {
+        [self.menu.is_some(), self.actions.is_some(), self.top_actions.is_some()]
     }
 
     /// Lets go of a held pane, top tab or tab without moving it; true if one was held.

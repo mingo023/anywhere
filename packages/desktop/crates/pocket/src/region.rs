@@ -29,6 +29,13 @@ pub(crate) fn cached<V: Render>(region: &Entity<V>, style: StyleRefinement) -> A
     AnyView::from(region.clone()).cached(style).into_any_element()
 }
 
+/// Redraws `cx`'s view with what it was just handed. A notify raised while the window draws joins the next draw without
+/// asking for one, and a cached view that was handed its data by `Desktop`'s own draw would show the old until then.
+pub(crate) fn notify_after_draw<T: 'static>(cx: &mut Context<T>) {
+    let view = cx.entity_id();
+    cx.defer(move |cx| cx.notify(view));
+}
+
 /// A full-height column `width` wide.
 pub(crate) fn column(width: f32) -> StyleRefinement {
     StyleRefinement::default().w(px(width)).flex_none().h_full()

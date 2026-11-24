@@ -699,7 +699,7 @@ impl Desktop {
             Some(p) => self.repo_color(p, cx),
             None => self.next_color(cx),
         };
-        self.settings.update(cx, |s, _| s.menu = None);
+        self.settings.update(cx, |s, cx| s.set_menu(None, cx));
         self.repo_form.update(cx, |f, cx| f.reset(editing, stored, color, window, cx));
     }
 

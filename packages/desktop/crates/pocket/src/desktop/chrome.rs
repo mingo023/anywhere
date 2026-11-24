@@ -362,7 +362,7 @@ impl Desktop {
     pub(crate) fn toggle_rail(&mut self, _: &ToggleRail, _: &mut Window, cx: &mut Context<Self>) {
         // The panel shows only on the Sessions screen; flipping it elsewhere would surprise on the way back.
         if self.layout != Layout::Focus && self.screen == Screen::Sessions {
-            self.sidebar.update(cx, |s, _| s.panel_open = !s.panel_open);
+            self.sidebar.update(cx, |s, cx| s.set_panel_open(!s.panel_open(), cx));
             cx.notify();
         }
     }

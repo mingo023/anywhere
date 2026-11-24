@@ -35,7 +35,7 @@ impl Sidebar {
     /// Drops an open rename, a row's or a group's, unsaved; true when there was one.
     pub(crate) fn cancel_rename(&mut self, cx: &mut Context<Self>) -> bool {
         // `|`, not `||`: both must drop.
-        let dropped = (self.rename.take().is_some() | self.organize.rename.take().is_some()) || self.space_header.update(cx, |h, _| h.cancel_rename());
+        let dropped = (self.rename.take().is_some() | self.organize.rename.take().is_some()) || self.space_header.update(cx, |h, cx| h.cancel_rename(cx));
         if dropped {
             cx.notify();
         }

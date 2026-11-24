@@ -57,7 +57,7 @@ pub struct Automations {
     pub(crate) runs_list: ListState,
     pub(crate) rows: Vec<Row>,
     pub(crate) form: editor::Form,
-    pub(crate) menu: Option<Menu>,
+    menu: Option<Menu>,
     data: Arc<Snapshot>,
     side: Side,
     chips: Option<Chips>,
@@ -135,6 +135,23 @@ impl Automations {
         self.runs_list.scroll_to(top);
     }
 
+    pub(crate) fn set_editing(&mut self, editing: bool, cx: &mut Context<Self>) {
+        if self.form.open != editing {
+            self.form.open = editing;
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn menu_open(&self) -> bool {
+        self.menu.is_some()
+    }
+
+    pub(crate) fn shut_menu(&mut self, cx: &mut Context<Self>) {
+        if self.menu.take().is_some() {
+            cx.notify();
+        }
+    }
+
     /// Closes the menus here, and asks `Desktop` to close the rest.
     fn shut(&mut self, cx: &mut Context<Self>) {
         self.menu = None;
@@ -201,7 +218,7 @@ impl Automations {
 
     /// Opens `menu`, or closes the menus with `None`; the branch menu starts on an empty, focused search.
     pub(crate) fn set_menu(&mut self, menu: Option<Menu>, window: &mut Window, cx: &mut Context<Self>) {
-        self.form.composer.update(cx, |c, _| c.draft.menu = None);
+        self.form.composer.update(cx, |c, cx| c.shut_menu(cx));
         self.menu = menu;
         if menu == Some(Menu::Branch) {
             self.form.branch_search.update(cx, |s, cx| {
@@ -382,7 +399,7 @@ impl Desktop {
         let v = v.settled(self.store.agents.access(), &own.model, &own.effort, &efforts);
         let Ok(draft) = v.draft() else { return };
         self.outbox.local.automation_save(draft);
-        self.automations.update(cx, |a, _| a.form.open = false);
+        self.automations.update(cx, |a, cx| a.set_editing(false, cx));
         cx.notify();
     }
 
@@ -407,7 +424,7 @@ impl Desktop {
         let editing = self.automations.read(cx).form.open;
         let (screen, editing) = after_escape(self.screen, editing);
         self.screen = screen;
-        self.automations.update(cx, |a, _| a.form.open = editing);
+        self.automations.update(cx, |a, cx| a.set_editing(editing, cx));
         cx.notify();
     }
 

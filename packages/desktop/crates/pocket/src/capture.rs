@@ -452,7 +452,7 @@ const STEPS: [(&str, Step); 308] = [
     }),
     ("explore", |d, _, cx| {
         d.side = Side::Explorer;
-        d.sidebar.update(cx, |s, _| s.panel_open = true);
+        d.sidebar.update(cx, |s, cx| s.set_panel_open(true, cx));
         d.refresh_git(cx);
     }),
     ("tree-menu", |d, window, cx| {
@@ -511,14 +511,14 @@ const STEPS: [(&str, Step); 308] = [
     }),
     ("tab-menu", |d, _, cx| {
         let pane = d.focused_pane(cx);
-        d.panels.update(cx, |p, _| p.menu = Some(workspace::Place::Pane(Some(pane))));
+        d.panels.update(cx, |p, cx| p.set_menu(Some(workspace::Place::Pane(Some(pane))), cx));
     }),
-    ("top-menu", |d, _, cx| d.panels.update(cx, |p, _| p.menu = Some(workspace::Place::Top))),
+    ("top-menu", |d, _, cx| d.panels.update(cx, |p, cx| p.set_menu(Some(workspace::Place::Top), cx))),
     // The focused session's right-click menus: its top tab's, and its row's.
     ("top-actions", |d, _, cx| {
         let Some(workspace::Tab::Term(t)) = d.pane_tab(d.focused_pane(cx), cx) else { return };
         let open = d.summary(&t).map(|s| (s.id.clone(), point(px(330.), px(36.))));
-        d.panels.update(cx, |p, _| p.top_actions = open);
+        d.panels.update(cx, |p, cx| p.set_top_actions(open, cx));
     }),
     ("session-menu", |d, _, cx| {
         let Some(workspace::Tab::Term(t)) = d.pane_tab(d.focused_pane(cx), cx) else { return };
@@ -642,14 +642,14 @@ const STEPS: [(&str, Step); 308] = [
     ("automations-closed-creator", |d, _, cx| d.automations.update(cx, |a, _| a.selected = Some("au6".into()))),
     ("automations-webhook-editor", |d, window, cx| d.edit_automation(Some("au5"), window, cx)),
     ("settings", |d, window, cx| d.open_settings(&crate::actions::OpenSettings, window, cx)),
-    ("settings-appearance", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Appearance)),
-    ("settings-notifications", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Notifications)),
-    ("settings-keyboard", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Keyboard)),
-    ("settings-projects", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Projects)),
-    ("settings-agents", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Agents)),
-    ("settings-automations", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Automations)),
-    ("settings-phone", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Phone)),
-    ("settings-hosts", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Hosts)),
+    ("settings-appearance", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Appearance, cx))),
+    ("settings-notifications", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Notifications, cx))),
+    ("settings-keyboard", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Keyboard, cx))),
+    ("settings-projects", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Projects, cx))),
+    ("settings-agents", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Agents, cx))),
+    ("settings-automations", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Automations, cx))),
+    ("settings-phone", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Phone, cx))),
+    ("settings-hosts", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Hosts, cx))),
     // The real host the remote hosts e2e runs against; see `.ui-review/remote-hosts/`.
     ("vm", |d, _, _| {
         let target =
@@ -760,9 +760,9 @@ const STEPS: [(&str, Step); 308] = [
     ("hosts-wrong-password", |d, _, cx| d.sign_in("10-0-4-12".into(), "wrong".into(), cx)),
     ("hosts-install", |d, _, cx| d.install_host("10-0-4-12", false, cx)),
     // The Hosts page with each host's space colour and Open; and an install that has finished.
-    ("hosts-spaces", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Hosts)),
+    ("hosts-spaces", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Hosts, cx))),
     ("hosts-installed", |d, window, cx| {
-        d.settings.update(cx, |s, _| s.section = Section::Hosts);
+        d.settings.update(cx, |s, cx| s.set_section(Section::Hosts, cx));
         for progress in [
             agents::hosts::Progress::Step(agents::hosts::Step::Detect),
             agents::hosts::Progress::Step(agents::hosts::Step::Start),
@@ -777,13 +777,13 @@ const STEPS: [(&str, Step); 308] = [
         let name = "devbox".to_string();
         d.ask(Confirm::RemoveHost { id: name.clone(), name }, cx);
     }),
-    ("settings-sidebar", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Sidebar)),
-    ("settings-terminal", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Terminal)),
-    ("settings-files", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Files)),
-    ("settings-browser", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Browser)),
-    ("settings-git", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Git)),
-    ("settings-diff", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Diff)),
-    ("settings-accounts", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Accounts)),
+    ("settings-sidebar", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Sidebar, cx))),
+    ("settings-terminal", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Terminal, cx))),
+    ("settings-files", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Files, cx))),
+    ("settings-browser", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Browser, cx))),
+    ("settings-git", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Git, cx))),
+    ("settings-diff", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Diff, cx))),
+    ("settings-accounts", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Accounts, cx))),
     ("accounts-sample", |d, _, _| _ = d.accounts.lists.insert(None, accounts_sample())),
     ("account-signin", |d, window, cx| {
         let id = "fx-signin".to_string();
@@ -805,11 +805,11 @@ const STEPS: [(&str, Step); 308] = [
     }),
     ("accounts-auto", |d, _, _| _ = d.accounts.auto_switch.insert(None, true)),
     ("account-usage", |d, _, cx| {
-        d.chats.composer.update(cx, |c, _| c.draft.menu = Some(Menu::Usage { back: false }));
+        d.chats.composer.update(cx, |c, cx| c.open_menu(Menu::Usage { back: false }, cx));
         cx.notify();
     }),
     ("account-switch", |d, _, cx| {
-        d.chats.composer.update(cx, |c, _| c.draft.menu = Some(Menu::Switch));
+        d.chats.composer.update(cx, |c, cx| c.open_menu(Menu::Switch, cx));
         cx.notify();
     }),
     ("account-switching", |d, _, cx| {
@@ -825,12 +825,15 @@ const STEPS: [(&str, Step); 308] = [
     }),
     ("model-menu", |d, _, cx| {
         let overlay = d.overlay;
-        d.settings.update(cx, |s, _| {
-            s.menu = Some(match (overlay, s.section) {
-                (_, Section::Git) => "ai-model",
-                (_, Section::Provider(i)) => crate::settings::provider::model_menu(i),
-                _ => crate::settings::provider::model_menu(0),
-            })
+        d.settings.update(cx, |s, cx| {
+            s.set_menu(
+                Some(match (overlay, s.section()) {
+                    (_, Section::Git) => "ai-model",
+                    (_, Section::Provider(i)) => crate::settings::provider::model_menu(i),
+                    _ => crate::settings::provider::model_menu(0),
+                }),
+                cx,
+            )
         })
     }),
     ("model-favorites", |d, _, cx| view_models(d, crate::composer::model_menu::FAVORITES, cx)),
@@ -892,12 +895,12 @@ const STEPS: [(&str, Step); 308] = [
         search.update(cx, |s, cx| s.set_value("shell", window, cx))
     }),
     ("settings-advanced", |d, _, cx| {
-        let id = d.settings.read(cx).section.id();
+        let id = d.settings.read(cx).section().id();
         d.store.advanced.insert(id.into());
     }),
     ("settings-reset", |d, _, cx| {
         (d.store.sounds.all, d.store.notifications.banners) = (false, false);
-        let section = d.settings.read(cx).section;
+        let section = d.settings.read(cx).section();
         d.ask(crate::desktop::chrome::Confirm::ResetSection(section), cx);
     }),
     ("palette", |d, window, cx| d.open(Overlay::Palette, window, cx)),
@@ -981,7 +984,7 @@ const STEPS: [(&str, Step); 308] = [
         d.settings.update(cx, |s, _| s.host.status = Some(status));
     }),
     ("advanced", |d, _, cx| {
-        let id = d.settings.read(cx).section.id().to_string();
+        let id = d.settings.read(cx).section().id().to_string();
         d.store.advanced.insert(id);
     }),
     ("custom-keys", |d, _, _| {
@@ -1013,7 +1016,7 @@ const STEPS: [(&str, Step); 308] = [
         d.store.appearance.code_size = Some(14);
         d.diff.relayout(true, cx);
     }),
-    ("code-font-menu", |d, _, cx| d.settings.update(cx, |s, _| s.menu = Some("code-font"))),
+    ("code-font-menu", |d, _, cx| d.settings.update(cx, |s, cx| s.set_menu(Some("code-font"), cx))),
     ("creating", |d, _, cx| {
         let Some(p) = d.project.clone() else { return };
         let now = Instant::now();
@@ -1294,7 +1297,7 @@ const STEPS: [(&str, Step); 308] = [
 /// `CAPTURE_CLICKS` ("x,y;x,y" in window points), `move` from `CAPTURE_MOVES` (the same), `drop` from `CAPTURE_DROPS` ("x,y,file;…"), `drag` from `CAPTURE_DRAGS` (the same), `paste-image` from `CAPTURE_PASTE` (a PNG),
 /// `pan` from `CAPTURE_PANS` ("x,y,dx,dy;…", a left-button drag), `pinch` from `CAPTURE_PINCHES` ("x,y,delta;…"),
 /// `import-theme` from `CAPTURE_THEMES` ("file;file"), `right-click` from `CAPTURE_CLICKS`; `clipboard` prints the clipboard's text.
-const INPUT_STEPS: [(&str, Step); 24] = [
+const INPUT_STEPS: [(&str, Step); 25] = [
     ("key", |_, window, cx| {
         let Some(k) = next_arg("CAPTURE_KEYS", ';').and_then(|k| Keystroke::parse_with_os(&k, keys::OS).ok()) else { return };
         window.defer(cx, move |window, cx| _ = window.dispatch_keystroke(k, cx));
@@ -1535,6 +1538,12 @@ const INPUT_STEPS: [(&str, Step); 24] = [
     // What the window coming to the front does, which a capture window never does.
     ("reload-themes", |d, _, cx| d.reload_themes(cx)),
     ("pause", |_, _, _| {}),
+    // A change from outside: a new file in the shown tree, which git and the explorer pick up on their own.
+    ("touch-tree", |d, _, cx| {
+        if let Some(cwd) = d.cwd(cx) {
+            std::fs::write(Path::new(&cwd).join("touched-outside.txt"), "from outside\n").ok();
+        }
+    }),
     // The fixture's clock override: the shown chat's sends age past their two minutes.
     ("chat-age-sends", |d, _, cx| {
         let Some((id, working)) =
@@ -1589,7 +1598,7 @@ fn view_models(d: &mut Desktop, entry: &'static str, cx: &mut Context<Desktop>) 
 }
 
 fn provider_page<const P: usize>(d: &mut Desktop, _: &mut Window, cx: &mut Context<Desktop>) {
-    d.settings.update(cx, |s, _| s.section = Section::Provider(P));
+    d.settings.update(cx, |s, cx| s.set_section(Section::Provider(P), cx));
 }
 
 fn model_tab<const P: usize>(d: &mut Desktop, _: &mut Window, cx: &mut Context<Desktop>) {
@@ -1953,11 +1962,11 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     (d.screen, d.side) = (Screen::Sessions, Side::Sessions);
     d.settings.update(cx, |s, cx| {
         s.reset(window, cx);
-        s.menu = None;
+        s.set_menu(None, cx);
     });
     (d.layout, d.widths) = (Layout::Sidebars, [None; 2]);
-    d.sidebar.update(cx, |s, _| s.panel_open = false);
-    d.panels.update(cx, |p, _| p.menu = None);
+    d.sidebar.update(cx, |s, cx| s.set_panel_open(false, cx));
+    d.panels.update(cx, |p, cx| p.set_menu(None, cx));
     (d.worktree, d.terminal.focused) = (None, None);
     d.preview.update(cx, |p, _| p.state.panes.values_mut().for_each(|f| f.file = None));
     for s in d.diff.panes.values() {
@@ -1981,7 +1990,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
         cx.notify();
     });
     d.spaces.reset();
-    d.sidebar.read(cx).space_header.clone().update(cx, |h, _| h.reset());
+    d.sidebar.read(cx).space_header.clone().update(cx, |h, cx| h.reset(cx));
     d.updates.update = Update::Idle;
     d.terminals.update(cx, |t, _| {
         t.link.up();
@@ -2009,6 +2018,10 @@ async fn settle(cx: &mut AsyncApp, window: AnyWindowHandle, desktop: &Entity<Des
         cx.background_executor().timer(Duration::from_millis(100)).await;
     }
     cx.update_window(window, |_, window, cx| draw(window, cx)).ok();
+    // The frame the app takes after a draw that handed a cached view new data.
+    if std::env::var_os("CAPTURE_CACHED").is_some() {
+        cx.update_window(window, |_, window, cx| draw(window, cx)).ok();
+    }
 }
 
 /// Presses at `x,y` of the next CAPTURE_PANS, moves by `dx,dy` in four steps drawing a frame at each, and lets go if `release`.
@@ -2049,8 +2062,11 @@ fn hand_step(window: &mut Window, cx: &mut App, (from, by): (Point<Pixels>, Poin
     });
 }
 
+/// A frame as the app draws one. `refresh` makes every cached view draw again, which hides a view that missed a notify; `CAPTURE_CACHED=1` leaves it out.
 fn draw(window: &mut Window, cx: &mut App) {
-    window.refresh();
+    if std::env::var_os("CAPTURE_CACHED").is_none() {
+        window.refresh();
+    }
     window.draw(cx).clear(cx);
 }
 

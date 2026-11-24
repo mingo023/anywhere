@@ -69,7 +69,7 @@ impl ProjectsHeader {
     pub(crate) fn set(&mut self, frame: HeaderFrame, cx: &mut Context<Self>) {
         if self.frame.as_ref() != Some(&frame) {
             self.frame = Some(frame);
-            cx.notify();
+            crate::region::notify_after_draw(cx);
         }
     }
 

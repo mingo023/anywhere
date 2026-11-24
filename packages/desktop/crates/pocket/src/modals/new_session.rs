@@ -33,7 +33,7 @@ use store::LaunchPick;
 
 pub struct NewForm {
     /// The new-session page fills the main area.
-    pub(crate) shown: bool,
+    shown: bool,
     pub(crate) composer: Entity<Composer>,
     /// The composer's prompt, shared with it.
     pub(crate) prompt: Entity<TextareaState>,
@@ -481,8 +481,25 @@ impl NewForm {
         self.draft.picker
     }
 
-    pub(crate) fn shut_picker(&mut self) {
+    pub(crate) fn shut_picker(&mut self, cx: &mut Context<Self>) {
         self.draft.picker = None;
+        cx.notify();
+    }
+
+    fn edit(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut Draft)) {
+        change(&mut self.draft);
+        cx.notify();
+    }
+
+    pub(crate) fn shown(&self) -> bool {
+        self.shown
+    }
+
+    pub(crate) fn set_shown(&mut self, shown: bool, cx: &mut Context<Self>) {
+        if self.shown != shown {
+            self.shown = shown;
+            cx.notify();
+        }
     }
 
     pub(crate) fn ready(&self) -> bool {
@@ -530,7 +547,7 @@ impl NewForm {
             self.draft.copied = None;
         }
         self.draft.reopen(keep, worktree, locals_offered);
-        self.composer.update(cx, |c, _| c.draft.menu = None);
+        self.composer.update(cx, |c, cx| c.shut_menu(cx));
         (keep_project, self.draft.no_project(), self.draft.repo.clone())
     }
 
@@ -640,7 +657,7 @@ impl Desktop {
         let repo = if keep_project { repo } else { None };
         match repo.or_else(|| self.project.clone()) {
             Some(repo) => self.pick_repo(repo, window, cx),
-            None => self.new_form.update(cx, |f, _| f.draft.pick_no_project()),
+            None => self.new_form.update(cx, |f, cx| f.edit(cx, |d| d.pick_no_project())),
         }
         if !keep_project {
             self.land_draft(window, cx);
@@ -650,7 +667,7 @@ impl Desktop {
     pub(super) fn pick_repo(&mut self, repo: String, window: &mut Window, cx: &mut Context<Self>) {
         let folders = self.store.worktrees_dir(&repo, &self.host_agents.home_of(&repo));
         let scratch = self.store.is_scratch(&repo);
-        self.new_form.update(cx, |f, _| f.draft.pick_repo(Some(repo.clone()), scratch));
+        self.new_form.update(cx, |f, cx| f.edit(cx, |d| d.pick_repo(Some(repo.clone()), scratch)));
         let dir = repo.clone();
         let (runner, fs) = (hosts::runner_for(&dir), fs_for(&dir));
         let task = cx.background_executor().spawn(async move {
@@ -692,7 +709,7 @@ impl Desktop {
         let pool = if self.space_reach(&to) == Reach::Online { self.form_projects(cx) } else { self.space_projects(&to) };
         match landing(self.new_form.read(cx).draft.repo.as_deref(), &to, &pool) {
             Landing::Project(p) => self.pick_repo(p, window, cx),
-            Landing::NoProject => self.new_form.update(cx, |f, _| f.draft.pick_no_project()),
+            Landing::NoProject => self.new_form.update(cx, |f, cx| f.edit(cx, |d| d.pick_no_project())),
             Landing::Stay => {}
         }
     }
@@ -711,7 +728,7 @@ impl Desktop {
 
     /// The machine pill's pick: the machine is the space, so this switches it.
     pub(crate) fn pick_machine(&mut self, space: Space, window: &mut Window, cx: &mut Context<Self>) {
-        self.new_form.update(cx, |f, _| f.shut_picker());
+        self.new_form.update(cx, |f, cx| f.shut_picker(cx));
         self.switch_space_with_draft(space, window, cx);
         self.focus_prompt(window, cx);
     }
@@ -764,7 +781,7 @@ impl Desktop {
             Target::NewLocal => {
                 let retry = self.new_form.read(cx).draft.retry_local(self.agents.locals_in(&project));
                 let id = retry.unwrap_or_else(|| self.new_local(&project, cx));
-                self.new_form.update(cx, |f, _| f.draft.local = Some(id.clone()));
+                self.new_form.update(cx, |f, cx| f.edit(cx, |d| d.local = Some(id.clone())));
                 self.store.collapsed.remove(&project);
                 self.select_tree(project.clone(), Some(id.clone()), cx);
                 Some(id)
@@ -789,7 +806,7 @@ impl Desktop {
         let Some(request) = self.send_create(spec.clone()) else { return cx.notify() };
         if !worktree {
             self.creates.update(cx, |c, _| c.sent_in_place(request.clone(), spec["prompt"].as_str().unwrap_or_default()));
-            self.new_form.update(cx, |f, _| f.draft.reply.sent(request));
+            self.new_form.update(cx, |f, cx| f.edit(cx, |d| d.reply.sent(request)));
             return cx.notify();
         }
         let path = format!("{}/{folder}", self.store.worktrees_dir(&project, &self.host_agents.home_of(&project)));
@@ -811,13 +828,13 @@ impl Desktop {
                 return true;
             }
         };
-        self.new_form.update(cx, |f, _| f.draft.copying = true);
+        self.new_form.update(cx, |f, cx| f.edit(cx, |d| d.copying = true));
         let (project, host) = (project.to_string(), self.host_name(hosts::split(project).0.unwrap_or_default()));
         let copied = cx.background_executor().spawn(async move { copies.make().map(|()| copies.files) });
         cx.spawn_in(window, async move |this, cx| {
             let copied = copied.await;
             this.update_in(cx, |d, window, cx| {
-                d.new_form.update(cx, |f, _| f.draft.copying = false);
+                d.new_form.update(cx, |f, cx| f.edit(cx, |d| d.copying = false));
                 match copied {
                     Ok(files) => {
                         let f = d.new_form.read(cx);
@@ -826,12 +843,14 @@ impl Desktop {
                         if !held {
                             return cx.notify();
                         }
-                        d.new_form.update(cx, |f, _| f.draft.copied = Some((project, files)));
+                        d.new_form.update(cx, |f, cx| f.edit(cx, |d| d.copied = Some((project, files))));
                         if picked {
                             d.start_session(window, cx);
                         }
                     }
-                    Err(e) => d.new_form.update(cx, |f, _| f.draft.reply.error = Some((format!("Couldn't copy the attachments to {host}"), e.to_string()))),
+                    Err(e) => {
+                        d.new_form.update(cx, |f, cx| f.edit(cx, |d| d.reply.error = Some((format!("Couldn't copy the attachments to {host}"), e.to_string()))))
+                    }
                 }
                 cx.notify();
             })
@@ -856,12 +875,12 @@ impl Desktop {
             };
             return self.send_in_scratch(folder, pick, sent, cx);
         }
-        self.new_form.update(cx, |f, _| f.draft.making_scratch = true);
+        self.new_form.update(cx, |f, cx| f.edit(cx, |d| d.making_scratch = true));
         let task = self.make_scratch(cx);
         cx.spawn_in(window, async move |this, cx| {
             let made = task.await;
             this.update_in(cx, |d, window, cx| {
-                d.new_form.update(cx, |f, _| f.draft.making_scratch = false);
+                d.new_form.update(cx, |f, cx| f.edit(cx, |d| d.making_scratch = false));
                 match made {
                     Ok(folder) => {
                         let pick = d.new_form_pick(cx);
@@ -874,7 +893,7 @@ impl Desktop {
                         d.start_session(window, cx);
                     }
                     Err(e) => {
-                        d.new_form.update(cx, |f, _| f.draft.reply.error = Some(("Couldn't make a folder for the session".to_string(), e)));
+                        d.new_form.update(cx, |f, cx| f.edit(cx, |d| d.reply.error = Some(("Couldn't make a folder for the session".to_string(), e))));
                         cx.notify();
                     }
                 }
@@ -904,7 +923,7 @@ impl Desktop {
         self.select_tree(folder, None, cx);
         let Some(request) = self.send_create(spec.clone()) else { return cx.notify() };
         self.creates.update(cx, |c, _| c.sent_in_place(request.clone(), spec["prompt"].as_str().unwrap_or_default()));
-        self.new_form.update(cx, |f, _| f.draft.reply.sent(request));
+        self.new_form.update(cx, |f, cx| f.edit(cx, |d| d.reply.sent(request)));
         cx.notify();
     }
 
@@ -937,7 +956,7 @@ impl Desktop {
                         self.save_soon(cx);
                     }
                     self.clear_new_form(window, cx);
-                    if self.new_form.read(cx).shown {
+                    if self.new_form.read(cx).shown() {
                         self.leave_new_session(window, cx);
                     }
                 }
@@ -982,7 +1001,7 @@ impl Desktop {
         }
         self.close_menus(cx);
         self.screen = Screen::Sessions;
-        self.new_form.update(cx, |f, _| f.shown = true);
+        self.new_form.update(cx, |f, cx| f.set_shown(true, cx));
         self.reset_new_form(prompt, worktree, window, cx);
         cx.notify();
     }
@@ -992,14 +1011,14 @@ impl Desktop {
     }
 
     pub(crate) fn leave_new_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.new_form.update(cx, |f, _| f.shown = false);
+        self.new_form.update(cx, |f, cx| f.set_shown(false, cx));
         self.refocus(window, cx);
     }
 
     /// The page the Sessions + opens: a session with no project, unless one is picked on it.
     pub(crate) fn new_session_without_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.new_session(None, false, window, cx);
-        self.new_form.update(cx, |f, _| f.draft.pick_no_project());
+        self.new_form.update(cx, |f, cx| f.edit(cx, |d| d.pick_no_project()));
     }
 
     /// The page a project's + opens: a session in a new Worktree or Local of `project`.

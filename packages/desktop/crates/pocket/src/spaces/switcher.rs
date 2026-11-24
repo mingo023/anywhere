@@ -1,5 +1,6 @@
 use super::{Reach, Space, flash_key, waiting};
 use crate::desktop::Desktop;
+use crate::region;
 use crate::settings::ssh_hosts::link_color;
 use crate::sidebar::rail::rail_slot;
 use gpui_kit::component::tooltip::Tooltip;
@@ -9,6 +10,7 @@ use std::time::Instant;
 use theme::*;
 
 /// One space's button as `Desktop` hands it over each frame.
+#[derive(PartialEq)]
 pub(crate) struct Button {
     space: Space,
     glyph: &'static str,
@@ -40,8 +42,11 @@ impl Switcher {
         Self { prefix, column, buttons: Vec::new() }
     }
 
-    pub(crate) fn set(&mut self, buttons: Vec<Button>) {
-        self.buttons = buttons;
+    pub(crate) fn set(&mut self, buttons: Vec<Button>, cx: &mut Context<Self>) {
+        if self.buttons != buttons {
+            self.buttons = buttons;
+            region::notify_after_draw(cx);
+        }
     }
 }
 
@@ -91,7 +96,7 @@ impl Desktop {
                 }
             })
             .collect();
-        switcher.update(cx, |s, _| s.set(buttons));
+        switcher.update(cx, |s, cx| s.set(buttons, cx));
     }
 
     pub(crate) fn on_switcher_event(&mut self, _: &Entity<Switcher>, ev: &SwitcherEvent, window: &mut Window, cx: &mut Context<Self>) {

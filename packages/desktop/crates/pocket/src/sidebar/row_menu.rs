@@ -266,7 +266,7 @@ impl Desktop {
                     cx.notify();
                 });
                 self.row_menu = Some(menu);
-                self.panels.update(cx, |p, _| (p.menu, p.actions) = (None, None));
+                self.panels.update(cx, |p, cx| p.close_tab_menus(cx));
             }
             MenuEvent::Context(menu, at) => {
                 self.close_menus(cx);

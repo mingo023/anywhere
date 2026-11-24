@@ -319,7 +319,7 @@ pub(crate) enum AccountsAct {
 
 /// The section on show, the search, the row a result pointed at, and whether Keyboard's fixed keys are unfolded.
 pub struct Settings {
-    pub section: Section,
+    section: Section,
     back: Return,
     pub fixed_open: bool,
     pub(crate) search: Entity<InputState>,
@@ -328,7 +328,7 @@ pub struct Settings {
     /// Every text row's field, by row id.
     pub(crate) fields: HashMap<&'static str, Entity<InputState>>,
     /// The dropdown row whose menu is open.
-    pub(crate) menu: Option<&'static str>,
+    menu: Option<&'static str>,
     /// The project whose GitHub account menu is open, while `menu` is `git::ACCOUNT_MENU`.
     pub(crate) account_menu: Option<String>,
     pub(crate) host: host::Host,
@@ -449,6 +449,25 @@ impl Settings {
     pub(crate) fn show_section(&mut self, section: Section, cx: &mut Context<Self>) {
         self.show(section);
         cx.emit(SettingsEvent::Shown(section));
+        cx.notify();
+    }
+
+    pub(crate) fn section(&self) -> Section {
+        self.section
+    }
+
+    pub(crate) fn set_section(&mut self, section: Section, cx: &mut Context<Self>) {
+        if self.section != section {
+            self.section = section;
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn set_menu(&mut self, menu: Option<&'static str>, cx: &mut Context<Self>) {
+        if self.menu != menu {
+            self.menu = menu;
+            cx.notify();
+        }
     }
 
     /// Puts the store's values back in the fields, as after Reset.
@@ -977,7 +996,7 @@ impl Desktop {
             s.load_dev_urls(window, cx);
             s.load_banner_permission(cx);
         });
-        let section = self.settings.read(cx).section;
+        let section = self.settings.read(cx).section();
         self.load_section(section, cx);
         cx.notify();
     }

@@ -63,7 +63,7 @@ impl SessionList {
     pub(crate) fn set(&mut self, frame: SessionsFrame, cx: &mut Context<Self>) {
         if self.frame.as_ref() != Some(&frame) {
             self.frame = Some(frame);
-            cx.notify();
+            crate::region::notify_after_draw(cx);
         }
     }
 

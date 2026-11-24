@@ -369,7 +369,7 @@ impl Desktop {
                 d.renames.relisted(d.worktrees.values().flatten(), worktrees.values().flatten(), Instant::now());
                 let repos_changed = merge_repos(&mut d.repos, repos);
                 let root = d.explore_root(cx);
-                let tree_changed = d.explorer.update(cx, |e, _| e.land_tree(tree, root.as_deref().map(std::path::Path::new)));
+                let tree_changed = d.explorer.update(cx, |e, cx| e.land_tree(tree, root.as_deref().map(std::path::Path::new), cx));
                 let mut changed = !gone.is_empty() || repos_changed || tree_changed || worktrees != d.worktrees;
                 d.worktrees = worktrees;
                 d.activity_changed(cx);
@@ -378,7 +378,7 @@ impl Desktop {
                 }
                 d.poll_prs(cx);
                 d.detect_gh_account(cx);
-                if d.side == Side::Changes && d.sidebar.read(cx).panel_open {
+                if d.side == Side::Changes && d.sidebar.read(cx).panel_open() {
                     d.load_compare(cx);
                 }
                 for (pane, file) in files {

@@ -385,7 +385,7 @@ impl Desktop {
             self.project = Some(p);
         }
         self.screen = Screen::Sessions;
-        self.new_form.update(cx, |f, _| f.shown = false);
+        self.new_form.update(cx, |f, cx| f.set_shown(false, cx));
         self.worktree = Some(tree.to_string());
     }
 
@@ -404,7 +404,7 @@ impl Desktop {
             s.view.update(cx, |p, _| p.view.file = None);
         }
         self.preview.update(cx, |p, _| p.state.panes.values_mut().for_each(|f| f.file = None));
-        self.explorer.update(cx, |e, _| e.clear_tree());
+        self.explorer.update(cx, |e, cx| e.clear_tree(cx));
     }
 
     /// Shows worktree `tree` of project `p`; `None` is the project's main worktree.
@@ -415,7 +415,7 @@ impl Desktop {
             self.set_project(Some(p), cx);
         }
         self.screen = Screen::Sessions;
-        self.new_form.update(cx, |f, _| f.shown = false);
+        self.new_form.update(cx, |f, cx| f.set_shown(false, cx));
         if moved || self.worktree != tree {
             self.worktree = tree;
             self.refresh_git(cx);
@@ -472,7 +472,7 @@ impl Desktop {
     pub fn open_doc(&mut self, doc: Doc, pin: bool, cx: &mut Context<Self>) {
         let Some(tree) = self.place(cx) else { return };
         self.screen = Screen::Sessions;
-        self.new_form.update(cx, |f, _| f.shown = false);
+        self.new_form.update(cx, |f, cx| f.set_shown(false, cx));
         let bounds = self.panels.read(cx).bounds;
         let files = &self.store.files;
         let (pin, next) = (pin || !files.preview_tabs, files.new_tabs == store::prefs::files::NewTabs::AfterCurrent);
@@ -562,7 +562,7 @@ impl Desktop {
             || self.changes.read(cx).menu_open()
             || self.pr.read(cx).menu_open()
             || self.sidebar.read(cx).menu_open(cx)
-            || self.automations.read(cx).menu.is_some()
+            || self.automations.read(cx).menu_open()
             || self.explorer.read(cx).menu_open()
             || self.terminal.menu.is_some()
             || self.accounts.menu.is_some()
@@ -576,17 +576,21 @@ impl Desktop {
     /// Returns whether a menu was open.
     pub(crate) fn close_menus(&mut self, cx: &mut App) -> bool {
         let open = self.menu_open(cx);
-        self.panels.update(cx, |p, _| p.close_menus());
+        self.panels.update(cx, |p, cx| p.close_menus(cx));
         self.row_menu = None;
-        self.changes.update(cx, |c, _| c.shut_menus());
-        self.pr.update(cx, |p, _| p.shut_menus());
+        self.changes.update(cx, |c, cx| c.shut_menus(cx));
+        self.pr.update(cx, |p, cx| p.shut_menus(cx));
         self.sidebar.update(cx, |s, cx| s.shut_menus(cx));
-        self.automations.update(cx, |a, _| a.menu = None);
+        self.automations.update(cx, |a, cx| a.shut_menu(cx));
         self.board.update(cx, |b, _| b.close_menu());
         self.activity.update(cx, |a, _| a.menu = None);
         self.accounts.menu = None;
         self.clone_form.update(cx, |f, _| f.close_menus());
-        self.explorer.update(cx, |e, _| _ = e.close_menu());
+        self.explorer.update(cx, |e, cx| {
+            if e.close_menu().is_some() {
+                cx.notify();
+            }
+        });
         self.terminal.menu = None;
         self.chats.files = None;
         self.chats.select.update(cx, |s, _| s.close_menu());
@@ -604,7 +608,7 @@ impl Desktop {
         if self.terminals.read(cx).link.is_down()
             || self.terminals.read(cx).link.update(Instant::now()).is_some()
             || self.screen != Screen::Sessions
-            || self.new_form.read(cx).shown
+            || self.new_form.read(cx).shown()
         {
             return None;
         }
@@ -638,7 +642,7 @@ impl Desktop {
             Some(_) if self.idle_main(cx) => {
                 // Every way onto the main checkout ends here, and opening the page needs the window; re-checked since the frame may be stale by then.
                 cx.defer_in(window, |this, window, cx| {
-                    if let Some(p) = this.project.clone().filter(|_| this.idle_main(cx) && !this.new_form.read(cx).shown && this.overlay.is_none()) {
+                    if let Some(p) = this.project.clone().filter(|_| this.idle_main(cx) && !this.new_form.read(cx).shown() && this.overlay.is_none()) {
                         this.new_place(p, window, cx);
                     }
                 });
@@ -646,7 +650,7 @@ impl Desktop {
             }
             Some(tree) => self.panels_view(&tree, window, cx),
             None if self.terminals.read(cx).link.is_down() || self.terminals.read(cx).link.update(now).is_some() => self.link_page(cx),
-            None if self.new_form.read(cx).shown && self.screen == Screen::Sessions => self.new_session_page(cx),
+            None if self.new_form.read(cx).shown() && self.screen == Screen::Sessions => self.new_session_page(cx),
             None => match self.screen_view(window, cx) {
                 Some(page) => page,
                 None => self.blank_page(cx),
@@ -810,7 +814,13 @@ impl Render for Desktop {
                 }
                 if this.close_host_finder(cx)
                     || this.panels.update(cx, |p, cx| p.cancel_drag(cx))
-                    || this.explorer.update(cx, |e, _| e.cancel_edit())
+                    || this.explorer.update(cx, |e, cx| {
+                        let was = e.cancel_edit();
+                        if was {
+                            cx.notify();
+                        }
+                        was
+                    })
                     || this.sidebar.update(cx, |s, cx| s.cancel_rename(cx))
                     || this.new_form.update(cx, |f, cx| f.close_picker(cx))
                     || this.escape_composer_menu(cx)
@@ -821,7 +831,7 @@ impl Render for Desktop {
                     cx.notify();
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);
-                } else if this.overlay.is_none() && this.new_form.read(cx).shown && this.screen == Screen::Sessions && !this.idle_main(cx) {
+                } else if this.overlay.is_none() && this.new_form.read(cx).shown() && this.screen == Screen::Sessions && !this.idle_main(cx) {
                     this.leave_new_session(window, cx);
                 } else if this.overlay.is_some() || !this.escape_screen(window, cx) {
                     return;

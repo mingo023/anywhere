@@ -176,7 +176,7 @@ impl Desktop {
     }
 
     pub(crate) fn delegated_escape(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let Some(agent) = self.session().filter(|_| self.screen == Screen::Sessions && self.overlay.is_none() && !self.new_form.read(cx).shown) else {
+        let Some(agent) = self.session().filter(|_| self.screen == Screen::Sessions && self.overlay.is_none() && !self.new_form.read(cx).shown()) else {
             return false;
         };
         let asking = self.agents.pending.iter().any(|p| p.agent_id == agent);

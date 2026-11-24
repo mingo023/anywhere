@@ -64,7 +64,7 @@ impl Rail {
     pub(crate) fn set(&mut self, frame: RailFrame, cx: &mut Context<Self>) {
         if self.frame.as_ref() != Some(&frame) {
             self.frame = Some(frame);
-            cx.notify();
+            crate::region::notify_after_draw(cx);
         }
     }
 }

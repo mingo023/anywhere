@@ -248,7 +248,7 @@ impl Desktop {
 
     /// Esc on the session on screen closes its dock; true when it did.
     pub(crate) fn chat_escape_dock(&mut self, cx: &mut Context<Self>) -> bool {
-        let session = self.session().filter(|_| self.screen == Screen::Sessions && self.overlay.is_none() && !self.new_form.read(cx).shown);
+        let session = self.session().filter(|_| self.screen == Screen::Sessions && self.overlay.is_none() && !self.new_form.read(cx).shown());
         let dock = self.chats.dock.read(cx);
         let dock_in = dock.open().map(|(agent, _)| agent);
         let map_open = dock_in.is_some_and(|a| self.chats.map.read(cx).nav.is_open(a));

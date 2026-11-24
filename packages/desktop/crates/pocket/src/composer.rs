@@ -79,6 +79,15 @@ impl Composer {
         open
     }
 
+    /// Closes the open menu, saying whether one was.
+    pub(crate) fn shut_menu(&mut self, cx: &mut Context<Self>) -> bool {
+        let open = self.draft.menu.take().is_some();
+        if open {
+            cx.notify();
+        }
+        open
+    }
+
     /// Sets the pick and closes the menu.
     fn choose(&mut self, project: Option<String>, pick: LaunchPick, cx: &mut Context<Self>) {
         self.draft.choose(project, pick);

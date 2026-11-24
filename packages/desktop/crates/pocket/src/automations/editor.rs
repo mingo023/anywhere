@@ -36,7 +36,7 @@ pub struct Form {
     pub(super) branches: Option<(String, Branches)>,
     /// The choices; its texts and chips only count as of the last `load`, see `values`.
     pub(super) v: Values,
-    pub(crate) open: bool,
+    pub(super) open: bool,
 }
 
 /// The key the composer remembers its pick under.

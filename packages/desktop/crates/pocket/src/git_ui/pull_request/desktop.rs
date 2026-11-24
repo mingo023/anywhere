@@ -19,7 +19,7 @@ impl Desktop {
     /// Opens the panel on the Pull request side.
     pub(crate) fn show_pr_side(&mut self, cx: &mut Context<Self>) {
         self.side = Side::PullRequest;
-        self.sidebar.update(cx, |s, _| s.panel_open = true);
+        self.sidebar.update(cx, |s, cx| s.set_panel_open(true, cx));
         cx.notify();
     }
 

@@ -183,10 +183,13 @@ impl Explorer {
     }
 
     /// Takes fresh listings for the folders still open under `root`; whether the tree changed.
-    pub(crate) fn land_tree(&mut self, fresh: HashMap<PathBuf, Vec<(bool, PathBuf)>>, root: Option<&Path>) -> bool {
+    pub(crate) fn land_tree(&mut self, fresh: HashMap<PathBuf, Vec<(bool, PathBuf)>>, root: Option<&Path>, cx: &mut Context<Self>) -> bool {
         let tree = merge_tree(fresh, &self.tree, root);
         let changed = tree != self.tree;
         self.tree = tree;
+        if changed {
+            cx.notify();
+        }
         changed
     }
 
@@ -195,8 +198,9 @@ impl Explorer {
         self.tree.remove(dir).is_some()
     }
 
-    pub(crate) fn clear_tree(&mut self) {
+    pub(crate) fn clear_tree(&mut self, cx: &mut Context<Self>) {
         self.tree.clear();
+        cx.notify();
     }
 
     pub(crate) fn menu_open(&self) -> bool {
@@ -311,7 +315,7 @@ impl Explorer {
                 if self.inputs.files != files {
                     return;
                 }
-                self.land_tree(fresh, self.inputs.root.clone().as_deref().map(Path::new));
+                self.land_tree(fresh, self.inputs.root.clone().as_deref().map(Path::new), cx);
                 cx.notify();
             }
             Landing::Folder { files, dir, listing } => {
@@ -445,14 +449,24 @@ impl Desktop {
         let touched = (touched_at != stamp).then(|| (stamp, Arc::new(self.agents.edited_paths())));
         let chats = menu_open.then(|| self.chat_choices(cx));
         let (session, observe_only, files) = (self.session().map(str::to_string), self.agents.observe_only(), self.store.files.clone());
-        self.explorer.update(cx, |e, _| {
+        self.explorer.update(cx, |e, cx| {
             let i = &mut e.inputs;
+            let same_repo = match (&i.repo, &repo) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                (None, None) => true,
+                _ => false,
+            };
+            let mut changed = !same_repo || i.root != root || i.local != local || i.selected != selected || i.files != files || i.session != session;
+            changed |= i.observe_only != observe_only || touched.is_some() || chats.as_ref().is_some_and(|c| *c != i.chats);
             (i.root, i.repo, i.local, i.selected, i.files, i.session, i.observe_only) = (root, repo, local, selected, files, session, observe_only);
             if let Some(touched) = touched {
                 i.touched = touched;
             }
             if let Some(chats) = chats {
                 i.chats = chats;
+            }
+            if changed {
+                crate::region::notify_after_draw(cx);
             }
         });
     }

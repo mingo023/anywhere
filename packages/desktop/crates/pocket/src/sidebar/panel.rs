@@ -36,9 +36,9 @@ fn edge_width(wide: f32) -> Option<f32> {
 
 impl Desktop {
     pub(crate) fn pick_side(&mut self, side: Side, cx: &mut Context<Self>) {
-        let (side, open) = rail_pick(self.side, self.sidebar.read(cx).panel_open, side);
+        let (side, open) = rail_pick(self.side, self.sidebar.read(cx).panel_open(), side);
         self.side = side;
-        self.sidebar.update(cx, |s, _| s.panel_open = open);
+        self.sidebar.update(cx, |s, cx| s.set_panel_open(open, cx));
         self.refresh_graph(cx);
         if self.side == Side::Changes && open {
             self.load_compare(cx);
@@ -50,10 +50,10 @@ impl Desktop {
         let width = edge_width(wide);
         let col = Column::Sessions as usize;
         // A drag move comes every frame, moved or not; notifying on each would redraw forever.
-        if self.sidebar.read(cx).panel_open == width.is_some() && width.is_none_or(|w| self.widths[col] == Some(w)) {
+        if self.sidebar.read(cx).panel_open() == width.is_some() && width.is_none_or(|w| self.widths[col] == Some(w)) {
             return;
         }
-        self.sidebar.update(cx, |s, _| s.panel_open = width.is_some());
+        self.sidebar.update(cx, |s, cx| s.set_panel_open(width.is_some(), cx));
         if width.is_some() {
             self.widths[col] = width;
             self.save_soon(cx);
@@ -83,7 +83,7 @@ impl Desktop {
     }
 
     fn panel_frame(&self, cx: &App) -> PanelFrame {
-        let open = self.sidebar.read(cx).panel_open;
+        let open = self.sidebar.read(cx).panel_open();
         PanelFrame {
             open,
             width: self.width(Column::Sessions, OPEN),
@@ -117,7 +117,7 @@ impl Desktop {
     pub(crate) fn sync_panel_rail(&self, cx: &mut Context<Self>) {
         let pr = self.shown_pr(cx).map(|(_, pr)| pr);
         let frame = PanelRailFrame {
-            open: self.sidebar.read(cx).panel_open,
+            open: self.sidebar.read(cx).panel_open(),
             side: self.side,
             waiting: self.sessions_matching("", cx).iter().any(|c| c.status == Status::NeedsYou),
             changed: self.repo(cx).map_or(0, |r| r.files.len()),
@@ -215,7 +215,7 @@ impl Panel {
     pub(crate) fn set(&mut self, frame: PanelFrame, body: Option<PanelBody>, cx: &mut Context<Self>) {
         if self.drawn.as_ref().is_none_or(|(f, b)| *f != frame || *b != body) {
             self.drawn = Some((frame, body));
-            cx.notify();
+            crate::region::notify_after_draw(cx);
         }
     }
 }
@@ -264,7 +264,7 @@ impl PanelRail {
     pub(crate) fn set(&mut self, frame: PanelRailFrame, cx: &mut Context<Self>) {
         if self.frame.as_ref() != Some(&frame) {
             self.frame = Some(frame);
-            cx.notify();
+            crate::region::notify_after_draw(cx);
         }
     }
 }

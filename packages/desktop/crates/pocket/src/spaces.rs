@@ -389,13 +389,13 @@ impl Desktop {
 
     fn go_space(&mut self, to: &Space, cx: &mut Context<Self>) -> bool {
         let order = self.space_order();
-        self.sidebar.read(cx).space_header.clone().update(cx, |h, _| h.shut());
+        self.sidebar.read(cx).space_header.clone().update(cx, |h, cx| h.shut(cx));
         self.spaces.go(to.clone(), &order, Instant::now(), self.spot(cx))
     }
 
     /// The session on screen; none while the new-session page is up.
     fn spot(&self, cx: &App) -> Option<Spot> {
-        Some((self.project.clone().filter(|_| !self.new_form.read(cx).shown)?, self.worktree.clone()))
+        Some((self.project.clone().filter(|_| !self.new_form.read(cx).shown())?, self.worktree.clone()))
     }
 
     /// The session `space` showed when it was left, while its tree is still listed.

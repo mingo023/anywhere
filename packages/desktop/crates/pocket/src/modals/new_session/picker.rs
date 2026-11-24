@@ -78,7 +78,7 @@ fn tile(p: &Project, size: f32) -> Div {
 impl NewForm {
     pub fn close_picker(&mut self, cx: &mut Context<Self>) -> bool {
         let picker = self.draft.picker.take().is_some();
-        let menu = self.composer.update(cx, |c, _| c.draft.escape_model() || c.draft.menu.take().is_some());
+        let menu = self.composer.update(cx, |c, cx| c.draft.escape_model() || c.shut_menu(cx));
         picker || menu
     }
 
@@ -86,7 +86,7 @@ impl NewForm {
     pub(crate) fn toggle_picker(&mut self, picker: Picker, cx: &mut Context<Self>) {
         let f = &mut self.draft;
         f.picker = (f.picker != Some(picker)).then_some(picker);
-        self.composer.update(cx, |c, _| c.draft.menu = None);
+        self.composer.update(cx, |c, cx| c.shut_menu(cx));
         cx.notify();
     }
 

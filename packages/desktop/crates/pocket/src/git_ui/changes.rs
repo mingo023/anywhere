@@ -9,6 +9,7 @@ use crate::desktop::chrome::{Confirm, empty};
 use crate::git_ui::diff::At;
 use crate::git_ui::graph::{Graph, with_graph};
 use crate::git_ui::pull_requests::PrItem;
+use crate::region;
 use crate::renames::Slot;
 use compare::CompareView;
 use git::github::Pr;
@@ -191,6 +192,7 @@ fn toggle_fold(folded: &mut HashSet<String>, key: &str) {
 }
 
 /// A pull request the panel offers for the shown branch, owned so `Desktop` can hand it down.
+#[derive(PartialEq)]
 pub(crate) enum Offer {
     Open(String),
     Create,
@@ -234,6 +236,32 @@ pub(crate) struct Inputs {
     pub(crate) branch_was: Option<(String, Instant)>,
     pub(crate) seamed: bool,
     pub(crate) viewing: Option<(String, String)>,
+}
+
+impl PartialEq for Inputs {
+    /// The repo by identity, as `merge_repos` keeps its `Arc` while the files are the same.
+    fn eq(&self, other: &Self) -> bool {
+        let Self { cwd, repo, scope, tree, git, message_argv, shown, pr, offer, composing, ship_menu, branch_was, seamed, viewing } = self;
+        let same_repo = match (repo, &other.repo) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        same_repo
+            && *cwd == other.cwd
+            && *scope == other.scope
+            && *tree == other.tree
+            && *git == other.git
+            && *message_argv == other.message_argv
+            && *shown == other.shown
+            && *pr == other.pr
+            && *offer == other.offer
+            && *composing == other.composing
+            && *ship_menu == other.ship_menu
+            && *branch_was == other.branch_was
+            && *seamed == other.seamed
+            && *viewing == other.viewing
+    }
 }
 
 /// What the panel asks `Desktop` for: what writes `repos`, the store, the overlay or the pull request.
@@ -328,12 +356,23 @@ impl Changes {
         }
     }
 
+    /// Takes what `Desktop` hands down, drawing again when it differs from what was drawn.
+    pub(crate) fn hand(&mut self, inputs: Inputs, cx: &mut Context<Self>) {
+        if self.inputs != inputs {
+            self.inputs = inputs;
+            region::notify_after_draw(cx);
+        }
+    }
+
     pub(crate) fn menu_open(&self) -> bool {
         self.commit_menu || self.menu || self.compare_menu
     }
 
-    pub(crate) fn shut_menus(&mut self) {
-        (self.commit_menu, self.menu, self.compare_menu) = (false, false, false);
+    pub(crate) fn shut_menus(&mut self, cx: &mut Context<Self>) {
+        if self.menu_open() {
+            (self.commit_menu, self.menu, self.compare_menu) = (false, false, false);
+            cx.notify();
+        }
     }
 }
 
@@ -564,7 +603,7 @@ impl Desktop {
     /// Hands the panel what it reads of `Desktop`; before it draws and before anything calls into it.
     pub(crate) fn sync_changes(&mut self, cx: &mut Context<Self>) {
         let inputs = self.changes_inputs(cx);
-        self.changes.update(cx, |c, _| c.inputs = inputs);
+        self.changes.update(cx, |c, cx| c.hand(inputs, cx));
     }
 
     pub fn changes_list(&mut self, cx: &mut Context<Self>) -> Entity<Changes> {

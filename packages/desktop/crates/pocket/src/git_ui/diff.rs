@@ -964,7 +964,7 @@ impl Desktop {
         let shown = self.diff.view(self.focused_pane(cx), cx).and_then(|v| v.working_file()).map(str::to_string);
         let path = path.or(shown).or_else(|| self.repo(cx)?.files.first().map(|f| f.path.clone()));
         self.side = Side::Changes;
-        self.sidebar.update(cx, |s, _| s.panel_open = true);
+        self.sidebar.update(cx, |s, cx| s.set_panel_open(true, cx));
         match path {
             Some(path) => self.open_doc(Doc::Diff(path), pin, cx),
             None => cx.notify(),

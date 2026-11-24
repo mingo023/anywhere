@@ -196,7 +196,7 @@ pub struct Sidebar {
     /// The inbox or Automations list left of the page.
     pub(crate) column: Entity<ColumnView>,
     /// The right-hand panel shows; collapsed at launch.
-    pub(crate) panel_open: bool,
+    panel_open: bool,
     /// The worktree row being renamed.
     pub(crate) rename: Option<Rename>,
     /// Which row's hover card shows.
@@ -256,6 +256,18 @@ impl Sidebar {
         }
     }
 
+    /// The right-hand panel shows or is opening.
+    pub(crate) fn panel_open(&self) -> bool {
+        self.panel_open
+    }
+
+    pub(crate) fn set_panel_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        if self.panel_open != open {
+            self.panel_open = open;
+            cx.notify();
+        }
+    }
+
     /// Steps the lead column toward `layout` and the panel toward open or shut; true while either still moves.
     pub(crate) fn tick(&mut self, layout: Layout, now: Instant, reduce_motion: bool) -> bool {
         let lead = self.lead.tick(lead_stop(layout), now, reduce_motion);
@@ -300,7 +312,7 @@ impl Sidebar {
         self.menu_at = None;
         self.picker.update(cx, |p, cx| p.shut(cx));
         self.header.update(cx, |h, cx| h.shut(cx));
-        self.space_header.update(cx, |h, _| h.shut());
+        self.space_header.update(cx, |h, cx| h.shut(cx));
     }
 }
 

@@ -186,7 +186,7 @@ impl Desktop {
         let id = self.browsers.open();
         self.workspace(&tree, cx, |w| w.open_web(id, place));
         self.screen = Screen::Sessions;
-        self.new_form.update(cx, |f, _| f.shown = false);
+        self.new_form.update(cx, |f, cx| f.set_shown(false, cx));
         match url {
             Some(url) => self.browse(id, url, window, cx),
             None => self.focus_address(window, cx),

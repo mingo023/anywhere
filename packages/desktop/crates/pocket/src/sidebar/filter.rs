@@ -71,7 +71,10 @@ impl Desktop {
         let projects = self.store.collapsed.iter().map(|p| Fold::Project(p.clone()));
         let folds: Vec<Fold> =
             groups.chain(sections.pins_folded.then_some(Fold::Pinned)).chain(self.store.scratch_folded.then_some(Fold::Scratch)).chain(projects).collect();
-        self.sidebar.update(cx, |s, _| folds.into_iter().for_each(|fold| s.closing.start(fold)));
+        self.sidebar.update(cx, |s, cx| {
+            folds.into_iter().for_each(|fold| s.closing.start(fold));
+            cx.notify();
+        });
     }
 
     /// Answers the filter's text changing: the row Enter picks is the first it lists.
@@ -84,7 +87,12 @@ impl Desktop {
     }
 
     fn set_lit(&mut self, lit: Option<Hit>, cx: &mut Context<Self>) {
-        self.sidebar.read(cx).header.clone().update(cx, |h, _| h.filter.lit = lit);
+        self.sidebar.read(cx).header.clone().update(cx, |h, cx| {
+            if h.filter.lit != lit {
+                h.filter.lit = lit;
+                cx.notify();
+            }
+        });
     }
 
     /// Answers up, down or Enter in the filter's field.
