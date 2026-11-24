@@ -192,8 +192,10 @@ func (d *Daemon) catchUp(pr *presence) {
 	}
 }
 
-// ReportWait is how long a reporting claude has to report the end of a turn its Stop hook announced.
-var ReportWait = 2 * time.Second
+// ReportWait is how long a reporting claude has to report the end of a turn
+// its Stop hook announced. Its other Stop hooks run before it goes idle, and
+// some take over 10s.
+var ReportWait = 15 * time.Second
 
 // endTurnIfQuiet ends the turn a Stop hook announced if pr still shows
 // working and no report or prompt came within ReportWait: its claude stopped

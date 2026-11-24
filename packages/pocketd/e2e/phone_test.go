@@ -136,7 +136,13 @@ func (p *Phone) Send(msg map[string]any) {
 // WaitFor reads messages until ok matches one, failing after 10s.
 func (p *Phone) WaitFor(what string, ok func(Message) bool) Message {
 	p.t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	return p.WaitWithin(10*time.Second, what, ok)
+}
+
+// WaitWithin is WaitFor failing after d.
+func (p *Phone) WaitWithin(d time.Duration, what string, ok func(Message) bool) Message {
+	p.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), d)
 	defer cancel()
 	for {
 		_, raw, err := p.ws.Read(ctx)

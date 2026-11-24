@@ -2,7 +2,12 @@
 
 package e2e
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"pocketd/internal/daemon"
+)
 
 func TestAClaudeThatStopsReportingStillEndsItsTurnOnTheStopHook(t *testing.T) {
 	h, phone, term, id := StartClaude(t)
@@ -10,5 +15,5 @@ func TestAClaudeThatStopsReportingStillEndsItsTurnOnTheStopHook(t *testing.T) {
 	phone.WaitFor("the working report", func(m Message) bool {
 		return statusOf(id, "working")(m) && m.Agent.Activity == "Reading daemon.go"
 	})
-	phone.WaitStatus(id, "done")
+	phone.WaitWithin(daemon.ReportWait+10*time.Second, "status done", statusOf(id, "done"))
 }
