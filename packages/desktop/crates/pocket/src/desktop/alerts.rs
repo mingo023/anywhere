@@ -137,6 +137,7 @@ impl Desktop {
         if let (Event::Connected { version, .. }, None) = (&ev, host) {
             self.terminals.link.connected(channel::version(), version, channel::is_release(), Instant::now());
             if self.terminals.link.stale().is_some() {
+                self.relaunch_if_replaced(cx);
                 cx.spawn(async |this, cx| {
                     cx.background_executor().timer(link::STALE_AFTER).await;
                     this.update(cx, |_, cx| cx.notify())
