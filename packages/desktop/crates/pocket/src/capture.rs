@@ -36,7 +36,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 303] = [
+const STEPS: [(&str, Step); 308] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -1181,6 +1181,24 @@ const STEPS: [(&str, Step); 303] = [
         let failed: Vec<&Check> = pr.runs.iter().filter(|c| c.outcome == Outcome::Failed).collect();
         d.pr.track.send(&tree, "capture", &pr, &[], &failed, false);
     }),
+    ("pr-ready", |d, _, cx| {
+        reshape_shown_pr(d, cx, |pr| {
+            pr.runs.retain(|c| c.outcome == Outcome::Passed);
+            pr.checks = Checks { passed: pr.runs.len() as u16, ..Checks::default() };
+            (pr.review, pr.requested, pr.threads) = (Review::Approved, Vec::new(), Vec::new());
+            pr.reviews = vec![("hoang".into(), Review::Approved)];
+            pr.mergeable = Mergeable::Clean;
+        })
+    }),
+    ("pr-merged", |d, _, cx| reshape_shown_pr(d, cx, |pr| pr.state = PrState::Merged)),
+    ("pr-draft", |d, _, cx| reshape_shown_pr(d, cx, |pr| pr.draft = true)),
+    ("pr-conflict", |d, _, cx| reshape_shown_pr(d, cx, |pr| pr.mergeable = Mergeable::Conflicting)),
+    ("pr-none", |d, _, cx| {
+        let Some(tree) = d.cwd(cx) else { return };
+        let now = Instant::now();
+        d.prs.start(&tree, now);
+        d.prs.apply(tree, now, Ok(None), now);
+    }),
     ("pr-side", |d, _, cx| d.show_pr_side(cx)),
     ("pr-checks", |d, _, _| d.pr.track.tab = PrTab::Checks),
     ("pr-commits", |d, _, _| d.pr.track.tab = PrTab::Commits),
@@ -1664,6 +1682,15 @@ fn models_sample(d: &mut Desktop) {
     for (provider, printed) in [("opencode", opencode.to_string()), ("pi", pi.to_string()), ("hermes", hermes.to_string())] {
         d.models.set(provider, providers::known(provider).models.read(&printed).ok());
     }
+}
+
+fn reshape_shown_pr(d: &mut Desktop, cx: &mut Context<Desktop>, f: impl FnOnce(&mut Pr)) {
+    let Some((tree, pr)) = d.shown_pr(cx) else { return };
+    let mut pr = pr.clone();
+    f(&mut pr);
+    let now = Instant::now();
+    d.prs.start(&tree, now);
+    d.prs.apply(tree, now, Ok(Some(pr)), now);
 }
 
 fn session(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
