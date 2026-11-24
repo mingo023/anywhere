@@ -20,7 +20,7 @@ const LINE_HEIGHT: f32 = 22.;
 const TEXT_SIZE: f32 = 14.5;
 /// A bubble's widest, of the reading width.
 const WIDTH: f32 = 0.78;
-/// A sent image's height; its width follows its shape, up to `IMAGE_MAX_W`.
+/// A sent image's box; the image keeps its shape inside it.
 const IMAGE_H: f32 = 200.;
 const IMAGE_MAX_W: f32 = 320.;
 const IMAGE_RADIUS: f32 = 12.;
@@ -255,11 +255,14 @@ pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expand
     let Sent { text, files, images, elements } = split_attachments(&prompt);
     let text = text.to_string();
     let attached = (!images.is_empty() || !files.is_empty() || !elements.is_empty()).then(|| {
-        let picture = |path: PathBuf| img(path).h(px(IMAGE_H)).max_w(px(IMAGE_MAX_W)).rounded(px(IMAGE_RADIUS)).object_fit(ObjectFit::Cover);
+        let fit = IMAGE_MAX_W.min(width * WIDTH - 2.);
+        // `img` takes its shape as its aspect ratio, so a max width also caps its height and a wide image shrinks to fit.
+        let picture = move |path: PathBuf| img(path).h(px(IMAGE_H)).max_w(px(fit)).rounded(px(IMAGE_RADIUS));
         let tile = |path: &str| {
             let here = here.join(Path::new(path).file_name().unwrap_or_default());
-            let image = picture(PathBuf::from(path)).with_fallback(move || picture(here.clone()).into_any_element());
-            div().min_w(px(56.)).h(px(IMAGE_H + 2.)).flex_none().rounded(px(IMAGE_RADIUS + 1.)).border_1().border_color(hairline(0.10)).child(image)
+            let missing = || div().size(px(54.)).into_any_element();
+            let image = picture(PathBuf::from(path)).with_fallback(move || picture(here.clone()).with_fallback(missing).into_any_element());
+            div().flex_none().rounded(px(IMAGE_RADIUS + 1.)).border_1().border_color(hairline(0.10)).child(image)
         };
         let card = |(i, path): (usize, &str)| file_card(SharedString::from(format!("{id}-file-{i}")), Path::new(path));
         let element = |(i, heading): (usize, &str)| {
@@ -271,6 +274,7 @@ pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expand
             .flex()
             .flex_wrap()
             .justify_end()
+            .items_end()
             .gap(px(8.))
             .children(images.into_iter().map(tile))
             .children(files.into_iter().enumerate().map(card))
@@ -333,6 +337,12 @@ pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expand
     } else {
         bubble.into_any_element()
     };
+    let attached = attached.map(|files| if lit && text.is_empty() {
+        let fade = Animation::new(super::transcript::FLASH).with_easing(ease_in_out);
+        files.p(px(4.)).m(px(-4.)).rounded(px(RADIUS)).with_animation(SharedString::from(format!("{id}-lit")), fade, |d, t| d.bg(ink(0.08 * (1. - t)))).into_any_element()
+    } else {
+        files.into_any_element()
+    });
     div().w_full().flex().flex_col().items_end().gap(px(6.)).when(pending, |d| d.opacity(0.65)).children(attached).when(!text.is_empty(), |d| d.child(bubble))
 }
 
