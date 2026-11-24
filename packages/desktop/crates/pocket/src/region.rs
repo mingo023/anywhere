@@ -33,14 +33,3 @@ pub(crate) fn cached<V: Render>(region: &Entity<V>, style: StyleRefinement) -> A
 pub(crate) fn column(width: f32) -> StyleRefinement {
     StyleRefinement::default().w(px(width)).flex_none().h_full()
 }
-
-/// The columns either side of the page.
-pub(crate) struct Regions {
-    pub(crate) panel: Entity<Region>,
-}
-
-impl Regions {
-    pub(crate) fn new(cx: &mut Context<Desktop>) -> Self {
-        Self { panel: Region::new(cx, |d, _, cx| d.workspace_panel(cx).into_any_element()) }
-    }
-}

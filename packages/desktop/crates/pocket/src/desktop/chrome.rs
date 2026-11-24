@@ -313,6 +313,16 @@ pub(crate) fn seam_handle<T: 'static>(
     reset: impl Fn(&mut T, &mut Context<T>) + 'static,
     cx: &mut Context<T>,
 ) -> Stateful<Div> {
+    seam_handle_in(id, axis, move |this, _, cx| reset(this, cx), cx)
+}
+
+/// `seam_handle`, its `reset` handed the window too.
+pub(crate) fn seam_handle_in<T: 'static>(
+    id: impl Into<ElementId>,
+    axis: Axis,
+    reset: impl Fn(&mut T, &mut Window, &mut Context<T>) + 'static,
+    cx: &mut Context<T>,
+) -> Stateful<Div> {
     let line = div().absolute().group_hover("seam", |s| s.bg(SEPARATOR_STRONG));
     // Occludes so the press starts a resize, not the drag area's window move.
     let handle = div().id(id).group("seam").absolute().occlude();
@@ -322,9 +332,9 @@ pub(crate) fn seam_handle<T: 'static>(
     };
     handle.child(line).on_mouse_down(
         MouseButton::Left,
-        cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+        cx.listener(move |this, e: &MouseDownEvent, window, cx| {
             if e.click_count == 2 {
-                reset(this, cx);
+                reset(this, window, cx);
             }
         }),
     )

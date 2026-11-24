@@ -26,7 +26,7 @@ use crate::region;
 use crate::renames::{self, Renames, Slot};
 use crate::sidebar::fold::{Closing, Fold};
 use crate::sidebar::header::{HeaderEvent, ProjectsHeader};
-use crate::sidebar::panel::PanelRail;
+use crate::sidebar::panel::{Panel, PanelRail};
 use crate::sidebar::project_picker::ProjectPicker;
 use crate::sidebar::rail::Rail;
 use crate::sidebar::rename::Rename;
@@ -190,6 +190,8 @@ pub struct Sidebar {
     /// The compact rail, and the rail at the window's right edge.
     pub(crate) rail: Entity<Rail>,
     pub(crate) panel_rail: Entity<PanelRail>,
+    /// The right-hand panel's body, for every side but the pull request.
+    pub(crate) panel_view: Entity<Panel>,
     /// The right-hand panel shows; collapsed at launch.
     pub(crate) panel_open: bool,
     /// The worktree row being renamed.
@@ -217,6 +219,7 @@ impl Sidebar {
         let picker = cx.new(|cx| ProjectPicker::new(window, cx));
         let rail = cx.new(|_| Rail::new(picker.clone()));
         let panel_rail = cx.new(|_| PanelRail::default());
+        let panel_view = cx.new(|_| Panel::default());
         let header = cx.new(|cx| ProjectsHeader::new(window, cx));
         let space_header = cx.new(|_| SpaceHeader::new());
         let aside_spaces = cx.new(|_| Switcher::new("aside", false));
@@ -231,6 +234,7 @@ impl Sidebar {
             picker,
             rail,
             panel_rail,
+            panel_view,
             panel_open,
             rename: None,
             hover: Hover::default(),
@@ -294,7 +298,7 @@ impl Sidebar {
 
 impl Desktop {
     pub(crate) fn sidebar_subs(sidebar: &Entity<Sidebar>, window: &mut Window, cx: &mut Context<Self>) -> Vec<Subscription> {
-        let (search, sessions, space_header, aside, rail_spaces, picker, rail, panel_rail, header) = {
+        let (search, sessions, space_header, aside, rail_spaces, picker, rail, panel_rail, panel_view, header) = {
             let s = sidebar.read(cx);
             (
                 s.search.clone(),
@@ -305,6 +309,7 @@ impl Desktop {
                 s.picker.clone(),
                 s.rail.clone(),
                 s.panel_rail.clone(),
+                s.panel_view.clone(),
                 s.header.clone(),
             )
         };
@@ -322,6 +327,7 @@ impl Desktop {
             cx.subscribe_in(&rail_spaces, window, Self::on_switcher_event),
             cx.subscribe_in(&rail, window, Self::on_rail_event),
             cx.subscribe_in(&panel_rail, window, Self::on_panel_rail_event),
+            cx.subscribe_in(&panel_view, window, Self::on_panel_view_event),
         ]
     }
 

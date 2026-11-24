@@ -44,7 +44,6 @@ use crate::notch::Notch;
 use crate::open_in::OpenIn;
 use crate::palette::Palette;
 use crate::panels::Panels;
-use crate::region::Regions;
 use crate::removal::Removals;
 use crate::renames::Renames;
 use crate::settings::Settings;
@@ -122,7 +121,6 @@ pub struct Desktop {
     pub(crate) palette: Entity<Palette>,
     pub(crate) sidebar: Entity<Sidebar>,
     pub(crate) spaces: Spaces,
-    pub(crate) regions: Regions,
     pub(crate) settings: Entity<Settings>,
     pub(crate) fleet: Fleet,
     pub(crate) host_agents: HostAgents,
@@ -170,7 +168,6 @@ impl Desktop {
         let creates = cx.new(|_| Creates::default());
         let panels = cx.new(|cx| Panels::new(workspaces.clone(), creates.clone(), cx));
         let panels_subs = [cx.subscribe_in(&panels, window, Self::on_panels_event), cx.observe(&panels, |_, _, cx| cx.notify())];
-        let regions = Regions::new(cx);
         let changes = cx.new(|cx| Changes::new(graph.clone(), window, cx));
         let changes_subs = cx.subscribe_in(&changes, window, Self::on_changes_event);
         let explorer = cx.new(|_| Explorer::new());
@@ -305,7 +302,6 @@ impl Desktop {
             diff,
             chat,
             chats,
-            regions,
             changes,
             prs: PullRequests::default(),
             gh_accounts: GhAccounts::default(),

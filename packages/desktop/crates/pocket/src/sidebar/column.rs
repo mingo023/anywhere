@@ -1,9 +1,8 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Column, HEADER, Screen, Side, drag_area};
+use crate::desktop::chrome::{Column, Screen};
 use git::Repo;
 use gpui_kit::*;
 use theme::*;
-use ui::{self, icon_button_sized};
 
 /// Whether the worktree has any changed file.
 pub(crate) fn has_changes(repo: Option<&Repo>) -> bool {
@@ -30,38 +29,6 @@ impl Desktop {
             div().h_full().flex_none().child(self.inbox_list(width, cx))
         };
         self.resizable(list, Column::Sessions, cx)
-    }
-
-    /// The Workspace panel's content: the side the rail picked, under the worktree's title.
-    pub(crate) fn workspace_column(&mut self, cx: &mut Context<Self>) -> Div {
-        let body = match self.side {
-            Side::Sessions => self.sessions_view(cx).into_any_element(),
-            Side::Explorer => self.explorer_view(cx).into_any_element(),
-            Side::Changes => self.changes_list(cx).into_any_element(),
-            Side::PullRequest => self.pr_side(cx).into_any_element(),
-        };
-        div()
-            .bg(SIDE)
-            .h_full()
-            .flex()
-            .flex_col()
-            .overflow_hidden()
-            .child(drag_area(self.column_header(cx)).h(px(HEADER)).flex_none().border_b(px(0.5)).border_color(SEPARATOR))
-            .child(body)
-    }
-
-    fn column_header(&self, cx: &mut Context<Self>) -> Div {
-        let title = self.place(cx).map(|t| self.place_name(&t)).or_else(|| self.project.as_deref().map(|p| self.repo_name(p))).unwrap_or_default();
-        let add = icon_button_sized("column-add", "plus", 28., TEXT_2)
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_session(None, false, window, cx)));
-        div()
-            .pl(px(18.))
-            .pr(px(12.))
-            .flex()
-            .items_center()
-            .gap(px(4.))
-            .child(div().flex_1().text_size(px(16.)).font_weight(FontWeight::BOLD).truncate().child(title))
-            .child(add)
     }
 }
 

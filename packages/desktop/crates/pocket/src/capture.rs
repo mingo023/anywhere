@@ -1967,8 +1967,11 @@ fn hand_drag(window: &mut Window, cx: &mut App, release: bool) {
             PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: from, modifiers, click_count: 1, first_mouse: false }),
             cx,
         );
-        draw(window, cx);
-        hand_step(window, cx, (from, by), 1, release);
+        // Drawn one deferral on, so the events the press emitted are handled first, as they are before a real frame.
+        window.defer(cx, move |window, cx| {
+            draw(window, cx);
+            hand_step(window, cx, (from, by), 1, release);
+        });
     });
 }
 
@@ -1983,8 +1986,10 @@ fn hand_step(window: &mut Window, cx: &mut App, (from, by): (Point<Pixels>, Poin
         }
         let position = from + by * (f32::from(step) / 4.);
         window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position, pressed_button: Some(MouseButton::Left), modifiers }), cx);
-        draw(window, cx);
-        hand_step(window, cx, (from, by), step + 1, release);
+        window.defer(cx, move |window, cx| {
+            draw(window, cx);
+            hand_step(window, cx, (from, by), step + 1, release);
+        });
     });
 }
 

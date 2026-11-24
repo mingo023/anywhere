@@ -1,14 +1,18 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Column, HEADER, SEAM, Side, drag_area};
+use crate::desktop::chrome::{Column, HEADER, SEAM, Side, drag_area, seam_handle_in};
+use crate::explorer::Explorer;
+use crate::git_ui::changes::Changes;
 use crate::git_ui::pull_request::pr_wants_you;
 use crate::git_ui::pull_requests::glyph;
 use crate::region;
 use crate::sidebar::column::changes_badge;
 use crate::sidebar::rail::{rail_button, rail_slot};
+use crate::sidebar::sessions::SessionList;
 use crate::status::Status;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
+use ui::icon_button_sized;
 use workspace::tree::Axis;
 
 const MIN: f32 = 280.;
@@ -63,45 +67,66 @@ impl Desktop {
     }
 
     /// The right-hand panel and its rail, sliding off the window's edge in Focus.
-    pub(crate) fn workspace_side(&self, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn workspace_side(&mut self, cx: &mut Context<Self>) -> Div {
         self.sync_panel_rail(cx);
         let panel = self.workspace_panel_width(cx);
+        let body = if self.side == Side::PullRequest {
+            // The pull request's body is still `Desktop`'s to draw, so this side isn't cached.
+            let frame = self.panel_frame(cx);
+            let body = frame.shown.then(|| self.pr_side(cx).into_any_element());
+            div()
+                .flex_none()
+                .h_full()
+                .w(px(panel))
+                .child(div().size_full().flex().flex_col().child(panel_chrome(&frame, body, Self::on_panel_event, cx)))
+                .into_any_element()
+        } else {
+            self.sync_panel(cx);
+            region::cached(&self.sidebar.read(cx).panel_view, region::column(panel))
+        };
         div()
             .flex()
             .flex_none()
             .h_full()
             .w(px((panel + RAIL_WIDTH) * self.sidebar.read(cx).unfocused()))
             .overflow_hidden()
-            .child(region::cached(&self.regions.panel, region::column(panel)))
+            .child(body)
             .child(region::cached(&self.sidebar.read(cx).panel_rail, region::column(RAIL_WIDTH)))
     }
 
-    /// The right-hand panel, empty once collapsed; a drag that collapses it can still bring it back.
-    pub(crate) fn workspace_panel(&mut self, cx: &mut Context<Self>) -> Div {
+    fn panel_frame(&self, cx: &App) -> PanelFrame {
         let open = self.sidebar.read(cx).panel_open;
-        let reset = |this: &mut Self, cx: &mut Context<Self>| this.reset_width(Column::Sessions, cx);
-        let seam = self.seam("panel-seam", Axis::Row, reset, cx).filter(|_| open).map(|handle| {
-            handle.left(px(-SEAM / 2.)).on_drag(PanelEdge, |_, _, _, cx| {
-                cx.stop_propagation();
-                cx.new(|_| EmptyView)
-            })
+        PanelFrame {
+            open,
+            width: self.width(Column::Sessions, OPEN),
+            shown: self.sidebar.read(cx).panel.at() > 0.,
+            seam: open && self.overlay.is_none(),
+            title: self.place(cx).map(|t| self.place_name(&t)).or_else(|| self.project.as_deref().map(|p| self.repo_name(p))).unwrap_or_default(),
+        }
+    }
+
+    /// Hands the panel what it draws: its frame, and the entity of the side the rail picked.
+    fn sync_panel(&mut self, cx: &mut Context<Self>) {
+        let frame = self.panel_frame(cx);
+        let body = frame.shown.then(|| match self.side {
+            Side::Sessions => PanelBody::Sessions(self.sessions_view(cx)),
+            Side::Explorer => PanelBody::Explorer(self.explorer_view(cx)),
+            Side::Changes => PanelBody::Changes(self.changes_list(cx)),
+            Side::PullRequest => unreachable!("the pull request side isn't drawn by the panel"),
         });
-        // At its full width while the panel slides, so its rows don't reflow.
-        let width = self.width(Column::Sessions, OPEN);
-        let body =
-            (self.sidebar.read(cx).panel.at() > 0.).then(|| self.workspace_column(cx).w(px(width)).flex_none().border_l(px(0.5)).border_color(SEPARATOR));
-        div()
-            .relative()
-            .flex()
-            .flex_none()
-            .h_full()
-            .overflow_hidden()
-            .children(body)
-            // Deferred so the handle paints over the page it straddles.
-            .children(seam.map(deferred))
-            .on_drag_move(cx.listener(|this, e: &DragMoveEvent<PanelEdge>, _, cx| {
-                this.drag_panel_edge(f32::from(e.bounds.right() - e.event.position.x), cx);
-            }))
+        self.sidebar.read(cx).panel_view.clone().update(cx, |p, cx| p.set(frame, body, cx));
+    }
+
+    fn on_panel_event(&mut self, ev: PanelEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            PanelEvent::Drag(wide) => self.drag_panel_edge(wide, cx),
+            PanelEvent::Reset => self.reset_width(Column::Sessions, cx),
+            PanelEvent::NewSession => self.new_session(None, false, window, cx),
+        }
+    }
+
+    pub(crate) fn on_panel_view_event(&mut self, _: &Entity<Panel>, ev: &PanelEvent, window: &mut Window, cx: &mut Context<Self>) {
+        self.on_panel_event(*ev, window, cx);
     }
 
     /// Hands the rail at the window's right edge what it draws from `Desktop`'s state.
@@ -119,6 +144,122 @@ impl Desktop {
 
     pub(crate) fn on_panel_rail_event(&mut self, _: &Entity<PanelRail>, PanelRailEvent::Pick(side): &PanelRailEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.pick_side(*side, cx);
+    }
+}
+
+/// What the panel draws around its body.
+#[derive(PartialEq)]
+pub(crate) struct PanelFrame {
+    pub(crate) open: bool,
+    pub(crate) width: f32,
+    /// The glide has opened it far enough to draw its body.
+    pub(crate) shown: bool,
+    pub(crate) seam: bool,
+    pub(crate) title: String,
+}
+
+/// The side the rail picked, as the entity that draws it.
+#[derive(PartialEq)]
+pub(crate) enum PanelBody {
+    Sessions(Entity<SessionList>),
+    Explorer(Entity<Explorer>),
+    Changes(Entity<Changes>),
+}
+
+/// What the panel asks `Desktop` for.
+#[derive(Clone, Copy)]
+pub(crate) enum PanelEvent {
+    /// The edge dragged this far from the rail.
+    Drag(f32),
+    Reset,
+    NewSession,
+}
+
+impl EventEmitter<PanelEvent> for Panel {}
+
+/// How the panel hands its events up: `Desktop` takes them itself where it draws the panel, the entity emits them.
+pub(crate) type PanelSend<V> = fn(&mut V, PanelEvent, &mut Window, &mut Context<V>);
+
+/// The right-hand panel: its title and add button over `body`, with the edge to drag.
+pub(crate) fn panel_chrome<V: 'static>(f: &PanelFrame, body: Option<AnyElement>, send: PanelSend<V>, cx: &mut Context<V>) -> Div {
+    let seam = f.seam.then(|| {
+        seam_handle_in("panel-seam", Axis::Row, move |this: &mut V, window, cx| send(this, PanelEvent::Reset, window, cx), cx).left(px(-SEAM / 2.)).on_drag(
+            PanelEdge,
+            |_, _, _, cx| {
+                cx.stop_propagation();
+                cx.new(|_| EmptyView)
+            },
+        )
+    });
+    let add = icon_button_sized("column-add", "plus", 28., TEXT_2)
+        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| send(this, PanelEvent::NewSession, window, cx)));
+    let header = div()
+        .pl(px(18.))
+        .pr(px(12.))
+        .flex()
+        .items_center()
+        .gap(px(4.))
+        .child(div().flex_1().text_size(px(16.)).font_weight(FontWeight::BOLD).truncate().child(f.title.clone()));
+    // At its full width while the panel slides, so its rows don't reflow.
+    let body = body.map(|body| {
+        div()
+            .bg(SIDE)
+            .h_full()
+            .w(px(f.width))
+            .flex_none()
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .border_l(px(0.5))
+            .border_color(SEPARATOR)
+            .child(drag_area(header.child(add)).h(px(HEADER)).flex_none().border_b(px(0.5)).border_color(SEPARATOR))
+            .child(body)
+    });
+    div()
+        .relative()
+        .flex()
+        .flex_none()
+        .h_full()
+        .overflow_hidden()
+        .children(body)
+        // Deferred so the handle paints over the page it straddles.
+        .children(seam.map(deferred))
+        .on_drag_move(cx.listener(move |this, e: &DragMoveEvent<PanelEdge>, window, cx| {
+            send(this, PanelEvent::Drag(f32::from(e.bounds.right() - e.event.position.x)), window, cx);
+        }))
+}
+
+/// The right-hand panel, empty once collapsed; a drag that collapses it can still bring it back.
+#[derive(Default)]
+pub(crate) struct Panel {
+    drawn: Option<(PanelFrame, Option<PanelBody>)>,
+}
+
+impl Panel {
+    pub(crate) fn set(&mut self, frame: PanelFrame, body: Option<PanelBody>, cx: &mut Context<Self>) {
+        if self.drawn.as_ref().is_none_or(|(f, b)| *f != frame || *b != body) {
+            self.drawn = Some((frame, body));
+            cx.notify();
+        }
+    }
+
+    fn send(&mut self, ev: PanelEvent, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(ev);
+    }
+}
+
+impl Render for Panel {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let root = div().size_full().flex().flex_col();
+        let Some((frame, body)) = self.drawn.as_ref() else { return root };
+        let body = body.as_ref().map(|b| match b {
+            PanelBody::Sessions(e) => e.clone().into_any_element(),
+            PanelBody::Explorer(e) => e.clone().into_any_element(),
+            PanelBody::Changes(e) => e.clone().into_any_element(),
+        });
+        // `PanelFrame`'s seam and title are read by the chrome only.
+        let chrome = panel_chrome(frame, body, Self::send, cx);
+        root.child(chrome)
     }
 }
 
