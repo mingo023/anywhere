@@ -36,6 +36,8 @@ pub(crate) enum Fit {
 pub(crate) enum TerminalsEvent {
     /// A pane's size settled: pocketd resizes its terminal to it.
     Resize { id: String, cols: u16, rows: u16 },
+    /// The update page's Restart service was pressed.
+    RestartService,
 }
 
 impl EventEmitter<TerminalsEvent> for Terminals {}
@@ -593,11 +595,12 @@ impl Desktop {
         }
     }
 
-    pub(crate) fn on_terminals_event(&mut self, ev: &TerminalsEvent) {
+    pub(crate) fn on_terminals_event(&mut self, ev: &TerminalsEvent, cx: &mut Context<Self>) {
         match ev {
             TerminalsEvent::Resize { id, cols, rows } => {
                 self.daemon.send(json!({"op": "resize", "id": id, "cols": cols, "rows": rows}));
             }
+            TerminalsEvent::RestartService => self.relaunch_or_restart_service(cx),
         }
     }
 }

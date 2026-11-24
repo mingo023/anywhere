@@ -52,7 +52,7 @@ use crate::spaces::Spaces;
 use crate::star::Star;
 use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
-use crate::terminals::link::{Hint, Update};
+use crate::terminals::link::Update;
 use crate::themes::Themes;
 use crate::updates::Updates;
 use crate::welcome::Welcome;
@@ -216,7 +216,7 @@ impl Desktop {
         let inbox_subs = cx.subscribe_in(&inbox, window, Self::on_inbox_event);
         let terminals = cx.new(|_| Terminals::new(crate::terminals::sessions::config(&store.terminal)));
         let terminals_subs = [
-            cx.subscribe(&terminals, |this, _, ev: &crate::terminals::TerminalsEvent, _| this.on_terminals_event(ev)),
+            cx.subscribe(&terminals, |this, _, ev: &crate::terminals::TerminalsEvent, cx| this.on_terminals_event(ev, cx)),
             cx.observe(&terminals, |_, _, cx| cx.notify()),
         ];
         let root = cx.focus_handle();
@@ -645,7 +645,7 @@ impl Desktop {
                 div()
             }
             Some(tree) => self.panels_view(&tree, window, cx),
-            None if self.terminals.read(cx).link.is_down() || self.terminals.read(cx).link.update(now).is_some() => self.link_page(now, window, cx),
+            None if self.terminals.read(cx).link.is_down() || self.terminals.read(cx).link.update(now).is_some() => self.link_page(cx),
             None if self.new_form.read(cx).shown && self.screen == Screen::Sessions => self.new_session_page(cx),
             None => match self.screen_view(window, cx) {
                 Some(page) => page,
@@ -668,40 +668,8 @@ impl Desktop {
             .children(self.pr_notice(cx))
     }
 
-    fn link_page(&self, now: Instant, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let (hint, update, stale) = {
-            let link = &self.terminals.read(cx).link;
-            (link.hint(now), link.update(now), link.stale().unwrap_or_default().to_string())
-        };
-        let tip = match hint {
-            None | Some(Hint::Stale) => Vec::new(),
-            Some(Hint::Install) => {
-                vec![div().child("Not starting? In Terminal:").into_any_element(), div().font_family(MONO).child("pocketd daemon install").into_any_element()]
-            }
-            Some(Hint::LoginItems) => vec![
-                div().child("Anywhere's background service is off.").into_any_element(),
-                ui::button("open-login-items", ui::Variant::Primary, None, "Open Login Items")
-                    .mt(px(6.))
-                    .on_click(|_, _, _| daemon::service::open_login_items())
-                    .into_any_element(),
-            ],
-            Some(Hint::Reopen) => vec![div().child("Not starting? Quit and reopen Anywhere.").into_any_element()],
-        };
-        let body = match update {
-            Some(update) => self.updating_page(update, &stale, tip, window, cx),
-            None => div()
-                .flex_1()
-                .flex()
-                .flex_col()
-                .items_center()
-                .justify_center()
-                .gap(px(6.))
-                .text_size(px(14.))
-                .text_color(TEXT_3)
-                .when(hint != Some(Hint::LoginItems), |d| d.child("Starting Anywhere's terminal service…"))
-                .children(tip),
-        };
-        div().flex_1().flex().flex_col().child(self.page_bar(vec!["Sessions".into()], Vec::new(), div(), cx)).child(body)
+    fn link_page(&self, cx: &mut Context<Self>) -> Div {
+        div().flex_1().flex().flex_col().child(self.page_bar(vec!["Sessions".into()], Vec::new(), div(), cx)).child(self.terminals.clone())
     }
 
     pub(crate) fn relaunch_if_replaced(&mut self, cx: &mut Context<Self>) {
