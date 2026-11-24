@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.61
+
+- Chat keeps its whole conversation after a restart (#368): (2e97eb7a)
+- A Claude ask a hook settles leaves Needs you, and the Inbox shows a delegated session whole (#370): (a4b40b09)
+- PR link chips in chat open the link menu on right-click (#369): (ede9f5eb)
+- Updating a Mac host replaces its Anywhere app, so pocketd restarts on the new version (#366): (bbd69ab1)
+- Chat shows its account's usage with only one account signed in (#367): (aaedf7b8)
+- Item writes find their search row by rowid, so the orchestrator flush keeps up (#364): (c4998e95)
+
 ## 0.1.60
 
 - Sidebar shows folders you never added as threads, not phantom projects (#363): (62378b0d)
