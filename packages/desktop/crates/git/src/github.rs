@@ -989,29 +989,43 @@ mod tests {
         assert_eq!(best(&[("work", 0), ("me", 0)], "me"), None);
     }
 
+    fn view_with(find: Result<&str, &str>, read: Result<&str, &str>) -> (Result<Option<Pr>, GhProblem>, Vec<Vec<String>>) {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let result = view(|argv| {
+            calls.borrow_mut().push(argv.to_vec());
+            let out = if calls.borrow().len() == 1 { find } else { read };
+            out.map(str::to_string).map_err(str::to_string)
+        });
+        (result, calls.into_inner())
+    }
+
+    const MERGED_42: &str = r#"{"number":42,"title":"Fix it","url":"https://github.com/acme/app/pull/42","state":"MERGED"}"#;
+
     #[test]
     fn a_pr_is_found_by_its_number_alone_then_read_whole_by_number() {
-        let calls = std::cell::RefCell::new(Vec::new());
-        let gh = |find: Result<&str, &str>, read: Result<&str, &str>| {
-            calls.borrow_mut().clear();
-            view(|argv| {
-                calls.borrow_mut().push(argv.to_vec());
-                let out = if calls.borrow().len() == 1 { find } else { read };
-                out.map(str::to_string).map_err(str::to_string)
-            })
-        };
-        let pr = r#"{"number":42,"title":"Fix it","url":"https://github.com/acme/app/pull/42","state":"MERGED"}"#;
-        let found = gh(Ok(r#"{"number":42}"#), Ok(pr)).unwrap().unwrap();
+        let (found, calls) = view_with(Ok(r#"{"number":42}"#), Ok(MERGED_42));
+        let found = found.unwrap().unwrap();
         assert_eq!((found.number, found.state), (42, PrState::Merged));
-        let calls_made = calls.borrow().clone();
-        assert_eq!(calls_made[0], ["gh", "pr", "view", "--json", "number"]);
-        assert_eq!(calls_made[1][..4], ["gh", "pr", "view", "42"]);
-        assert!(calls_made[1].iter().any(|a| a.contains("commits")));
+        assert_eq!(calls[0], ["gh", "pr", "view", "--json", "number"]);
+        assert_eq!(calls[1][..4], ["gh", "pr", "view", "42"]);
+        assert!(calls[1].iter().any(|a| a.contains("commits")));
+    }
 
-        assert_eq!(gh(Err("no pull requests found for branch \"fix\""), Ok(pr)), Ok(None));
-        assert_eq!(calls.borrow().len(), 1);
-        assert_eq!(gh(Ok(r#"{"number":42}"#), Err("GraphQL: API rate limit already exceeded for user ID 1.")), Err(GhProblem::Failed));
-        assert_eq!(gh(Err("zsh:1: command not found: gh"), Ok(pr)), Err(GhProblem::Missing));
+    #[test]
+    fn a_branch_with_no_pr_is_asked_about_once() {
+        let (found, calls) = view_with(Err("no pull requests found for branch \"fix\""), Ok(MERGED_42));
+        assert_eq!((found, calls.len()), (Ok(None), 1));
+    }
+
+    #[test]
+    fn a_pr_read_refused_after_its_number_was_found_is_a_failure() {
+        let (found, _) = view_with(Ok(r#"{"number":42}"#), Err("GraphQL: API rate limit already exceeded for user ID 1."));
+        assert_eq!(found, Err(GhProblem::Failed));
+    }
+
+    #[test]
+    fn a_missing_gh_is_told_apart_on_the_number_lookup() {
+        assert_eq!(view_with(Err("zsh:1: command not found: gh"), Ok(MERGED_42)).0, Err(GhProblem::Missing));
     }
 
     #[test]
