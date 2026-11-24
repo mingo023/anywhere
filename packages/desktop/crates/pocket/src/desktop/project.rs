@@ -202,10 +202,9 @@ impl Desktop {
 
     /// Each listed session's card, with the project it sits in.
     fn placed_cards<'a>(&'a self, projects: &'a [String], cx: &'a App) -> impl Iterator<Item = (&'a String, Card)> + 'a {
-        status::listed(&self.agents.list)
-            .into_iter()
-            .filter_map(|a| Some((a, self.terminals.read(cx).sessions.get(&a.terminal_id)?)))
-            .filter_map(|(a, s)| Some((self.agent_project(a, &s.info.cwd, projects)?, status::Card { local: s.info.local.clone(), ..status::card(a, &s.info.cwd) })))
+        status::listed(&self.agents.list).into_iter().filter_map(|a| Some((a, self.terminals.read(cx).sessions.get(&a.terminal_id)?))).filter_map(|(a, s)| {
+            Some((self.agent_project(a, &s.info.cwd, projects)?, status::Card { local: s.info.local.clone(), ..status::card(a, &s.info.cwd) }))
+        })
     }
 
     /// Runs `f` with `projects` and `cards` answered from one pass over the sessions. Every sidebar row asks for its
