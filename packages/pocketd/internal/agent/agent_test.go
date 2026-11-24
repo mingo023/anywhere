@@ -837,3 +837,14 @@ func TestABackgroundTaskTheAgentWaitsOnKeepsItWorkingUntilItEndsOrTheCap(t *test
 		t.Fatal("the cap passed and the turn stayed")
 	}
 }
+
+func TestAnAskWithdrawnAfterAStopLeavesTheAgentOutOfWorking(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.Working()
+	a.NeedsYou()
+	a.Stop()
+	a.Unblocked()
+	if s := state(a.Summary()); s == "working" {
+		t.Fatalf("a stopped agent went back to %q", s)
+	}
+}

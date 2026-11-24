@@ -464,6 +464,15 @@ func (a *Agent) NeedsYou() {
 	a.update(true, func() { a.enter("needsYou") })
 }
 
+// Unblocked goes back to working from Needs you; a turn that ended since stays ended.
+func (a *Agent) Unblocked() {
+	a.update(true, func() {
+		if a.phase == "needsYou" && !a.stopped {
+			a.enter("working")
+		}
+	})
+}
+
 // TurnEnded is Done unless a phone or the desktop shows the agent right now.
 func (a *Agent) TurnEnded(failed bool) {
 	a.update(true, func() { a.turnEnded(failed) })

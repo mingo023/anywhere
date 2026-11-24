@@ -152,6 +152,11 @@ impl View {
         Some(self.shown_at_end() - f32::from(self.list.laid_out_height_from(ix)))
     }
 
+    /// How far under the viewport's top row `ix` ends, by the heights last laid out; None once it's above the top.
+    pub(super) fn row_end(&self, ix: usize) -> Option<f32> {
+        (ix >= self.top_row().0).then(|| self.offset_to(ix + 1) + pin::TOP)
+    }
+
     /// The height the rows show in at the list's end, over the room padded under them.
     fn shown_at_end(&self) -> f32 {
         f32::from(self.list.viewport_bounds().size.height) - self.inset - pin::BOTTOM - self.pin.as_ref().map_or(0., |p| p.spacer)

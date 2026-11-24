@@ -106,6 +106,10 @@ fn covered(inset: f32, bottom: f32, shift: f32) -> f32 {
     inset + bottom + shift
 }
 
+fn bubble_shows_below(end: Option<f32>, card_bottom: f32) -> bool {
+    end.is_some_and(|end| end > card_bottom)
+}
+
 /// How much of its shadow a card keeps when pushed `shift` px up: it settles onto the next bubble over the first
 /// `SETTLE` px, so the shadow doesn't darken that bubble.
 fn lift(shift: f32) -> f32 {
@@ -300,6 +304,9 @@ impl Desktop {
         // The next prompt's bubble, under the gap its row keeps over it.
         let next = next_prompt(&s.rows, top).and_then(|n| Some(view.row_top(n)? + chat::top_gap(n.checked_sub(1).and_then(|i| s.rows.get(i)), &s.rows[n])));
         let bottom = MARGIN_TOP + height(lines, open);
+        if bubble_shows_below(view.row_end(ix), bottom) {
+            return None;
+        }
         let shift = pushed(bottom, next);
         if shift <= -bottom {
             return None;
@@ -325,7 +332,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{HEIGHT, KNOB, MARGIN_TOP, OPEN_BOTTOM, OPEN_MAX_HEIGHT, OPEN_TOP, attached_count, height, lift, next_prompt, one_line, pushed, stuck, top_at_end, card_top, covered};
+    use super::{HEIGHT, KNOB, MARGIN_TOP, OPEN_BOTTOM, OPEN_MAX_HEIGHT, OPEN_TOP, attached_count, height, lift, bubble_shows_below, next_prompt, one_line, pushed, stuck, top_at_end, card_top, covered};
     use chat::Row;
 
     fn rows() -> Vec<Row> {
@@ -377,6 +384,14 @@ mod tests {
         assert_eq!(pushed(80., None), 0.);
         assert_eq!(pushed(80., Some(200.)), 0.);
         assert_eq!(pushed(80., Some(50.)), -30.);
+    }
+
+    #[test]
+    fn a_prompt_whose_bubble_still_shows_below_the_card_is_not_pinned_over_it() {
+        let bottom = MARGIN_TOP + HEIGHT;
+        assert!(bubble_shows_below(Some(bottom + 200.), bottom), "most of a tall opened bubble still shows");
+        assert!(!bubble_shows_below(Some(bottom - 4.), bottom), "what is left of it fits under the card");
+        assert!(!bubble_shows_below(None, bottom), "a row scrolled above the list is gone");
     }
 
     #[test]

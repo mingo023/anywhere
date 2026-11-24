@@ -14,6 +14,10 @@ fn inset(delegated: bool) -> f32 {
     if delegated { CRUMB_H } else { 0. }
 }
 
+fn crumb_shows(screen: Screen) -> bool {
+    screen != Screen::Inbox
+}
+
 /// The chat that delegated `id`, while it's listed.
 pub(super) fn parent_of<'a>(list: &'a [Summary], id: &str) -> Option<&'a Summary> {
     let child = list.iter().find(|a| a.id == id).filter(|a| status::is_child(a))?;
@@ -33,8 +37,12 @@ impl Desktop {
         parent_of(&self.agents.list, agent)
     }
 
+    fn crumb_parent(&self, agent: &str) -> Option<&Summary> {
+        self.delegated_parent(agent).filter(|_| crumb_shows(self.screen))
+    }
+
     pub(crate) fn delegated_inset(&self, agent: &str) -> f32 {
-        inset(self.delegated_parent(agent).is_some())
+        inset(self.crumb_parent(agent).is_some())
     }
 
     pub(crate) fn delegated_by(&self, agent: &str) -> Option<(String, String)> {
@@ -45,7 +53,7 @@ impl Desktop {
 
     /// `‹ <chat> / <session>` over the top of a delegated session's chat, which fades out beneath it; Back is the chat that delegated it.
     pub(crate) fn delegated_crumb(&self, agent: &str, cx: &mut Context<Self>) -> Option<Div> {
-        let parent = self.delegated_parent(agent)?;
+        let parent = self.crumb_parent(agent)?;
         let child = self.agents.get(agent)?;
         let to = parent.id.clone();
         let down = self.agents.delegations.of(&parent.id).iter().find(|d| d.child_id == agent).and_then(|d| super::unreachable_host(d, &self.fleet.hosts.list, &self.fleet.hosts.links));
@@ -122,7 +130,8 @@ fn escape_leaves(delegated: bool, asking: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{CRUMB_H, by_label, escape_leaves, inset, parent_of};
+    use super::{CRUMB_H, by_label, crumb_shows, escape_leaves, inset, parent_of};
+    use crate::desktop::chrome::Screen;
     use agents::delegations::Delegation;
     use agents::{Agents, Event, Summary};
     use chrono::FixedOffset;
@@ -167,5 +176,11 @@ mod tests {
     #[test]
     fn a_delegated_chat_starts_under_its_breadcrumb_and_a_plain_one_at_its_top() {
         assert_eq!([inset(true), inset(false)], [CRUMB_H, 0.]);
+    }
+
+    #[test]
+    fn a_delegated_session_in_the_inbox_shows_no_breadcrumb_under_the_inbox_header() {
+        assert!(crumb_shows(Screen::Sessions));
+        assert!(!crumb_shows(Screen::Inbox));
     }
 }
