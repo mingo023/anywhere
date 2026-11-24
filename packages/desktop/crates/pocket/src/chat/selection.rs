@@ -14,8 +14,19 @@ pub(crate) struct Select {
 }
 
 pub(crate) enum SelectEvent {
-    OpenLink { agent: String, link: String },
-    Quote { agent: String, text: String },
+    OpenLink {
+        agent: String,
+        link: String,
+    },
+    Quote {
+        agent: String,
+        text: String,
+    },
+    /// A right-click in the transcript of `agent`, off any link: the menu opens there.
+    Menu {
+        agent: String,
+        at: Point<Pixels>,
+    },
 }
 
 impl EventEmitter<SelectEvent> for Select {}
@@ -79,6 +90,36 @@ impl Select {
             _ => {}
         }
         cx.notify();
+    }
+
+    /// `transcript`, the chat of `agent`, over which a drag offers the pill and a right-click the menu.
+    pub(crate) fn offers(&self, agent: &str, transcript: AnyElement, writable: bool, cx: &mut Context<Self>) -> Div {
+        let (up, right) = (agent.to_string(), agent.to_string());
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .capture_any_mouse_down(cx.listener(|this, ev: &MouseDownEvent, _, _| {
+                if ev.button == MouseButton::Left {
+                    this.pressed(ev.position);
+                }
+            }))
+            .capture_any_mouse_up(cx.listener(move |_, ev: &MouseUpEvent, window, cx| {
+                if ev.button != MouseButton::Left {
+                    return;
+                }
+                let (agent, at) = (up.clone(), ev.position);
+                // The window settles its selection in its own mouse-up, which runs after this capture.
+                cx.defer_in(window, move |this, window, cx| this.released(agent, at, writable, window, cx));
+            }))
+            // On release, so a link under the pointer, whose handler stops the event, opens its own menu instead.
+            .on_mouse_up(
+                MouseButton::Right,
+                cx.listener(move |_, ev: &MouseUpEvent, _, cx| cx.emit(SelectEvent::Menu { agent: right.clone(), at: ev.position })),
+            )
+            .on_scroll(cx.listener(|this, _: &ScrollEvent, _, cx| this.scrolled(cx)))
+            .child(transcript)
     }
 
     /// The offer when it was made in the chat shown now.
@@ -186,35 +227,8 @@ pub(crate) fn quoted(draft: &str, text: &str) -> String {
 
 impl Desktop {
     pub(super) fn offers_selection(&self, agent: &str, transcript: AnyElement, cx: &mut Context<Self>) -> Div {
-        let (up, right) = (agent.to_string(), agent.to_string());
-        div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .capture_any_mouse_down(cx.listener(|this, ev: &MouseDownEvent, _, cx| {
-                if ev.button == MouseButton::Left {
-                    this.chats.select.update(cx, |s, _| s.pressed(ev.position));
-                }
-            }))
-            .capture_any_mouse_up(cx.listener(move |_, ev: &MouseUpEvent, window, cx| {
-                if ev.button != MouseButton::Left {
-                    return;
-                }
-                let (agent, at) = (up.clone(), ev.position);
-                // The window settles its selection in its own mouse-up, which runs after this capture.
-                cx.defer_in(window, move |this, window, cx| {
-                    let writable = !this.agents.observe_only();
-                    this.chats.select.update(cx, |s, cx| s.released(agent, at, writable, window, cx));
-                });
-            }))
-            // On release, so a link under the pointer, whose handler stops the event, opens its own menu instead.
-            .on_mouse_up(
-                MouseButton::Right,
-                cx.listener(move |this, ev: &MouseUpEvent, window, cx| this.offer_menu(right.clone(), ev.position, None, window, cx)),
-            )
-            .on_scroll(cx.listener(|this, _: &ScrollEvent, _, cx| this.chats.select.update(cx, |s, cx| s.scrolled(cx))))
-            .child(transcript)
+        let writable = !self.agents.observe_only();
+        self.chats.select.update(cx, |s, cx| s.offers(agent, transcript, writable, cx))
     }
 
     pub(super) fn chat_link(&mut self, agent: &str, link: &str, cwd: &str, press: Press, window: &mut Window, cx: &mut Context<Self>) {
@@ -237,6 +251,7 @@ impl Desktop {
                 self.chat_open(agent, link, &cwd, window, cx);
             }
             SelectEvent::Quote { agent, text } => self.quote_in_chat(agent, text, window, cx),
+            SelectEvent::Menu { agent, at } => self.offer_menu(agent.clone(), *at, None, window, cx),
         }
     }
 
