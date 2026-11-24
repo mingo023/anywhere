@@ -310,9 +310,10 @@ func TestASignInIsListedAsOneAndAShellIsNot(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer term.Close()
-		i := slices.IndexFunc(d.Terminals.List(), func(info terminal.Info) bool { return info.ID == term.Info().ID })
-		if i < 0 || d.Terminals.List()[i].SignIn != signIn {
-			t.Fatalf("signIn %v: listed %+v", signIn, d.Terminals.List())
+		listed := d.Terminals.List()
+		i := slices.IndexFunc(listed, func(info terminal.Info) bool { return info.ID == term.Info().ID })
+		if i < 0 || listed[i].SignIn != signIn {
+			t.Fatalf("signIn %v: listed %+v", signIn, listed)
 		}
 	}
 }
