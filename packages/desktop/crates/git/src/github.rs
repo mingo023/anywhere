@@ -165,14 +165,7 @@ pub enum GhProblem {
     Failed,
 }
 
-/// The PR for the branch checked out in the working directory.
-pub const VIEW: &[&str] = &[
-    "gh",
-    "pr",
-    "view",
-    "--json",
-    "number,title,url,state,isDraft,statusCheckRollup,reviewDecision,latestReviews,reviewRequests,mergeable,mergeStateStatus,headRefOid,baseRefName,body,author,createdAt,labels,additions,deletions,commits,files,comments,reviews",
-];
+const VIEW_FIELDS: &str = "number,title,url,state,isDraft,statusCheckRollup,reviewDecision,latestReviews,reviewRequests,mergeable,mergeStateStatus,headRefOid,baseRefName,body,author,createdAt,labels,additions,deletions,commits,files,comments,reviews";
 
 /// The branch name on the remote, without `origin/`.
 pub fn base_branch(base: &str) -> &str {
@@ -470,7 +463,17 @@ pub fn best<'a>(ranks: &[(&'a str, u8)], active: &str) -> Option<&'a str> {
     ranks.iter().filter(|(_, r)| *r > 0).max_by_key(|(login, r)| (*r, *login == active)).map(|(login, _)| *login)
 }
 
-/// Reads what [`VIEW`] returned through `daemon::run_login`: `Ok(None)` only when `gh` found no PR for the branch.
+/// The PR for the branch checked out where `run` runs `gh`: its number by branch, then the rest by number.
+/// By branch, `gh` nests every field in a search of 30 PRs, so asking for them all there costs 33 GraphQL points instead of 2.
+pub fn view(run: impl Fn(&[String]) -> Result<String, String>) -> Result<Option<Pr>, GhProblem> {
+    let number = match run(&["gh", "pr", "view", "--json", "number"].map(String::from)) {
+        Ok(json) => serde_json::from_str::<Value>(&json).ok().and_then(|v| u32::try_from(v["number"].as_u64()?).ok()).ok_or(GhProblem::Failed)?,
+        Err(e) => return view_result(Err(e)),
+    };
+    view_result(run(&["gh", "pr", "view", &number.to_string(), "--json", VIEW_FIELDS].map(String::from)))
+}
+
+/// Reads what `gh pr view` returned through `daemon::run_login`: `Ok(None)` only when `gh` found no PR for the branch.
 pub fn view_result(out: Result<String, String>) -> Result<Option<Pr>, GhProblem> {
     match out {
         Ok(json) => parse(&json).map(Some).ok_or(GhProblem::Failed),
@@ -984,6 +987,31 @@ mod tests {
         assert_eq!(best(&[("work", 1), ("me", 1)], "me"), Some("me"));
         assert_eq!(best(&[("work", 1), ("me", 1)], "work"), Some("work"));
         assert_eq!(best(&[("work", 0), ("me", 0)], "me"), None);
+    }
+
+    #[test]
+    fn a_pr_is_found_by_its_number_alone_then_read_whole_by_number() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let gh = |find: Result<&str, &str>, read: Result<&str, &str>| {
+            calls.borrow_mut().clear();
+            view(|argv| {
+                calls.borrow_mut().push(argv.to_vec());
+                let out = if calls.borrow().len() == 1 { find } else { read };
+                out.map(str::to_string).map_err(str::to_string)
+            })
+        };
+        let pr = r#"{"number":42,"title":"Fix it","url":"https://github.com/acme/app/pull/42","state":"MERGED"}"#;
+        let found = gh(Ok(r#"{"number":42}"#), Ok(pr)).unwrap().unwrap();
+        assert_eq!((found.number, found.state), (42, PrState::Merged));
+        let calls_made = calls.borrow().clone();
+        assert_eq!(calls_made[0], ["gh", "pr", "view", "--json", "number"]);
+        assert_eq!(calls_made[1][..4], ["gh", "pr", "view", "42"]);
+        assert!(calls_made[1].iter().any(|a| a.contains("commits")));
+
+        assert_eq!(gh(Err("no pull requests found for branch \"fix\""), Ok(pr)), Ok(None));
+        assert_eq!(calls.borrow().len(), 1);
+        assert_eq!(gh(Ok(r#"{"number":42}"#), Err("GraphQL: API rate limit already exceeded for user ID 1.")), Err(GhProblem::Failed));
+        assert_eq!(gh(Err("zsh:1: command not found: gh"), Ok(pr)), Err(GhProblem::Missing));
     }
 
     #[test]

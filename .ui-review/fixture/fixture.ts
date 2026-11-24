@@ -21,7 +21,7 @@
 // FIXTURE_HOST_WRITE_FAILS=1 refuses each file written to devbox's attachments folder.
 // FIXTURE_HOST_GH=1 (with FIXTURE_HOST_FILES) gives devbox's app-ios a worktree, app-ios-login on fix/login, whose PR #42 only devbox's
 // `gh` account `work` can see, and app-ios has `work` chosen; its active account, `me`, can't see acme/app-ios.
-// FIXTURE_HOST_GH_LIMIT=n (with FIXTURE_HOST_GH) answers devbox's first n `gh pr view` runs, then refuses each as a spent GraphQL rate limit.
+// FIXTURE_HOST_GH_LIMIT=n (with FIXTURE_HOST_GH) answers devbox's first n `gh pr view` runs (a poll makes two: the number, then the PR), then refuses each as a spent GraphQL rate limit.
 // FIXTURE_HANDOFF=1 (sets FIXTURE_HOST_FILES and FIXTURE_HOST_AGENTS) makes devbox a real folder, <dir>/devbox, for handing "Fix stale terminal reveal"
 // off to: app-android gets an origin that devbox has cloned, the Codex session a conversation on disk, and devbox's exec and files run for real there
 // (its `codex login status` and `claude auth status` say signed in). A create there starts the agent in its worktree with a conversation of its own.
