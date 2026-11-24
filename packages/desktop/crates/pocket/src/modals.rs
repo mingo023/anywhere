@@ -3,7 +3,7 @@ pub(crate) mod clone_project;
 pub(crate) mod confirm;
 pub(crate) mod form;
 pub(crate) mod host_finder;
-mod more;
+pub(crate) mod more;
 pub(crate) mod new_session;
 pub(crate) mod pair_phone;
 
@@ -67,7 +67,7 @@ impl Desktop {
             Overlay::Palette => (self.palette_view(cx), 0x1f, None),
             Overlay::AddRepo => (self.repo_view(cx), 0x40, Some((200, 8.))),
             Overlay::Clone => (self.clone_view(cx), 0x40, Some((200, 8.))),
-            Overlay::More => (self.more_menu(cx), 0, Some((150, -4.))),
+            Overlay::More => (self.more_view(cx), 0, Some((150, -4.))),
             Overlay::Confirm => (self.confirm_view(cx), 0x2e, Some((200, 8.))),
             Overlay::PairPhone => (self.pair_view(), 0x2e, Some((200, 8.))),
             Overlay::Handoff => (self.handoff_view(cx), 0x2e, Some((200, 8.))),

@@ -167,7 +167,12 @@ impl Desktop {
         let workspaces = cx.new(|_| Workspaces::default());
         let creates = cx.new(|_| Creates::default());
         let panels = cx.new(|cx| Panels::new(workspaces.clone(), creates.clone(), cx));
-        let panels_subs = [cx.subscribe_in(&panels, window, Self::on_panels_event), cx.observe(&panels, |_, _, cx| cx.notify())];
+        let more = panels.read(cx).more.clone();
+        let panels_subs = [
+            cx.subscribe_in(&panels, window, Self::on_panels_event),
+            cx.observe(&panels, |_, _, cx| cx.notify()),
+            cx.subscribe_in(&more, window, Self::on_more_event),
+        ];
         let changes = cx.new(|cx| Changes::new(graph.clone(), window, cx));
         let changes_subs = cx.subscribe_in(&changes, window, Self::on_changes_event);
         let explorer = cx.new(|_| Explorer::new());

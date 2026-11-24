@@ -346,7 +346,7 @@ impl Desktop {
     }
 
     pub(crate) fn open_more(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
-        self.panels.update(cx, |p, _| p.more_at = Some(at));
+        self.panels.read(cx).more.clone().update(cx, |m, cx| m.open_at(at, cx));
         self.close_menus(cx);
         self.overlay = Some(Overlay::More);
         cx.notify();

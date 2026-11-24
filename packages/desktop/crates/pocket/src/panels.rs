@@ -16,6 +16,7 @@ mod top_tabs;
 use crate::creating::{self, Creates};
 use crate::desktop::chrome::id;
 use crate::glide::Glide;
+use crate::modals::more::MoreMenu;
 use drop::Aim;
 use frame::{Drawing, Frame};
 use gpui_kit::component::tooltip::Tooltip;
@@ -90,8 +91,8 @@ pub(crate) struct Panels {
     top_actions: Option<(String, Point<Pixels>)>,
     /// The tab held on a strip, and the strip's pane.
     drag: Option<(PaneId, strip::TabDrag)>,
-    /// Where the click that opened the More menu was.
-    pub(crate) more_at: Option<Point<Pixels>>,
+    /// The More menu over a file tab.
+    pub(crate) more: Entity<MoreMenu>,
     /// The main area as last drawn, in window pixels; which panes have room to split depends on it.
     pub(crate) bounds: Rect,
     /// Where the held tab would drop, once it has left its strip.
@@ -116,6 +117,7 @@ pub(crate) struct Panels {
 impl Panels {
     pub(crate) fn new(workspaces: Entity<Workspaces>, creates: Entity<Creates>, cx: &mut Context<Self>) -> Self {
         let top = cx.new(|_| TopBar::default());
+        let more = cx.new(|_| MoreMenu::default());
         let _subs = vec![cx.subscribe(&top, Self::on_top_event), cx.observe(&top, |_, _, cx| cx.notify())];
         Self {
             workspaces,
@@ -125,7 +127,7 @@ impl Panels {
             actions: None,
             top_actions: None,
             drag: None,
-            more_at: None,
+            more,
             bounds: Rect::default(),
             aim: None,
             at: None,

@@ -1,14 +1,59 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
+use crate::region::notify_after_draw;
 use gpui_kit::*;
 use std::path::Path;
 use ui::{self, menu_row};
 use workspace::Doc;
 
+/// The More menu over a file tab: open it in the editor or reveal it, at the click that opened it.
+#[derive(Default)]
+pub(crate) struct MoreMenu {
+    at: Point<Pixels>,
+    /// The file the rows act on; none leaves the menu empty.
+    path: Option<String>,
+}
+
+pub(crate) enum MoreEvent {
+    Done,
+}
+
+impl EventEmitter<MoreEvent> for MoreMenu {}
+
+impl MoreMenu {
+    pub(crate) fn open_at(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
+        if self.at != at {
+            self.at = at;
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn show(&mut self, path: Option<String>, cx: &mut Context<Self>) {
+        if self.path != path {
+            self.path = path;
+            notify_after_draw(cx);
+        }
+    }
+}
+
+impl Render for MoreMenu {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let menu = ui::pop(div().absolute().left(self.at.x - px(216.)).top(self.at.y + px(18.)).w(px(230.)).p(px(6.)).flex().flex_col()).occlude();
+        let Some(path) = self.path.clone() else { return menu };
+        let reveal = path.clone();
+        menu.child(menu_row("more-open", "external", "Open in editor", None).on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+            cx.open_with_system(Path::new(&path));
+            cx.emit(MoreEvent::Done);
+        })))
+        .child(menu_row("more-reveal", "folder", "Reveal in Finder", None).on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+            cx.reveal_path(Path::new(&reveal));
+            cx.emit(MoreEvent::Done);
+        })))
+    }
+}
+
 impl Desktop {
-    pub(super) fn more_menu(&mut self, cx: &mut Context<Self>) -> Div {
-        let at = self.panels.read(cx).more_at.unwrap_or_default();
-        let menu = ui::pop(div().absolute().left(at.x - px(216.)).top(at.y + px(18.)).w(px(230.)).p(px(6.)).flex().flex_col()).occlude();
+    pub(super) fn more_view(&mut self, cx: &mut Context<Self>) -> Div {
         let path = match self.active_doc(cx) {
             Some(Doc::File(p)) => Some(p),
             Some(Doc::Diff(p) | Doc::CommitFile { path: p, .. } | Doc::PrFile { path: p, .. } | Doc::CompareFile { path: p, .. }) => {
@@ -16,15 +61,14 @@ impl Desktop {
             }
             Some(Doc::Commit(_)) | None => None,
         };
-        let Some(path) = path.filter(|_| self.screen == Screen::Sessions) else { return menu };
-        let reveal = path.clone();
-        menu.child(menu_row("more-open", "external", "Open in editor", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-            cx.open_with_system(Path::new(&path));
-            this.close_overlay(window, cx);
-        })))
-        .child(menu_row("more-reveal", "folder", "Reveal in Finder", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-            cx.reveal_path(Path::new(&reveal));
-            this.close_overlay(window, cx);
-        })))
+        let more = self.panels.read(cx).more.clone();
+        more.update(cx, |m, cx| m.show(path.filter(|_| self.screen == Screen::Sessions), cx));
+        div().absolute().inset_0().child(more)
+    }
+
+    pub(crate) fn on_more_event(&mut self, _: &Entity<MoreMenu>, ev: &MoreEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            MoreEvent::Done => self.close_overlay(window, cx),
+        }
     }
 }
