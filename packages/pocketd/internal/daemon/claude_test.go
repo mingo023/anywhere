@@ -491,6 +491,66 @@ func TestHooksStopDrivingStatusOnceTheClaudeReports(t *testing.T) {
 	}
 }
 
+func shortReportWait(t *testing.T) {
+	t.Helper()
+	w := ReportWait
+	t.Cleanup(func() { ReportWait = w })
+	ReportWait = 50 * time.Millisecond
+}
+
+func TestAStopHookEndsTheTurnOfAClaudeWhoseReportsWentQuiet(t *testing.T) {
+	shortReportWait(t)
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	reportState(d, pr, "working")
+	hookFrom(d, pr, `{"hook_event_name":"Stop"}`)
+	eventually(t, "the turn to end", func() bool { return statusOf(d, term) == "done" })
+	hookFrom(d, pr, `{"hook_event_name":"UserPromptSubmit"}`)
+	if got := statusOf(d, term); got != "working" {
+		t.Fatalf("after the next prompt: %s, want hooks driving a claude that stopped reporting", got)
+	}
+	reportState(d, pr, "blocked")
+	hookFrom(d, pr, `{"hook_event_name":"UserPromptSubmit"}`)
+	if got := statusOf(d, term); got != "needsYou" {
+		t.Fatalf("after a new report: %s, want reports driving again", got)
+	}
+}
+
+func TestAStopFailureHookEndsAQuietClaudesTurnAsFailed(t *testing.T) {
+	shortReportWait(t)
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	reportState(d, pr, "working")
+	hookFrom(d, pr, `{"hook_event_name":"StopFailure"}`)
+	eventually(t, "the turn to end", func() bool { a, _ := agentIn(d, term); return a.Status == "done" && a.Failed })
+}
+
+func TestAStopHookLeavesTheEndToAClaudeThatReportsIt(t *testing.T) {
+	shortReportWait(t)
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	reportState(d, pr, "working")
+	hookFrom(d, pr, `{"hook_event_name":"Stop"}`)
+	reportState(d, pr, "error")
+	time.Sleep(4 * ReportWait)
+	if a, _ := agentIn(d, term); a.Status != "done" || !a.Failed || !pr.isReported() {
+		t.Fatalf("agent = %+v, reported = %v", a, pr.isReported())
+	}
+}
+
+func TestAReportAfterAStopHookKeepsAReportingClaudeWorking(t *testing.T) {
+	shortReportWait(t)
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	reportState(d, pr, "working")
+	hookFrom(d, pr, `{"hook_event_name":"Stop"}`)
+	d.Report(pr.t.Info().ID, terminal.Report{State: "working", App: "claude-code", Msg: "Reading daemon.go"})
+	time.Sleep(4 * ReportWait)
+	if got := statusOf(d, term); got != "working" {
+		t.Fatalf("status = %s, want the report after the Stop to keep it working", got)
+	}
+}
+
 func TestEscDoesNotClearAReportingClaude(t *testing.T) {
 	d := newDaemon(t)
 	term, pr := claudeIn(t, d)

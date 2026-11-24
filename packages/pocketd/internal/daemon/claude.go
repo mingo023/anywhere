@@ -192,6 +192,9 @@ func (d *Daemon) catchUp(pr *presence) {
 	}
 }
 
+// ReportWait is how long a reporting claude has to report the end of a turn its Stop hook announced.
+var ReportWait = 2 * time.Second
+
 func (d *Daemon) apply(pr *presence, r terminal.Report) {
 	pr.report.Lock()
 	defer pr.report.Unlock()

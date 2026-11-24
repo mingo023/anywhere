@@ -37,6 +37,7 @@ type Message struct {
 		TerminalID        string `json:"terminalId"`
 		ProviderSessionID string `json:"providerSessionId"`
 		Status            string `json:"status"`
+		Activity          string `json:"activity"`
 		Title             string `json:"title"`
 		Branch            string `json:"branch"`
 		Attached          bool   `json:"attached"`
