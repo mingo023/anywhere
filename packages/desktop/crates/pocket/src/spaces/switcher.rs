@@ -1,7 +1,7 @@
 use super::{Reach, Space, flash_key, waiting};
 use crate::desktop::Desktop;
 use crate::settings::ssh_hosts::link_color;
-use crate::sidebar::rail::{rail_button, rail_slot};
+use crate::sidebar::rail::rail_slot;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -69,7 +69,7 @@ impl Render for Switcher {
 
 impl Desktop {
     /// Hands `switcher` one button per space: its icon, a host's link dot, its colour under the one on screen and the count of sessions waiting on you in the others.
-    fn hand_spaces(&self, switcher: &Entity<Switcher>, order: &[Space], current: &Space, cx: &mut Context<Self>) {
+    pub(crate) fn hand_spaces(&self, switcher: &Entity<Switcher>, order: &[Space], current: &Space, cx: &mut Context<Self>) {
         let waiting_in = self.waiting_projects(cx);
         let now = Instant::now();
         let buttons = order
@@ -104,38 +104,6 @@ impl Desktop {
         let spaces = self.sidebar.read(cx).rail_spaces.clone();
         self.hand_spaces(&spaces, order, current, cx);
         spaces
-    }
-
-    /// The aside's foot: the space buttons, add a host, and Settings at the right.
-    pub(crate) fn space_switcher(&self, order: &[Space], current: &Space, cx: &mut Context<Self>) -> Div {
-        let add = rail_button("aside-add-host", "plus", false)
-            .tooltip(|window, cx| Tooltip::new("Add a host").build(window, cx))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_host_from_sidebar(window, cx)));
-        let settings = rail_button("aside-settings", "settings", false)
-            .tooltip(|window, cx| Tooltip::new("Settings").build(window, cx))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_settings(&crate::actions::OpenSettings, window, cx)));
-        div()
-            .mt(px(6.))
-            .mx(px(-8.))
-            .px(px(8.))
-            .pt(px(6.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(2.))
-            .border_t(px(0.5))
-            .border_color(SEPARATOR)
-            .child(
-                // With many hosts the buttons scroll, so Add and Settings stay in reach.
-                div().id("aside-spaces").flex().items_center().gap(px(2.)).min_w_0().p(px(1.)).overflow_x_scroll().child({
-                    let spaces = self.sidebar.read(cx).aside_spaces.clone();
-                    self.hand_spaces(&spaces, order, current, cx);
-                    spaces
-                }),
-            )
-            .child(add)
-            .child(div().flex_1())
-            .child(settings)
     }
 
     /// Settings › Hosts with the add form open.

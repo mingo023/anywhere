@@ -36,12 +36,11 @@ pub(crate) fn column(width: f32) -> StyleRefinement {
 
 /// The columns either side of the page.
 pub(crate) struct Regions {
-    pub(crate) aside: Entity<Region>,
     pub(crate) panel: Entity<Region>,
 }
 
 impl Regions {
     pub(crate) fn new(cx: &mut Context<Desktop>) -> Self {
-        Self { aside: Region::new(cx, |d, _, cx| d.aside(cx).into_any_element()), panel: Region::new(cx, |d, _, cx| d.workspace_panel(cx).into_any_element()) }
+        Self { panel: Region::new(cx, |d, _, cx| d.workspace_panel(cx).into_any_element()) }
     }
 }

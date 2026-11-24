@@ -249,15 +249,6 @@ impl Desktop {
         cx.notify();
     }
 
-    pub(super) fn open_row_menu(menu: RowMenu, cx: &mut Context<Self>) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static {
-        open_on_right_click(menu, Self::on_menu_event, cx)
-    }
-
-    pub(super) fn row_menu_button(&self, key: &str, menu: RowMenu, cx: &mut Context<Self>) -> AnyElement {
-        let shown = self.row_menu.as_ref().filter(|m| **m == menu).and_then(|_| self.menu_frame(cx));
-        menu_button(key, menu, shown.as_ref(), Self::on_menu_event, cx)
-    }
-
     /// The open row menu, with its items, for the view of its row.
     pub(crate) fn menu_frame(&self, cx: &App) -> Option<MenuFrame> {
         let menu = self.row_menu.clone()?;

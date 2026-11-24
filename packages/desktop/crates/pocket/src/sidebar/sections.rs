@@ -1,16 +1,16 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{RowMenu, Screen, id};
+use crate::desktop::chrome::Screen;
+use crate::sidebar::aside::{Body, GroupBody, GroupFrame, PinnedFrame, PinnedItem, ProjectFrame, SectionsFrame, SidebarEvent, Tail, TreeFrame};
 use crate::sidebar::filter::FIELD_H;
-use crate::sidebar::fold::{self, Fold};
+use crate::sidebar::fold::Fold;
 use crate::sidebar::header::{HeaderFrame, ProjectsHeader};
 use crate::sidebar::rename::rename_field;
-use crate::sidebar::{DragProject, tree_label, tree_place};
-use crate::spaces::space_of;
-use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::prelude::FluentBuilder as _;
+use crate::sidebar::{ProjectRow, Sidebar, rolled_state, tree_label, tree_place};
+use crate::spaces::{Space, space_of};
+use gpui_kit::component::input::InputState;
 use gpui_kit::*;
+use std::time::Instant;
 use store::sections::{Pin, Sort};
-use theme::*;
 
 /// The group being renamed.
 #[derive(Default)]
@@ -30,7 +30,7 @@ pub(super) fn section_head() -> Div {
 }
 
 /// Where a project row sits, and so what dropping a project on it does.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Section {
     Pinned,
     Group(u32),
@@ -95,13 +95,6 @@ fn sort_projects(projects: &mut [String], sort: Sort, name: impl Fn(&str) -> Str
         Sort::Name => projects.sort_by_cached_key(|p| name(p).to_lowercase()),
         Sort::Recent => projects.sort_by_cached_key(|p| std::cmp::Reverse(recent(p))),
     }
-}
-
-/// A section's rows under its head, springing to their height as it opens and shuts; `group_box`'s gap moves inside, so a shut section keeps its height.
-fn section_body(id: impl Into<ElementId>, open: bool, rows: Vec<(AnyElement, f32)>) -> impl IntoElement {
-    let height = if rows.is_empty() { 0. } else { 2. + fold::stacked(rows.iter().map(|r| r.1), 2.) };
-    let body = div().flex().flex_col().gap(px(2.)).when(!rows.is_empty(), |d| d.pt(px(2.))).children(rows.into_iter().map(|r| r.0));
-    fold::springing(id, open, height, body)
 }
 
 pub(crate) fn emoji_mark(e: String) -> Div {
@@ -205,17 +198,8 @@ impl Desktop {
 
     pub(super) fn start_group_rename(&mut self, group: u32, window: &mut Window, cx: &mut Context<Self>) {
         let Some(name) = self.store.sections.group(group).map(|g| g.name.clone()) else { return };
-        let (input, sub) = rename_field(name, window, cx, Self::save_group_rename);
         self.row_menu = None;
-        self.sidebar.update(cx, |s, _| s.organize.rename = Some(GroupRename { group, input, _sub: sub }));
-        cx.notify();
-    }
-
-    fn save_group_rename(&mut self, cx: &mut Context<Self>) {
-        if let Some(r) = self.sidebar.update(cx, |s, _| s.organize.rename.take()) {
-            self.store.sections.rename_group(r.group, &r.input.read(cx).value());
-            self.store.save();
-        }
+        self.sidebar.update(cx, |s, cx| s.begin_group_rename(group, name, window, cx));
         cx.notify();
     }
 
@@ -230,159 +214,120 @@ impl Desktop {
         self.store.save();
     }
 
-    /// Takes a project dropped anywhere on `el` into `to`.
-    pub(super) fn drops_into<E: InteractiveElement + StatefulInteractiveElement>(el: E, to: Section, cx: &mut Context<Self>) -> E {
-        el.drag_over::<DragProject>(|s, _, _, _| s.bg(FILL_2)).on_drop(cx.listener(move |this, d: &DragProject, _, cx| {
-            this.drop_into(&d.path, to);
-            cx.notify();
-        }))
-    }
-
-    /// Pinned rows, each group, then the ungrouped projects; while filtering, only what matches.
-    pub(super) fn sections(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let query = self.sidebar.read(cx).query(cx);
+    /// The sections, as the aside draws them: pinned rows, each group, then the ungrouped projects; while filtering, only what matches.
+    pub(super) fn body_frame(&self, query: &str, space: &Space, cx: &mut Context<Self>) -> Body {
         let filtering = !query.is_empty();
-        let listed = self.listed(&query, cx);
+        let listed = self.listed(query, cx);
         let sections = &self.store.sections;
         let nothing = listed.pinned.is_empty() && listed.other.is_empty() && listed.groups.iter().all(|(_, blocks)| blocks.is_empty());
         if !filtering && nothing {
-            return self.empty_space(&self.space(), cx).into_iter().collect();
+            return Body::Empty(self.empty_space_name(space));
         }
-        let mut out = Vec::new();
-        if !listed.pinned.is_empty() {
-            let open = filtering || !sections.pins_folded;
-            let head =
-                ui::section_head("aside-pinned", icon("pin", 14., TEXT), "Pinned", open, None, false).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.store.sections.pins_folded = !this.store.sections.pins_folded;
-                    if this.store.sections.pins_folded {
-                        this.sidebar.update(cx, |s, _| s.closing.start(Fold::Pinned));
-                    }
-                    this.store.save();
-                    cx.notify();
-                }));
-            let rows: Vec<(AnyElement, f32)> = if self.sidebar.read(cx).closing.drawn(&Fold::Pinned, open) {
+        let pinned_open = filtering || !sections.pins_folded;
+        let pinned = (!listed.pinned.is_empty()).then(|| {
+            let items = if self.sidebar.read(cx).closing.drawn(&Fold::Pinned, pinned_open) {
                 listed
                     .pinned
                     .iter()
                     .map(|item| match item {
-                        Item::Project(b) => self.project_block(b.ix, &b.project, b.only.as_deref(), Section::Pinned, cx),
-                        Item::Tree { project, key } => {
-                            let row = self.pinned_tree(project, key, cx);
-                            let open = row.is_some();
-                            let height = if open { ui::SIDEBAR_ROW_H } else { 0. };
-                            (fold::springing(id(format!("aside-pin-fold:{key}")), open, ui::SIDEBAR_ROW_H, div().children(row)).into_any_element(), height)
-                        }
+                        Item::Project(b) => PinnedItem::Project(self.project_frame(b.ix, &b.project, b.only.as_deref(), Section::Pinned, cx)),
+                        Item::Tree { project, key } => PinnedItem::Tree { key: key.clone(), row: self.pinned_tree_frame(project, key, cx).map(Box::new) },
                     })
                     .collect()
             } else {
                 vec![]
             };
-            let body = section_body("aside-pinned-fold", open, rows);
-            out.push(Self::drops_into(ui::group_box().id("aside-pinned-box").gap_0().child(head).child(body), Section::Pinned, cx).into_any_element());
-        }
+            PinnedFrame { open: pinned_open, items }
+        });
+        let mut groups = Vec::new();
         for (id, blocks) in &listed.groups {
             let Some(group) = sections.group(*id) else { continue };
             if filtering && blocks.is_empty() {
                 continue;
             }
             let open = filtering || !group.folded;
-            let id = *id;
-            let name = match self.sidebar.read(cx).organize.rename.as_ref().filter(|r| r.group == id) {
-                Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(14.)).into_any_element(),
-                None => group.name.clone().into_any_element(),
+            let body = match (self.sidebar.read(cx).closing.drawn(&Fold::Group(*id), open), blocks.is_empty()) {
+                (false, _) => GroupBody::Hidden,
+                (true, true) => GroupBody::Hint,
+                (true, false) => {
+                    GroupBody::Blocks(blocks.iter().map(|b| self.project_frame(b.ix, &b.project, b.only.as_deref(), Section::Group(*id), cx)).collect())
+                }
             };
-            let menu = RowMenu::Group(id);
-            let more = self.row_menu_button(&format!("group:{id}"), menu.clone(), cx);
-            let head = ui::section_head(
-                ("aside-group", id as usize),
-                div().children(group.icon.clone().map(emoji_mark)),
-                name,
-                open,
-                Some(more),
-                self.row_menu.as_ref() == Some(&menu),
-            )
-            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
-                if this.sidebar.read(cx).organize.rename.as_ref().is_some_and(|r| r.group == id) {
-                    return;
-                }
-                // A double-click's second click undoes the fold its first made.
-                this.store.sections.toggle_group(id);
-                if this.store.sections.group(id).is_some_and(|g| g.folded) {
-                    this.sidebar.update(cx, |s, _| s.closing.start(Fold::Group(id)));
-                }
-                this.store.save();
-                if ev.click_count() > 1 {
-                    return this.start_group_rename(id, window, cx);
-                }
-                cx.notify();
-            }))
-            .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx));
-            let rows: Vec<(AnyElement, f32)> = match (self.sidebar.read(cx).closing.drawn(&Fold::Group(id), open), blocks.is_empty()) {
-                (false, _) => vec![],
-                (true, true) => vec![(
-                    div()
-                        .h(px(ui::SIDEBAR_ROW_H))
-                        .px(px(10.))
-                        .flex()
-                        .items_center()
-                        .text_size(px(12.5))
-                        .text_color(TEXT_4)
-                        .child("Drag projects here")
-                        .into_any_element(),
-                    ui::SIDEBAR_ROW_H,
-                )],
-                (true, false) => blocks.iter().map(|b| self.project_block(b.ix, &b.project, b.only.as_deref(), Section::Group(id), cx)).collect(),
-            };
-            let body = section_body(("aside-group-fold", id as usize), open, rows);
-            out.push(
-                Self::drops_into(ui::group_box().id(("aside-group-box", id as usize)).gap_0().child(head).child(body), Section::Group(id), cx)
-                    .into_any_element(),
-            );
+            groups.push(GroupFrame { id: *id, name: group.name.clone(), icon: group.icon.clone(), open, body });
         }
-        if filtering && listed.other.is_empty() {
-            if out.is_empty() {
-                out.push(
-                    div()
-                        .px(px(10.))
-                        .py(px(12.))
-                        .text_size(px(12.5))
-                        .text_color(TEXT_3)
-                        .child(format!("No projects or worktrees match “{}”.", self.sidebar.read(cx).header.read(cx).filter.input.read(cx).value().trim()))
-                        .into_any_element(),
-                );
-            }
-            return out;
-        }
-        let rows: Vec<AnyElement> = listed.other.iter().map(|b| self.project_block(b.ix, &b.project, b.only.as_deref(), Section::Other, cx).0).collect();
-        let other = div().id("aside-other").flex().flex_col().gap(px(1.)).when(
-            (!out.is_empty() || !listed.groups.is_empty()) && (!rows.is_empty() || cx.has_active_drag()),
-            |d| {
-                d.child(
-                    div()
-                        .h(px(28.))
-                        .px(px(10.))
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .gap(px(8.))
-                        .text_size(px(12.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(TEXT_3)
-                        .child("Other")
-                        .child(ui::group_count(rows.len())),
-                )
-            },
-        );
-        out.push(Self::drops_into(other.children(rows), Section::Other, cx).into_any_element());
-        out
+        let above = pinned.is_some() || !groups.is_empty();
+        let tail = if filtering && listed.other.is_empty() {
+            if above { Tail::None } else { Tail::NoMatch(self.sidebar.read(cx).header.read(cx).filter.input.read(cx).value().trim().to_string()) }
+        } else {
+            let blocks = listed.other.iter().map(|b| self.project_frame(b.ix, &b.project, b.only.as_deref(), Section::Other, cx)).collect();
+            Tail::Other { blocks, headed: above || !listed.groups.is_empty() }
+        };
+        Body::Sections(SectionsFrame { pinned_open, pinned, groups, tail })
     }
 
     /// A pinned tree's row, naming its project; `None` once the tree is gone.
-    fn pinned_tree(&self, p: &str, key: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn pinned_tree_frame(&self, p: &str, key: &str, cx: &App) -> Option<TreeFrame> {
         let trees = self.trees_shown(p, cx)?;
         let row = self.tree_rows(p, &trees, cx).into_iter().find(|r| r.key == key)?;
         let current = self.place(cx).filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
-        Some(self.place_row(p, &row, current.as_deref(), &self.creates.read(cx).setups(&self.terminals.read(cx).setups), Some(self.repo_name(p)), cx))
+        Some(self.tree_frame(p, &row, current.as_deref(), &self.creates.read(cx).setups(&self.terminals.read(cx).setups), Some(self.repo_name(p)), cx))
+    }
+
+    /// A project's row, then while it is open its checkout's and worktrees' rows, less those pinned.
+    /// `only` holds the trees the filter lets through, unfolding it; `section` is where it sits, so where a project dropped on it goes.
+    fn project_frame(&self, ix: usize, p: &str, only: Option<&[String]>, section: Section, cx: &App) -> ProjectFrame {
+        let current = self.place(cx).filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
+        let trees = self.trees_shown(p, cx);
+        let setups = self.creates.read(cx).setups(&self.terminals.read(cx).setups);
+        let fold = ProjectRow::new(trees.as_deref(), only.is_none() && self.store.collapsed.contains(p), &setups);
+        let selected = fold.selected(current.as_deref());
+        let ProjectRow { git, open, setting_up } = fold;
+        let state = if open { None } else { self.calm(p, rolled_state(&self.cards(p, cx)).filter(|_| !setting_up)) };
+        let name = self.repo_name(p);
+        let offline = hosts::split(p).0.is_some_and(|h| !self.fleet.hosts.links.online(h));
+        let rows = if self.sidebar.read(cx).closing.drawn(&Fold::Project(p.to_string()), open) {
+            self.tree_rows(p, trees.as_deref().unwrap_or_default(), cx)
+                .iter()
+                .filter(|r| only.is_none_or(|o| o.contains(&r.key)) && !self.tree_pinned(p, &r.key))
+                .map(|row| self.tree_frame(p, row, current.as_deref(), &setups, None, cx))
+                .collect()
+        } else {
+            vec![]
+        };
+        ProjectFrame {
+            ix,
+            path: p.to_string(),
+            mark: self.project_mark(p, ui::mark_letter(&name)),
+            name,
+            git,
+            open,
+            setting_up,
+            selected,
+            state,
+            offline,
+            lit: self.sidebar.read(cx).lit(cx, p, None),
+            flashed: self.spaces.flashed(p, Instant::now()),
+            section,
+            manual: self.store.sections.sort == Sort::Manual,
+            rows,
+        }
+    }
+}
+
+impl Sidebar {
+    /// Edits group `group`'s name in its head, all selected.
+    pub(crate) fn begin_group_rename(&mut self, group: u32, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        let (input, sub) = rename_field(name, window, cx, Self::finish_group_rename);
+        self.organize.rename = Some(GroupRename { group, input, _sub: sub });
+        cx.notify();
+    }
+
+    fn finish_group_rename(&mut self, cx: &mut Context<Self>) {
+        if let Some(r) = self.organize.rename.take() {
+            let name = r.input.read(cx).value().to_string();
+            cx.emit(SidebarEvent::GroupRenamed { group: r.group, name });
+        }
+        cx.notify();
     }
 }
 

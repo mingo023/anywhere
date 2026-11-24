@@ -431,7 +431,7 @@ impl Desktop {
         }))
     }
 
-    fn drag_edge(&mut self, col: Column, width: f32, cx: &mut Context<Self>) {
+    pub(crate) fn drag_edge(&mut self, col: Column, width: f32, cx: &mut Context<Self>) {
         match dragged(col, self.layout, width) {
             Edge::Width(width) => self.widths[col as usize] = Some(width),
             Edge::Collapse => self.layout = Layout::Compact,

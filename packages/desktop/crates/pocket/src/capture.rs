@@ -1920,7 +1920,10 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.pr.track.all = false;
     d.agents.names.clear();
     d.agents.locals.clear();
-    d.sidebar.update(cx, |s, _| s.rename = None);
+    d.sidebar.update(cx, |s, cx| {
+        s.rename = None;
+        cx.notify();
+    });
     d.spaces.reset();
     d.sidebar.read(cx).space_header.clone().update(cx, |h, _| h.reset());
     d.updates.update = Update::Idle;
