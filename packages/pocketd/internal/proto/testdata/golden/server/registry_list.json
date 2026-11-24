@@ -1,0 +1,61 @@
+{
+  "type": "registry.list",
+  "projects": [
+    {
+      "id": "p1a2b3c4d5e6f7a8",
+      "path": "/Users/me/app",
+      "repo": {
+        "name": "App",
+        "color": 4286578816,
+        "setup": "make setup",
+        "teardown": "make clean",
+        "launch": {
+          "provider": "claude",
+          "model": "opus",
+          "effort": "",
+          "access": "full",
+          "account": ""
+        },
+        "dev_url": "http://localhost:3000",
+        "icon": {
+          "emoji": "A"
+        },
+        "gh_account": "work",
+        "accounts": {
+          "claude": "3f9a0c1b2d4e"
+        },
+        "hidden": [
+          "codex"
+        ]
+      }
+    },
+    {
+      "id": "q9b8c7d6e5f4a3b2",
+      "path": "/Users/me/other",
+      "repo": {
+        "name": "",
+        "color": 0,
+        "setup": "",
+        "teardown": "",
+        "dev_url": "",
+        "icon": null,
+        "gh_account": "",
+        "accounts": {},
+        "hidden": []
+      }
+    }
+  ],
+  "tracked": [
+    "/Users/me/.anywhere/worktrees/app/cute-boa"
+  ],
+  "settings": {
+    "git": {
+      "remote": "fork",
+      "commit_all": false,
+      "force_with_lease": true
+    },
+    "access": "edits",
+    "worktree_root": "/Users/me/.anywhere/worktrees",
+    "external_worktrees": true
+  }
+}

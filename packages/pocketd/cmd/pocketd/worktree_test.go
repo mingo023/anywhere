@@ -39,6 +39,7 @@ func scratch(t *testing.T) string {
 	os.WriteFile(filepath.Join(dir, "desktop.json"), raw, 0o600)
 	os.WriteFile(filepath.Join(p, ".env"), []byte("A=1"), 0o600)
 	t.Setenv("POCKETD_SOCK", filepath.Join(dir, "pocketd.sock"))
+	t.Setenv("POCKET_HOME", dir)
 	return p
 }
 

@@ -1,0 +1,1 @@
+{"type":"project.add","id":"pa","path":"/Users/me/app","repo":{"name":"App","color":4286578816,"setup":"make setup","teardown":"","launch":{"provider":"claude","model":"opus","effort":"","access":"full","account":""},"dev_url":"","icon":{"emoji":"A"},"gh_account":"work","accounts":{"claude":"3f9a0c1b2d4e"},"hidden":["codex"]}}

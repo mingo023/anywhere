@@ -60,10 +60,10 @@ func location(root, gitdir, common string, main bool) (Location, bool) {
 	return Location{Root: root, Common: common, Branch: branch, Main: main}, true
 }
 
-// Place is where an agent works, as clients name it.
+// Place is where an agent works, as clients name it. Tree is the worktree's root, or the project folder when it isn't a repo.
 type Place struct {
-	Project, Worktree, Branch string
-	Main                      bool
+	Project, ProjectID, Tree, Worktree, Branch string
+	Main                                       bool
 }
 
 // Find places cwd in a registered Project: the one sharing its repo, or, for
@@ -74,9 +74,9 @@ func Find(f registry.File, cwd string) (Place, bool) {
 	case !ok:
 		return Place{}, false
 	case at.Root != "":
-		return Place{Project: f.Name(p), Worktree: filepath.Base(at.Root), Branch: at.Branch, Main: at.Main}, true
+		return Place{Project: f.Name(p), ProjectID: f.Repos[p].ID, Tree: at.Root, Worktree: filepath.Base(at.Root), Branch: at.Branch, Main: at.Main}, true
 	default:
-		return Place{Project: f.Name(p), Worktree: filepath.Base(p), Main: true}, true
+		return Place{Project: f.Name(p), ProjectID: f.Repos[p].ID, Tree: p, Worktree: filepath.Base(p), Main: true}, true
 	}
 }
 

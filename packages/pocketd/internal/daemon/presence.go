@@ -179,7 +179,7 @@ func (d *Daemon) Running(provider, id string) int {
 // branch can move under a running agent, so each turn end places it again.
 func (d *Daemon) place(pr *presence) {
 	p, _ := worktree.Find(d.Registry.Load(), pr.t.Info().Cwd)
-	pr.a.SetLocation(p.Project, p.Worktree, p.Branch, p.Main)
+	pr.a.SetLocation(p.Project, p.ProjectID, p.Tree, p.Worktree, p.Branch, p.Main)
 }
 
 // cleared is a turn the user stopped: it ends like any other, so the agent may switch.

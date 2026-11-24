@@ -3,6 +3,7 @@
   "id": "p1",
   "projects": [
     {
+      "id": "p1a2b3c4d5e6f7a8",
       "path": "/Users/me/dev/pocket",
       "name": "pocket",
       "worktrees": [

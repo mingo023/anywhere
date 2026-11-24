@@ -39,7 +39,7 @@ func pocketProject(t *testing.T, d *Daemon) string {
 	raw, _ := json.Marshal(registry.File{Projects: []string{p}, Repos: map[string]registry.Repo{p: {Name: "Pocket"}}})
 	path := filepath.Join(dir, "desktop.json")
 	os.WriteFile(path, raw, 0o600)
-	d.Registry = registry.New(path)
+	d.Registry = registry.Open(filepath.Dir(path))
 	return linked
 }
 
@@ -59,6 +59,9 @@ func TestAnAgentInALinkedWorktreeIsPlacedInItsProject(t *testing.T) {
 	a := waitAgent(t, d, claudeAt(t, d, filepath.Join(linked, "sub"), ""))
 	if a.Project != "Pocket" || a.Worktree != "calm-otter" || a.Branch != "calm-otter" || a.MainWorktree || a.Origin != "desktop" {
 		t.Fatalf("%+v", a)
+	}
+	if want := d.Registry.Load().Repos[filepath.Join(filepath.Dir(linked), "pocket")].ID; want == "" || a.ProjectID != want || a.Tree != linked {
+		t.Fatalf("project id %q tree %q, want %q and %q", a.ProjectID, a.Tree, want, linked)
 	}
 }
 

@@ -141,7 +141,8 @@ type conn struct {
 	stopNames func()
 	caps      []string
 
-	stopLocals func()
+	stopLocals   func()
+	stopRegistry func()
 
 	stopAutomations func()
 	stopBoard       func()
@@ -204,6 +205,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if c.stopBoard != nil {
 			c.stopBoard()
+		}
+		if c.stopRegistry != nil {
+			c.stopRegistry()
 		}
 		if c.stopLocals != nil {
 			c.stopLocals()
@@ -268,6 +272,11 @@ func (c *conn) handle(raw []byte) {
 	if m.Type == "hello" {
 		version, caps, code := proto.Negotiate(m.Versions(), m.Caps, proto.ServerCaps)
 		c.caps = caps
+		if code == "" && m.ClientID == proto.ClientDesktop && !slices.Contains(caps, proto.CapRegistryV2) {
+			c.send(proto.NewErrorCode(m.ID, proto.CodeClientTooOld, "Update Anywhere on this computer"))
+			c.ws.Close(statusVersionMismatch, proto.CodeClientTooOld)
+			return
+		}
 		if code != "" {
 			c.tooOld(m.ID, code)
 			return
@@ -333,6 +342,7 @@ func (c *conn) handle(raw []byte) {
 		hostMsgs := c.withHost(&ok)
 		nameMsgs := c.withNames(caps)
 		localMsgs := c.withLocals(caps)
+		registryMsgs := c.withRegistry(caps)
 		c.send(ok)
 		c.send(proto.NewAgentList("", c.s.agents()))
 		c.automations(caps)
@@ -347,6 +357,9 @@ func (c *conn) handle(raw []byte) {
 		if c.stopLocals != nil && slices.Contains(caps, proto.CapLocals) {
 			c.send(proto.NewLocalList(c.s.Locals.List()))
 		}
+		if c.stopRegistry != nil && slices.Contains(caps, proto.CapRegistryV2) {
+			c.send(c.s.Registry.List())
+		}
 		c.helloAreas()
 		if msgs != nil {
 			go c.forward(msgs)
@@ -359,6 +372,9 @@ func (c *conn) handle(raw []byte) {
 		}
 		if localMsgs != nil {
 			go c.forward(localMsgs)
+		}
+		if registryMsgs != nil {
+			go c.forward(registryMsgs)
 		}
 		return
 	}
@@ -619,6 +635,8 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return c.boardVerb(m)
 	case "local.create", "local.rename", "local.delete":
 		return c.local(m)
+	case "project.add", "project.remove", "project.set", "worktree.track", "settings.shared":
+		return c.registryVerb(m)
 	case "terminal.list", "terminal.attach", "terminal.detach", "terminal.input", "terminal.resize", "terminal.create", "terminal.close":
 		return c.terminalVerb(m)
 	case "worktree.create", "worktree.delete", "branch.list", "account.list", "agent.account":

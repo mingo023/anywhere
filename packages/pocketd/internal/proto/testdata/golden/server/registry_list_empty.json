@@ -1,0 +1,15 @@
+{
+  "type": "registry.list",
+  "projects": [],
+  "tracked": [],
+  "settings": {
+    "git": {
+      "remote": "",
+      "commit_all": null,
+      "force_with_lease": false
+    },
+    "access": "",
+    "worktree_root": "",
+    "external_worktrees": false
+  }
+}

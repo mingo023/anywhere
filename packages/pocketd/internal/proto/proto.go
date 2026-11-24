@@ -286,6 +286,8 @@ type AgentSummary struct {
 	Project           string `json:"project,omitempty"`
 	Worktree          string `json:"worktree,omitempty"`
 	MainWorktree      bool   `json:"mainWorktree,omitempty"`
+	ProjectID         string `json:"projectId,omitempty"`
+	Tree              string `json:"tree,omitempty"`
 	Branch            string `json:"branch,omitempty"`
 	TokensUsed        int64  `json:"tokensUsed,omitempty"`
 	ContextWindow     int64  `json:"contextWindow,omitempty"`

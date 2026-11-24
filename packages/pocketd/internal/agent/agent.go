@@ -106,6 +106,7 @@ type Agent struct {
 	createdAt       int64
 	updatedAt       int64
 	project         string
+	projectID, tree string
 	worktree        string
 	branch          string
 	mainWorktree    bool
@@ -374,7 +375,7 @@ func (a *Agent) summary() proto.AgentSummary {
 		ID: a.id, TerminalID: a.terminal, Title: cmp.Or(a.named, a.title, a.fallback), Cwd: a.cwd, Provider: a.provider, Model: a.model, Effort: a.effort, Access: a.access,
 		Status: status, Failed: failed, Error: lastError, Attached: a.attached, Restore: a.restore, Compacting: a.compacting, Pinned: a.pinned, Account: a.account, Switching: a.switching,
 		Epoch: epoch, MaxSeq: maxSeq, Resets: a.Timeline.Resets(), ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
-		Project: a.project, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
+		Project: a.project, ProjectID: a.projectID, Tree: a.tree, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
 		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity, ChatOnly: a.chatOnly, Goal: a.goal,
 		Options: maps.Clone(a.options), Parent: a.parent, Relationship: a.relationship, CreatedBy: a.createdBy, Delegation: a.delegation,
 	}
@@ -737,9 +738,15 @@ func (a *Agent) SetPinned(pinned bool) {
 	a.update(false, func() { a.pinned = pinned })
 }
 
-// SetLocation places the agent in a registered Project; all "" when it is in none.
-func (a *Agent) SetLocation(project, worktree, branch string, main bool) {
-	a.update(false, func() { a.project, a.worktree, a.branch, a.mainWorktree = project, worktree, branch, main })
+// SetLocation places the agent in a registered Project; all "" when it is in none. While it stays in one, its
+// project id, tree and worktree are the first placement's: a later one changes only the project's name and the branch.
+func (a *Agent) SetLocation(project, projectID, tree, worktree, branch string, main bool) {
+	a.update(false, func() {
+		a.project, a.branch = project, branch
+		if tree == "" || a.tree == "" {
+			a.projectID, a.tree, a.worktree, a.mainWorktree = projectID, tree, worktree, main
+		}
+	})
 }
 
 // SetTokens takes the context in use; a window of 0 keeps the one already known.

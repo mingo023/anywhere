@@ -139,6 +139,8 @@ export const AgentSummary = Schema.Struct({
   project: Schema.optional(Schema.String),
   worktree: Schema.optional(Schema.String),
   mainWorktree: Schema.optional(Schema.Boolean),
+  projectId: Schema.optional(Schema.String),
+  tree: Schema.optional(Schema.String),
   branch: Schema.optional(Schema.String),
   tokensUsed: Schema.optional(Schema.Number),
   contextWindow: Schema.optional(Schema.Number),

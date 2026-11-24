@@ -245,11 +245,11 @@ func TestAVersionMismatchNamesTheOlderSide(t *testing.T) {
 	}
 }
 
-func TestTheDesktopsHelloStillGetsIn(t *testing.T) {
+func TestTheDesktopsHelloGetsInWithTheRegistryCap(t *testing.T) {
 	_, _, p := setup(t)
-	p.send(`{"type":"hello","id":"h","token":"tok","clientId":"desktop","protocolVersion":3}`)
+	p.send(`{"type":"hello","id":"h","token":"tok","clientId":"desktop","protocolVersion":3,"caps":["registry.v2"]}`)
 	m := p.recv()
-	if m["type"] != "hello.ok" || m["protocolVersion"] != 3.0 || !reflect.DeepEqual(m["caps"], []any{}) ||
+	if m["type"] != "hello.ok" || m["protocolVersion"] != 3.0 || !reflect.DeepEqual(m["caps"], []any{"registry.v2"}) ||
 		!reflect.DeepEqual(m["protocol"], map[string]any{"min": 3.0, "max": 3.0}) {
 		t.Fatalf("%v", m)
 	}
@@ -703,7 +703,7 @@ func TestThreeWrongTokensLockTheAddressOut(t *testing.T) {
 
 func TestHelloOverTheSocketNeedsNoToken(t *testing.T) {
 	_, _, p := local(t, peer.OwnerOf(1))
-	p.send(`{"type":"hello","id":"h","clientId":"desktop","protocolVersion":3,"caps":["scopes.v1"]}`)
+	p.send(`{"type":"hello","id":"h","clientId":"desktop","protocolVersion":3,"caps":["scopes.v1","registry.v2"]}`)
 	m := p.recv()
 	if want := []any{"observe", "drive", "approve", "spawn", "owner"}; m["type"] != "hello.ok" || !reflect.DeepEqual(m["scopes"], want) {
 		t.Fatalf("%v", m)
@@ -715,7 +715,7 @@ func TestHelloOverTheSocketNeedsNoToken(t *testing.T) {
 
 func TestHelloOverTcpWithoutATokenIsNotPaired(t *testing.T) {
 	_, _, p := setup(t)
-	p.send(`{"type":"hello","id":"h","clientId":"desktop","protocolVersion":3,"caps":["scopes.v1"]}`)
+	p.send(`{"type":"hello","id":"h","clientId":"desktop","protocolVersion":3,"caps":["scopes.v1","registry.v2"]}`)
 	if m := p.recv(); m["code"] != "not_paired" {
 		t.Fatalf("%v", m)
 	}
@@ -765,7 +765,7 @@ func TestBadPairCodesFromAPtyPeerDontLockTheOwnerOut(t *testing.T) {
 	if owner.ws, _, err = owner.dial(nil); err != nil {
 		t.Fatalf("owner locked out: %v", err)
 	}
-	owner.send(`{"type":"hello","id":"h","clientId":"desktop","protocolVersion":3,"caps":["scopes.v1"]}`)
+	owner.send(`{"type":"hello","id":"h","clientId":"desktop","protocolVersion":3,"caps":["scopes.v1","registry.v2"]}`)
 	if m := owner.recv(); m["type"] != "hello.ok" || !reflect.DeepEqual(m["scopes"], []any{"observe", "drive", "approve", "spawn", "owner"}) {
 		t.Fatalf("%v", m)
 	}

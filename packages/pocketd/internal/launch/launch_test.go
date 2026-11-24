@@ -28,7 +28,7 @@ func launcher(t *testing.T, projects string) *Launcher {
 	home := t.TempDir()
 	path := filepath.Join(home, "desktop.json")
 	os.WriteFile(path, []byte(`{"projects":`+projects+`,"repos":{}}`), 0o600)
-	return New(&daemon.Daemon{}, registry.New(path), config.NewSettings(home), nil)
+	return New(&daemon.Daemon{}, registry.Open(filepath.Dir(path)), config.NewSettings(home), nil)
 }
 
 func quiet(step, note string) {}
@@ -170,7 +170,7 @@ func TestAnUntrustedClaudeFolderIsRefusedForThePhone(t *testing.T) {
 func TestAnAgentExitFailsItsRestore(t *testing.T) {
 	h := hub.New()
 	d := &daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(h), Broker: broker.New(h), Home: t.TempDir(), Exe: "/bin/true",
-		Registry: registry.New(filepath.Join(t.TempDir(), "desktop.json"))}
+		Registry: registry.Open(t.TempDir())}
 	reasons := make(chan string, 1)
 	d.Resume = func(state.Terminal) (string, []string, string) { return "/bin/sh", []string{"-c", "sleep 30"}, "" }
 	d.OnRestore = func(_ string, _ bool, _ int64, _, reason string) { reasons <- reason }
@@ -326,7 +326,7 @@ func newWorktree(t *testing.T, setup string) (*Launcher, proto.LaunchSpec) {
 	git(t, project, "commit", "-q", "--allow-empty", "-m", "init")
 	path := filepath.Join(root, "desktop.json")
 	os.WriteFile(path, []byte(`{"projects":["`+project+`"],"repos":{"`+project+`":{"name":"wt","setup":"`+setup+`"}},"worktree":{"root":"`+root+`"}}`), 0o600)
-	l := New(&daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}, registry.New(path), config.NewSettings(root), nil)
+	l := New(&daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}, registry.Open(filepath.Dir(path)), config.NewSettings(root), nil)
 	s := spec("claude", "ask", false)
 	s.Project, s.Checkout = project, proto.Checkout{New: &proto.NewWorktree{Name: "calm-otter"}}
 	return l, s
