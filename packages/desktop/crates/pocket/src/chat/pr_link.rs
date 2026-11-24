@@ -2,7 +2,7 @@ mod card;
 
 use super::markdown::{Open, Press, press};
 use super::transcript::View;
-use crate::git_ui::pull_request::{PullRequest, Sent, card_busy, to_fix, verdict};
+use crate::git_ui::pull_request::{PrSide, Sent, card_busy, to_fix, verdict};
 use crate::git_ui::pull_requests::{PullRequests, glyph};
 use git::github::{Pr, PrState};
 use gpui_kit::base::HoverCard;
@@ -90,7 +90,7 @@ pub(crate) struct Peek {
 }
 
 /// The PRs the worktrees have.
-pub(crate) fn peeks(prs: &PullRequests, state: &PullRequest, to: &FixTo) -> Arc<[Peek]> {
+pub(crate) fn peeks(prs: &PullRequests, state: &PrSide, to: &FixTo) -> Arc<[Peek]> {
     prs.all()
         .filter_map(|(tree, pr)| Some((tree, pr, PrRef::parse(&pr.url)?)))
         .map(|(tree, pr, at)| {

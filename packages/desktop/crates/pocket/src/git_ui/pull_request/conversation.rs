@@ -1,9 +1,9 @@
+use super::PrSide;
 use super::body::body_view;
 use super::card::{card, small, small_with};
 use super::comments::Shown;
 use super::timeline::{Entry, timeline};
 use super::{CLIP, Length, about, record_height, to_fix};
-use crate::desktop::Desktop;
 use crate::util::{ago, now_ms};
 use git::github::{Pr, Review};
 use gpui_kit::component::input::Textarea;
@@ -113,25 +113,25 @@ fn fold_head(id: &'static str, title: &'static str, open: bool) -> Stateful<Div>
         .child(title)
 }
 
-impl Desktop {
+impl PrSide {
     /// The PR's description, then what was said on it in time order with each review's threads under it, then a box to say more.
     pub(crate) fn pr_conversation(&self, tree: &str, pr: &Pr, cx: &mut Context<Self>) -> Stateful<Div> {
         let key = about(pr);
         let toggle = key.clone();
         let about =
-            div().flex().child(fold_head("pr-about", "Description", !self.pr.track.folded(&key)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.pr.track.toggle_folded(&toggle);
+            div().flex().child(fold_head("pr-about", "Description", !self.track.folded(&key)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.track.toggle_folded(&toggle);
                 cx.notify();
             })));
-        let about_body = self.pr.track.drawn(&key).then(|| {
+        let about_body = self.track.drawn(&key).then(|| {
             let text =
                 if pr.body.trim().is_empty() { div().text_color(TEXT_4).child("No description.") } else { body_view(&key, &pr.body).line_height(px(20.)) };
             self.folding(&key, 0., div().pt(px(2.)).px(px(4.)).pb(px(14.)).child(self.clipped(&key, text, fade_into(None), cx)))
         });
-        let all = self.pr.track.all;
+        let all = self.track.all;
         let unresolved = pr.unresolved().count();
-        let shown = self.shown(tree, pr, cx);
-        let fixing = self.pr.track.fixing(tree, pr);
+        let shown = self.shown(tree, pr);
+        let fixing = self.track.fixing(tree, pr);
         let (_, open_threads) = to_fix(pr, fixing.as_ref());
         let bulk = (shown.can_send && open_threads.len() > 1).then(|| {
             let ids: Vec<String> = open_threads.iter().map(|t| t.id.clone()).collect();
@@ -165,7 +165,7 @@ impl Desktop {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
-            .track_scroll(&self.pr.conversation_scroll)
+            .track_scroll(&self.conversation_scroll)
             .px(px(12.))
             .pt(px(4.))
             .pb(px(24.))
@@ -179,7 +179,7 @@ impl Desktop {
     }
 
     fn clipped(&self, key: &str, body: Div, fade: Option<Hsla>, cx: &mut Context<Self>) -> Div {
-        let track = &self.pr.track;
+        let track = &self.track;
         let (length, whole) = (track.length(key), track.whole(key));
         let shown = div().child(measured(&track.heights, key.to_string(), body)).with_spring(
             SharedString::from(format!("pr-more:{key}")),
@@ -218,7 +218,7 @@ impl Desktop {
                     .child(if whole { "Show less" } else { "Show more" })
                     .child(icon("chevron-down", 12., TEXT_2).when(whole, |i| i.with_transformation(Transformation::rotate(radians(std::f32::consts::PI)))))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.pr.track.toggle_whole(&key);
+                        this.track.toggle_whole(&key);
                         cx.notify();
                     })),
             )
@@ -227,7 +227,7 @@ impl Desktop {
     }
 
     fn folding(&self, key: &str, rest: f32, content: Div) -> AnyElement {
-        let track = &self.pr.track;
+        let track = &self.track;
         let measure = format!("{key}/fold");
         let full = track.height(&measure);
         div()
@@ -262,7 +262,7 @@ impl Desktop {
                 .child(label)
                 .child(div().font_weight(FontWeight::MEDIUM).text_color(TEXT_4).child(n.to_string()))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.pr.track.all = value;
+                    this.track.all = value;
                     cx.notify();
                 }))
         };
@@ -283,7 +283,7 @@ impl Desktop {
             Entry::Thread(i) => self.conv_thread(i, shown, &pr.threads[i], cx),
             Entry::Review { at, threads } => {
                 let r = &pr.submitted[at];
-                let (folded, drawn) = (self.pr.track.folded(&r.id), self.pr.track.drawn(&r.id));
+                let (folded, drawn) = (self.track.folded(&r.id), self.track.drawn(&r.id));
                 let hidden = folded.then(|| match threads.len() {
                     0 => gist(&r.body),
                     n => div().flex().flex_none().items_center().gap(px(3.)).text_color(TEXT_4).child(icon("comment", 12., TEXT_4)).child(n.to_string()),
@@ -291,7 +291,7 @@ impl Desktop {
                 let id = r.id.clone();
                 let who = who(("pr-review-who", k), self.face(&r.author, 20.), &r.author, ago(r.at as i64, now), hidden).on_click(cx.listener(
                     move |this, _: &ClickEvent, _, cx| {
-                        this.pr.track.toggle_folded(&id);
+                        this.track.toggle_folded(&id);
                         cx.notify();
                     },
                 ));
@@ -314,7 +314,7 @@ impl Desktop {
                 let n = &pr.notes[i];
                 let sending = n.id.is_empty();
                 let key = if sending { format!("pr-sending-{k}") } else { n.id.clone() };
-                let (folded, drawn) = (self.pr.track.folded(&key), self.pr.track.drawn(&key));
+                let (folded, drawn) = (self.track.folded(&key), self.track.drawn(&key));
                 let id = n.id.clone();
                 let who = who(
                     ("pr-note-who", k),
@@ -325,7 +325,7 @@ impl Desktop {
                 )
                 .when(!sending, |d| {
                     d.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.pr.track.toggle_folded(&id);
+                        this.track.toggle_folded(&id);
                         cx.notify();
                     }))
                 });
@@ -358,8 +358,8 @@ impl Desktop {
 
     /// "Leave a comment…" until clicked, then the box with Cancel and Comment.
     fn pr_comment_box(&self, tree: &str, cx: &mut Context<Self>) -> AnyElement {
-        if self.pr.commenting.as_deref() != Some(tree) {
-            let me = self.login(&self.gh_in(tree, cx));
+        if self.commenting.as_deref() != Some(tree) {
+            let me = self.frame.me.clone();
             return div()
                 .id("pr-comment-open")
                 .flex_none()
@@ -379,11 +379,11 @@ impl Desktop {
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_comment(window, cx)))
                 .into_any_element();
         }
-        let ready = !self.pr.comment.read(cx).value().trim().is_empty();
+        let ready = !self.comment.read(cx).value().trim().is_empty();
         let send = small("pr-comment-send", Variant::Primary, "Comment")
             .when(!ready, |d| d.opacity(0.5).cursor_default())
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send_comment(window, cx))));
-        let error = self.pr.comment_error.clone().map(|e| {
+        let error = self.comment_error.clone().map(|e| {
             div()
                 .mx(px(10.))
                 .mb(px(4.))
@@ -412,7 +412,7 @@ impl Desktop {
             .rounded(px(10.))
             .bg(FILL_2)
             .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
-            .child(div().px(px(10.)).pt(px(9.)).min_h(px(56.)).text_size(px(12.5)).child(Textarea::new(&self.pr.comment).appearance(false)))
+            .child(div().px(px(10.)).pt(px(9.)).min_h(px(56.)).text_size(px(12.5)).child(Textarea::new(&self.comment).appearance(false)))
             .children(error)
             .child(foot)
             .into_any_element()

@@ -1,9 +1,6 @@
 use super::timeline::said;
-use super::{PrTab, commits};
-use crate::desktop::Desktop;
-use crate::desktop::chrome::{Side, empty};
-use crate::git_ui::pull_requests::PrItem;
-use git::Repo;
+use super::{Branch, NoPr, PrSide, PrTab, commits};
+use crate::desktop::chrome::empty;
 use git::github::{Outcome, Pr, base_branch};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -11,39 +8,31 @@ use gpui_kit::*;
 use theme::*;
 use ui::Variant;
 
-impl Desktop {
-    /// Opens the panel on the Pull request side.
-    pub(crate) fn show_pr_side(&mut self, cx: &mut Context<Self>) {
-        self.side = Side::PullRequest;
-        self.sidebar.update(cx, |s, _| s.panel_open = true);
-        cx.notify();
-    }
-
+impl PrSide {
     /// The worktree's pull request: the composer while one is written, else the PR over its tabs, else how to open one.
-    pub(crate) fn pr_side(&mut self, cx: &mut Context<Self>) -> Div {
+    fn pr_side(&self, cx: &mut Context<Self>) -> Div {
         let panel = div().flex_1().min_h_0().flex().flex_col();
-        let Some(repo) = self.repo_handle(cx) else {
+        let Some(repo) = self.frame.branch.clone() else {
             return panel.child(empty("Not a git repository."));
         };
         let panel = panel.child(self.pr_head(cx));
         if let Some(composer) = self.pr_composer(&repo, cx) {
             return panel.child(div().id("pr-side").flex_1().min_h_0().overflow_y_scroll().child(composer));
         }
-        let Some((tree, pr)) = self.shown_pr(cx) else {
+        let Some((tree, pr)) = self.shown_pr() else {
             return panel.child(self.no_pr(&repo, cx));
         };
-        let body = match self.pr.track.tab {
-            PrTab::Conversation => self.pr_conversation(&tree, pr, cx).into_any_element(),
-            PrTab::Checks => self.pr_checks_tab(&tree, pr, cx).into_any_element(),
+        let body = match self.track.tab {
+            PrTab::Conversation => self.pr_conversation(tree, pr, cx).into_any_element(),
+            PrTab::Checks => self.pr_checks_tab(tree, pr, cx).into_any_element(),
             PrTab::Commits => self.pr_commits(pr, cx).into_any_element(),
             PrTab::Files => self.pr_files(pr, cx).into_any_element(),
         };
-        panel.child(self.pr_hero(&tree, pr, &repo, cx)).child(self.pr_tabs(pr, cx)).child(body)
+        panel.child(self.pr_hero(tree, pr, &repo, cx)).child(self.pr_tabs(pr, cx)).child(body)
     }
 
     fn pr_head(&self, cx: &mut Context<Self>) -> Div {
-        let tree = self.cwd(cx).unwrap_or_default();
-        let refresh: AnyElement = if self.prs.asking(&tree) {
+        let refresh: AnyElement = if self.frame.asking {
             div().size(px(26.)).flex().items_center().justify_center().child(spinner("pr-refreshing", 13., TEXT_3)).into_any_element()
         } else {
             ui::icon_button_sized("pr-refresh", "reload", 26., TEXT_3)
@@ -51,7 +40,7 @@ impl Desktop {
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.refresh_pr(cx)))
                 .into_any_element()
         };
-        let open = self.shown_pr(cx).map(|(_, pr)| {
+        let open = self.shown_pr().map(|(_, pr)| {
             let url = pr.url.clone();
             ui::icon_button_sized("pr-open", "external", 26., TEXT_3)
                 .tooltip(|window, cx| Tooltip::new("Open on GitHub").build(window, cx))
@@ -72,7 +61,7 @@ impl Desktop {
 
     /// Conversation, Checks, Commits and Files; only the open tab names itself, the others show their count.
     fn pr_tabs(&self, pr: &Pr, cx: &mut Context<Self>) -> Div {
-        let open = self.pr.track.tab;
+        let open = self.track.tab;
         let failed = pr.runs.iter().filter(|c| c.outcome == Outcome::Failed).count();
         let tabs = PrTab::ALL.into_iter().map(|tab| {
             let on = tab == open;
@@ -103,7 +92,7 @@ impl Desktop {
                 .child(div().font_family(MONO).text_size(px(11.5)).text_color(color).child(count.to_string()))
                 .tooltip(move |window, cx| Tooltip::new(tab.label()).build(window, cx))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.pr.track.tab = tab;
+                    this.track.tab = tab;
                     cx.notify();
                 }))
         });
@@ -114,9 +103,9 @@ impl Desktop {
     }
 
     /// Why the worktree has no PR to show, with Create pull request when it can have one.
-    fn no_pr(&self, repo: &Repo, cx: &mut Context<Self>) -> AnyElement {
-        match self.cwd(cx).and_then(|tree| self.prs.item(&tree, &repo.branch, repo.base.as_deref())) {
-            Some(PrItem::Create) => {
+    fn no_pr(&self, repo: &Branch, cx: &mut Context<Self>) -> AnyElement {
+        match self.frame.offer {
+            Some(NoPr::Create) => {
                 let create = ui::button("pr-side-create", Variant::Primary, Some("pull-request"), "Create pull request")
                     .h(px(30.))
                     .mt(px(10.))
@@ -133,7 +122,7 @@ impl Desktop {
                     .text_size(px(11.5))
                     .text_color(TEXT_3)
                     .whitespace_nowrap()
-                    .child(div().min_w_0().truncate().child(repo.branch.clone()))
+                    .child(div().min_w_0().truncate().child(repo.name.clone()))
                     .child(icon("arrow-right", 10., TEXT_4))
                     .child(div().flex_none().child(base.to_string()));
                 div()
@@ -152,8 +141,14 @@ impl Desktop {
                     .child(create)
                     .into_any_element()
             }
-            Some(PrItem::Hint(hint)) => empty(hint.to_string()).into_any_element(),
-            Some(PrItem::Open(_)) | None => empty("No pull request.").into_any_element(),
+            Some(NoPr::Hint(hint)) => empty(hint.to_string()).into_any_element(),
+            None => empty("No pull request.").into_any_element(),
         }
+    }
+}
+
+impl Render for PrSide {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.pr_side(cx)
     }
 }

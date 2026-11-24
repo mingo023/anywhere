@@ -205,7 +205,7 @@ impl Desktop {
         }
         if listed.is_some() {
             let agents = &self.agents;
-            self.pr.track.settle(|id| agents.get(id).and_then(Status::of));
+            self.pr.update(cx, |p, cx| p.settle(|id| agents.get(id).and_then(Status::of), cx));
         }
         for (agent, who) in listed.map(|before| gone(&before, &self.agents.list)).unwrap_or_default() {
             self.chat_closed(&agent, &who, window, cx);

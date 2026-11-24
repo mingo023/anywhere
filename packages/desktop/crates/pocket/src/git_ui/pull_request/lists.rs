@@ -1,5 +1,6 @@
+use super::PrEvent;
+use super::PrSide;
 use super::card::{card, list_head, list_row};
-use crate::desktop::Desktop;
 use crate::util::{ago, now_ms};
 use git::github::{Pr, base_branch};
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -7,7 +8,6 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::ops::Range;
 use theme::*;
-use workspace::Doc;
 
 fn size(additions: u32, deletions: u32) -> Div {
     div()
@@ -31,19 +31,19 @@ fn list_card(id: &'static str, rows: usize, list: impl IntoElement, scroll: &Uni
     div().flex_1().min_h_0().px(px(10.)).pb(px(16.)).child(card)
 }
 
-impl Desktop {
+impl PrSide {
     /// Oldest first, as GitHub lists them.
     pub(crate) fn pr_commits(&self, pr: &Pr, cx: &mut Context<Self>) -> Div {
         let branches = div().font_family(MONO).text_size(px(11.5)).child(format!(
             "{} ← {}",
             base_branch(&pr.base),
-            self.repo(cx).map(|r| r.branch.clone()).unwrap_or_default()
+            self.frame.branch.as_ref().map(|b| b.name.clone()).unwrap_or_default()
         ));
         let list = uniform_list(
             "pr-commits",
             pr.commits.len(),
             cx.processor(|this, range: Range<usize>, _, cx| {
-                let Some((_, pr)) = this.shown_pr(cx) else { return Vec::new() };
+                let Some((_, pr)) = this.shown_pr() else { return Vec::new() };
                 let now = now_ms();
                 range
                     .filter_map(|i| pr.commits.get(i).map(|c| (i, c)))
@@ -60,13 +60,13 @@ impl Desktop {
                     .collect()
             }),
         )
-        .track_scroll(&self.pr.commits_scroll)
+        .track_scroll(&self.commits_scroll)
         .size_full();
         div().flex_1().min_h_0().flex().flex_col().pt(px(4.)).child(list_head(format!("{} commits", pr.commits.len()), branches)).child(list_card(
             "pr-commits-list",
             pr.commits.len(),
             list,
-            &self.pr.commits_scroll,
+            &self.commits_scroll,
         ))
     }
 
@@ -75,13 +75,12 @@ impl Desktop {
             "pr-files",
             pr.files.len(),
             cx.processor(|this, range: Range<usize>, _, cx| {
-                let Some((_, pr)) = this.shown_pr(cx) else { return Vec::new() };
-                let base = this.pr_base(pr);
+                let Some((_, pr)) = this.shown_pr() else { return Vec::new() };
                 range
                     .filter_map(|i| pr.files.get(i).map(|f| (i, f)))
                     .map(|(i, f)| {
                         let cut = f.path.rfind('/').map_or(0, |k| k + 1);
-                        let doc = Doc::PrFile { base: base.clone(), path: f.path.clone() };
+                        let path_of = f.path.clone();
                         let path = div()
                             .flex_1()
                             .min_w_0()
@@ -108,13 +107,13 @@ impl Desktop {
                             .child(path)
                             .children(said)
                             .child(size(f.additions, f.deletions))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_doc(doc.clone(), false, cx)))
+                            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(PrEvent::OpenFile(path_of.clone()))))
                             .into_any_element()
                     })
                     .collect()
             }),
         )
-        .track_scroll(&self.pr.files_scroll)
+        .track_scroll(&self.files_scroll)
         .size_full();
         div()
             .flex_1()
@@ -123,6 +122,6 @@ impl Desktop {
             .flex_col()
             .pt(px(4.))
             .child(list_head(format!("{} files", pr.files.len()), size(pr.additions, pr.deletions)))
-            .child(list_card("pr-files-list", pr.files.len(), list, &self.pr.files_scroll))
+            .child(list_card("pr-files-list", pr.files.len(), list, &self.files_scroll))
     }
 }

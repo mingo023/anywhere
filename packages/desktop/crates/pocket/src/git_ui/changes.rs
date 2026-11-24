@@ -544,7 +544,7 @@ impl Desktop {
             .zip(repo.as_deref())
             .and_then(|(tree, r)| self.renames.was(tree, Slot::Branch, &r.branch, Instant::now()).map(|(from, at)| (from.to_string(), at)));
         Inputs {
-            composing: cwd.is_some() && self.pr.composing == cwd,
+            composing: cwd.is_some() && self.pr.read(cx).composing == cwd,
             cwd,
             repo,
             scope,
@@ -554,7 +554,7 @@ impl Desktop {
             shown,
             pr,
             offer,
-            ship_menu: self.pr.ship_menu,
+            ship_menu: self.pr.read(cx).ship_menu,
             branch_was,
             seamed: self.overlay.is_none(),
             viewing: self.viewing_commit_file(cx),
@@ -651,7 +651,10 @@ impl Desktop {
             ChangesEvent::OpenPr(url) => self.open_pr(url.clone(), window, cx),
             ChangesEvent::CreatePr => self.open_pr_composer(window, cx),
             ChangesEvent::ShipMenu(open) => {
-                self.pr.ship_menu = *open;
+                self.pr.update(cx, |p, cx| {
+                    p.ship_menu = *open;
+                    cx.notify();
+                });
                 cx.notify();
             }
             ChangesEvent::Refresh => {

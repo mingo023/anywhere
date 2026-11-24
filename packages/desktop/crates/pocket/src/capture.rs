@@ -1179,7 +1179,10 @@ const STEPS: [(&str, Step); 308] = [
         let Some((tree, pr)) = d.shown_pr(cx) else { return };
         let pr = pr.clone();
         let failed: Vec<&Check> = pr.runs.iter().filter(|c| c.outcome == Outcome::Failed).collect();
-        d.pr.track.send(&tree, "capture", &pr, &[], &failed, false);
+        d.pr.update(cx, |p, cx| {
+            p.track.send(&tree, "capture", &pr, &[], &failed, false);
+            cx.notify();
+        });
     }),
     ("pr-ready", |d, _, cx| {
         reshape_shown_pr(d, cx, |pr| {
@@ -1200,11 +1203,34 @@ const STEPS: [(&str, Step); 308] = [
         d.prs.apply(tree, now, Ok(None), now);
     }),
     ("pr-side", |d, _, cx| d.show_pr_side(cx)),
-    ("pr-checks", |d, _, _| d.pr.track.tab = PrTab::Checks),
-    ("pr-commits", |d, _, _| d.pr.track.tab = PrTab::Commits),
-    ("pr-files", |d, _, _| d.pr.track.tab = PrTab::Files),
-    ("pr-all", |d, _, _| d.pr.track.all = true),
-    ("pr-comment", |d, window, cx| d.open_comment(window, cx)),
+    ("pr-checks", |d, _, cx| {
+        d.pr.update(cx, |p, cx| {
+            p.track.tab = PrTab::Checks;
+            cx.notify();
+        })
+    }),
+    ("pr-commits", |d, _, cx| {
+        d.pr.update(cx, |p, cx| {
+            p.track.tab = PrTab::Commits;
+            cx.notify();
+        })
+    }),
+    ("pr-files", |d, _, cx| {
+        d.pr.update(cx, |p, cx| {
+            p.track.tab = PrTab::Files;
+            cx.notify();
+        })
+    }),
+    ("pr-all", |d, _, cx| {
+        d.pr.update(cx, |p, cx| {
+            p.track.all = true;
+            cx.notify();
+        })
+    }),
+    ("pr-comment", |d, window, cx| {
+        d.sync_pr_side(cx);
+        d.pr.update(cx, |p, cx| p.open_comment(window, cx));
+    }),
     // Downloads from GitHub, so only the captures that show the pictures ask for it.
     ("pr-avatars", |d, _, cx| {
         if let Some(tree) = d.cwd(cx) {
@@ -1943,8 +1969,11 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.workspaces.update(cx, |w, _| w.clear());
     d.creates.update(cx, |c, _| c.list.clear());
     d.graph.update(cx, |g, _| *g = Graph::default());
-    d.pr.track.tab = PrTab::default();
-    d.pr.track.all = false;
+    d.pr.update(cx, |p, cx| {
+        p.track.tab = PrTab::default();
+        p.track.all = false;
+        cx.notify();
+    });
     d.agents.names.clear();
     d.agents.locals.clear();
     d.sidebar.update(cx, |s, cx| {

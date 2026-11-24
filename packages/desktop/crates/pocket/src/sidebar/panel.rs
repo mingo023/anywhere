@@ -2,7 +2,7 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::{Column, HEADER, SEAM, Side, drag_area, seam_handle_in};
 use crate::explorer::Explorer;
 use crate::git_ui::changes::Changes;
-use crate::git_ui::pull_request::pr_wants_you;
+use crate::git_ui::pull_request::{PrSide, pr_wants_you};
 use crate::git_ui::pull_requests::glyph;
 use crate::region;
 use crate::sidebar::column::changes_badge;
@@ -70,20 +70,8 @@ impl Desktop {
     pub(crate) fn workspace_side(&mut self, cx: &mut Context<Self>) -> Div {
         self.sync_panel_rail(cx);
         let panel = self.workspace_panel_width(cx);
-        let body = if self.side == Side::PullRequest {
-            // The pull request's body is still `Desktop`'s to draw, so this side isn't cached.
-            let frame = self.panel_frame(cx);
-            let body = frame.shown.then(|| self.pr_side(cx).into_any_element());
-            div()
-                .flex_none()
-                .h_full()
-                .w(px(panel))
-                .child(div().size_full().flex().flex_col().child(panel_chrome(&frame, body, Self::on_panel_event, cx)))
-                .into_any_element()
-        } else {
-            self.sync_panel(cx);
-            region::cached(&self.sidebar.read(cx).panel_view, region::column(panel))
-        };
+        self.sync_panel(cx);
+        let body = region::cached(&self.sidebar.read(cx).panel_view, region::column(panel));
         div()
             .flex()
             .flex_none()
@@ -112,21 +100,17 @@ impl Desktop {
             Side::Sessions => PanelBody::Sessions(self.sessions_view(cx)),
             Side::Explorer => PanelBody::Explorer(self.explorer_view(cx)),
             Side::Changes => PanelBody::Changes(self.changes_list(cx)),
-            Side::PullRequest => unreachable!("the pull request side isn't drawn by the panel"),
+            Side::PullRequest => PanelBody::PullRequest(self.pr.clone()),
         });
         self.sidebar.read(cx).panel_view.clone().update(cx, |p, cx| p.set(frame, body, cx));
     }
 
-    fn on_panel_event(&mut self, ev: PanelEvent, window: &mut Window, cx: &mut Context<Self>) {
-        match ev {
+    pub(crate) fn on_panel_view_event(&mut self, _: &Entity<Panel>, ev: &PanelEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match *ev {
             PanelEvent::Drag(wide) => self.drag_panel_edge(wide, cx),
             PanelEvent::Reset => self.reset_width(Column::Sessions, cx),
             PanelEvent::NewSession => self.new_session(None, false, window, cx),
         }
-    }
-
-    pub(crate) fn on_panel_view_event(&mut self, _: &Entity<Panel>, ev: &PanelEvent, window: &mut Window, cx: &mut Context<Self>) {
-        self.on_panel_event(*ev, window, cx);
     }
 
     /// Hands the rail at the window's right edge what it draws from `Desktop`'s state.
@@ -164,6 +148,7 @@ pub(crate) enum PanelBody {
     Sessions(Entity<SessionList>),
     Explorer(Entity<Explorer>),
     Changes(Entity<Changes>),
+    PullRequest(Entity<PrSide>),
 }
 
 /// What the panel asks `Desktop` for.
@@ -177,22 +162,15 @@ pub(crate) enum PanelEvent {
 
 impl EventEmitter<PanelEvent> for Panel {}
 
-/// How the panel hands its events up: `Desktop` takes them itself where it draws the panel, the entity emits them.
-pub(crate) type PanelSend<V> = fn(&mut V, PanelEvent, &mut Window, &mut Context<V>);
-
 /// The right-hand panel: its title and add button over `body`, with the edge to drag.
-pub(crate) fn panel_chrome<V: 'static>(f: &PanelFrame, body: Option<AnyElement>, send: PanelSend<V>, cx: &mut Context<V>) -> Div {
+fn panel_chrome(f: &PanelFrame, body: Option<AnyElement>, cx: &mut Context<Panel>) -> Div {
     let seam = f.seam.then(|| {
-        seam_handle_in("panel-seam", Axis::Row, move |this: &mut V, window, cx| send(this, PanelEvent::Reset, window, cx), cx).left(px(-SEAM / 2.)).on_drag(
-            PanelEdge,
-            |_, _, _, cx| {
-                cx.stop_propagation();
-                cx.new(|_| EmptyView)
-            },
-        )
+        seam_handle_in("panel-seam", Axis::Row, |_: &mut Panel, _, cx| cx.emit(PanelEvent::Reset), cx).left(px(-SEAM / 2.)).on_drag(PanelEdge, |_, _, _, cx| {
+            cx.stop_propagation();
+            cx.new(|_| EmptyView)
+        })
     });
-    let add = icon_button_sized("column-add", "plus", 28., TEXT_2)
-        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| send(this, PanelEvent::NewSession, window, cx)));
+    let add = icon_button_sized("column-add", "plus", 28., TEXT_2).on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(PanelEvent::NewSession)));
     let header = div()
         .pl(px(18.))
         .pr(px(12.))
@@ -224,9 +202,7 @@ pub(crate) fn panel_chrome<V: 'static>(f: &PanelFrame, body: Option<AnyElement>,
         .children(body)
         // Deferred so the handle paints over the page it straddles.
         .children(seam.map(deferred))
-        .on_drag_move(cx.listener(move |this, e: &DragMoveEvent<PanelEdge>, window, cx| {
-            send(this, PanelEvent::Drag(f32::from(e.bounds.right() - e.event.position.x)), window, cx);
-        }))
+        .on_drag_move(cx.listener(|_, e: &DragMoveEvent<PanelEdge>, _, cx| cx.emit(PanelEvent::Drag(f32::from(e.bounds.right() - e.event.position.x)))))
 }
 
 /// The right-hand panel, empty once collapsed; a drag that collapses it can still bring it back.
@@ -242,10 +218,6 @@ impl Panel {
             cx.notify();
         }
     }
-
-    fn send(&mut self, ev: PanelEvent, _: &mut Window, cx: &mut Context<Self>) {
-        cx.emit(ev);
-    }
 }
 
 impl Render for Panel {
@@ -256,9 +228,10 @@ impl Render for Panel {
             PanelBody::Sessions(e) => e.clone().into_any_element(),
             PanelBody::Explorer(e) => e.clone().into_any_element(),
             PanelBody::Changes(e) => e.clone().into_any_element(),
+            PanelBody::PullRequest(e) => e.clone().into_any_element(),
         });
         // `PanelFrame`'s seam and title are read by the chrome only.
-        let chrome = panel_chrome(frame, body, Self::send, cx);
+        let chrome = panel_chrome(frame, body, cx);
         root.child(chrome)
     }
 }

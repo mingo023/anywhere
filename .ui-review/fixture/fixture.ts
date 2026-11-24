@@ -279,6 +279,26 @@ if (chatWorking && scenario.agents[0]?.id === CHAT_AGENT) scenario.agents[0].sta
 // FIXTURE_IDLE: nothing running anywhere, so no sidebar spinner redraws the window; for measuring idle cost.
 if (process.env.FIXTURE_IDLE) for (const a of scenario.agents) a.status = "idle";
 
+// FIXTURE_GH_STUB=1 puts a `gh` on this Mac's login-shell PATH: one account, `pr view` always refused (so the PRs a capture step set stay), and
+// comment, create, merge, ready and graphql mutations succeed. Each call is appended to <home>/gh.log, argv then the working directory.
+if (process.env.FIXTURE_GH_STUB) {
+  const script = `#!/bin/sh
+echo "$* (in $PWD)" >> "$HOME/gh.log"
+case "$1 $2" in
+  "--version "*) echo "gh version 2.81.0 (2026-01-01)";;
+  "auth status") printf 'github.com\\n  ✓ Logged in to github.com account me (keyring)\\n  - Active account: true\\n';;
+  "auth token") echo stubtoken;;
+  "pr create") cat > /dev/null; echo "https://github.com/acme/app/pull/130";;
+  "pr comment") cat > /dev/null; echo "https://github.com/acme/app/pull/128#issuecomment-9";;
+  "pr merge"|"pr ready"|"api graphql") exit 0;;
+  *) echo "stub: gh $*" >&2; exit 1;;
+esac
+`;
+  write(join(home, "bin", "gh"), script);
+  Bun.spawnSync(["chmod", "+x", join(home, "bin", "gh")]);
+  write(join(home, ".config", "fish", "config.fish"), "set -gx PATH $HOME/bin $PATH\n");
+  for (const f of [".zprofile", ".profile", ".bash_profile"]) write(join(home, f), 'export PATH="$HOME/bin:$PATH"\n');
+}
 const now = Date.now();
 if (process.env.FIXTURE_LOOSE) {
   for (const d of ["Downloads", "notes"]) mkdirSync(join(home, d), { recursive: true });

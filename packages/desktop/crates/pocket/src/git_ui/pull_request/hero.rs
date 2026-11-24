@@ -1,10 +1,9 @@
+use super::PrSide;
 use super::card::small;
-use super::{PrTab, card_busy, fix_summary, fixing_text, resolving_text, to_fix};
-use crate::desktop::Desktop;
+use super::{Branch, PrTab, card_busy, fix_summary, fixing_text, resolving_text, to_fix};
 use crate::git_ui::changes::commit_box::{primary_pill, split_button};
 use crate::git_ui::pull_requests::MERGED_BG;
 use crate::util::{ago, now_ms};
-use git::Repo;
 use git::github::{Gate, Label, Method, Pr, PrState, Review, base_branch};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::*;
@@ -73,10 +72,10 @@ fn reviewer(face: Div, verdict: Review) -> Div {
     div().relative().child(face).child(badge)
 }
 
-impl Desktop {
+impl PrSide {
     /// The PR at a glance: its title, where it stands and the next step, its branches, people and labels, and what the agent is doing for it.
-    pub(crate) fn pr_hero(&self, tree: &str, pr: &Pr, repo: &Repo, cx: &mut Context<Self>) -> Div {
-        let (fg, said) = self.pr_verdict(tree, pr, cx);
+    pub(crate) fn pr_hero(&self, tree: &str, pr: &Pr, repo: &Branch, cx: &mut Context<Self>) -> Div {
+        let (fg, said) = self.verdict(tree, pr, self.frame.agent);
         let num = format!("#{}", pr.number);
         let title = StyledText::new(format!("{} {num}", pr.title)).with_highlights([(
             pr.title.len() + 1..pr.title.len() + 1 + num.len(),
@@ -100,7 +99,7 @@ impl Desktop {
             .child(chip_glyph(fg, pr))
             .child(div().min_w_0().truncate().child(lead(&said).to_string()))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.pr.track.tab = PrTab::Checks;
+                this.track.tab = PrTab::Checks;
                 cx.notify();
             }));
         let state = div().flex().items_center().gap(px(8.)).child(chip).child(div().flex_1()).children(self.pr_action(tree, pr, cx));
@@ -116,7 +115,7 @@ impl Desktop {
             .whitespace_nowrap()
             .child(branch(base_branch(&pr.base).to_string()))
             .child(div().flex_none().text_color(TEXT_4).child("←"))
-            .child(branch(repo.branch.clone()))
+            .child(branch(repo.name.clone()))
             .child(div().flex_none().text_color(SUCCESS_TEXT).child(format!("+{}", pr.additions)))
             .child(div().flex_none().text_color(FAILED_TEXT).child(format!("−{}", pr.deletions)));
         let mut seen: Vec<(String, Review)> = pr.reviews.clone();
@@ -165,10 +164,10 @@ impl Desktop {
         if pr.state != PrState::Open {
             return None;
         }
-        let agent = self.fix_agent(cx);
-        let fixing = self.pr.track.fixing(tree, pr);
-        let can_send = !self.agents.observe_only() && fixing.is_none();
-        let busy = card_busy(self.pr.busy.as_ref(), self.pr.composing.as_deref(), tree);
+        let agent = self.frame.agent;
+        let fixing = self.track.fixing(tree, pr);
+        let can_send = !self.frame.observe_only && fixing.is_none();
+        let busy = card_busy(self.busy.as_ref(), self.composing.as_deref(), tree);
         let (checks, threads) = to_fix(pr, fixing.as_ref());
         let gate = pr.gate();
         let button = |id: &'static str, label: String| ui::button(id, Variant::Primary, None, label).h(px(28.)).px(px(11.)).text_size(px(12.5));
@@ -189,7 +188,7 @@ impl Desktop {
             Gate::Conflicts => {
                 let b = button("pr-resolve", format!("Resolve with {agent}"));
                 Some(
-                    if resolving || self.agents.observe_only() {
+                    if resolving || self.frame.observe_only {
                         b.opacity(0.5).cursor_default()
                     } else {
                         b.on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.send_conflict(cx)))
@@ -204,13 +203,13 @@ impl Desktop {
                         .into_any_element(),
                 )
             }
-            _ => Some(div().w(px(116.)).child(self.pr_merge(tree, gate == Gate::Ready && busy.is_none(), busy, cx)).into_any_element()),
+            _ => Some(div().w(px(116.)).child(self.pr_merge(gate == Gate::Ready && busy.is_none(), busy, cx)).into_any_element()),
         }
     }
 
     /// Merge, with the method and what happens to the worktree after in its menu.
-    fn pr_merge(&self, tree: &str, ready: bool, busy: Option<&'static str>, cx: &mut Context<Self>) -> Div {
-        let method = self.pr.track.method;
+    fn pr_merge(&self, ready: bool, busy: Option<&'static str>, cx: &mut Context<Self>) -> Div {
+        let method = self.track.method;
         if let Some(label) = busy {
             return primary_pill().items_center().justify_center().gap(px(6.)).opacity(0.5).child(spinner("pr-merging", 13., ON_PRIMARY)).child(label);
         }
@@ -218,14 +217,14 @@ impl Desktop {
         let methods = Method::ALL.into_iter().enumerate().map(|(i, m)| {
             ui::menu_row(("merge-method", i), "merge", m.label(), None).children((m == method).then(|| icon("check", 13., TEXT_2))).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
-                    this.pr.track.method = m;
-                    this.pr.merge_menu = false;
+                    this.track.method = m;
+                    this.merge_menu = false;
                     cx.notify();
                 },
             ))
         });
-        let after = self.deletable(tree).then(|| {
-            let on = self.pr.track.delete_after;
+        let after = self.frame.deletable.then(|| {
+            let on = self.track.delete_after;
             div()
                 .id("pr-delete-after")
                 .mt(px(4.))
@@ -252,28 +251,28 @@ impl Desktop {
                         .child(div().text_size(px(11.5)).text_color(TEXT_4).child("Keeps the branch")),
                 )
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.pr.track.delete_after = !this.pr.track.delete_after;
+                    this.track.delete_after = !this.track.delete_after;
                     cx.notify();
                 }))
         });
         let menu = div()
             .id("merge-menu")
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.pr.merge_menu = false;
+                this.merge_menu = false;
                 cx.notify();
             }))
             .children(methods)
             .children(after);
-        split_button::<Desktop>(
+        split_button::<PrSide>(
             "merge",
             lead,
             "Merge",
             ready,
-            self.pr.merge_menu,
+            self.merge_menu,
             Box::new(|this, _, cx| this.merge_pr(cx)),
             Box::new(|this, _, _| {
-                this.pr.merge_menu = true;
-                this.pr.ship_menu = false;
+                this.merge_menu = true;
+                this.ship_menu = false;
             }),
             menu,
             cx,
@@ -295,11 +294,11 @@ impl Desktop {
                 ),
             )
         };
-        if pr.state == PrState::Merged && self.deletable(tree) && !self.pr.track.kept(tree) {
-            let branch = self.repo(cx).map(|r| r.branch.clone()).unwrap_or_default();
+        if pr.state == PrState::Merged && self.frame.deletable && !self.track.kept(tree) {
+            let branch = self.frame.branch.as_ref().map(|b| b.name.clone()).unwrap_or_default();
             let (keep_tree, delete_tree) = (tree.to_string(), tree.to_string());
             let keep = small("pr-keep", Variant::Secondary, "Keep").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.pr.track.keep(&keep_tree);
+                this.track.keep(&keep_tree);
                 cx.notify();
             }));
             let delete = small("pr-delete-tree", Variant::Primary, "Delete")
@@ -314,8 +313,8 @@ impl Desktop {
                 .child(div().flex().justify_end().gap(px(4.)).child(keep).child(delete)),
             );
         }
-        let fixing = self.pr.track.fixing(tree, pr)?;
-        let agent = self.fix_agent(cx);
+        let fixing = self.track.fixing(tree, pr)?;
+        let agent = self.frame.agent;
         let title = if fixing.items() > 0 { fixing_text(agent, fixing.items()) } else { resolving_text(agent) };
         Some(banner(spinner("pr-banner", 13., WAITING).into_any_element(), WAITING_BG, title, "The checks run again once it pushes".into()))
     }

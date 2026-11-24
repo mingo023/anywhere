@@ -299,7 +299,7 @@ impl Desktop {
             // `fix_agent` walks every agent, so only a chat that links a PR asks.
             prs: links_pr.then(|| {
                 let to = pr_link::FixTo { tree: self.cwd(cx), agent: self.fix_agent(cx), can_send: !self.agents.observe_only() };
-                pr_link::peeks(&self.prs, &self.pr, &to)
+                pr_link::peeks(&self.prs, self.pr.read(cx), &to)
             }),
         }
     }

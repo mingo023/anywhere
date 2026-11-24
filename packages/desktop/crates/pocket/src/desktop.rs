@@ -33,7 +33,7 @@ use crate::git_ui::commit::Commits;
 use crate::git_ui::diff::{At, DiffState};
 use crate::git_ui::gh_accounts::GhAccounts;
 use crate::git_ui::graph::Graph;
-use crate::git_ui::pull_request::PullRequest;
+use crate::git_ui::pull_request::PrSide;
 use crate::git_ui::pull_requests::PullRequests;
 use crate::host_agents::HostAgents;
 use crate::inbox::Inbox;
@@ -101,7 +101,7 @@ pub struct Desktop {
     pub(crate) changes: Entity<Changes>,
     pub(crate) prs: PullRequests,
     pub(crate) gh_accounts: GhAccounts,
-    pub(crate) pr: PullRequest,
+    pub(crate) pr: Entity<PrSide>,
     pub(crate) graph: Entity<Graph>,
     pub(crate) commit: Commits,
     pub(crate) terminal: TerminalViewState,
@@ -174,7 +174,8 @@ impl Desktop {
         let preview = cx.new(|_| Previews::new());
         let preview_subs = cx.subscribe(&preview, Self::on_preview_event);
         let explorer_subs = cx.subscribe_in(&explorer, window, Self::on_explorer_event);
-        let (pr, pr_subs) = PullRequest::new(window, cx);
+        let pr = cx.new(|cx| PrSide::new(window, cx));
+        let pr_subs = [cx.subscribe_in(&pr, window, Self::on_pr_event), cx.observe(&pr, |_, _, cx| cx.notify())];
         let new_form = cx.new(|cx| new_session::NewForm::new(window, cx));
         let new_subs = Self::watch_new_form(&new_form, window, cx);
         let repo_form = cx.new(|cx| add_project::RepoForm::new(window, cx));
@@ -559,9 +560,7 @@ impl Desktop {
             || self.panels.read(cx).menu_open()
             || self.row_menu.is_some()
             || self.changes.read(cx).menu_open()
-            || self.pr.ship_menu
-            || self.pr.merge_menu
-            || self.pr.create_menu
+            || self.pr.read(cx).menu_open()
             || self.sidebar.read(cx).menu_open(cx)
             || self.automations.read(cx).menu.is_some()
             || self.explorer.read(cx).menu_open()
@@ -580,7 +579,7 @@ impl Desktop {
         self.panels.update(cx, |p, _| p.close_menus());
         self.row_menu = None;
         self.changes.update(cx, |c, _| c.shut_menus());
-        (self.pr.ship_menu, self.pr.merge_menu, self.pr.create_menu) = (false, false, false);
+        self.pr.update(cx, |p, _| p.shut_menus());
         self.sidebar.update(cx, |s, cx| s.shut_menus(cx));
         self.automations.update(cx, |a, _| a.menu = None);
         self.board.update(cx, |b, _| b.close_menu());
@@ -784,6 +783,7 @@ fn replaced_on_disk(cx: &App) -> Task<bool> {
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_panels(cx);
+        self.sync_pr_side(cx);
         // A capture draws one frame a step, which would catch a glide midway.
         let (now, capturing, reduce_motion) = (Instant::now(), self.capturing, cx.reduce_motion() || self.capturing);
         // Not `||`: each steps every frame.
