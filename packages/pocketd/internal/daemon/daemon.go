@@ -287,6 +287,9 @@ func (d *Daemon) Hook(ctx context.Context, p peer.Principal, m ops.Msg) ([]byte,
 	case "PreCompact":
 		pr.a.SetCompacting()
 	case "UserPromptSubmit":
+		pr.mu.Lock()
+		pr.heard++
+		pr.mu.Unlock()
 		if d.OnPrompt != nil && in.Prompt != "" {
 			d.OnPrompt(pr.a, in.Prompt, pr.env)
 		}

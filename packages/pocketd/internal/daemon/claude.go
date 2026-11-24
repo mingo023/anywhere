@@ -196,17 +196,17 @@ func (d *Daemon) catchUp(pr *presence) {
 var ReportWait = 2 * time.Second
 
 // endTurnIfQuiet ends the turn a Stop hook announced if pr still shows
-// working and no report came within ReportWait: its claude stopped reporting,
-// so hooks drive its status again until its next report.
+// working and no report or prompt came within ReportWait: its claude stopped
+// reporting, so hooks drive its status again until its next report.
 func (d *Daemon) endTurnIfQuiet(pr *presence, failed bool) {
 	pr.mu.Lock()
-	seen := pr.reports
+	seen := pr.heard
 	pr.mu.Unlock()
 	time.AfterFunc(ReportWait, func() {
 		pr.report.Lock()
 		defer pr.report.Unlock()
 		pr.mu.Lock()
-		quiet := pr.ctx.Err() == nil && pr.reports == seen && pr.a.Turn() == "working"
+		quiet := pr.ctx.Err() == nil && pr.heard == seen && pr.a.Turn() == "working"
 		if quiet {
 			pr.reported = false
 		}
@@ -229,7 +229,7 @@ func (d *Daemon) applyLocked(pr *presence, r terminal.Report) {
 	}
 	pr.mu.Lock()
 	pr.reported = true
-	pr.reports++
+	pr.heard++
 	pr.mu.Unlock()
 	pr.a.SetAttached(true)
 	switch r.State {

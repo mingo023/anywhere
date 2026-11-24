@@ -51,7 +51,7 @@ type presence struct {
 	launch     state.Launch
 	hooked     bool   // a SessionStart came; a restored Agent has its Conversation before that
 	reported   bool   // an OSC 7501 report came: status is theirs, not the hooks'
-	reports    int    // how many reports came, so a Stop hook can tell none followed it
+	heard      int    // reports and prompts so far, so a Stop hook can tell none followed it
 	typed      bool   // the user started it in a shell: Pocket never restarts it
 	resend     string // what it is sent once it switches at its account's limit
 	drafted    bool   // Claude's input may hold text the user typed

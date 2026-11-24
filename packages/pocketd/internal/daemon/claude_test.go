@@ -516,6 +516,19 @@ func TestAStopHookEndsTheTurnOfAClaudeWhoseReportsWentQuiet(t *testing.T) {
 	}
 }
 
+func TestAPromptRightAfterAStopHookKeepsTheNextTurnWorking(t *testing.T) {
+	shortReportWait(t)
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	reportState(d, pr, "working")
+	hookFrom(d, pr, `{"hook_event_name":"Stop"}`)
+	hookFrom(d, pr, `{"hook_event_name":"UserPromptSubmit"}`)
+	time.Sleep(4 * ReportWait)
+	if got := statusOf(d, term); got != "working" {
+		t.Fatalf("status = %s, want the earlier Stop to leave the next turn alone", got)
+	}
+}
+
 func TestAStopFailureHookEndsAQuietClaudesTurnAsFailed(t *testing.T) {
 	shortReportWait(t)
 	d := newDaemon(t)
