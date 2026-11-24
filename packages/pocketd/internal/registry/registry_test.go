@@ -310,3 +310,16 @@ func TestAProjectIsNamedByItsRepoElseItsFolder(t *testing.T) {
 		t.Fatal(a, b)
 	}
 }
+
+func TestABrokenStateFileIsKeptAsideAndMadeAgainFromDesktopJSON(t *testing.T) {
+	app := folders(t, "app")[0]
+	dir := home(t, marshal(map[string]any{"projects": []string{app}}))
+	os.MkdirAll(filepath.Join(dir, "state"), 0o700)
+	os.WriteFile(filepath.Join(dir, "state", "registry.json"), []byte("{"), 0o600)
+	if got := Open(dir).Load().Projects; !slices.Equal(got, []string{app}) {
+		t.Fatalf("%v", got)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, "state", "registry.json.broken")); string(raw) != "{" {
+		t.Fatalf("kept aside: %q", raw)
+	}
+}

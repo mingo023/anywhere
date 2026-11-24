@@ -110,11 +110,19 @@ impl Store {
             return Vec::new();
         }
         let cached = self.registry(Some(host));
+        // A host's desktop.json held only some of a project's settings, which its pocketd imported: this desktop's go back.
+        let mut set = Vec::new();
+        for listed in &mut list.projects {
+            if let Some(repo) = cached.projects.get(&listed.path).filter(|r| serde_json::from_value::<RepoConfig>(listed.repo.clone()).ok().as_ref() != Some(*r)) {
+                listed.repo = serde_json::to_value(repo).unwrap_or_default();
+                set.push(Change::Set(listed.path.clone(), repo.clone()));
+            }
+        }
         let projects: Vec<(String, RepoConfig)> = cached.projects.into_iter().filter(|(p, _)| !list.projects.iter().any(|l| l.path == *p)).collect();
         let tracked: Vec<String> = cached.tracked.into_iter().filter(|t| !list.tracked.contains(t)).collect();
         list.projects.extend(projects.iter().map(|(path, repo)| Project { id: String::new(), path: path.clone(), repo: serde_json::to_value(repo).unwrap_or_default() }));
         list.tracked.extend(tracked.iter().cloned());
-        projects.into_iter().map(|(path, repo)| Change::Add(path, repo)).chain(tracked.into_iter().map(|t| Change::Track(t, true))).collect()
+        projects.into_iter().map(|(path, repo)| Change::Add(path, repo)).chain(set).chain(tracked.into_iter().map(|t| Change::Track(t, true))).collect()
     }
 
     /// The project `host`'s pocketd (this Mac's for `None`) gave id `id`; each pocketd mints its own.
@@ -207,6 +215,16 @@ mod tests {
         assert!(s.adopt_cached("devbox", &mut again).is_empty());
         s.apply_registry(Some("devbox"), &again);
         assert_eq!(s.projects, ["/a", "//devbox/home/me/y"]);
+    }
+
+    #[test]
+    fn a_hosts_first_list_gets_back_the_settings_this_desktop_cached_for_a_project_both_know() {
+        let full = RepoConfig { setup: "make".into(), color: 7, teardown: "make clean".into(), ..RepoConfig::default() };
+        let mut s = Store { projects: vec!["//devbox/home/me/x".into()], repos: [("//devbox/home/me/x".to_string(), full.clone())].into(), ..Store::default() };
+        let mut first = List { projects: vec![project("h1", "//devbox/home/me/x", json!({"setup": "make"}))], ..List::default() };
+        assert_eq!(s.adopt_cached("devbox", &mut first), [Change::Set("//devbox/home/me/x".into(), full.clone())]);
+        s.apply_registry(Some("devbox"), &first);
+        assert_eq!(s.repos["//devbox/home/me/x"], full);
     }
 
     #[test]

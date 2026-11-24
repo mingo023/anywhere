@@ -96,10 +96,15 @@ func TestARefusedRegistryChangeAnswersAnErrorThenTheListAsItStands(t *testing.T)
 	}
 }
 
-func TestOnlyTheOwnerChangesTheRegistry(t *testing.T) {
+func TestOnlyTheOwnerIsSentTheRegistryAndChangesIt(t *testing.T) {
 	opt, folder := withRegistry(t)
 	_, _, p := local(t, phoneDevice, opt)
-	p.helloAndList(helloWithRegistry)
+	p.send(helloWithRegistry)
+	for _, want := range []string{"hello.ok", "agent.list"} {
+		if m := p.recv(); m["type"] != want {
+			t.Fatalf("want %s: %v", want, m)
+		}
+	}
 	p.send(`{"type":"project.add","id":"a","path":` + q(folder) + `}`)
 	if m := p.recv(); m["type"] != "error" || m["code"] != "scope_denied" {
 		t.Fatalf("%v", m)

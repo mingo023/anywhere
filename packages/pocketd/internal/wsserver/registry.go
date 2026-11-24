@@ -4,13 +4,14 @@ import (
 	"errors"
 	"slices"
 
+	"pocketd/internal/peer"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
 )
 
-// withRegistry subscribes c to registry.list when it speaks registry.v2.
+// withRegistry subscribes the owner to registry.list when it speaks registry.v2: the list holds setup scripts and accounts.
 func (c *conn) withRegistry(caps []string) <-chan []byte {
-	if c.s.Registry == nil || !slices.Contains(caps, proto.CapRegistryV2) || c.stopRegistry != nil {
+	if c.s.Registry == nil || !c.who.Has(peer.Own) || !slices.Contains(caps, proto.CapRegistryV2) || c.stopRegistry != nil {
 		return nil
 	}
 	var msgs <-chan []byte

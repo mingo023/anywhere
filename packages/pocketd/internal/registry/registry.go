@@ -105,7 +105,8 @@ type Registry struct {
 
 // Open reads home/state/registry.json. While that file is missing it is made from home/desktop.json, once:
 // the projects there that aren't another host's ("//host/..." paths), their settings, the tracked worktrees and
-// the shared settings, each project given an id. A broken file is empty.
+// the shared settings, each project given an id. A broken file is kept beside it as registry.json.broken and
+// made again the same way.
 func Open(home string) *Registry {
 	r := &Registry{path: filepath.Join(home, "state", "registry.json"), hub: hub.New()}
 	raw, err := os.ReadFile(r.path)
@@ -116,8 +117,13 @@ func Open(home string) *Registry {
 			log.Printf("registry: %v", err)
 		}
 	case err != nil || json.Unmarshal(raw, &r.st) != nil:
-		log.Printf("registry: %s unreadable: %v", r.path, err)
-		r.st = state{}
+		// Kept aside rather than served empty, which a client would take as every project removed.
+		log.Printf("registry: %s unreadable, importing again: %v", r.path, err)
+		os.Rename(r.path, r.path+".broken")
+		r.st = importDesktop(filepath.Join(home, "desktop.json"))
+		if err := r.write(r.st); err != nil {
+			log.Printf("registry: %v", err)
+		}
 	}
 	r.file = r.st.file()
 	return r
@@ -174,7 +180,6 @@ func list(s state) proto.RegistryList {
 
 // AddProject lists the folder at path; one already listed is left as it is.
 func (r *Registry) AddProject(path string, repo *Repo) error {
-	path = filepath.Clean(path)
 	if fi, err := os.Stat(path); !filepath.IsAbs(path) || err != nil || !fi.IsDir() {
 		return ErrNotAFolder
 	}
@@ -192,7 +197,6 @@ func (r *Registry) AddProject(path string, repo *Repo) error {
 }
 
 func (r *Registry) RemoveProject(path string) error {
-	path = filepath.Clean(path)
 	return r.update(func(s *state) error {
 		if i := s.index(path); i >= 0 {
 			s.Projects = slices.Delete(s.Projects, i, i+1)
@@ -203,7 +207,6 @@ func (r *Registry) RemoveProject(path string) error {
 
 // SetRepo replaces the settings of the project at path; its id stays.
 func (r *Registry) SetRepo(path string, repo Repo) error {
-	path = filepath.Clean(path)
 	return r.update(func(s *state) error {
 		i := s.index(path)
 		if i < 0 {
@@ -215,7 +218,6 @@ func (r *Registry) SetRepo(path string, repo Repo) error {
 }
 
 func (r *Registry) Track(path string, tracked bool) error {
-	path = filepath.Clean(path)
 	return r.update(func(s *state) error {
 		i := slices.Index(s.Tracked, path)
 		switch {
