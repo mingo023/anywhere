@@ -9,6 +9,7 @@
 //	run <cmd>   ask the PermissionRequest hook, then run a Bash tool with its answer
 //	desk <cmd>  ask the hook, but answer on the "desktop" before it replies
 //	hang        stay in the turn until killed
+//	quiet       send one OSC 7501 working report, then end the turn with only the Stop hook
 //
 // With --input-format it speaks stream-json, as for Pocket's chat; see chat.go.
 package main
@@ -239,6 +240,11 @@ func main() {
 			plan(s, id)
 		case line == "hang":
 			time.Sleep(time.Hour)
+		case line == "quiet":
+			fmt.Print("\x1b]7501;state=working:app=claude-code:msg=UmVhZGluZyBkYWVtb24uZ28=\x1b\\")
+			time.Sleep(time.Second)
+			fmt.Println("echo: quiet")
+			s.write(assistant(map[string]any{"type": "text", "text": "echo: quiet"}))
 		default:
 			fmt.Println("echo: " + line)
 			s.write(assistant(map[string]any{"type": "text", "text": "echo: " + line}))

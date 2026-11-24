@@ -273,7 +273,6 @@ func (d *Daemon) Hook(ctx context.Context, p peer.Principal, m ops.Msg) ([]byte,
 	if in.PermissionMode != "" {
 		pr.setMode(in.PermissionMode)
 	}
-	reported := pr.isReported()
 	switch in.Event {
 	case "SessionStart":
 		d.sessionStart(pr, in)
@@ -287,11 +286,24 @@ func (d *Daemon) Hook(ctx context.Context, p peer.Principal, m ops.Msg) ([]byte,
 	case "PreCompact":
 		pr.a.SetCompacting()
 	case "UserPromptSubmit":
+		// Under report, so a quiet check can't end this turn between its look and its end.
+		pr.report.Lock()
+		pr.mu.Lock()
+		pr.heard++
+		pr.mu.Unlock()
+		pr.report.Unlock()
 		if d.OnPrompt != nil && in.Prompt != "" {
 			d.OnPrompt(pr.a, in.Prompt, pr.env)
 		}
 	}
-	if reported || pr.stream != nil {
+	reported := pr.isReported()
+	if pr.stream != nil {
+		return nil, nil
+	}
+	if reported {
+		if in.Event == "Stop" || in.Event == "StopFailure" {
+			d.endTurnIfQuiet(pr, in.Event == "StopFailure")
+		}
 		return nil, nil
 	}
 	switch in.Event {
