@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -153,9 +154,12 @@ func TestSharedSettingsAnOwnerSendsSetANewSessionsAccessWhereItsWorktreeGoesAndW
 	if providers.DefaultAccess != "edits" {
 		t.Errorf("a new session's access %q", providers.DefaultAccess)
 	}
-	if !slices.Contains(listed("l2"), external) {
-		t.Error("an external worktree not listed with the setting on")
-	}
+	// The list is scanned again after the change, not before its ack.
+	asked := 0
+	h.eventually("an external worktree listed with the setting on", func() bool {
+		asked++
+		return slices.Contains(listed("l"+strconv.Itoa(asked+1)), external)
+	})
 	create(phone, "r1", inRepo(h, map[string]any{"chat": true, "checkout": map[string]any{"new": map[string]any{"name": "calm-otter"}}}))
 	if m := reply(phone, "agent.created", "error"); m.Type != "agent.created" {
 		t.Fatalf("got %s", m.Raw)
