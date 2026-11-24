@@ -224,11 +224,10 @@ pub(crate) struct Inputs {
     pub(crate) repo: Option<Arc<Repo>>,
     pub(crate) scope: Scope,
     pub(crate) tree: bool,
-    pub(crate) git: store::prefs::Git,
-    pub(crate) message_argv: Vec<String>,
+    pub(crate) git: Arc<store::prefs::Git>,
     /// The file the focused pane's diff shows, and what it compares.
     pub(crate) shown: Option<(String, At)>,
-    pub(crate) pr: Option<(Pr, Token)>,
+    pub(crate) pr: Option<(Arc<Pr>, Token)>,
     pub(crate) offer: Option<Offer>,
     pub(crate) composing: bool,
     pub(crate) ship_menu: bool,
@@ -241,7 +240,7 @@ pub(crate) struct Inputs {
 impl PartialEq for Inputs {
     /// The repo by identity, as `merge_repos` keeps its `Arc` while the files are the same.
     fn eq(&self, other: &Self) -> bool {
-        let Self { cwd, repo, scope, tree, git, message_argv, shown, pr, offer, composing, ship_menu, branch_was, seamed, viewing } = self;
+        let Self { cwd, repo, scope, tree, git, shown, pr, offer, composing, ship_menu, branch_was, seamed, viewing } = self;
         let same_repo = match (repo, &other.repo) {
             (Some(a), Some(b)) => Arc::ptr_eq(a, b),
             (None, None) => true,
@@ -252,7 +251,6 @@ impl PartialEq for Inputs {
             && *scope == other.scope
             && *tree == other.tree
             && *git == other.git
-            && *message_argv == other.message_argv
             && *shown == other.shown
             && *pr == other.pr
             && *offer == other.offer
@@ -284,6 +282,8 @@ pub(crate) enum ChangesEvent {
     CreatePr,
     ShipMenu(bool),
     Refresh,
+    /// The sparkle was pressed: `Desktop` knows the agent that writes.
+    WriteMessage,
     Compared {
         cwd: String,
         against: String,
@@ -354,6 +354,10 @@ impl Changes {
             inputs: Inputs::default(),
             _subs,
         }
+    }
+
+    pub(crate) fn inputs(&self) -> &Inputs {
+        &self.inputs
     }
 
     /// Takes what `Desktop` hands down, drawing again when it differs from what was drawn.
@@ -531,14 +535,18 @@ impl Changes {
         push_argv(self.inputs.repo.as_deref(), &self.inputs.git)
     }
 
-    /// Asks the agent picked in Settings for a message from what the commit would hold.
-    fn write_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn ask_message(&mut self, cx: &mut Context<Self>) {
+        cx.emit(ChangesEvent::WriteMessage);
+    }
+
+    /// Runs the agent picked in Settings, as `argv`, for a message from what the commit would hold.
+    pub(crate) fn write_message(&mut self, argv: Vec<String>, window: &mut Window, cx: &mut Context<Self>) {
         let (Some(cwd), Some(repo)) = (self.inputs.cwd.clone(), self.inputs.repo.clone()) else { return };
         if self.writing || repo.files.is_empty() {
             return;
         }
         let staged = repo.files.iter().any(|f| f.staged);
-        let (argv, untracked) = (self.inputs.message_argv.clone(), self.inputs.git.untracked);
+        let untracked = self.inputs.git.untracked;
         self.writing = true;
         self.error = None;
         let task = cx.background_executor().spawn(async move {
@@ -568,14 +576,16 @@ pub(crate) fn push_argv(repo: Option<&Repo>, git: &store::prefs::Git) -> Vec<Str
 }
 
 impl Desktop {
-    fn changes_inputs(&self, cx: &App) -> Inputs {
+    /// What the panel reads of the app now, sharing with `held` what it held already.
+    fn changes_inputs(&self, held: &Inputs, cx: &App) -> Inputs {
         let cwd = self.cwd(cx);
         let repo = self.repo_handle(cx);
         let scope = cwd.as_deref().map(|c| self.scope(c)).unwrap_or_default();
         let shown = self.diff.view(self.focused_pane(cx), cx).and_then(|v| Some((v.file.clone()?, v.at.clone())));
         let pr = cwd.as_deref().and_then(|tree| {
             let pr = self.prs.get(tree)?;
-            Some((pr.clone(), self.pr_verdict(tree, pr, cx).0))
+            let shared = held.pr.as_ref().map(|(p, _)| p).filter(|p| ***p == *pr).cloned();
+            Some((shared.unwrap_or_else(|| Arc::new(pr.clone())), self.pr_verdict(tree, pr, cx).0))
         });
         let offer = cwd.as_deref().zip(repo.as_deref()).and_then(|(tree, r)| self.prs.item(tree, &r.branch, r.base.as_deref())).map(Offer::of);
         let branch_was = cwd
@@ -588,8 +598,7 @@ impl Desktop {
             repo,
             scope,
             tree: self.store.diff.tree,
-            git: self.store.git.clone(),
-            message_argv: self.store.git.message_argv(&self.store.agents.command(&self.store.git.agent)),
+            git: if *held.git == self.store.git { held.git.clone() } else { Arc::new(self.store.git.clone()) },
             shown,
             pr,
             offer,
@@ -602,7 +611,7 @@ impl Desktop {
 
     /// Hands the panel what it reads of `Desktop`; before it draws and before anything calls into it.
     pub(crate) fn sync_changes(&mut self, cx: &mut Context<Self>) {
-        let inputs = self.changes_inputs(cx);
+        let inputs = self.changes_inputs(self.changes.read(cx).inputs(), cx);
         self.changes.update(cx, |c, cx| c.hand(inputs, cx));
     }
 
@@ -699,6 +708,10 @@ impl Desktop {
             ChangesEvent::Refresh => {
                 self.refresh_git(cx);
                 cx.notify();
+            }
+            ChangesEvent::WriteMessage => {
+                let argv = self.store.git.message_argv(&self.store.agents.command(&self.store.git.agent));
+                self.changes.update(cx, |c, cx| c.write_message(argv, window, cx));
             }
             ChangesEvent::Shipped(tree, repo) => {
                 let shown = self.cwd(cx).as_ref() == Some(tree);

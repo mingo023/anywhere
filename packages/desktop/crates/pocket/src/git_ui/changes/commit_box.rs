@@ -93,7 +93,7 @@ impl Changes {
             .rounded(px(7.))
             .map(|d| if self.writing { d.child(spinner("commit-writing", 13., TEXT_3)) } else { d.child(icon("sparkle", 14., TEXT_3)) })
             .when(has_changes && !self.writing, |d| {
-                d.cursor_pointer().hover(|s| s.bg(FILL_3)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.write_message(window, cx)))
+                d.cursor_pointer().hover(|s| s.bg(FILL_3)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.ask_message(cx)))
             })
             .when(!has_changes, |d| d.opacity(0.4));
         let field = div()

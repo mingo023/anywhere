@@ -416,8 +416,19 @@ impl Settings {
     }
 
     /// What `Desktop` hands down before each draw.
-    pub(crate) fn hand(&mut self, store: Arc<Store>, live: Arc<::agents::Agents>, side: Side) {
-        (self.store, self.live, self.side) = (store, live, side);
+    pub(crate) fn hand(&mut self, store: Option<Arc<Store>>, live: Option<Arc<::agents::Agents>>, side: Side, cx: &mut Context<Self>) {
+        self.side = side;
+        if store.is_none() && live.is_none() {
+            return;
+        }
+        self.store = store.unwrap_or_else(|| self.store.clone());
+        self.live = live.unwrap_or_else(|| self.live.clone());
+        crate::region::notify_after_draw(cx);
+    }
+
+    /// Whether what was handed down still matches the store and the providers pocketd reports.
+    pub(crate) fn holds(&self, store: &Store, live: &::agents::Agents) -> (bool, bool) {
+        (store.settings_unchanged(&self.store), self.live.providers == live.providers)
     }
 
     /// Asks `Desktop` to apply `apply` to the store, then run `setting`'s effect.
@@ -1007,10 +1018,11 @@ impl Desktop {
 
     /// Hands Settings the store's sections and what it draws from outside the store.
     pub(crate) fn sync_settings(&mut self, cx: &mut Context<Self>) {
-        let store = Arc::new(self.store.settings_view());
-        let live = Arc::new(::agents::Agents { providers: self.agents.providers.clone(), ..Default::default() });
+        let (store_held, live_held) = self.settings.read(cx).holds(&self.store, &self.agents);
+        let store = (!store_held).then(|| Arc::new(self.store.settings_view()));
+        let live = (!live_held).then(|| Arc::new(::agents::Agents { providers: self.agents.providers.clone(), ..Default::default() }));
         let side = self.settings_side(cx);
-        self.settings.update(cx, |s, _| s.hand(store, live, side));
+        self.settings.update(cx, |s, cx| s.hand(store, live, side, cx));
     }
 
     /// What the shown section reads from outside the app, fetched once.
