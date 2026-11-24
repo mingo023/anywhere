@@ -391,14 +391,6 @@ impl Desktop {
         Side { target: self.chat_target(&choices, cx), names: choices.iter().map(|c| (c.provider.clone(), self.agent_name(&c.provider))).collect(), choices }
     }
 
-    pub(crate) fn chat_card(&self, quote: &Quote, cx: &mut Context<Self>) -> Div {
-        let side = self.chat_side(cx);
-        self.chat.update(cx, |c, cx| {
-            c.hand(side, cx);
-            c.card(quote, false, cx)
-        })
-    }
-
     fn chat_quote(&self, cx: &App) -> Option<Quote> {
         self.chat.read(cx).file_quote().or_else(|| self.diff.draft_quote(cx))
     }

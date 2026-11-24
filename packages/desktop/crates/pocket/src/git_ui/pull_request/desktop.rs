@@ -501,8 +501,4 @@ impl Desktop {
         let dir = self.store.home().join("avatars");
         self.pr.update(cx, |p, cx| p.fetch_avatars(&pr, &me, dir, cx));
     }
-
-    pub(crate) fn pinned_thread(&self, k: usize, id: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
-        self.pr.update(cx, |p, cx| p.pinned_thread(k, id, cx))
-    }
 }

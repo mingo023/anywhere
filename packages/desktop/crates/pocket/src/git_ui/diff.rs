@@ -2,10 +2,11 @@ mod row;
 use row::{add_button, fold_start};
 pub(crate) use row::{code, hunk};
 
-use crate::add_to_chat::{Body, Quote};
+use crate::add_to_chat::{Body, ChatComposer, Quote};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Side, doc_bar, empty};
 use crate::explorer::preview::image_format;
+use crate::git_ui::pull_request::PrSide;
 use crate::syntax::{Spans, language_for, line_spans};
 use crate::util::{ago_long, now_ms};
 use git::github::Thread;
@@ -34,9 +35,6 @@ fn code_line(size: u32) -> f32 {
     (size as f32 * ROW / 12.5).round().max(ROW)
 }
 
-/// How far past the top a pane's rows can show, in pixels, before its first layout says: only the cards of rows within it are built.
-const CARD_REACH: f32 = 2400.;
-const CARD_SLACK: usize = 25;
 const MAX_COLORED: usize = 512 * 1024;
 const MAX_WORD_LINES: usize = 5;
 
@@ -490,11 +488,11 @@ fn reveal_thread<'a>(reveal: &mut Option<String>, views: impl IntoIterator<Item 
     }
 }
 
-/// Elements `Desktop` builds from its own state for the rows a pane can't: the composer and the PR threads. A row takes its card once; one not built draws empty.
+/// What a pane's composer and PR thread rows draw from: the entities that build them, which a row asks each time it renders.
 #[derive(Default)]
 pub(crate) struct Cards {
-    pub(crate) composer: Option<AnyElement>,
-    pub(crate) threads: HashMap<usize, AnyElement>,
+    pub(crate) composer: Option<(Entity<ChatComposer>, Quote)>,
+    pub(crate) threads: Option<(Entity<PrSide>, Vec<String>)>,
 }
 
 pub(crate) enum DiffEvent {
@@ -579,9 +577,34 @@ impl DiffPane {
                 };
                 div().w_full().flex().child(side("old", l, |l| l.old)).child(side("new", r, |l| l.new)).into_any_element()
             }
-            Row::Composer => div().w_full().children(self.cards.composer.take()).into_any_element(),
-            Row::Thread(k) => div().w_full().children(self.cards.threads.remove(&k)).into_any_element(),
+            Row::Composer => {
+                let card = self.cards.composer.as_ref().map(|(chat, q)| chat.update(cx, |c, cx| c.card(q, false, cx)));
+                div().w_full().children(card.map(|c| c.mt(px(6.)).mb(px(10.)).mr(px(20.)).ml(px(self.card_margin())))).into_any_element()
+            }
+            Row::Thread(k) => {
+                let thread = self.cards.threads.as_ref().and_then(|(pr, ids)| {
+                    let id = ids.get(k)?;
+                    pr.update(cx, |p, cx| p.pinned_thread(k, id, cx))
+                });
+                let card = thread.map(|t| {
+                    div()
+                        .mt(px(6.))
+                        .mb(px(10.))
+                        .mr(px(20.))
+                        .ml(px(self.card_margin()))
+                        .max_w(px(720.))
+                        .font_family(ui_font())
+                        .text_size(px(13.))
+                        .line_height(relative(1.2))
+                        .child(t)
+                });
+                div().w_full().children(card).into_any_element()
+            }
         }
+    }
+
+    fn card_margin(&self) -> f32 {
+        if self.split { NUM + SIGN } else { 2. * NUM + SIGN }
     }
 
     fn expand(&mut self, start: usize, cx: &mut Context<Self>) {
@@ -904,41 +927,13 @@ impl Desktop {
     fn diff_cards(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Cards {
         let Some(v) = self.diff.view(pane, cx) else { return Cards::default() };
         let composing = v.rows.contains(&Row::Composer);
-        let top = v.list.logical_scroll_top().item_ix;
-        let reach = (v.list.viewport_bounds().size.height.max(px(CARD_REACH)) / px(ROW)) as usize + CARD_SLACK;
-        let threads: Vec<(usize, String)> = v
-            .rows
-            .iter()
-            .skip(top.saturating_sub(CARD_SLACK))
-            .take(reach + CARD_SLACK)
-            .filter_map(|r| match r {
-                Row::Thread(k) => Some((*k, v.pins.get(*k)?.id.clone())),
-                _ => None,
-            })
-            .collect();
-        let margin = if self.diff.split { NUM + SIGN } else { 2. * NUM + SIGN };
-        let composer = composing
-            .then(|| self.diff.draft_quote(cx))
-            .flatten()
-            .map(|q| self.chat_card(&q, cx).mt(px(6.)).mb(px(10.)).mr(px(20.)).ml(px(margin)).into_any_element());
-        let threads = threads
-            .into_iter()
-            .filter_map(|(k, id)| {
-                let t = self.pinned_thread(k, &id, cx)?;
-                let card = div()
-                    .mt(px(6.))
-                    .mb(px(10.))
-                    .mr(px(20.))
-                    .ml(px(margin))
-                    .max_w(px(720.))
-                    .font_family(ui_font())
-                    .text_size(px(13.))
-                    .line_height(relative(1.2))
-                    .child(t);
-                Some((k, card.into_any_element()))
-            })
-            .collect();
-        Cards { composer, threads }
+        let ids = v.pins.iter().map(|p| p.id.clone()).collect();
+        let composer = composing.then(|| self.diff.draft_quote(cx)).flatten().map(|q| {
+            let side = self.chat_side(cx);
+            self.chat.update(cx, |c, cx| c.hand(side, cx));
+            (self.chat.clone(), q)
+        });
+        Cards { composer, threads: Some((self.pr.clone(), ids)) }
     }
 
     pub fn open_changes(&mut self, path: Option<String>, pin: bool, cx: &mut Context<Self>) {

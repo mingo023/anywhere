@@ -249,20 +249,11 @@ pub(crate) struct Keyboard {
 impl Keyboard {
     pub(super) fn new(window: &mut Window, cx: &mut Context<Settings>) -> (Self, Vec<Subscription>) {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search by name or keys"));
-        let settings = cx.entity().downgrade();
-        let subs = vec![
-            cx.subscribe(&search, |_, _, ev: &InputEvent, cx| {
-                if let InputEvent::Change = ev {
-                    cx.notify();
-                }
-            }),
-            // Ahead of the keymap, so ⌘K becomes the new keys instead of opening the palette.
-            cx.intercept_keystrokes(move |ev, _, cx| {
-                if settings.update(cx, |s, cx| s.record_shortcut(&ev.keystroke, cx)).unwrap_or(false) {
-                    cx.stop_propagation();
-                }
-            }),
-        ];
+        let subs = vec![cx.subscribe(&search, |_, _, ev: &InputEvent, cx| {
+            if let InputEvent::Change = ev {
+                cx.notify();
+            }
+        })];
         (Self { recording: None, customized: false, search }, subs)
     }
 
@@ -318,9 +309,9 @@ fn shortcut_row(label: impl IntoElement, control: impl IntoElement) -> Div {
 
 impl Settings {
     /// Takes `k` as the new keys of the row being changed; true when it was for that row.
-    fn record_shortcut(&mut self, k: &Keystroke, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn record_shortcut(&mut self, k: &Keystroke, shown: bool, cx: &mut Context<Self>) -> bool {
         let Some((id, _)) = self.keyboard.recording.clone() else { return false };
-        if self.section != Section::Keyboard {
+        if !shown || self.section != Section::Keyboard {
             self.keyboard.stop();
             return false;
         }

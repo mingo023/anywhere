@@ -983,6 +983,20 @@ impl Desktop {
         self.settings.update(cx, |s, cx| s.show_section(section, cx));
     }
 
+    pub(crate) fn shortcut_record_hook(cx: &mut Context<Self>) -> Subscription {
+        let desktop = cx.entity().downgrade();
+        // Ahead of the keymap, so ⌘K becomes the new keys instead of opening the palette.
+        cx.intercept_keystrokes(move |ev, _, cx| {
+            let taken = desktop.update(cx, |d, cx| {
+                let shown = d.screen == Screen::Settings;
+                d.settings.update(cx, |s, cx| s.record_shortcut(&ev.keystroke, shown, cx))
+            });
+            if taken.unwrap_or(false) {
+                cx.stop_propagation();
+            }
+        })
+    }
+
     pub(crate) fn sync_settings(&mut self, cx: &mut Context<Self>) {
         let (store_held, live_held) = self.settings.read(cx).holds(&self.store, &self.agents);
         let store = (!store_held).then(|| Arc::new(self.store.settings_view()));

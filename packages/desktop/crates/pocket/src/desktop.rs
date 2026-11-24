@@ -198,6 +198,7 @@ impl Desktop {
         let automations = cx.new(|cx| Automations::new(window, cx));
         let automations_subs = Self::watch_automations(&automations, window, cx);
         let board_start = Self::board_start_hook(cx);
+        let shortcut_record = Self::shortcut_record_hook(cx);
         let board = cx.new(|cx| Board::new(window, cx));
         let board_subs = cx.subscribe_in(&board, window, Self::on_board_event);
         let activity = cx.new(|cx| Activity::new(window, cx));
@@ -280,6 +281,7 @@ impl Desktop {
         _subs.extend(geometry_subs);
         _subs.extend(automations_subs);
         _subs.push(board_start);
+        _subs.push(shortcut_record);
         _subs.push(board_subs);
         _subs.push(activity_subs);
         _subs.push(handoff_subs);
