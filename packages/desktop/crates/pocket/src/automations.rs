@@ -309,14 +309,6 @@ impl Desktop {
         Some(self.composer_chips(&c, &pick, project, cx))
     }
 
-    pub(crate) fn automations_column(&mut self, cx: &mut Context<Self>) -> Div {
-        let side = self.automations_side(cx);
-        self.automations.update(cx, |a, cx| {
-            a.set(side);
-            a.column(cx)
-        })
-    }
-
     /// The right-hand page of the Automations screen.
     pub(crate) fn automations_page(&mut self, cx: &mut Context<Self>) -> Div {
         let side = self.automations_side(cx);

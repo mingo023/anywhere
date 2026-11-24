@@ -410,37 +410,6 @@ impl Desktop {
         self.widths[col as usize].map_or(fallback, |w| w.clamp(min, max))
     }
 
-    pub(crate) fn seam(
-        &self,
-        id: impl Into<ElementId>,
-        axis: Axis,
-        reset: impl Fn(&mut Self, &mut Context<Self>) + 'static,
-        cx: &mut Context<Self>,
-    ) -> Option<Stateful<Div>> {
-        // The deferred handle paints above overlays, so it would steal their clicks.
-        if self.overlay.is_some() {
-            return None;
-        }
-        Some(seam_handle(id, axis, reset, cx))
-    }
-
-    /// Lets the user drag `d`'s right edge to resize `col`, or double-click it to reset.
-    pub fn resizable(&self, d: Div, col: Column, cx: &mut Context<Self>) -> Div {
-        let Some(handle) = self.seam(("resize-column", col as usize), Axis::Row, move |this, cx| this.reset_width(col, cx), cx) else {
-            return d;
-        };
-        let handle = handle.right(px(-SEAM / 2.)).on_drag(col, |_, _, _, cx| {
-            cx.stop_propagation();
-            cx.new(|_| EmptyView)
-        });
-        // Deferred so the handle straddles the edge: `column()` clips its children.
-        d.relative().child(deferred(handle)).on_drag_move(cx.listener(move |this, e: &DragMoveEvent<Column>, _, cx| {
-            if *e.drag(cx) == col {
-                this.drag_edge(col, f32::from(e.event.position.x - e.bounds.left()), cx);
-            }
-        }))
-    }
-
     pub(crate) fn drag_edge(&mut self, col: Column, width: f32, cx: &mut Context<Self>) {
         match dragged(col, self.layout, width) {
             Edge::Width(width) => self.widths[col as usize] = Some(width),

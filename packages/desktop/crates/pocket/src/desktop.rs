@@ -808,9 +808,9 @@ impl Render for Desktop {
             None
         } else if settings {
             let width = self.width(crate::desktop::chrome::Column::Projects, 272.);
-            Some(self.settings.update(cx, |s, cx| s.nav(width, cx)))
+            Some(self.settings.update(cx, |s, cx| s.nav(width, cx)).into_any_element())
         } else {
-            crate::sidebar::column_shown(self.layout, self.screen).then(|| self.column_view(cx))
+            crate::sidebar::column_shown(self.layout, self.screen).then(|| self.column_view(cx).into_any_element())
         };
         let page = shown.then(|| if settings { self.settings.clone().into_any_element() } else { self.main_view(window, cx).into_any_element() });
         let workspace = (shown && self.screen == Screen::Sessions && self.sidebar.read(cx).unfocused() > 0.).then(|| self.workspace_side(cx));
