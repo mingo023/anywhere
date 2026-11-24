@@ -212,6 +212,11 @@ pub(crate) enum ChatBoxEvent {
         cwd: String,
         press: super::markdown::Press,
     },
+    /// Files were dropped on `agent`'s chat.
+    Drop {
+        agent: String,
+        paths: ExternalPaths,
+    },
 }
 
 impl EventEmitter<ChatBoxEvent> for ComposerState {}
@@ -227,6 +232,12 @@ impl crate::composer::Drafted for ComposerState {
 }
 
 impl ComposerState {
+    /// Laid over `agent`'s chat so files dropped on it go up as `ChatBoxEvent::Drop`.
+    pub(crate) fn drop_zone(&self, agent: &str, cx: &mut Context<Self>) -> Div {
+        let agent = agent.to_string();
+        drop_zone(cx.listener(move |_, paths: &ExternalPaths, _, cx| cx.emit(ChatBoxEvent::Drop { agent: agent.clone(), paths: paths.clone() })))
+    }
+
     pub(crate) fn open_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
         self.draft.menu = Some(menu);
         cx.notify();
@@ -678,6 +689,12 @@ impl Desktop {
             ChatBoxEvent::Command { agent, command } => self.chat_command(agent, command.clone(), cx),
             ChatBoxEvent::Pick(ix) => _ = self.suggest_pick(suggest::Prompt::Chat, *ix, window, cx),
             ChatBoxEvent::Link { agent, link, cwd, press } => self.chat_link(agent, link, cwd, *press, window, cx),
+            ChatBoxEvent::Drop { agent, paths } => {
+                self.chat_take_input(agent, window, cx);
+                let (input, paths) = (self.chats.input.clone(), paths.clone());
+                // The input's drop handler updates `Desktop`, which this handler is already updating.
+                window.defer(cx, move |window, cx| input.update(cx, |s, cx| s.drop_paths(&paths, window, cx)));
+            }
         }
         cx.notify();
     }
@@ -1085,12 +1102,7 @@ impl Desktop {
         if composer_mode(self.agents.observe_only(), self.chat_ask(terminal).as_ref().map(|(a, _)| a)) != Mode::Prompt {
             return None;
         }
-        let (desktop, input) = (cx.entity().downgrade(), self.chats.input.clone());
-        // Not a `cx.listener`: the input's drop handler updates `Desktop`.
-        Some(drop_zone(move |paths, window, cx| {
-            desktop.update(cx, |d, cx| d.chat_take_input(&agent, window, cx)).ok();
-            input.update(cx, |s, cx| s.drop_paths(paths, window, cx));
-        }))
+        Some(self.chats.composer.update(cx, |c, cx| c.drop_zone(&agent, cx)))
     }
 }
 
