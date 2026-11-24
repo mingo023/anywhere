@@ -43,6 +43,23 @@ pub fn changes(before: &Slice, after: &Slice) -> Vec<Change> {
     out
 }
 
+/// `theirs` with each setting it leaves unset taken from `ours`.
+fn filled(theirs: RepoConfig, ours: &RepoConfig) -> RepoConfig {
+    let pick = |a: String, b: &String| if a.is_empty() { b.clone() } else { a };
+    RepoConfig {
+        name: pick(theirs.name, &ours.name),
+        color: if theirs.color == 0 { ours.color } else { theirs.color },
+        setup: pick(theirs.setup, &ours.setup),
+        teardown: pick(theirs.teardown, &ours.teardown),
+        launch: if theirs.launch == Default::default() { ours.launch.clone() } else { theirs.launch },
+        dev_url: pick(theirs.dev_url, &ours.dev_url),
+        icon: theirs.icon.or_else(|| ours.icon.clone()),
+        gh_account: pick(theirs.gh_account, &ours.gh_account),
+        accounts: if theirs.accounts.is_empty() { ours.accounts.clone() } else { theirs.accounts },
+        hidden: if theirs.hidden.is_empty() { ours.hidden.clone() } else { theirs.hidden },
+    }
+}
+
 /// Whether `key` is on `host`, or on this Mac for `None`.
 fn on(host: Option<&str>, key: &str) -> bool {
     hosts::split(key).0 == host
@@ -110,12 +127,14 @@ impl Store {
             return Vec::new();
         }
         let cached = self.registry(Some(host));
-        // A host's desktop.json held only some of a project's settings, which its pocketd imported: this desktop's go back.
+        // A host's desktop.json may have held only some of a project's settings: the ones it lacks come from this desktop.
         let mut set = Vec::new();
         for listed in &mut list.projects {
-            if let Some(repo) = cached.projects.get(&listed.path).filter(|r| serde_json::from_value::<RepoConfig>(listed.repo.clone()).ok().as_ref() != Some(*r)) {
-                listed.repo = serde_json::to_value(repo).unwrap_or_default();
-                set.push(Change::Set(listed.path.clone(), repo.clone()));
+            let (Some(cached), Ok(theirs)) = (cached.projects.get(&listed.path), serde_json::from_value::<RepoConfig>(listed.repo.clone())) else { continue };
+            let repo = filled(theirs.clone(), cached);
+            if repo != theirs {
+                listed.repo = serde_json::to_value(&repo).unwrap_or_default();
+                set.push(Change::Set(listed.path.clone(), repo));
             }
         }
         let projects: Vec<(String, RepoConfig)> = cached.projects.into_iter().filter(|(p, _)| !list.projects.iter().any(|l| l.path == *p)).collect();
@@ -225,6 +244,16 @@ mod tests {
         assert_eq!(s.adopt_cached("devbox", &mut first), [Change::Set("//devbox/home/me/x".into(), full.clone())]);
         s.apply_registry(Some("devbox"), &first);
         assert_eq!(s.repos["//devbox/home/me/x"], full);
+    }
+
+    #[test]
+    fn a_hosts_first_list_keeps_the_settings_it_has_set() {
+        let ours = RepoConfig { color: 7, teardown: "make clean".into(), ..RepoConfig::default() };
+        let mut s = Store { projects: vec!["//devbox/home/me/x".into()], repos: [("//devbox/home/me/x".to_string(), ours)].into(), ..Store::default() };
+        let mut first = List { projects: vec![project("h1", "//devbox/home/me/x", json!({"color": 3, "teardown": "rm -rf build"}))], ..List::default() };
+        assert!(s.adopt_cached("devbox", &mut first).is_empty());
+        s.apply_registry(Some("devbox"), &first);
+        assert_eq!((s.repos["//devbox/home/me/x"].color, s.repos["//devbox/home/me/x"].teardown.as_str()), (3, "rm -rf build"));
     }
 
     #[test]

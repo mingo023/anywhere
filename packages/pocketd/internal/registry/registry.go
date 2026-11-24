@@ -116,9 +116,11 @@ func Open(home string) *Registry {
 		if err := r.write(r.st); err != nil {
 			log.Printf("registry: %v", err)
 		}
-	case err != nil || json.Unmarshal(raw, &r.st) != nil:
+	case err != nil:
+		log.Printf("registry: %s: %v", r.path, err)
+	case json.Unmarshal(raw, &r.st) != nil:
 		// Kept aside rather than served empty, which a client would take as every project removed.
-		log.Printf("registry: %s unreadable, importing again: %v", r.path, err)
+		log.Printf("registry: %s unreadable, importing again", r.path)
 		os.Rename(r.path, r.path+".broken")
 		r.st = importDesktop(filepath.Join(home, "desktop.json"))
 		if err := r.write(r.st); err != nil {
@@ -130,16 +132,25 @@ func Open(home string) *Registry {
 }
 
 func importDesktop(path string) state {
-	var f File
+	var keys map[string]json.RawMessage
 	raw, err := os.ReadFile(path)
 	if err == nil {
-		err = json.Unmarshal(raw, &f)
+		err = json.Unmarshal(raw, &keys)
 	}
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			log.Printf("registry: %s: %v", path, err)
 		}
 		return state{}
+	}
+	// Key by key, so one the desktop wrote in a shape this can't read loses only itself.
+	var f File
+	for key, into := range map[string]any{"projects": &f.Projects, "repos": &f.Repos, "tracked": &f.Tracked, "git": &f.Git, "agents": &f.Agents, "worktree": &f.Worktree, "sidebar": &f.Sidebar} {
+		if v, ok := keys[key]; ok {
+			if err := json.Unmarshal(v, into); err != nil {
+				log.Printf("registry: %s: %s: %v", path, key, err)
+			}
+		}
 	}
 	local := func(p string) bool { return !strings.HasPrefix(p, "//") }
 	s := state{Settings: proto.SharedSettings{Git: f.Git, Access: f.Agents.Access, WorktreeRoot: f.Worktree.Root, ExternalWorktrees: f.Sidebar.ExternalWorktrees}}

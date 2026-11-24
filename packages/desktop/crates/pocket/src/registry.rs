@@ -30,10 +30,6 @@ impl Registry {
         self.synced.insert(host.map(str::to_string), slice);
     }
 
-    pub(crate) fn forget(&mut self, host: &str) {
-        self.synced.remove(&Some(host.to_string()));
-    }
-
     pub(crate) fn machines(&self) -> Vec<Option<String>> {
         self.synced.keys().cloned().collect()
     }
@@ -131,8 +127,6 @@ mod tests {
         assert_eq!(registry.pending(Some("devbox"), &now).len(), 1, "still pending until sent");
         registry.listed(Some("devbox"), now.clone());
         assert!(registry.pending(Some("devbox"), &now).is_empty());
-        registry.forget("devbox");
-        assert!(registry.machines().is_empty());
     }
 
     #[test]

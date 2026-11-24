@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -321,5 +322,14 @@ func TestABrokenStateFileIsKeptAsideAndMadeAgainFromDesktopJSON(t *testing.T) {
 	}
 	if raw, _ := os.ReadFile(filepath.Join(dir, "state", "registry.json.broken")); string(raw) != "{" {
 		t.Fatalf("kept aside: %q", raw)
+	}
+}
+
+func TestAKeyOfDesktopJSONInAShapeItCantReadLosesOnlyItself(t *testing.T) {
+	app := folders(t, "app")[0]
+	dir := home(t, `{"projects":[`+strconv.Quote(app)+`],"git":{"remote":7},"worktree":{"root":"/wt"}}`)
+	f := Open(dir).Load()
+	if !slices.Equal(f.Projects, []string{app}) || f.Worktree.Root != "/wt" {
+		t.Fatalf("%+v", f)
 	}
 }
