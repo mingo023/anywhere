@@ -101,7 +101,6 @@ impl Automations {
         self.chips = chips;
     }
 
-    /// The screen opens on the snapshot's first automation unless one is already selected.
     pub(crate) fn opened(&mut self, data: Arc<Snapshot>) {
         self.selected = opening_selection(self.selected.as_deref(), &data.items);
         self.changed(data);
@@ -152,7 +151,6 @@ impl Automations {
         }
     }
 
-    /// Closes the menus here, and asks `Desktop` to close the rest.
     fn shut(&mut self, cx: &mut Context<Self>) {
         self.menu = None;
         cx.emit(AutomationsEvent::CloseMenus);
@@ -216,7 +214,6 @@ impl Automations {
         cx.emit(AutomationsEvent::ToggleMenu(menu));
     }
 
-    /// Opens `menu`, or closes the menus with `None`; the branch menu starts on an empty, focused search.
     pub(crate) fn set_menu(&mut self, menu: Option<Menu>, window: &mut Window, cx: &mut Context<Self>) {
         self.form.composer.update(cx, |c, cx| c.shut_menu(cx));
         self.menu = menu;
@@ -293,7 +290,6 @@ impl Desktop {
         self.automations.update(cx, |a, _| a.changed(data));
     }
 
-    /// What the screen draws from `Desktop`'s own state.
     pub(crate) fn automations_side(&self, cx: &App) -> Side {
         let a = self.automations.read(cx);
         let data = &self.agents.automations;
@@ -320,7 +316,6 @@ impl Desktop {
         Side { labels, projects, folders, titles, asks, defaults: self.store.automations.clone(), folder, lead }
     }
 
-    /// The editor's chips need the model lists and settings only `Desktop` holds.
     fn automations_chips(&self, cx: &App) -> Option<Chips> {
         let (c, pick, project) = self.automations.read(cx).chip_inputs(cx)?;
         Some(self.composer_chips(&c, &pick, project, cx))
@@ -374,7 +369,6 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Reads `folder`'s local branches off the UI thread.
     fn load_branches(&mut self, folder: String, cx: &mut Context<Self>) {
         if folder.is_empty() {
             return;
@@ -403,7 +397,6 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Opens the editor on automation `id`, or on a new one.
     pub(crate) fn edit_automation(&mut self, id: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
         self.close_menus(cx);
         self.screen = Screen::Automations;

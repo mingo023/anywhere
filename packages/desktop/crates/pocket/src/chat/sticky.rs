@@ -291,9 +291,6 @@ fn card(
 }
 
 impl View {
-    /// The prompt whose turn the top of the chat is in, floated over the top once it scrolls past. A click scrolls
-    /// back to the prompt; the next prompt pushes it out as it arrives. Also how far down its card ends, which the
-    /// transcript paints only below.
     pub(super) fn sticky(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<(Div, f32)> {
         let view = &*self;
         let s = &view.session;

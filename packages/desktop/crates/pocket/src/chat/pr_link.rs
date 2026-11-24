@@ -89,7 +89,6 @@ pub(crate) struct Peek {
     agent: &'static str,
 }
 
-/// The PRs the worktrees have.
 pub(crate) fn peeks(prs: &PullRequests, state: &PrSide, to: &FixTo) -> Arc<[Peek]> {
     prs.all()
         .filter_map(|(tree, pr)| Some((tree, pr, PrRef::parse(&pr.url)?)))
@@ -103,7 +102,6 @@ pub(crate) fn peeks(prs: &PullRequests, state: &PrSide, to: &FixTo) -> Arc<[Peek
         .collect()
 }
 
-/// Of `all`, the PRs `text` links to.
 pub(super) fn within(all: &[Peek], text: &str) -> Arc<[Peek]> {
     let lower = text.to_lowercase();
     all.iter().filter(|p| p.at.in_text(&lower)).cloned().collect()

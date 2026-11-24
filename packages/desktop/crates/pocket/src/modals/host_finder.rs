@@ -32,37 +32,26 @@ pub(crate) enum Opener {
     CloneInto,
 }
 
-/// A host the finder's switch lists.
 pub(crate) struct HostRow {
     pub id: String,
     pub name: String,
     pub glyph: &'static str,
 }
 
-/// What `Desktop` hands the finder each frame.
 #[derive(Default)]
 pub(crate) struct Side {
-    /// The open finder's host name and glyph.
     pub name: String,
     pub glyph: &'static str,
     pub hosts: Vec<HostRow>,
-    /// Every project's key.
     pub projects: Vec<String>,
-    /// The repository name Clone from URL has typed, while it is the one asking.
     pub clone: Option<String>,
 }
 
 pub(crate) enum FinderEvent {
-    /// Closed without a folder.
     Closed(Opener),
-    Chosen {
-        opener: Opener,
-        host: String,
-        dir: String,
-    },
+    Chosen { opener: Opener, host: String, dir: String },
 }
 
-/// The column finder over a host's folders, as its own `Entity`.
 pub(crate) struct HostFinder {
     finder: Option<Finder>,
     opener: Opener,
@@ -106,7 +95,6 @@ impl HostFinder {
         self.side = side;
     }
 
-    /// Drops the finder, leaving focus where it is.
     pub(crate) fn drop_finder(&mut self) {
         self.finder = None;
     }
@@ -340,13 +328,11 @@ impl Render for HostFinder {
 }
 
 impl Desktop {
-    /// Opens the finder on `host`, at `start` or the host's home.
     pub(crate) fn open_host_finder(&mut self, host: String, start: Option<String>, opener: Opener, window: &mut Window, cx: &mut Context<Self>) {
         self.host_finder.update(cx, |f, cx| f.open(host, start, opener, window, cx));
         cx.notify();
     }
 
-    /// Closes the finder, leaving what opened it as it was. False when it wasn't open.
     pub(crate) fn close_host_finder(&mut self, cx: &mut Context<Self>) -> bool {
         self.host_finder.update(cx, |f, cx| f.close(cx))
     }
@@ -385,7 +371,6 @@ impl Desktop {
             .collect()
     }
 
-    /// The finder, when it's open, over what `Desktop` hands it.
     pub(crate) fn host_finder_view(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let finder = self.host_finder.read(cx);
         let (host, opener) = (finder.host()?.to_string(), finder.opener());

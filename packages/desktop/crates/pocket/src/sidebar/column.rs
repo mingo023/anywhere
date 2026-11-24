@@ -22,14 +22,12 @@ pub(crate) fn changes_badge(n: usize) -> Div {
     ui::count_badge(n).top(px(19.)).right(px(-4.)).bg(PRIMARY).text_color(ON_PRIMARY).shadow(vec![ui::ring(RAIL_CUTOUT, 2.)])
 }
 
-/// What the column left of the page lists.
 #[derive(PartialEq)]
 pub(crate) enum ColumnBody {
     Inbox(Entity<Inbox>),
     Automations(Entity<Automations>),
 }
 
-/// What `Desktop` hands the column each frame.
 #[derive(PartialEq)]
 pub(crate) struct ColumnFrame {
     pub(crate) width: f32,
@@ -37,16 +35,13 @@ pub(crate) struct ColumnFrame {
     pub(crate) body: ColumnBody,
 }
 
-/// What the column asks `Desktop` for.
 pub(crate) enum ColumnEvent {
-    /// Its right edge dragged this far from its left.
     Drag(f32),
     Reset,
 }
 
 impl EventEmitter<ColumnEvent> for ColumnView {}
 
-/// The inbox or Automations list left of the page, with its right edge to drag.
 #[derive(Default)]
 pub(crate) struct ColumnView {
     frame: Option<ColumnFrame>,

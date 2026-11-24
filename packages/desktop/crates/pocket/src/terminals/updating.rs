@@ -116,7 +116,6 @@ fn hand_back_opacity(t: f32) -> f32 {
 }
 
 impl Render for Terminals {
-    /// The page for the link to pocketd: the update's steps, or the wait for the service to start.
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let now = Instant::now();
         let (hint, update, stale) = (self.link.hint(now), self.link.update(now), self.link.stale().unwrap_or_default().to_string());

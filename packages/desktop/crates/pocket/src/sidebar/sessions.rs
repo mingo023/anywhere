@@ -15,7 +15,6 @@ pub(crate) fn matching(cards: Vec<Card>, query: &str) -> Vec<Card> {
     cards.into_iter().filter(|c| c.title.to_lowercase().contains(&query)).collect()
 }
 
-/// A session's card, as the list draws it.
 #[derive(PartialEq)]
 pub(crate) struct SessionRow {
     pub(crate) id: String,
@@ -26,13 +25,10 @@ pub(crate) struct SessionRow {
     pub(crate) pill: State,
     pub(crate) branch: Option<String>,
     pub(crate) notice: Option<ui::Notice>,
-    /// The model and account under a loose card's agent; pinned ones show none.
     pub(crate) label: String,
-    /// How long ago it last changed, as the card says; empty when the card shows no time.
     pub(crate) ago: String,
 }
 
-/// What `Desktop` hands the list each frame.
 #[derive(PartialEq)]
 pub(crate) struct SessionsFrame {
     pub(crate) has_project: bool,
@@ -49,7 +45,6 @@ pub(crate) enum SessionsEvent {
 
 impl EventEmitter<SessionsEvent> for SessionList {}
 
-/// The panel's Sessions side: the worktree's sessions under a search field.
 pub(crate) struct SessionList {
     search: Entity<InputState>,
     frame: Option<SessionsFrame>,
@@ -141,7 +136,6 @@ impl Render for SessionList {
 }
 
 impl Desktop {
-    /// Hands the Sessions list what it draws from `Desktop`'s state.
     pub(crate) fn sessions_view(&self, cx: &mut Context<Self>) -> Entity<SessionList> {
         let details = self.store.sidebar.details;
         let rows = self

@@ -54,16 +54,12 @@ impl DismissedBanners {
     }
 }
 
-/// What `Desktop` hands a pane each time it draws it.
 pub(crate) struct Look {
     pub metrics: Metrics,
     pub grid: Option<Grid>,
-    /// What the pane says in place of a screen.
     pub placeholder: &'static str,
     pub exit: Option<i32>,
-    /// A banner above the screen, and the agent it is for.
     pub banner: Option<(&'static str, String)>,
-    /// Set when the pane has the window's terminal focus.
     pub focus: Option<FocusHandle>,
     /// Typing reaches the terminal: it holds keyboard focus and no overlay is open.
     pub keyboard: bool,
@@ -78,31 +74,23 @@ pub(crate) struct Look {
 }
 
 pub(crate) enum PaneEvent {
-    /// The size, in cells, the pane has room for.
     Fit(u16, u16),
-    /// A press landed in the pane.
     Focus,
-    /// Files dropped on it, as the text to paste.
     Dropped(String),
-    /// Input as if typed: the view returns to the prompt.
     Input(Vec<u8>),
-    /// A mouse event for the program tracking the mouse.
     Report(Vec<u8>),
     OpenLink(String),
     OpenMenu(Point<Pixels>),
     CloseMenu,
     Pick(menu::Item),
-    /// The user closed the banner `agent` showed.
     Banner(String, &'static str),
 }
 
-/// One terminal's pane: its screen, caret and mouse; `Desktop` hands it a `Look` each time it draws it.
 pub struct TerminalPane {
     pub(super) id: String,
     pub(super) look: Option<Look>,
     /// The IME's uncommitted text, drawn at the cursor until it commits.
     marked: Option<String>,
-    /// The cursor's cell on screen, where the IME puts its candidate window.
     caret: Option<Bounds<Pixels>>,
     pub(super) selection: Option<Drag>,
     pub(super) reporting: Reporting,
@@ -111,7 +99,6 @@ pub struct TerminalPane {
     pub(super) link_hover: bool,
     blink: Option<Task<()>>,
     blink_on: bool,
-    /// Drawn since the blink timer last ticked; a pane that is no longer drawn stops it.
     drawn: bool,
 }
 
@@ -147,7 +134,6 @@ impl TerminalPane {
         self.selection = None;
     }
 
-    /// The view returns to the prompt once input reaches the terminal.
     pub(crate) fn typed(&mut self) {
         self.blink_on = true;
         self.blink = None;
@@ -160,7 +146,6 @@ impl TerminalPane {
         }
     }
 
-    /// Keeps one blink timer running while the cursor should blink.
     fn sync_blink(&mut self, on: bool, cx: &mut Context<Self>) {
         if on == self.blink.is_some() {
             return;
@@ -347,7 +332,6 @@ impl Desktop {
             .child(self.terminal_pane(id, window, cx))
     }
 
-    /// Terminal `id`'s pane, given what it draws from now.
     pub(crate) fn terminal_pane(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) -> Entity<TerminalPane> {
         let view = self.terminal_entity(id, window, cx);
         let focused = self.terminal.focused.as_deref() == Some(id);

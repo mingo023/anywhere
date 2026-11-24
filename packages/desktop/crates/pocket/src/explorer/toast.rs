@@ -92,7 +92,6 @@ impl Explorer {
         .detach();
     }
 
-    /// Notes what the Trash took, with the focused file `Desktop` closed for it, or says it couldn't.
     pub(crate) fn trashed(&mut self, path: PathBuf, landed: Option<(PathBuf, Option<String>)>, cx: &mut Context<Self>) {
         match landed {
             Some((to, open)) => {
@@ -122,7 +121,6 @@ impl Explorer {
         true
     }
 
-    /// Shows what an undo put back, or says why it couldn't.
     pub(super) fn restored(&mut self, from: PathBuf, open: Option<String>, restored: Result<(), String>, cx: &mut Context<Self>) {
         match restored {
             Ok(()) if self.in_root(&from) => {
@@ -169,7 +167,6 @@ impl Desktop {
     }
 }
 
-/// The Explorer's notice as a toast; the Trash's Undo asks `Desktop` to put the file back.
 pub(crate) fn notice(notice: &Notice, cx: &mut Context<Toasts>) -> Option<Stateful<Div>> {
     let toast = ui::pop(div().id("tree-toast"))
         .h(px(32.))

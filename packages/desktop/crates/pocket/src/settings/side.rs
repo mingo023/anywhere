@@ -14,28 +14,22 @@ use gpui_kit::{Entity, component::input::InputState};
 use hosts::checklist::Checklist;
 use std::sync::Arc;
 
-/// What `Desktop` hands Settings each frame besides the store.
 pub(crate) struct Side {
     pub(crate) update: Update,
     pub(crate) updates_available: bool,
-    /// The star card was answered with a star.
     pub(crate) thanked: bool,
     pub(crate) link_down: bool,
-    /// pocketd's service can be restarted from here.
     pub(crate) service: bool,
     pub(crate) themes: Arc<Vec<Custom>>,
     pub(crate) theme_edits: usize,
     pub(crate) theme_error: Option<SharedString>,
-    /// The projects but Scratch folders, in the sidebar's order.
     pub(crate) projects: Vec<ProjectCard>,
     pub(crate) models: Models,
     pub(crate) hosts: HostsSide,
     pub(crate) accounts: AccountsSide,
     pub(crate) automations: Arc<agents::automations::Automations>,
     pub(crate) can_open_automations: bool,
-    /// Pairing a phone is on offer.
     pub(crate) can_pair: bool,
-    /// Whether pocketd listens on a tailnet, once it has said.
     pub(crate) tailnet: Option<bool>,
     pub(crate) gh: GhSide,
 }
@@ -64,14 +58,12 @@ impl Default for Side {
     }
 }
 
-/// A project as Settings lists it.
 pub(crate) struct ProjectCard {
     pub(crate) path: String,
     pub(crate) name: String,
     pub(crate) mark: ui::Mark,
     pub(crate) color: u32,
     pub(crate) worktrees: Option<usize>,
-    /// The account each provider's sessions in it use, where the project picks one.
     pub(crate) picks: Vec<(String, String)>,
 }
 
@@ -81,20 +73,15 @@ impl ProjectCard {
     }
 }
 
-/// What the Git page reads of the GitHub CLI and the repository on screen.
 #[derive(Default)]
 pub(crate) struct GhSide {
-    /// `None` until `gh` has been looked for, then `Some(None)` while it is being checked.
     pub(crate) status: Option<Option<GhStatus>>,
-    /// A folder is on screen to run `gh auth login` in.
     pub(crate) terminal: bool,
-    /// One per project, once `gh` has more than one account to choose from.
     pub(crate) rows: Vec<GhAccountRow>,
     pub(crate) remotes: Vec<String>,
 }
 
 pub(crate) struct GhAccountRow {
-    /// Where the project sits in `Side::projects`.
     pub(crate) card: usize,
     pub(crate) chosen: Option<String>,
     pub(crate) checking: bool,
@@ -102,16 +89,13 @@ pub(crate) struct GhAccountRow {
     pub(crate) accounts: Vec<String>,
 }
 
-/// One SSH host as the Hosts page lists it.
 pub(crate) struct HostRow {
     pub(crate) host: hosts::Host,
     pub(crate) link: Option<agents::hosts::Link>,
-    /// The name its space goes by.
     pub(crate) shown: String,
     pub(crate) glyph: &'static str,
     pub(crate) colour: Option<u32>,
     pub(crate) install: Option<Checklist>,
-    /// What the row says instead of its link, as while its service is uninstalled.
     pub(crate) notice: Option<String>,
 }
 
@@ -134,25 +118,19 @@ pub(crate) struct PasswordSide {
     pub(crate) signing_in: bool,
 }
 
-/// What the Hosts page reads of the fleet.
 #[derive(Default)]
 pub(crate) struct HostsSide {
-    /// An older pocketd runs here, which links no hosts.
     pub(crate) read_only: bool,
-    /// The names of the hosts the desktop linked itself before pocketd did.
     pub(crate) saved: Vec<String>,
     pub(crate) rows: Vec<HostRow>,
-    /// `None` until `Desktop` has handed the fleet down once.
     pub(crate) form: Option<AddFormSide>,
     pub(crate) password: Option<PasswordSide>,
 }
 
-/// What the Accounts page reads of the accounts pocketd lists.
 #[derive(Default)]
 pub(crate) struct AccountsSide {
     pub(crate) checking: bool,
     pub(crate) checked_at: i64,
-    /// The account whose menu is open.
     pub(crate) menu: Option<Key>,
     pub(crate) rename: Option<(Key, Entity<InputState>)>,
     pub(crate) machines: Vec<MachineSide>,
@@ -160,17 +138,13 @@ pub(crate) struct AccountsSide {
 
 pub(crate) struct MachineSide {
     pub(crate) host: crate::accounts::Host,
-    /// "This Mac", else the host's name.
     pub(crate) title: String,
-    /// "this Mac", else the host's name, to sit inside a sentence.
     pub(crate) name: String,
-    /// `None` where the machine's pocketd is too old to switch.
     pub(crate) auto_switch: Option<bool>,
     pub(crate) list: Vec<daemon::Account>,
     pub(crate) signins: Vec<SignInSide>,
 }
 
-/// A sign-in running on a machine, with the lines its terminal shows.
 pub(crate) struct SignInSide {
     pub(crate) provider: String,
     pub(crate) code: Entity<InputState>,

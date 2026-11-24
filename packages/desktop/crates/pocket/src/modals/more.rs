@@ -6,11 +6,9 @@ use std::path::Path;
 use ui::{self, menu_row};
 use workspace::Doc;
 
-/// The More menu over a file tab: open it in the editor or reveal it, at the click that opened it.
 #[derive(Default)]
 pub(crate) struct MoreMenu {
     at: Point<Pixels>,
-    /// The file the rows act on; none leaves the menu empty.
     path: Option<String>,
 }
 

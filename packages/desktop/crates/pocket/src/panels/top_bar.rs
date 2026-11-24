@@ -9,7 +9,6 @@ use theme::*;
 use workspace::Place;
 use workspace::tree::Rect;
 
-/// The bar over a worktree's panes: its top tabs, held, dragged and scrolled here, over what `Desktop` hands it each frame.
 #[derive(Default)]
 pub(crate) struct TopBar {
     scroll: ScrollHandle,
@@ -17,44 +16,30 @@ pub(crate) struct TopBar {
     revealed: Option<(String, usize)>,
     /// The top tab held on the bar.
     drag: Option<TabDrag>,
-    /// The bar as last drawn, in window pixels.
     pub(super) bounds: Rect,
-    /// The top tab shown, as last drawn.
     shown: usize,
 }
 
-/// What `TopBar` asks `Desktop` for.
 pub(crate) enum TopEvent {
     Switch(usize),
     Close(usize),
-    /// A tab was picked up, so pages are pictured while it moves.
     Grabbed,
-    /// The held tab is below the bar, at the pointer.
-    Aim {
-        from: usize,
-        at: (f32, f32),
-    },
-    /// The held tab is on the bar, so no pane is aimed at.
+    Aim { from: usize, at: (f32, f32) },
     Level,
-    /// The held tab was let go, having moved to a place on the bar if it did.
     Released(Option<(usize, usize)>),
-    /// A tab of an agent was right-clicked.
     Menu(String, Point<Pixels>),
 }
 
 impl EventEmitter<TopEvent> for TopBar {}
 
-/// One top tab, as `Desktop` reads it from the panes it holds.
 pub(super) struct Face {
     pub(super) lead: AnyElement,
     pub(super) title: String,
     pub(super) meta: String,
     pub(super) italic: bool,
-    /// The agent whose menu a right-click opens.
     pub(super) menu: Option<String>,
 }
 
-/// What the bar draws besides what it holds.
 pub(super) struct Bar {
     pub(super) tree: String,
     pub(super) at: usize,
@@ -67,22 +52,18 @@ pub(super) struct Bar {
 }
 
 impl TopBar {
-    /// Whether a tab is held on the bar.
     pub(super) fn holding(&self) -> bool {
         self.drag.is_some()
     }
 
-    /// Lets go of a held tab without moving it; true if one was held.
     pub(super) fn cancel(&mut self) -> bool {
         self.drag.take_if(|d| !d.released).is_some()
     }
 
-    /// Each of the `n` tabs' left edge and width in the window.
     pub(super) fn slots(&self, n: usize) -> Vec<(f32, f32)> {
         slots(&self.scroll, n)
     }
 
-    /// The shown tab is already in view, so the bar needn't scroll to it.
     pub(super) fn revealed(&mut self, tree: String, at: usize) {
         self.revealed = Some((tree, at));
     }
@@ -232,7 +213,6 @@ impl TopBar {
             })
     }
 
-    /// Follows a held tab: along the bar it makes room among the others; below it, one not shown leaves the bar to join the shown one beside a pane.
     fn hold(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
         let (shown, b) = (self.shown, self.bounds);
         let Some(d) = self.drag.as_mut() else { return };

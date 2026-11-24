@@ -235,50 +235,29 @@ impl Return {
     }
 }
 
-/// A change to the store, which may read what pocketd says is installed.
 pub(crate) type Setter = Rc<dyn Fn(&mut Store, &::agents::Agents)>;
 
-/// What a page asks `Desktop` for, which holds the store and everything outside Settings.
 pub(crate) enum SettingsEvent {
-    /// Applies `apply` to the store, then runs `setting`'s effect and saves.
-    Write {
-        setting: Option<&'static Setting>,
-        apply: Setter,
-    },
-    /// A section came on show, whose data `Desktop` loads.
+    Write { setting: Option<&'static Setting>, apply: Setter },
     Shown(Section),
     Close,
     Ask(Confirm),
     FocusRoot,
     Error(String),
-    Port {
-        port: u32,
-        before: u32,
-    },
-    RenamePhone {
-        id: String,
-        name: String,
-    },
+    Port { port: u32, before: u32 },
+    RenamePhone { id: String, name: String },
     RestartService,
     RestartToUpdate,
     CheckUpdates,
     StarOnGithub,
     FontsLoaded,
     ImportTheme,
-    Launch {
-        i: usize,
-        f: provider::Launch,
-        text: String,
-        before: String,
-    },
+    Launch { i: usize, f: provider::Launch, text: String, before: String },
     OpenAutomations,
     PairPhone,
     CheckGh,
     GhLogin,
-    PickGhAccount {
-        project: String,
-        account: String,
-    },
+    PickGhAccount { project: String, account: String },
     EditProject(String),
     AddProject,
     CloneProject,
@@ -288,7 +267,6 @@ pub(crate) enum SettingsEvent {
     Accounts(AccountsAct),
 }
 
-/// A click on the Hosts page, which `Desktop` carries out.
 pub(crate) enum HostsAct {
     Open(crate::spaces::Space),
     Install { id: String, update: bool },
@@ -305,7 +283,6 @@ pub(crate) enum HostsAct {
     DismissInstall(String),
 }
 
-/// A click on the Accounts page, which `Desktop` carries out.
 pub(crate) enum AccountsAct {
     Reload,
     SignIn(crate::accounts::Key),
@@ -347,9 +324,7 @@ pub struct Settings {
     /// When Start service was clicked.
     pub(crate) starting: Option<std::time::Instant>,
     pub(crate) glass: Entity<SliderState>,
-    /// The sections of the store Settings reads, as of the frame `Desktop` last handed down.
     pub(crate) store: Arc<Store>,
-    /// What pocketd says is installed, in an `Agents` that holds nothing else.
     pub(crate) live: Arc<::agents::Agents>,
     pub(crate) side: Side,
     _subs: Vec<Subscription>,
@@ -415,7 +390,6 @@ impl Settings {
         }
     }
 
-    /// What `Desktop` hands down before each draw.
     pub(crate) fn hand(&mut self, store: Option<Arc<Store>>, live: Option<Arc<::agents::Agents>>, side: Side, cx: &mut Context<Self>) {
         self.side = side;
         if store.is_none() && live.is_none() {
@@ -426,17 +400,14 @@ impl Settings {
         crate::region::notify_after_draw(cx);
     }
 
-    /// Whether what was handed down still matches the store and the providers pocketd reports.
     pub(crate) fn holds(&self, store: &Store, live: &::agents::Agents) -> (bool, bool) {
         (store.settings_unchanged(&self.store), self.live.providers == live.providers)
     }
 
-    /// Asks `Desktop` to apply `apply` to the store, then run `setting`'s effect.
     pub(crate) fn write(&mut self, setting: Option<&'static Setting>, cx: &mut Context<Self>, apply: impl Fn(&mut Store, &::agents::Agents) + 'static) {
         cx.emit(SettingsEvent::Write { setting, apply: Rc::new(apply) });
     }
 
-    /// `write` of a change that needs only the store.
     pub(crate) fn set(&mut self, setting: &'static Setting, cx: &mut Context<Self>, apply: impl Fn(&mut Store) + 'static) {
         self.write(Some(setting), cx, move |s, _| apply(s));
     }
@@ -481,7 +452,6 @@ impl Settings {
         }
     }
 
-    /// Puts the store's values back in the fields, as after Reset.
     pub(crate) fn sync_fields(&mut self, store: &Store, section: Section, moved: &[&'static Setting], window: &mut Window, cx: &mut Context<Self>) {
         for setting in moved {
             if let (Control::Text { get, .. }, Some(field)) = (setting.control, self.fields.get(setting.id)) {
@@ -509,17 +479,14 @@ impl Settings {
         self.live.provider_info(provider).available
     }
 
-    /// The provider's Label from Settings, else its own name.
     pub(crate) fn agent_name(&self, provider: &str) -> String {
         self.store.agents.label(provider).unwrap_or_else(|| theme::provider_name(provider).into())
     }
 
-    /// What `provider`'s CLI listed, none before it answers.
     pub(crate) fn models_of(&self, provider: &str) -> &[::agents::ListedModel] {
         self.side.models.listed(provider)
     }
 
-    /// What a picker offers of `provider`: `Models::offered`.
     pub(crate) fn offered_models(&self, provider: &str) -> &[::agents::ListedModel] {
         self.side.models.offered(provider, self.installed(provider))
     }
@@ -1016,7 +983,6 @@ impl Desktop {
         self.settings.update(cx, |s, cx| s.show_section(section, cx));
     }
 
-    /// Hands Settings the store's sections and what it draws from outside the store.
     pub(crate) fn sync_settings(&mut self, cx: &mut Context<Self>) {
         let (store_held, live_held) = self.settings.read(cx).holds(&self.store, &self.agents);
         let store = (!store_held).then(|| Arc::new(self.store.settings_view()));
@@ -1167,7 +1133,6 @@ impl Desktop {
         }
     }
 
-    /// A row's stored value moved: carries it out to where it acts, and saves.
     pub(crate) fn changed(&mut self, setting: Option<&'static Setting>, cx: &mut Context<Self>) {
         if let Some(effect) = setting.and_then(|s| s.effect) {
             effect(self, cx);

@@ -80,7 +80,6 @@ fn fork_spec(s: &Summary, project: &str, prefs: &Agents, live: &agents::Agents, 
     Some(spec)
 }
 
-/// What a row menu's item does once picked.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum MenuAction {
     ProjectSettings(String),
@@ -105,7 +104,6 @@ pub(crate) enum MenuAction {
     Close(String),
 }
 
-/// One line of an open row menu.
 #[derive(Clone, PartialEq)]
 pub(crate) enum MenuItem {
     Row { id: &'static str, icon: &'static str, label: String, action: MenuAction, danger: bool },
@@ -115,7 +113,6 @@ pub(crate) enum MenuItem {
     Icons { group: u32, chosen: Option<String> },
 }
 
-/// The open row menu, as its row's view draws it: where it opened (`None` under its `···` button) and its items.
 #[derive(Clone, PartialEq)]
 pub(crate) struct MenuFrame {
     pub(crate) menu: RowMenu,
@@ -123,7 +120,6 @@ pub(crate) struct MenuFrame {
     pub(crate) items: Vec<MenuItem>,
 }
 
-/// What a view of rows with menus asks `Desktop` for.
 #[derive(Clone)]
 pub(crate) enum MenuEvent {
     Button(RowMenu),
@@ -132,15 +128,12 @@ pub(crate) enum MenuEvent {
     Pick(MenuAction),
 }
 
-/// How a view hands its menu's events up: `Desktop` takes them itself, an entity emits them.
 pub(crate) type Send<V> = fn(&mut V, MenuEvent, &mut Window, &mut Context<V>);
 
-/// Opens `menu` at the right-click.
 pub(crate) fn open_on_right_click<V: 'static>(menu: RowMenu, send: Send<V>, cx: &mut Context<V>) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static {
     cx.listener(move |this, e: &MouseDownEvent, window, cx| send(this, MenuEvent::Context(menu.clone(), e.position), window, cx))
 }
 
-/// A row's `···` button, with `menu` under it while it is the one `shown`.
 pub(crate) fn menu_button<V: 'static>(key: &str, menu: RowMenu, shown: Option<&MenuFrame>, send: Send<V>, cx: &mut Context<V>) -> AnyElement {
     let frame = shown.filter(|f| f.menu == menu);
     let opens = menu;
@@ -152,7 +145,6 @@ pub(crate) fn menu_button<V: 'static>(key: &str, menu: RowMenu, shown: Option<&M
     div().relative().child(button).when_some(frame, |d, f| d.child(menu_pop(f, send, cx))).into_any_element()
 }
 
-/// `frame`'s menu, at the right-click that opened it, else under its `···` button.
 fn menu_pop<V: 'static>(frame: &MenuFrame, send: Send<V>, cx: &mut Context<V>) -> AnyElement {
     let items: Vec<AnyElement> = frame.items.iter().map(|item| menu_item(item, send, cx)).collect();
     let pop = ui::menu_in(
@@ -249,7 +241,6 @@ impl Desktop {
         cx.notify();
     }
 
-    /// The open row menu, with its items, for the view of its row.
     pub(crate) fn menu_frame(&self, cx: &App) -> Option<MenuFrame> {
         let menu = self.row_menu.clone()?;
         let at = self.sidebar.read(cx).menu_at;

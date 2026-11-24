@@ -17,7 +17,6 @@ impl Desktop {
         })
     }
 
-    /// A reachable space with no project yet: its name.
     pub(crate) fn empty_space_name(&self, space: &Space) -> Option<String> {
         (self.space_reach(space) == Reach::Online).then(|| self.space_name(space))
     }

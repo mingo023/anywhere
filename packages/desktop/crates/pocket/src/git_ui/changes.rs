@@ -191,7 +191,6 @@ fn toggle_fold(folded: &mut HashSet<String>, key: &str) {
     }
 }
 
-/// A pull request the panel offers for the shown branch, owned so `Desktop` can hand it down.
 #[derive(PartialEq)]
 pub(crate) enum Offer {
     Open(String),
@@ -217,7 +216,6 @@ impl Offer {
     }
 }
 
-/// What `Desktop` hands the panel before it draws or is called: the shown worktree and what the panel reads of the rest of the app.
 #[derive(Default)]
 pub(crate) struct Inputs {
     pub(crate) cwd: Option<String>,
@@ -225,20 +223,17 @@ pub(crate) struct Inputs {
     pub(crate) scope: Scope,
     pub(crate) tree: bool,
     pub(crate) git: Arc<store::prefs::Git>,
-    /// The file the focused pane's diff shows, and what it compares.
     pub(crate) shown: Option<(String, At)>,
     pub(crate) pr: Option<(Arc<Pr>, Token)>,
     pub(crate) offer: Option<Offer>,
     pub(crate) composing: bool,
     pub(crate) ship_menu: bool,
-    /// What the branch was named before a rename that is still decoding.
     pub(crate) branch_was: Option<(String, Instant)>,
     pub(crate) seamed: bool,
     pub(crate) viewing: Option<(String, String)>,
 }
 
 impl PartialEq for Inputs {
-    /// The repo by identity, as `merge_repos` keeps its `Arc` while the files are the same.
     fn eq(&self, other: &Self) -> bool {
         let Self { cwd, repo, scope, tree, git, shown, pr, offer, composing, ship_menu, branch_was, seamed, viewing } = self;
         let same_repo = match (repo, &other.repo) {
@@ -262,17 +257,10 @@ impl PartialEq for Inputs {
     }
 }
 
-/// What the panel asks `Desktop` for: what writes `repos`, the store, the overlay or the pull request.
 pub(crate) enum ChangesEvent {
-    Stage {
-        paths: Vec<String>,
-        staged: bool,
-    },
+    Stage { paths: Vec<String>, staged: bool },
     Discard(Vec<String>),
-    Open {
-        path: String,
-        pin: bool,
-    },
+    Open { path: String, pin: bool },
     OpenDoc(Doc, bool),
     Scope(String, Scope),
     ToggleTree,
@@ -282,14 +270,8 @@ pub(crate) enum ChangesEvent {
     CreatePr,
     ShipMenu(bool),
     Refresh,
-    /// The sparkle was pressed: `Desktop` knows the agent that writes.
     WriteMessage,
-    Compared {
-        cwd: String,
-        against: String,
-        read: Result<Option<Vec<FileStat>>, String>,
-    },
-    /// A commit made and pushed, with the repo read after it, so the PR composer can title itself from its commits.
+    Compared { cwd: String, against: String, read: Result<Option<Vec<FileStat>>, String> },
     Shipped(String, Repo),
 }
 
@@ -365,7 +347,6 @@ impl Changes {
         self.inputs.repo = None;
     }
 
-    /// Takes what `Desktop` hands down, drawing again when it differs from what was drawn.
     pub(crate) fn hand(&mut self, inputs: Inputs, cx: &mut Context<Self>) {
         if self.inputs != inputs {
             self.inputs = inputs;
@@ -544,7 +525,6 @@ impl Changes {
         cx.emit(ChangesEvent::WriteMessage);
     }
 
-    /// Runs the agent picked in Settings, as `argv`, for a message from what the commit would hold.
     pub(crate) fn write_message(&mut self, argv: Vec<String>, window: &mut Window, cx: &mut Context<Self>) {
         let (Some(cwd), Some(repo)) = (self.inputs.cwd.clone(), self.inputs.repo.clone()) else { return };
         if self.writing || repo.files.is_empty() {
@@ -575,13 +555,11 @@ impl Changes {
     }
 }
 
-/// Pushes to the remote picked in Settings when the repo has it.
 pub(crate) fn push_argv(repo: Option<&Repo>, git: &store::prefs::Git) -> Vec<String> {
     git::push_argv(repo.filter(|r| r.remotes.contains(&git.remote)).map(|_| git.remote.as_str()), git.force_with_lease)
 }
 
 impl Desktop {
-    /// What the panel reads of the app now, sharing with `held` what it held already.
     fn changes_inputs(&self, held: &Inputs, cx: &App) -> Inputs {
         let cwd = self.cwd(cx);
         let repo = self.repo_handle(cx);

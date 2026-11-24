@@ -453,14 +453,12 @@ pub(crate) struct Notice {
     _hide: Task<()>,
 }
 
-/// What the side says when the worktree has no PR.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum NoPr {
     Create,
     Hint(&'static str),
 }
 
-/// The worktree's branch, as the side names it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Branch {
     pub(crate) name: String,
@@ -468,27 +466,19 @@ pub(crate) struct Branch {
     pub(crate) ahead: usize,
 }
 
-/// What `Desktop` hands the side before it draws, and again whenever any of it changes.
 #[derive(Default)]
 pub(crate) struct PrFrame {
-    /// The worktree on screen.
     pub(crate) tree: Option<String>,
-    /// `None` when it isn't a git repository.
     pub(crate) branch: Option<Branch>,
     pub(crate) pr: Option<Arc<Pr>>,
     pub(crate) offer: Option<NoPr>,
-    /// `gh` is being asked about the worktree.
     pub(crate) asking: bool,
-    /// The agent fixes go to.
     pub(crate) agent: &'static str,
     pub(crate) observe_only: bool,
-    /// The worktree is one of its own, which merging may delete.
     pub(crate) deletable: bool,
-    /// Who `gh` acts as here.
     pub(crate) me: String,
     pub(crate) ai: bool,
     pub(crate) draft: bool,
-    /// The agent that writes a PR's title and description.
     pub(crate) writer: &'static str,
     /// Which minute it is, so what says how long ago is redrawn as time passes.
     pub(crate) minute: u64,
@@ -517,11 +507,9 @@ impl PartialEq for PrFrame {
     }
 }
 
-/// What the side asks `Desktop` for: everything that runs `gh` or an agent, or reads or writes more than it was handed.
 pub(crate) enum PrEvent {
     Refresh,
     OpenUrl(String),
-    /// A file of the PR, as the PR changes it.
     OpenFile(String),
     OpenComposer,
     Write,
@@ -529,23 +517,11 @@ pub(crate) enum PrEvent {
     SetDraft(bool),
     Merge,
     Ready,
-    Fix {
-        checks: Vec<String>,
-        threads: Vec<String>,
-    },
+    Fix { checks: Vec<String>, threads: Vec<String> },
     Conflict,
-    Resolve {
-        thread: String,
-        resolved: bool,
-    },
-    Reply {
-        thread: String,
-        body: String,
-    },
-    Comment {
-        tree: String,
-        body: String,
-    },
+    Resolve { thread: String, resolved: bool },
+    Reply { thread: String, body: String },
+    Comment { tree: String, body: String },
     ViewThread(String),
     DeleteMerged(String),
     Undo,
@@ -553,7 +529,6 @@ pub(crate) enum PrEvent {
 
 impl EventEmitter<PrEvent> for PrSide {}
 
-/// The worktree's pull request, drawn in the panel and as cards under the PR diff's lines.
 pub(crate) struct PrSide {
     pub(crate) frame: PrFrame,
     pub(crate) title: Entity<InputState>,
@@ -641,7 +616,6 @@ impl PrSide {
         }
     }
 
-    /// Takes what `Desktop` hands the side; it redraws only when that changed.
     pub(crate) fn set(&mut self, frame: PrFrame, cx: &mut Context<Self>) {
         if self.frame != frame {
             self.frame = frame;
@@ -665,7 +639,6 @@ impl PrSide {
         }
     }
 
-    /// Forgets what agents have finished with, as [`Track::settle`] does.
     pub(crate) fn settle(&mut self, status: impl Fn(&str) -> Option<Status>, cx: &mut Context<Self>) {
         if self.track.settle(status) {
             cx.notify();
@@ -726,7 +699,6 @@ impl PrSide {
         cx.emit(PrEvent::DeleteMerged(tree.to_string()));
     }
 
-    /// Opens the composer for `tree`, filled from the commits unless an agent is to write it.
     pub(crate) fn open_composer(&mut self, tree: String, from_commits: Option<(String, String)>, window: &mut Window, cx: &mut Context<Self>) {
         self.composing = Some(tree);
         self.error = None;
@@ -749,7 +721,6 @@ impl PrSide {
         cx.notify();
     }
 
-    /// Starts an agent writing the composer, unless one already is.
     pub(crate) fn begin_write(&mut self, cx: &mut Context<Self>) -> bool {
         if self.writing {
             return false;
@@ -760,7 +731,6 @@ impl PrSide {
         true
     }
 
-    /// Fills the composer with what the agent wrote for `tree`, or with `fallback` and why it failed, if the composer is still for it.
     pub(crate) fn written(&mut self, tree: &str, res: Result<String, String>, fallback: (String, String), window: &mut Window, cx: &mut Context<Self>) {
         self.writing = false;
         if self.composing.as_deref() == Some(tree) {
@@ -778,7 +748,6 @@ impl PrSide {
         cx.notify();
     }
 
-    /// What the composer holds to open, with `gh` marked busy for it; `None` when it can't open yet.
     pub(crate) fn begin_create(&mut self, tree: &str, draft: bool, window: &mut Window, cx: &mut Context<Self>) -> Option<(String, String)> {
         if self.busy.is_some() || self.writing {
             return None;
@@ -796,7 +765,6 @@ impl PrSide {
         Some((title, body))
     }
 
-    /// Marks `gh` busy for `tree` while its card says `busy`; false when it already is.
     pub(crate) fn begin_gh(&mut self, tree: &str, busy: &'static str, cx: &mut Context<Self>) -> bool {
         if self.busy.is_some() {
             return false;
@@ -825,7 +793,6 @@ impl PrSide {
         cx.notify();
     }
 
-    /// The resolve the notice offers to flip back, taking the notice down.
     pub(crate) fn take_undo(&mut self, cx: &mut Context<Self>) -> Option<Undo> {
         let undo = self.notice.take().and_then(|n| n.undo);
         cx.notify();
@@ -904,7 +871,6 @@ impl PrSide {
         }
     }
 
-    /// Puts `body` back, which didn't post on `tree`'s PR: in the box if it is still open for `tree`, else in `tree`'s draft.
     pub(crate) fn comment_failed(&mut self, tree: String, body: String, error: &str, window: &mut Window, cx: &mut Context<Self>) {
         if self.commenting.as_ref().is_some_and(|t| *t != tree) {
             let draft = self.drafts.entry(tree).or_default();
@@ -921,7 +887,6 @@ impl PrSide {
         cx.notify();
     }
 
-    /// Settles what a resolve left: the thread folds, and the notice offers Undo or goes.
     pub(crate) fn resolved(&mut self, thread: &str, notice: Option<(String, Undo)>, cx: &mut Context<Self>) {
         self.track.expanded.remove(thread);
         match notice {
@@ -931,7 +896,6 @@ impl PrSide {
         cx.notify();
     }
 
-    /// Fetches the pictures of everyone on `pr`, and `me`, each in its own background task.
     pub(crate) fn fetch_avatars(&mut self, pr: &Pr, me: &str, dir: PathBuf, cx: &mut Context<Self>) {
         let wanted = self.avatars.ask(github::people(pr).into_iter().chain([me]));
         for login in wanted {

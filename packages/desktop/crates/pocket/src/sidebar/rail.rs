@@ -27,7 +27,6 @@ pub(crate) fn rail_button(id: impl Into<ElementId>, name: &str, active: bool) ->
     rail_slot(id, active).child(icon(name, 17., if active { TEXT } else { TEXT_2 }))
 }
 
-/// What the rail asks `Desktop` for.
 pub(crate) enum RailEvent {
     Expand,
     Projects,
@@ -38,7 +37,6 @@ pub(crate) enum RailEvent {
 
 impl EventEmitter<RailEvent> for Rail {}
 
-/// What `Desktop` hands the rail each frame: what it draws that it can't read for itself.
 #[derive(PartialEq)]
 pub(crate) struct RailFrame {
     pub(crate) mark: ui::Mark,
@@ -136,7 +134,6 @@ impl Render for Rail {
 }
 
 impl Desktop {
-    /// Hands the rail what it draws from `Desktop`'s state.
     pub(crate) fn sync_rail(&self, cx: &mut Context<Self>) {
         self.sync_picker(cx);
         let p = self.project.as_deref().unwrap_or_default();

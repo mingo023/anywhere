@@ -38,22 +38,17 @@ fn slide(id: &'static str, from: f32, page: Div) -> AnyElement {
     .into_any_element()
 }
 
-/// What the account chip and its pages draw: the agent's account, the others on its machine, and what pocketd last said of them.
 pub(crate) struct Chip {
     agent: Summary,
     host: Host,
     account: Account,
-    /// Whether the agent can move to another account of its provider on its machine.
     switch: bool,
     checking: bool,
     machine: String,
-    /// How many other signed-in accounts it could switch to.
     more: usize,
-    /// Every account its Switch page lists, built only while a page is open.
     rows: Vec<Account>,
 }
 
-/// What a page of the account chip asks of `Desktop`, which checks usage, switches accounts and opens Settings.
 pub(crate) enum Ask {
     Check(Host),
     Switch { host: Host, provider: String, id: String, session: String },

@@ -9,27 +9,20 @@ use ui::{self, icon_button_sized};
 
 const FILTER_IN: std::time::Duration = std::time::Duration::from_millis(220);
 
-/// A menu of the Projects header.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum HeaderMenu {
     Add,
     Organize,
 }
 
-/// What the Projects header asks `Desktop` for.
 pub(crate) enum HeaderEvent {
-    /// A menu's button was pressed: the other menus shut, then it opens.
     Menu(HeaderMenu),
     OpenFilter,
-    /// Up, down or Enter in the filter's field.
     FilterKey(&'static str),
-    /// The filter's text changed.
     Filtered,
-    /// The filter closed, so the folds a query held open are to shut.
     FilterClosed,
     NewGroup,
     Sort(Sort),
-    /// Fold every project, or unfold them.
     FoldAll(bool),
     OpenFolder,
     CloneProject,
@@ -37,15 +30,12 @@ pub(crate) enum HeaderEvent {
 
 impl EventEmitter<HeaderEvent> for ProjectsHeader {}
 
-/// What `Desktop` hands the header each frame.
 #[derive(PartialEq)]
 pub(crate) struct HeaderFrame {
     pub(crate) sort: Sort,
-    /// The name of the host the space on screen is on, if it is on one.
     pub(crate) host: Option<String>,
 }
 
-/// The Projects header: its name and search button, or the filter's field while it's open, then the organize and add menus.
 pub(crate) struct ProjectsHeader {
     pub(crate) filter: Filter,
     add_menu: bool,

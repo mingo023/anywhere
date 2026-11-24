@@ -84,7 +84,6 @@ fn unsent_notice(who: &str, mut unsent: Vec<String>, typed: String) -> Option<(S
 
 pub(crate) struct ChatState {
     pub(crate) input: Entity<TextareaState>,
-    /// Each agent's transcript, an entity by agent id, with the subscription that answers it.
     pub(crate) views: HashMap<String, Entity<transcript::View>>,
     view_subs: HashMap<String, Subscription>,
     /// Each agent's transcript drawn as its own region, by agent id, with the terminal it draws: its scroll redraws only it.
@@ -237,7 +236,6 @@ impl Desktop {
         div().relative().flex_1().min_h_0().flex().border_t(px(0.5)).border_color(SEPARATOR).child(column).children(dock)
     }
 
-    /// `terminal`'s agent's transcript, opened on first sight and handed what its rows read; refolded when its timeline moved.
     fn chat_transcript(&mut self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<Entity<transcript::View>> {
         let agent = self.summary(terminal)?.clone();
         let id = agent.id.clone();
@@ -265,7 +263,6 @@ impl Desktop {
         Some(view)
     }
 
-    /// Hands each queued send `refresh` let go to the outbox, and notes the request it went as.
     fn release_sends(&mut self, id: &str, view: &Entity<transcript::View>, released: Vec<(u64, String)>, cx: &mut Context<Self>) {
         for (send, text) in released {
             if let Some(request) = self.outbox.prompt(id, &text) {
@@ -274,7 +271,6 @@ impl Desktop {
         }
     }
 
-    /// What the rows of `agent`'s transcript read besides its session.
     fn transcript_side(&self, agent: &Summary, view: &Entity<transcript::View>, cx: &App) -> transcript::Side {
         let id = &agent.id;
         let ask = self.agents.pending.iter().find(|p| p.agent_id == *id).map(|p| !chat::for_provider(&agent.provider).ask(p).questions.is_empty());

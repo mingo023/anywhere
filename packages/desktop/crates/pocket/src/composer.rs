@@ -34,31 +34,13 @@ pub(crate) struct Composer {
     pub(crate) draft: Draft,
 }
 
-/// What a composer tells its owner.
 pub(crate) enum ComposerEvent {
-    /// One of its menus opened: the owner closes its own.
     Opened,
-    /// The model panel opened on `provider` in `project`.
-    ModelsOpened {
-        provider: String,
-        project: Option<String>,
-    },
-    /// The model panel points at a rail entry.
+    ModelsOpened { provider: String, project: Option<String> },
     Viewed(&'static str),
-    /// A model was clicked; `from` is the pick it changes.
-    Picked {
-        provider: String,
-        model: String,
-        from: LaunchPick,
-        project: Option<String>,
-    },
-    Starred {
-        provider: String,
-        model: String,
-    },
-    /// The + was pressed: the owner asks for files to attach.
+    Picked { provider: String, model: String, from: LaunchPick, project: Option<String> },
+    Starred { provider: String, model: String },
     Attach,
-    /// A pasted image or long text couldn't be saved and left the draft: its title and the error.
     Unsaved(&'static str, String),
 }
 
@@ -69,7 +51,6 @@ impl Composer {
         Self { prompt, search, draft: Draft::default() }
     }
 
-    /// Opens or closes `menu`, saying whether it is open now.
     pub(crate) fn toggle(&mut self, menu: Menu, cx: &mut Context<Self>) -> bool {
         let open = self.draft.toggle(menu);
         if open {
@@ -79,7 +60,6 @@ impl Composer {
         open
     }
 
-    /// Closes the open menu, saying whether one was.
     pub(crate) fn shut_menu(&mut self, cx: &mut Context<Self>) -> bool {
         let open = self.draft.menu.take().is_some();
         if open {
@@ -88,13 +68,11 @@ impl Composer {
         open
     }
 
-    /// Sets the pick and closes the menu.
     fn choose(&mut self, project: Option<String>, pick: LaunchPick, cx: &mut Context<Self>) {
         self.draft.choose(project, pick);
         cx.notify();
     }
 
-    /// The access the launch starts with, and the menu that picks it; `chip` says what both draw.
     pub(crate) fn access_chip(&self, pick: &LaunchPick, project: Option<String>, chip: &AccessChip, cx: &mut Context<Self>) -> Div {
         let (app, choices) = match chip {
             AccessChip::Full(agent) => return div().child(launch::full_access_chip("composer-access", agent.clone())),
@@ -110,7 +88,6 @@ impl Composer {
         div().relative().child(trigger).children(menu)
     }
 
-    /// The box around `textarea`, as the chat's.
     pub(crate) fn frame(&mut self, textarea: Textarea, f: Frame, cx: &mut Context<Self>) -> Div {
         let Frame { project, typing, chips, attachments, pills, trailing, send } = f;
         let (prompt, search, menu, slider) = (self.prompt.clone(), self.search.clone(), self.draft.menu, self.draft.slider.clone());
@@ -203,33 +180,26 @@ impl Composer {
     }
 }
 
-/// What a composer's model pill and access chip draw from.
 pub(crate) struct Chips {
     pub(crate) launch: model_menu::Launch,
     pub(crate) access: AccessChip,
 }
 
-/// What an owner hands a composer to draw its box.
 pub(crate) struct Frame<'a> {
     pub(crate) project: Option<String>,
     pub(crate) typing: bool,
     pub(crate) chips: &'a Chips,
-    /// Where a pasted image or long text is kept.
     pub(crate) attachments: &'a Path,
-    /// Lead the attachments above the prompt.
     pub(crate) pills: Vec<AnyElement>,
-    /// Come before the + and `send`.
     pub(crate) trailing: Vec<AnyElement>,
     pub(crate) send: Stateful<Div>,
 }
 
-/// What the access chip draws: the access of an agent that never asks, or the choices of one that does.
 pub(crate) enum AccessChip {
     Full(String),
     Choices { app: String, choices: Vec<(String, String, String)> },
 }
 
-/// Whose draft a helper edits: the chat's, which `Desktop` holds, or a composer's.
 #[derive(Clone)]
 pub(crate) enum Held {
     Chat,
@@ -290,7 +260,6 @@ pub(crate) struct Draft {
     pub(crate) elements: Vec<web::Element>,
 }
 
-/// A `Draft`'s model panel as it stands: the handles it draws with, which share the draft's.
 pub(crate) struct PanelView {
     pub(crate) scroll: UniformListScrollHandle,
     pub(crate) rail: ScrollHandle,
@@ -320,7 +289,6 @@ impl Draft {
         self.chosen = Some((project, pick));
     }
 
-    /// What the model panel draws from, to hold while the panel draws.
     pub(crate) fn view_of(&self) -> PanelView {
         PanelView { scroll: self.scroll.clone(), rail: self.rail.clone(), slider: self.slider.clone(), effort: self.effort.clone() }
     }
@@ -659,7 +627,6 @@ fn pasted<'a>(item: &'a ClipboardItem, picked: &str) -> Pasted<'a> {
 
 type Write = Box<dyn FnOnce(&Path) -> std::io::Result<()> + Send>;
 
-/// A paste kept as a file: the draft holds `image` with it, or only the file, and `save` writes it behind the UI.
 struct Kept {
     path: PathBuf,
     image: Option<Arc<Image>>,
@@ -697,10 +664,8 @@ impl Draft {
     }
 }
 
-/// An owner of a draft a paste goes into.
 pub(crate) trait Drafted: Sized + 'static {
     fn draft(&mut self) -> &mut Draft;
-    /// An attachment that couldn't be written, titled `title`, left the draft.
     fn unsaved(&mut self, title: &'static str, error: String, cx: &mut Context<Self>);
 }
 
@@ -714,8 +679,6 @@ impl Drafted for Composer {
     }
 }
 
-/// Takes a paste into `this`'s draft as `pasted` reads it, and says whether it did; text that pastes as itself is left
-/// to the input.
 pub(crate) fn paste_in<T: Drafted>(
     this: &WeakEntity<T>,
     input: &Entity<TextareaState>,
@@ -783,7 +746,6 @@ impl Desktop {
         }
     }
 
-    /// What `c`'s model pill and access chip draw from, for an owner that draws them itself.
     pub(crate) fn composer_chips(&self, c: &Entity<Composer>, pick: &LaunchPick, project: Option<String>, cx: &App) -> Chips {
         Chips { launch: self.launch(c, pick, project, cx), access: self.access_chip_of(pick) }
     }

@@ -23,7 +23,6 @@ impl Desktop {
         cx.notify();
     }
 
-    /// What the pull request side draws that it can't read for itself.
     fn pr_frame(&self, cx: &App) -> PrFrame {
         let tree = self.cwd(cx);
         let branch = self.repo(cx).map(|r| super::Branch { name: r.branch.clone(), base: r.base.clone(), ahead: r.ahead });
@@ -57,7 +56,6 @@ impl Desktop {
         self.pr.update(cx, |p, cx| p.set(frame, cx));
     }
 
-    /// The PR of the worktree on screen, with the worktree.
     pub(crate) fn shown_pr(&self, cx: &App) -> Option<(String, &Pr)> {
         let tree = self.cwd(cx)?;
         let pr = self.prs.get(&tree)?;
@@ -418,7 +416,6 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Posts the comment on the PR of `tree`, the worktree its box was opened for, and shows it at once as being sent; a failure takes it back out and returns its text to the box.
     pub(crate) fn send_comment(&mut self, tree: String, body: String, window: &mut Window, cx: &mut Context<Self>) {
         let Some(number) = self.prs.get(&tree).map(|pr| pr.number) else { return };
         let dir = tree.clone();
@@ -455,7 +452,6 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Resolves or reopens a thread of the PR on screen at once, with Undo; a failure flips it back.
     pub(crate) fn resolve_thread(&mut self, thread: String, resolved: bool, undo: bool, cx: &mut Context<Self>) {
         let Some(dir) = self.cwd(cx) else { return };
         self.resolve_in(dir, thread, resolved, undo, cx);
@@ -499,7 +495,6 @@ impl Desktop {
         self.resolve_in(tree, thread, resolved, false, cx);
     }
 
-    /// Fetches the pictures of everyone on `tree`'s PR, and the user's own.
     pub(crate) fn fetch_avatars(&mut self, tree: &str, cx: &mut Context<Self>) {
         let Some(pr) = self.prs.handle(tree) else { return };
         let me = self.login(&self.gh_in(tree, cx));
@@ -507,7 +502,6 @@ impl Desktop {
         self.pr.update(cx, |p, cx| p.fetch_avatars(&pr, &me, dir, cx));
     }
 
-    /// Thread `id` of the PR on screen, as a card under its line in the PR diff.
     pub(crate) fn pinned_thread(&self, k: usize, id: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
         self.pr.update(cx, |p, cx| p.pinned_thread(k, id, cx))
     }

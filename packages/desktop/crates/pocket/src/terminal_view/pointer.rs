@@ -66,7 +66,6 @@ impl TerminalPane {
         }
     }
 
-    /// Opens the link under `at`; false if there is none.
     pub(super) fn open_link(&mut self, at: Pointer, cx: &mut Context<Self>) -> bool {
         let Some(grid) = self.grid() else { return false };
         let url = {
@@ -79,7 +78,6 @@ impl TerminalPane {
         true
     }
 
-    /// Notes whether the mouse, at `at` (None once it leaves), is on a link a click would open.
     pub(super) fn hover_link(&mut self, at: Option<Pointer>, mods: Modifiers, cx: &mut Context<Self>) {
         let over = at.is_some_and(|at| {
             let (Some(grid), Some(look)) = (self.grid(), self.look.as_ref()) else { return false };

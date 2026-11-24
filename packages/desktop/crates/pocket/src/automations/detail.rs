@@ -71,7 +71,6 @@ impl Automations {
         super::logic::shown_run(self.selected_run.as_deref(), self.only.as_deref(), &self.data.runs).cloned()
     }
 
-    /// The page's top bar: its crumb, and what sits at its right.
     pub(crate) fn bar(&mut self, cx: &mut Context<Self>) -> Option<(Div, Div)> {
         if self.form.open {
             return Some(self.editor_bar(cx));

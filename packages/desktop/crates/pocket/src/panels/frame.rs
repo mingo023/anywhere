@@ -10,17 +10,14 @@ use std::collections::HashMap;
 use workspace::tree::{Pane, PaneId};
 use workspace::{Doc, Place, Tab};
 
-/// What `Desktop` hands the panels each frame for the worktree on screen: what they draw that they can't read for themselves.
 pub(crate) struct Frame {
     pub(super) tree: String,
     pub(super) bar: BarFrame,
     pub(super) banner: Option<Div>,
-    /// The held tab, drawn under the pointer while it is off its strip.
     pub(super) ghost: Option<Lead>,
     pub(super) draw: Drawing,
 }
 
-/// What the panes and their menus draw.
 pub(crate) struct Drawing {
     pub(super) panes: HashMap<PaneId, Dress>,
     /// Whether the seams between panes may be dragged: not under an overlay, which they would steal clicks from.
@@ -28,7 +25,6 @@ pub(crate) struct Drawing {
     pub(super) menus: Menus,
 }
 
-/// The bar over the panes: its tabs and what stands beside them.
 pub(crate) struct BarFrame {
     pub(super) at: usize,
     pub(super) closable: bool,
@@ -38,15 +34,12 @@ pub(crate) struct BarFrame {
     pub(super) open_in: Option<Entity<OpenIn>>,
 }
 
-/// What focuses a pane on a press.
 pub(crate) type Press = Box<dyn Fn(&MouseDownEvent, &mut Window, &mut App)>;
 
-/// A drawn pane's body, and what its head says.
 pub(crate) struct Dress {
     pub(super) body: Body,
     pub(super) tabs: Vec<TabFace>,
     pub(super) title: String,
-    /// The agent whose chat the pane's head is rising into.
     pub(super) arriving: Option<String>,
     /// Focuses the pane before the press reaches what is under it.
     pub(super) press: Press,
@@ -57,11 +50,8 @@ pub(crate) enum Body {
     Empty(Empty),
 }
 
-/// What a pane with no tabs offers.
 pub(crate) enum Empty {
-    /// Pocketd is managed elsewhere: it offers nothing.
     Observing,
-    /// The agent that opens by default, by provider and name, if any is installed.
     Offers(Option<(&'static str, String)>),
 }
 
@@ -70,7 +60,6 @@ pub(crate) struct TabFace {
     pub(super) closable: bool,
 }
 
-/// The open menus' rows, for the menus that are open.
 #[derive(Default)]
 pub(crate) struct Menus {
     pub(super) new_tab: Option<NewTab>,
@@ -89,7 +78,6 @@ pub(crate) struct AgentRow {
     pub(super) hint: Option<String>,
 }
 
-/// The file a right-clicked tab shows: its path and its path from the explorer's root.
 #[derive(Default)]
 pub(crate) struct TabFile(pub(super) Option<(String, String)>);
 
@@ -100,7 +88,6 @@ pub(crate) struct TopActions {
 }
 
 impl Desktop {
-    /// Worktree `tree`'s panes: all of them, or only the zoomed one.
     pub(crate) fn panels_view(&mut self, tree: &str, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let shown: Vec<Pane<Tab>> = {
             let t = &self.workspaces.read(cx)[tree].tree;
@@ -187,7 +174,6 @@ impl Desktop {
         Empty::Offers(provider.map(|provider| (provider, self.agent_name(provider))))
     }
 
-    /// The rows of each of the panels' menus that is open.
     fn panel_menus(&self, cx: &App) -> Menus {
         let (menu, actions, top) = {
             let p = self.panels.read(cx);

@@ -17,7 +17,6 @@ use theme::*;
 use ui::{self, icon_button_sized};
 use workspace::tree::Axis;
 
-/// A project's own row: where it sits and what it is.
 #[derive(PartialEq)]
 pub(crate) struct ProjectFrame {
     pub(crate) ix: usize,
@@ -34,11 +33,9 @@ pub(crate) struct ProjectFrame {
     pub(crate) flashed: bool,
     pub(crate) section: Section,
     pub(crate) manual: bool,
-    /// Its tree rows, while they are drawn.
     pub(crate) rows: Vec<TreeFrame>,
 }
 
-/// How a worktree's row marks itself.
 #[derive(PartialEq)]
 pub(crate) enum RowMark {
     Failed,
@@ -46,14 +43,12 @@ pub(crate) enum RowMark {
     Status,
 }
 
-/// What a tree's hover card shows besides what its row says.
 #[derive(PartialEq)]
 pub(crate) struct CardFrame {
     pub(crate) pr: Option<Pr>,
     pub(crate) when: Option<String>,
 }
 
-/// A worktree's or Local's row, as the aside draws it.
 #[derive(PartialEq)]
 pub(crate) struct TreeFrame {
     pub(crate) project: String,
@@ -62,7 +57,6 @@ pub(crate) struct TreeFrame {
     pub(crate) tip: String,
     pub(crate) kind: Kind,
     pub(crate) ix: usize,
-    /// The project it names while pinned.
     pub(crate) sub: Option<String>,
     pub(crate) selected: bool,
     pub(crate) state: Option<ui::State>,
@@ -71,7 +65,6 @@ pub(crate) struct TreeFrame {
     pub(crate) diff: Option<(usize, usize)>,
     pub(crate) was: Option<(String, Instant)>,
     pub(crate) lit: bool,
-    /// A double click renames it.
     pub(crate) renames: bool,
     pub(crate) menus: bool,
     pub(crate) card: Option<CardFrame>,
@@ -95,7 +88,6 @@ impl PartialEq for PinnedItem {
 #[derive(PartialEq)]
 pub(crate) struct PinnedFrame {
     pub(crate) open: bool,
-    /// Its rows, while they are drawn.
     pub(crate) items: Vec<PinnedItem>,
 }
 
@@ -119,11 +111,7 @@ pub(crate) struct GroupFrame {
 pub(crate) enum Tail {
     None,
     NoMatch(String),
-    /// `headed`: something sits above, so a heading tells the ungrouped from it.
-    Other {
-        blocks: Vec<ProjectFrame>,
-        headed: bool,
-    },
+    Other { blocks: Vec<ProjectFrame>, headed: bool },
 }
 
 #[derive(PartialEq)]
@@ -136,7 +124,6 @@ pub(crate) struct SectionsFrame {
 
 #[derive(PartialEq)]
 pub(crate) enum Body {
-    /// A reachable space with no project: its name.
     Empty(Option<String>),
     Sections(SectionsFrame),
 }
@@ -155,17 +142,14 @@ pub(crate) enum ScratchRow {
     Folder { ix: usize, path: String, name: String, selected: bool, state: Option<ui::State>, was: Option<(String, Instant)>, renames: bool },
 }
 
-/// The Threads section above Projects.
 #[derive(PartialEq)]
 pub(crate) struct ScratchFrame {
     pub(crate) open: bool,
     pub(crate) roll: Option<ui::State>,
     pub(crate) count: usize,
-    /// Its rows, while they are drawn.
     pub(crate) rows: Vec<ScratchRow>,
 }
 
-/// What `Desktop` hands the aside each frame: everything it draws that it can't read for itself.
 #[derive(PartialEq)]
 pub(crate) struct AsideFrame {
     pub(crate) width: f32,
@@ -183,7 +167,6 @@ pub(crate) struct AsideFrame {
     pub(crate) menu: Option<MenuFrame>,
 }
 
-/// What the aside asks `Desktop` for.
 pub(crate) enum SidebarEvent {
     Bell,
     Collapse,
@@ -390,7 +373,6 @@ impl Sidebar {
         Self::with_card(row, key, self.card_for(f, rf.reduce_motion), cx).into_any_element()
     }
 
-    /// A project's row, then while it is open its checkout's and worktrees' rows, less those pinned. Returns its height once its fold settles.
     fn project_block(&self, p: &ProjectFrame, rf: &AsideFrame, cx: &mut Context<Self>) -> (AnyElement, f32) {
         let (i, path) = (p.ix, p.path.as_str());
         let chevron = p.git.then(|| ui::chevron(("aside-chevron", i), p.open));
@@ -828,7 +810,6 @@ impl Sidebar {
             .child(settings)
     }
 
-    /// Lets the user drag the aside's right edge to resize it, or double-click it to reset.
     fn resizable(&self, d: Div, seam: bool, cx: &mut Context<Self>) -> Div {
         if !seam {
             return d;

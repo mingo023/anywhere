@@ -77,7 +77,6 @@ impl Desktop {
         });
     }
 
-    /// Answers the filter's text changing: the row Enter picks is the first it lists.
     pub(super) fn filtered(&mut self, cx: &mut Context<Self>) {
         let lit = self.filter_hits(cx).into_iter().next();
         self.set_lit(lit, cx);
@@ -95,7 +94,6 @@ impl Desktop {
         });
     }
 
-    /// Answers up, down or Enter in the filter's field.
     pub(super) fn filter_key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
         let hits = self.filter_hits(cx);
         let lit = self.sidebar.read(cx).header.read(cx).filter.lit.clone();

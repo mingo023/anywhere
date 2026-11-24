@@ -239,18 +239,11 @@ fn enter_confirms(key: &Keystroke, confirm: &Confirm) -> bool {
         )
 }
 
-/// What a sheet says, built by `Desktop` from its own state.
 pub(crate) enum Sheet {
     Alert(ConfirmText),
-    /// A section's reset: what goes back, as (setting, "now → default").
-    Reset {
-        title: String,
-        lead: String,
-        lines: Vec<(String, String)>,
-    },
+    Reset { title: String, lead: String, lines: Vec<(String, String)> },
 }
 
-/// The open confirm sheet and its render. `Desktop` hands down what it says and runs what it confirms.
 #[derive(Default)]
 pub(crate) struct ConfirmSheet {
     confirm: Option<Confirm>,
@@ -259,7 +252,6 @@ pub(crate) struct ConfirmSheet {
 
 pub(crate) enum ConfirmEvent {
     Confirmed(Confirm),
-    /// The sheet's second action: Don't save, Uninstall and remove, Start fresh.
     Alternate(Confirm),
     Cancelled,
 }
@@ -280,7 +272,6 @@ impl ConfirmSheet {
         self.sheet = sheet;
     }
 
-    /// What was still held: a sheet closed without its action was cancelled.
     pub(crate) fn clear(&mut self) -> Option<Confirm> {
         self.sheet = None;
         self.confirm.take()
@@ -404,7 +395,6 @@ impl Render for ConfirmSheet {
 }
 
 impl Desktop {
-    /// Opens `confirm`'s sheet; the caller shows it.
     pub(crate) fn ask(&mut self, confirm: Confirm, cx: &mut Context<Self>) {
         self.hold_confirm(confirm, cx);
         self.overlay = Some(Overlay::Confirm);
@@ -480,7 +470,6 @@ impl Desktop {
         Some(Sheet::Alert(text))
     }
 
-    /// The sheet over everything, saying what `confirm_text` makes of the open confirm now.
     pub(super) fn confirm_view(&mut self, cx: &mut Context<Self>) -> Div {
         let sheet = self.confirm.read(cx).kind().and_then(|c| self.confirm_text(c, cx));
         self.confirm.update(cx, |c, _| c.show(sheet));

@@ -37,25 +37,14 @@ pub(crate) struct Strip {
     revealed: Option<(String, usize)>,
 }
 
-/// What the panels ask `Desktop` for.
 pub(crate) enum PanelsEvent {
-    /// A tab was clicked, and with a second click its doc is to be pinned.
-    Select {
-        pane: PaneId,
-        tab: usize,
-        pin: Option<Doc>,
-    },
+    Select { pane: PaneId, tab: usize, pin: Option<Doc> },
     Close(PaneId, usize),
     CloseOthers(PaneId, usize),
-    /// A tab was picked up: show it, and picture the pages while it moves.
     Grab(PaneId, usize),
-    /// A pane was picked up by its grip.
     Freeze,
-    /// A tab was right-clicked.
     TabMenu(PaneId, Tab, Point<Pixels>),
-    /// A top tab was right-clicked.
     TopMenu(String, Point<Pixels>),
-    /// The + was pressed, which shuts the other menus it shares the screen with.
     NewTabMenu,
     NewShell(Place),
     NewChat(Place),
@@ -68,11 +57,8 @@ pub(crate) enum PanelsEvent {
     Handoff(String),
     TopSwitch(usize),
     TopClose(usize),
-    /// Panes moved: show what the focused one shows, and save.
     Moved,
-    /// A tab moved: show what the focused pane shows.
     Shown,
-    /// The panes changed shape or order.
     Changed,
 }
 
@@ -91,7 +77,6 @@ pub(crate) struct Panels {
     top_actions: Option<(String, Point<Pixels>)>,
     /// The tab held on a strip, and the strip's pane.
     drag: Option<(PaneId, strip::TabDrag)>,
-    /// The More menu over a file tab.
     pub(crate) more: Entity<MoreMenu>,
     /// The main area as last drawn, in window pixels; which panes have room to split depends on it.
     pub(crate) bounds: Rect,
@@ -103,7 +88,6 @@ pub(crate) struct Panels {
     slots: drop::Slots,
     /// The worktree and top tab whose panes were last synced; pane ids differ between them, so a held tab can't outlive a switch.
     tree: Option<(String, usize)>,
-    /// The bar over the panes: the top tabs.
     pub(crate) top: Entity<TopBar>,
     /// The pane held by its head, and where it would drop.
     pane_drag: Option<pane_drag::Held>,
@@ -160,7 +144,6 @@ impl Panels {
         self.drag.is_some() || self.pane_drag.is_some() || self.top.read(cx).holding()
     }
 
-    /// Whether a menu of the panels is open.
     pub(crate) fn menu_open(&self) -> bool {
         self.menu.is_some() || self.actions.is_some() || self.top_actions.is_some()
     }
@@ -172,7 +155,6 @@ impl Panels {
         }
     }
 
-    /// Shuts the menu of the + button and a tab's, leaving a top tab's.
     pub(crate) fn close_tab_menus(&mut self, cx: &mut Context<Self>) {
         if self.menu.is_some() || self.actions.is_some() {
             (self.menu, self.actions) = (None, None);
@@ -194,7 +176,6 @@ impl Panels {
         }
     }
 
-    /// Which of the menus are open: the + button's, a tab's, a top tab's.
     pub(crate) fn menus_open(&self) -> [bool; 3] {
         [self.menu.is_some(), self.actions.is_some(), self.top_actions.is_some()]
     }
@@ -206,18 +187,15 @@ impl Panels {
         self.pane_drag.take().is_some() | tab | top
     }
 
-    /// The worktree whose panes were last drawn.
     fn tree(&self) -> Option<&str> {
         self.tree.as_ref().map(|(tree, _)| tree.as_str())
     }
 
-    /// Runs `f` on the panes drawn, without waiting on `Desktop` to sync them first.
     fn edit<R>(&self, cx: &mut Context<Self>, f: impl FnOnce(&mut workspace::Workspace) -> R) -> Option<R> {
         let tree = self.tree()?;
         self.workspaces.update(cx, |all, _| all.get_mut(tree).map(f))
     }
 
-    /// Takes in which panes are alive and drawn in worktree `tree`, whose shown top tab is `at`; forgets what closed panes held.
     pub(crate) fn sync(&mut self, tree: String, at: usize, live: Vec<PaneId>, drawn: &[PaneId], creating: bool) {
         if self.tree.as_ref() != Some(&(tree.clone(), at)) {
             self.drag = None;
@@ -243,12 +221,10 @@ impl Panels {
         }
     }
 
-    /// Nothing is drawn: a tab can't be held on a strip that isn't.
     pub(crate) fn hide(&mut self) {
         self.drag = None;
     }
 
-    /// The tab held off its strip, to draw under the pointer.
     pub(crate) fn ghost_tab(&self, cx: &App) -> Option<Tab> {
         let ((from, d), _) = (self.drag.as_ref()?, self.at?);
         if !d.away {
@@ -516,7 +492,6 @@ impl Panels {
         cx.notify();
     }
 
-    /// Moves tab `i` of `pane` to `to`; `Desktop` then shows what the focused pane shows and loads what the moved tab needs.
     fn move_tab_to(&mut self, pane: PaneId, i: usize, to: workspace::tree::Target, cx: &mut Context<Self>) {
         self.edit(cx, |w| w.tree.move_tab(pane, i, to));
         cx.emit(PanelsEvent::Shown);

@@ -238,7 +238,6 @@ impl Explorer {
         .detach();
     }
 
-    /// Shows what a save made, or says why it couldn't.
     pub(super) fn saved(&mut self, naming: Naming, name: String, made: Result<PathBuf, String>, cx: &mut Context<Self>) {
         let folder = naming.folder() || name.ends_with('/');
         match (naming, made) {

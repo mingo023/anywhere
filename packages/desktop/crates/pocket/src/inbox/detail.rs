@@ -10,13 +10,11 @@ use ui::{self, State, Variant, kbd};
 
 type Key = Box<dyn Fn(&KeyDownEvent, &mut Window, &mut App)>;
 
-/// What `Desktop` hands the inbox for the note on screen: what it draws that it can't read for itself.
 pub(crate) struct Open {
     agent: String,
     project: String,
     mark: ui::Mark,
     title: String,
-    /// Seconds the agent has needed you, while it does.
     needs_you: Option<i64>,
     chat: bool,
     pane: AnyElement,
@@ -25,7 +23,6 @@ pub(crate) struct Open {
 }
 
 impl Inbox {
-    /// The note on screen, or the line saying none is.
     pub(crate) fn detail(&mut self, open: Option<Open>, cx: &mut Context<Self>) -> Div {
         let Some(Open { agent, project, mark, title, needs_you, chat, pane, focus, key }) = open else {
             return drag_area(div()).flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(TEXT_3).child("You're all caught up.");

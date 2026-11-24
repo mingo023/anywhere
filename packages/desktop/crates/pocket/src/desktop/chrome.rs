@@ -316,7 +316,6 @@ pub(crate) fn seam_handle<T: 'static>(
     seam_handle_in(id, axis, move |this, _, cx| reset(this, cx), cx)
 }
 
-/// `seam_handle`, its `reset` handed the window too.
 pub(crate) fn seam_handle_in<T: 'static>(
     id: impl Into<ElementId>,
     axis: Axis,

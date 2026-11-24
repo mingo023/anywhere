@@ -51,7 +51,6 @@ fn group(item: Item) -> u8 {
 }
 
 impl TerminalPane {
-    /// The right-click menu, open at `at`.
     pub(super) fn menu(at: Point<Pixels>, look: &Look, cx: &mut Context<Self>) -> AnyElement {
         let term = look.grid.as_ref();
         let facts = Pane {

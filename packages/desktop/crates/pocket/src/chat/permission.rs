@@ -75,7 +75,6 @@ impl ComposerState {
         cx.notify();
     }
 
-    /// The ask in the pill's place: what the tool wants to do, and Deny / Reply / Allow when this client may answer. `name` is the agent's.
     pub(super) fn permission_card(&self, agent: &str, name: &str, ask: &Ask, feedback: bool, answerable: bool, cx: &mut Context<Self>) -> Div {
         let (glyph, verb, what) = subject(&ask.tool, &ask.tool_name);
         let replying = answerable && self.replying.as_deref() == Some(ask.request_id.as_str());

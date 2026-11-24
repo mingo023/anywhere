@@ -96,7 +96,6 @@ impl PullRequests {
         self.by_tree.get(tree)?.1.as_deref()
     }
 
-    /// `tree`'s PR to hold on to, which stays the same allocation until the PR changes.
     pub(crate) fn handle(&self, tree: &str) -> Option<Arc<Pr>> {
         self.by_tree.get(tree)?.1.clone()
     }

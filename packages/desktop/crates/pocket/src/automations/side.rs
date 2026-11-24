@@ -7,19 +7,14 @@ pub(crate) struct Project {
     pub(crate) mark: ui::Mark,
 }
 
-/// What `Desktop` hands the Automations screen before it draws.
 #[derive(Default)]
 pub(crate) struct Side {
     pub(crate) labels: HashMap<String, String>,
     pub(crate) projects: HashMap<String, Project>,
     pub(crate) folders: Vec<String>,
-    /// The sessions the automations were created by or post into, by id.
     pub(crate) titles: HashMap<String, String>,
-    /// The requests waiting runs' agents ask, by agent.
     pub(crate) asks: HashMap<String, Permission>,
     pub(crate) defaults: Defaults,
-    /// Where a new automation starts: the project on screen, else the first listed.
     pub(crate) folder: String,
-    /// Left padding of the list's header, past the window's lights.
     pub(crate) lead: f32,
 }

@@ -56,24 +56,19 @@ pub fn folder_status(files: &[FileStat], root: &str, dir: &str) -> Option<char> 
     Some(if inside.all(|s| s == first) { first } else { 'M' })
 }
 
-/// What `Desktop` hands the tree before it draws or is called: the folder on screen, its changes, and what the menu reads of the rest of the app.
 #[derive(Default)]
 pub(crate) struct Inputs {
     pub(crate) root: Option<String>,
-    /// The root's files are on this Mac.
     pub(crate) local: bool,
     pub(crate) repo: Option<Arc<Repo>>,
     pub(crate) files: Files,
-    /// The file the focused pane previews.
     pub(crate) selected: Option<String>,
-    /// The paths agents edited, as of the stamp.
     pub(crate) touched: (u64, Arc<HashSet<String>>),
     pub(crate) chats: Vec<Choice>,
     pub(crate) session: Option<String>,
     pub(crate) observe_only: bool,
 }
 
-/// What the tree asks `Desktop` for: what opens files and chats, closes other menus, or checks what it read against the tree on screen.
 #[derive(Clone)]
 pub(crate) enum ExplorerEvent {
     GoToFile,
@@ -97,7 +92,6 @@ pub(crate) enum ExplorerEvent {
         from: PathBuf,
         to: PathBuf,
     },
-    /// What the Trash took and where it went, `None` when it couldn't.
     Trashed {
         path: PathBuf,
         to: Option<PathBuf>,
@@ -166,7 +160,6 @@ impl Explorer {
         rows
     }
 
-    /// The folders to list again: every open one, and the root.
     pub(crate) fn listed_dirs(&self, root: Option<&str>) -> Vec<PathBuf> {
         let mut dirs: Vec<PathBuf> = self.tree.keys().cloned().collect();
         dirs.extend(root.map(PathBuf::from));
@@ -182,7 +175,6 @@ impl Explorer {
         true
     }
 
-    /// Takes fresh listings for the folders still open under `root`; whether the tree changed.
     pub(crate) fn land_tree(&mut self, fresh: HashMap<PathBuf, Vec<(bool, PathBuf)>>, root: Option<&Path>, cx: &mut Context<Self>) -> bool {
         let tree = merge_tree(fresh, &self.tree, root);
         let changed = tree != self.tree;
@@ -236,12 +228,10 @@ impl Explorer {
         self.inputs.root.as_deref().is_some_and(|r| path.starts_with(r))
     }
 
-    /// Git's letter for a file under the root, if it has changed.
     fn file_status(&self, path: &str) -> Option<char> {
         status_of(&self.inputs.repo.as_ref()?.files, self.inputs.root.as_deref()?, path)
     }
 
-    /// The letter a folder under the root takes from the changes inside it.
     fn folder_status(&self, path: &str) -> Option<char> {
         folder_status(&self.inputs.repo.as_ref()?.files, self.inputs.root.as_deref()?, path)
     }
@@ -260,7 +250,6 @@ impl Explorer {
         self.seek = true;
     }
 
-    /// Lists the open folders again, as the root listing needs after new Explorer settings or a change on disk; landed only while those settings still hold.
     pub(crate) fn relist(&mut self, cx: &mut Context<Self>) {
         let files = self.inputs.files.clone();
         let dirs = self.listed_dirs(self.inputs.root.as_deref());
@@ -304,7 +293,6 @@ impl Explorer {
         .detach();
     }
 
-    /// Takes what a background read or write brought, judged against the tree on screen now.
     pub(crate) fn land(&mut self, landing: Landing, cx: &mut Context<Self>) {
         match landing {
             Landing::Root { files, root, listing } => {
@@ -534,7 +522,6 @@ impl Desktop {
         self.explorer.update(cx, |e, cx| e.tree_menu_arrow(arrow.0, cx));
     }
 
-    /// Takes an unmodified letter as typeahead while the menu is open, and any key while it blinks; returns whether it did.
     pub(crate) fn type_tree_menu(&mut self, key: &Keystroke, cx: &mut Context<Self>) -> bool {
         if !self.explorer.read(cx).menu_open() {
             return false;

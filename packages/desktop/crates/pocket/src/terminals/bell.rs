@@ -27,7 +27,6 @@ impl Bell {
 }
 
 impl Terminals {
-    /// Rings `id`'s bell as `ring` says: a beep, or a flash on a platform with none.
     pub(crate) fn ring(&mut self, id: &str, ring: Ring, cx: &mut Context<Self>) {
         if ring == Ring::Off || !self.bell.rings(Instant::now()) {
             return;

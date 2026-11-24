@@ -60,7 +60,6 @@ impl CommitState {
         self.restart()
     }
 
-    /// Shows commit `sha` unless it is shown already; the returned run tags the reads for it.
     pub fn select_new(&mut self, sha: String) -> Option<u64> {
         (self.sha.as_ref() != Some(&sha)).then(|| self.select(sha))
     }
@@ -107,11 +106,9 @@ impl CommitState {
 }
 
 pub(crate) enum CommitEvent {
-    /// A file's header clicked: open that file alone, pinned on a double click.
     OpenFile(Doc, bool),
 }
 
-/// One pane's commit: its files diffed one under another over `Desktop`'s window; `Desktop` hands it the commit's subject and the code size each frame.
 pub struct CommitView {
     pub(crate) state: CommitState,
     subject: Option<String>,
@@ -202,7 +199,6 @@ impl Render for CommitView {
     }
 }
 
-/// A commit view and what keeps its events coming.
 pub(crate) struct Slot {
     pub(crate) view: Entity<CommitView>,
     _sub: Subscription,

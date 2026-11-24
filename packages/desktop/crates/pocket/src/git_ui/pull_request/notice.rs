@@ -3,7 +3,6 @@ use gpui_kit::*;
 use theme::*;
 
 impl PrSide {
-    /// What a PR action just did, with Undo when it can be taken back; the toasts float it over the window.
     pub(crate) fn toast(&self, cx: &mut Context<Self>) -> Option<Div> {
         let notice = self.notice.as_ref()?;
         let undo = notice.undo.is_some().then(|| ui::link("pr-undo", "Undo").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(PrEvent::Undo))));

@@ -107,13 +107,11 @@ impl Nav {
     }
 }
 
-/// The graph of an agent's sub-agents over its composer, with their details: one for the window, whichever chat it was opened from.
 pub(crate) struct AgentMap {
     pub(crate) nav: Nav,
     pub(super) focus: FocusHandle, // [DEBUG-focus]
 }
 
-/// What a sub-agent's details read from its chat.
 struct Of<'a> {
     agent: &'a str,
     tools: &'a Entity<Tools>,
@@ -121,18 +119,9 @@ struct Of<'a> {
 }
 
 pub(crate) enum MapEvent {
-    /// The map shut by its own hand: the chat's input takes the keys back.
     Closed,
-    /// Shut to show the place in `agent`'s chat that a sub-agent was spawned at.
-    Reveal {
-        agent: String,
-        at: Option<(usize, usize)>,
-    },
-    Link {
-        agent: String,
-        link: String,
-        press: Press,
-    },
+    Reveal { agent: String, at: Option<(usize, usize)> },
+    Link { agent: String, link: String, press: Press },
 }
 
 impl EventEmitter<MapEvent> for AgentMap {}
@@ -232,7 +221,6 @@ impl AgentMap {
         cx.notify();
     }
 
-    /// Closes the map to show in the chat the call `map[ix]` was spawned under.
     fn reveal(&mut self, agent: &str, t: &Transcript, ix: usize, cx: &mut Context<Self>) {
         let at = place(t, &chat::spawned(t), ix);
         self.nav.close(Instant::now());

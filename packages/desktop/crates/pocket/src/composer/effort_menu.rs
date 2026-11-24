@@ -41,7 +41,6 @@ pub(crate) struct Effort {
     pub(super) list: Option<Div>,
 }
 
-/// Edits the menu's state wherever its owner keeps it.
 pub(crate) type EditEffort<V> = fn(&mut V, &mut Context<V>, &mut dyn FnMut(&mut EffortMenu));
 
 /// A row headed `word`, a model's setting, naming the value in use, `on` unless `menu` holds a newer one, that opens

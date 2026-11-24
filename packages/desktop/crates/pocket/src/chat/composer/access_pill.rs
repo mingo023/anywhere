@@ -14,13 +14,9 @@ fn access_pill(access: &str) -> Div {
         .child(div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(launch::access_color(access)).child(launch::access_shown(access, "")))
 }
 
-/// How the agent's access shows.
 pub(super) enum Shown {
-    /// The agent never asks, so it has one access to run with.
     Full(String),
-    /// Read where it can't be switched.
     Plain(String),
-    /// A picker.
     Pick(String),
 }
 

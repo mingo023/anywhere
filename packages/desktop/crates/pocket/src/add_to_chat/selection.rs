@@ -43,7 +43,6 @@ impl Desktop {
         self.chat.update(cx, |c, cx| c.ask(at, quote, window, cx));
     }
 
-    /// The Add to chat pill and the question card over a selection, handed the sessions a quote can go to while the card is open.
     pub(crate) fn chat_offers(&self, cx: &mut Context<Self>) -> Entity<ChatComposer> {
         if self.chat.read(cx).file.is_some() {
             let side = self.chat_side(cx);

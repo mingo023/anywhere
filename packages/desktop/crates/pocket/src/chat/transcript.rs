@@ -36,28 +36,21 @@ pub(super) fn content_width(width: f32) -> f32 {
     560. + ((width - 560.) / 16.).round() * 16.
 }
 
-/// What `Desktop` hands a chat's transcript each time it draws it, which rows read besides the session.
 #[derive(Default)]
 pub(crate) struct Side {
     pub(crate) agent: agents::Summary,
     pub(crate) inset: f32,
-    /// What the agent's open ask is: `Some(true)` for questions.
     pub(crate) ask: Option<bool>,
     pub(crate) send_now: bool,
-    /// The provider and label of the chat that delegated this one.
     pub(crate) delegated_by: Option<(String, String)>,
-    /// Where attachments are kept on this Mac.
     pub(crate) here: std::path::PathBuf,
-    /// The call whose agent picker is open.
     pub(crate) pick_open: Option<String>,
     pub(crate) delegations: Vec<Delegation>,
     pub(crate) hosts: Option<(Vec<hosts::Host>, crate::fleet::Links)>,
     pub(crate) capturing: bool,
-    /// The PRs the worktrees have, and where their fixes go, while a message of the chat links one.
     pub(crate) prs: Option<Arc<[pr_link::Peek]>>,
 }
 
-/// What a chat's transcript asks `Desktop` to do.
 pub(crate) enum ViewEvent {
     Open(String, markdown::Press),
     Command(Command),
@@ -68,7 +61,6 @@ pub(crate) enum ViewEvent {
     ShowHosts,
     ShowPr,
     SendFix(Vec<String>, Vec<String>),
-    /// The user scrolled; `away` is whether the list now sits off its end.
     Scrolled(bool),
 }
 
@@ -120,7 +112,6 @@ pub(crate) struct View {
     primed: bool,
     /// Which deliveries arrived after it did.
     arrivals: crate::delegated::Arrivals,
-    /// Whether a message of the chat has linked a PR, or the agent asked for a host: the rows that read more than the session.
     links_pr: bool,
     has_host_link: bool,
 }
@@ -193,7 +184,6 @@ impl View {
         self.has_host_link
     }
 
-    /// Takes what `Desktop` hands down for the next draw.
     pub(crate) fn set_side(&mut self, side: Side) {
         self.inset = side.inset;
         self.side = Rc::new(side);
@@ -614,7 +604,6 @@ fn toggle(id: &str, default: bool, cx: &mut Context<View>) -> impl Fn(&ClickEven
 }
 
 impl Render for View {
-    /// The agent's transcript, refolded when its timeline moved: the rows over the sticky prompt, the prompt timeline and the jump pill.
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div().size_full().flex().flex_col().child(self.body(window, cx))
     }
@@ -666,7 +655,6 @@ impl View {
         cx.notify();
     }
 
-    /// Scrolls to row `ix`, opening the fold over it if it shows shut.
     pub(crate) fn reveal(&mut self, ix: usize, cx: &mut Context<Self>) {
         self.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
         if let Some(f) = self.session.shut_fold_over(ix) {
@@ -674,7 +662,6 @@ impl View {
         }
     }
 
-    /// Scrolls to the row showing block `block` of turn `turn`, opened, and flashes it.
     pub(crate) fn show_block(&mut self, turn: usize, block: usize, cx: &mut Context<Self>) {
         let s = &self.session;
         let Some(ix) = chat::row_of(&s.rows, turn, block) else { return };
@@ -690,7 +677,6 @@ impl View {
         cx.notify();
     }
 
-    /// Scrolls to prompt row `ix`, as a click on the prompt stuck over the top does.
     pub(super) fn jump_to_prompt(&mut self, ix: usize, cx: &mut Context<Self>) {
         // A prompt held at the top, or a glide to the end, would scroll the list off the prompt.
         (self.pin, self.glide, self.seek) = (None, None, None);
@@ -698,7 +684,6 @@ impl View {
         cx.notify();
     }
 
-    /// Glides to prompt row `ix`, as a click on the prompt timeline does; one far off is jumped to a viewport short of first.
     pub(super) fn seek_prompt(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         if cx.reduce_motion() {
             return self.jump_to_prompt(ix, cx);
@@ -739,8 +724,6 @@ impl View {
         cx.notify();
     }
 
-    /// Scrolls to prompt row `ix` and lights it, as letting go on the prompt timeline does; a glide still on its way there
-    /// lights it on arrival.
     pub(super) fn land_on_prompt(&mut self, ix: usize, cx: &mut Context<Self>) {
         if self.seek.as_mut().is_some_and(|(_, seek)| seek.land(ix)) {
             return;
@@ -749,7 +732,6 @@ impl View {
         self.jump_to_prompt(ix, cx);
     }
 
-    /// Scrolls a prompt up or down from the exchange at the top.
     pub(crate) fn step_prompt(&mut self, down: bool, cx: &mut Context<Self>) {
         if let Some(ix) = chat::step_prompt(&self.session.rows, self.top_row().0, down) {
             self.jump_to_prompt(ix, cx);

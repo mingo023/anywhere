@@ -39,7 +39,6 @@ impl Browser {
 pub struct Browsers {
     pub(crate) tabs: HashMap<u64, Browser>,
     next: u64,
-    /// Each pane's view of its tab, built the first time it shows one.
     panes: HashMap<PaneId, view::Slot>,
     /// Held while the page has the keys, so GPUI's keymap still sees ⌘-keys in the "Browser" context.
     pub(crate) focus: FocusHandle,
@@ -106,7 +105,6 @@ impl Browsers {
         self.tabs.get(&id).filter(|_| self.shown.contains(&id))?.page.as_deref()
     }
 
-    /// Drops the views of panes that closed.
     pub fn retain_panes(&mut self, panes: &[PaneId]) {
         self.panes.retain(|p, _| panes.contains(p));
     }

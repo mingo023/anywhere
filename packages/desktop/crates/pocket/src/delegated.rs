@@ -27,7 +27,6 @@ struct Slot<V> {
 pub(crate) struct DelegatedState {
     /// Each delegating chat's panel, by agent id.
     panels: HashMap<String, Slot<panel::PanelView>>,
-    /// Each delegated session's breadcrumb, by agent id.
     crumbs: HashMap<String, Slot<child_view::Crumb>>,
     /// The chats whose delegations were asked for on this connection.
     asked: HashSet<String>,

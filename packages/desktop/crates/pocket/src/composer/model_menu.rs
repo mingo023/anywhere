@@ -105,13 +105,10 @@ pub(crate) type KeptList = Memo<Listed>;
 /// Picks the model of a line that was clicked.
 pub(crate) type Choose<V = Desktop> = Rc<dyn Fn(&mut V, &Entry, &mut Context<V>)>;
 
-/// Stars the model of a row, or takes its star off.
 pub(crate) type Star<V = Desktop> = Rc<dyn Fn(&mut V, &Entry, &mut Context<V>)>;
 
-/// Lists the models of the rail entry pointed at.
 pub(crate) type View<V = Desktop> = Rc<dyn Fn(&mut V, &'static str, &mut Context<V>)>;
 
-/// An agent's tab in the rail.
 pub(crate) struct RailTab {
     pub(crate) id: &'static str,
     pub(crate) name: String,
@@ -340,17 +337,14 @@ pub(crate) fn check(on: bool) -> Div {
     div().w(px(16.)).flex().flex_none().justify_end().when(on, |d| d.child(icon("check", 14., TEXT)))
 }
 
-/// What a composer's model pill draws from, gathered by `Desktop` before the pill draws.
 pub(crate) struct Launch {
     pub(crate) pick: LaunchPick,
     pub(crate) project: Option<String>,
     pub(crate) model: String,
     pub(crate) detail: Option<String>,
-    /// The panel, while it is open.
     pub(crate) panel: Option<PanelData>,
 }
 
-/// What the open model panel shows.
 pub(crate) struct PanelData {
     viewed: String,
     tabs: Vec<RailTab>,
@@ -372,7 +366,6 @@ pub(crate) struct EffortData {
 }
 
 impl Composer {
-    /// The pill that opens the model panel; `launch` says what both draw.
     pub(crate) fn model_pill(&mut self, launch: &Launch, cx: &mut Context<Self>) -> Div {
         let open = self.draft.menu == Some(Menu::Model);
         let (provider, project) = (launch.pick.provider.clone(), launch.project.clone());
@@ -396,7 +389,6 @@ impl Composer {
         div().relative().child(chip).children(menu)
     }
 
-    /// Opens the model panel on `provider` in `project`, or closes it.
     pub(crate) fn toggle_model(&mut self, provider: &str, project: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
         if self.toggle(Menu::Model, cx) {
             focus_search(&self.search, window, cx);
@@ -440,15 +432,12 @@ impl Composer {
         panel(rail, &search, list, data.note.clone(), effort, settings.collect()).children(hidden)
     }
 
-    /// Sets the pick with the panel left open.
     fn adjusted(&mut self, project: Option<String>, pick: LaunchPick, cx: &mut Context<Self>) {
         self.draft.adjust(project, pick);
         cx.notify();
     }
 }
 
-/// Favorites over the agents of `tabs`; pointing at one asks `view` to list its models, and only picking a model acts
-/// on it. More agents than fit scroll.
 pub(crate) fn model_rail<V: 'static>(viewed: &str, tabs: &[RailTab], scroll: &ScrollHandle, view: View<V>, cx: &mut Context<V>) -> Div {
     let tab = |id: &'static str, glyph: Svg, name: String, cx: &mut Context<V>| {
         let (over, hover, click) = (id != viewed, view.clone(), view.clone());
@@ -514,12 +503,10 @@ impl Desktop {
         Launch { pick: pick.clone(), project, model, detail: (!detail.is_empty()).then(|| detail.join(" \u{b7} ")), panel }
     }
 
-    /// The agents of the rail: those `project` shows, and `current`, the one in use.
     pub(crate) fn rail_tabs(&self, project: Option<&str>, current: &str) -> Vec<RailTab> {
         listed_agents(&self.offered_in(project), &[current]).into_iter().map(|p| RailTab { id: p, name: self.agent_name(p), dim: !self.installed(p) }).collect()
     }
 
-    /// What a composer's events ask of the app; the owner answers `Opened` and `Unsaved` itself.
     pub(crate) fn composer_event(&mut self, c: &Entity<Composer>, event: &ComposerEvent, window: &mut Window, cx: &mut Context<Self>) {
         let held = Held::Composer(c.clone());
         match event {
@@ -549,7 +536,6 @@ impl Desktop {
         }
     }
 
-    /// Stars `provider`'s `model`, or takes its star off.
     pub(crate) fn star_model(&mut self, provider: &str, model: &str, cx: &mut Context<Self>) {
         self.store.agents.toggle_favorite(provider, model);
         self.store.save();
@@ -572,8 +558,6 @@ impl Desktop {
         self.save_soon(cx);
     }
 
-    /// `held`'s model panel just opened on `provider` in `project`: its CLI is asked for its models, again if the last
-    /// read failed, and its tab is brought into the rail's view.
     pub(crate) fn models_opened(&mut self, held: &Held, provider: &str, project: Option<&str>, cx: &mut Context<Self>) {
         self.models.retry();
         self.load_models_of(provider, cx);
@@ -626,7 +610,6 @@ impl Desktop {
         self.models.failure(viewed).map(|why| couldnt_list(&self.agent_name(viewed), why))
     }
 
-    /// What the panel shows: the viewed entry's models and the picked model's efforts and settings.
     fn launch_panel(&self, c: &Entity<Composer>, pick: &LaunchPick, project: Option<&str>, levels: &[String], names: &[ListedModel], cx: &App) -> PanelData {
         let draft = &c.read(cx).draft;
         let viewed = draft.viewing.unwrap_or(&pick.provider);

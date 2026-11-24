@@ -128,7 +128,6 @@ impl Desktop {
         Some((parent.provider.clone(), by_label(provider_name(&parent.provider), at, &Local)))
     }
 
-    /// The breadcrumb over a delegated session's chat, handed what it says; none while `agent` isn't one.
     pub(crate) fn delegated_crumb(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<Entity<Crumb>> {
         let look = self.crumb_parent(agent).zip(self.agents.get(agent)).map(|(parent, child)| {
             let down = self

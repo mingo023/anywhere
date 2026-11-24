@@ -6,7 +6,6 @@ use gpui_kit::base::TextSelection;
 use gpui_kit::*;
 use theme::*;
 
-/// The right-click menu and "Add to chat" pill over selected transcript text: one for the window, whichever chat it was offered in.
 #[derive(Default)]
 pub(crate) struct Select {
     offer: Option<Offer>,
@@ -14,19 +13,9 @@ pub(crate) struct Select {
 }
 
 pub(crate) enum SelectEvent {
-    OpenLink {
-        agent: String,
-        link: String,
-    },
-    Quote {
-        agent: String,
-        text: String,
-    },
-    /// A right-click in the transcript of `agent`, off any link: the menu opens there.
-    Menu {
-        agent: String,
-        at: Point<Pixels>,
-    },
+    OpenLink { agent: String, link: String },
+    Quote { agent: String, text: String },
+    Menu { agent: String, at: Point<Pixels> },
 }
 
 impl EventEmitter<SelectEvent> for Select {}
@@ -56,7 +45,6 @@ impl Select {
         }
     }
 
-    /// The pill for the text selected as a drag of the transcript of `agent` ended at `up`.
     pub(crate) fn released(&mut self, agent: String, up: Point<Pixels>, writable: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.menu_open() {
             return;
@@ -92,7 +80,6 @@ impl Select {
         cx.notify();
     }
 
-    /// `transcript`, the chat of `agent`, over which a drag offers the pill and a right-click the menu.
     pub(crate) fn offers(&self, agent: &str, transcript: AnyElement, writable: bool, cx: &mut Context<Self>) -> Div {
         let (up, right) = (agent.to_string(), agent.to_string());
         div()
@@ -122,7 +109,6 @@ impl Select {
             .child(transcript)
     }
 
-    /// The offer when it was made in the chat shown now.
     pub(crate) fn view(&self, shown: &str, writable: bool, cx: &mut Context<Self>) -> Option<AnyElement> {
         let offer = self.offer.as_ref().filter(|o| o.agent == shown)?;
         let close = cx.listener(|this, _: &MouseDownEvent, _, cx| {
@@ -272,7 +258,6 @@ impl Desktop {
         self.quote_in_chat(&agent, &text, window, cx);
     }
 
-    /// The menu or pill, while the chat it was offered in is on screen.
     pub(crate) fn chat_select_offer(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         // Nothing else drops the offer when a key or the app leaves its chat.
         if self.screen != Screen::Sessions || self.overlay.is_some() {

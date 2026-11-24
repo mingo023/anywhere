@@ -129,7 +129,6 @@ impl Automations {
         cx.notify();
     }
 
-    /// `folder`'s branches, read off the UI thread, for the branch menu while the editor is still on it.
     pub(crate) fn set_branches(&mut self, folder: String, branches: Branches, cx: &mut Context<Self>) {
         if self.form.v.folder == folder {
             self.form.branches = Some((folder, branches));
@@ -137,7 +136,6 @@ impl Automations {
         }
     }
 
-    /// The composer the editor holds, the project its chips pick for, and the pick they show; none while the editor is shut.
     pub(crate) fn chip_inputs(&self, cx: &App) -> Option<(Entity<Composer>, LaunchPick, Option<String>)> {
         self.form.open.then(|| (self.form.composer.clone(), self.form.pick(cx), project_key(&self.form.v.folder)))
     }

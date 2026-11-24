@@ -387,7 +387,6 @@ impl DiffView {
         self.file.as_deref().filter(|_| matches!(self.at, At::Working | At::Compare(_)))
     }
 
-    /// What the pick asks about, once the composer is open.
     pub fn quote(&self) -> Option<Quote> {
         self.pick.composing.then(|| self.pick.quote(&self.lines, self.followed_file()?)).flatten()
     }
@@ -413,7 +412,6 @@ impl DiffView {
         self.rows = rows;
     }
 
-    /// Shows `load` unless another file, fold state, diff option or appearance was picked while it ran.
     fn apply(&mut self, load: DiffLoad, options: git::Options, split: bool) -> bool {
         if self.file.as_ref() != Some(&load.path)
             || self.at != load.at
@@ -436,7 +434,6 @@ impl DiffView {
         changed | recolored | reimaged
     }
 
-    /// Shows `path` as `at` compares it, dropping the pick, folds and lines of another file.
     fn select(&mut self, path: String, at: At, split: bool) {
         if self.shows(&path, &at) {
             return;
@@ -451,7 +448,6 @@ impl DiffView {
         (self.file, self.at) = (Some(path), at);
     }
 
-    /// Shows the unchanged lines folded away from `start` on, keeping the scroll position.
     fn expand(&mut self, start: usize, options: git::Options, split: bool) {
         self.open.insert(start);
         let lines = git::diff_texts(&self.source.0, &self.source.1, &self.open, options);
@@ -461,7 +457,6 @@ impl DiffView {
         }
     }
 
-    /// Pins `threads`, of a PR into `pr_base`, when this is a PR diff, keeping the scroll position.
     fn pin(&mut self, threads: &[Thread], pr_base: Option<&str>, split: bool) {
         if !self.at.pins_threads(pr_base) {
             return;
@@ -473,7 +468,6 @@ impl DiffView {
         }
     }
 
-    /// Drops the pick another pane's composer took over.
     fn drop_pick(&mut self, split: bool) {
         if self.pick != Pick::default() {
             self.pick = Pick::default();
@@ -481,7 +475,6 @@ impl DiffView {
         }
     }
 
-    /// Where thread `id` sits in the rows, once laid out.
     fn thread_row(&self, id: &str) -> Option<usize> {
         self.rows.iter().position(|r| matches!(r, Row::Thread(k) if self.pins[*k].id == id))
     }
@@ -505,15 +498,11 @@ pub(crate) struct Cards {
 }
 
 pub(crate) enum DiffEvent {
-    /// A line was picked or its "+" pressed: the composer is about this pane now.
     Claimed,
-    /// The Split / Unified switch was set to split.
     Split(bool),
-    /// "more" was pressed at this point.
     More(Point<Pixels>),
 }
 
-/// What the pane's bar says about the file on screen.
 pub(crate) struct Head {
     crumbs: Vec<String>,
     meta: Vec<Meta>,
@@ -528,7 +517,6 @@ enum Meta {
     By { provider: String, text: String },
 }
 
-/// One pane's diff view as its own `Entity`: its rows and the picks made in them. `Desktop` hands it the layout, options, code size and cards each frame.
 pub struct DiffPane {
     pub(crate) view: DiffView,
     pub(crate) split: bool,
@@ -642,7 +630,6 @@ impl DiffPane {
 }
 
 impl DiffPane {
-    /// The bar over the file: where it is, what it compares, and how to lay it out.
     fn bar(&self, head: &Head, cx: &mut Context<Self>) -> Div {
         let right = div()
             .flex()
@@ -705,13 +692,11 @@ impl Render for DiffPane {
     }
 }
 
-/// A pane's diff and what keeps its events coming.
 pub(crate) struct Slot {
     pub(crate) view: Entity<DiffPane>,
     _sub: Subscription,
 }
 
-/// The diff each pane shows, the diff settings they share, and the pane whose pick is being asked about.
 #[derive(Default)]
 pub struct DiffState {
     pub(crate) panes: HashMap<PaneId, Slot>,
@@ -736,12 +721,10 @@ impl DiffState {
         self.get(pane).map(|p| &p.read(cx).view)
     }
 
-    /// What the pane the composer is in asks about.
     pub fn draft_quote(&self, cx: &App) -> Option<Quote> {
         self.view(self.drafting, cx)?.quote()
     }
 
-    /// The panes' views, in no order.
     pub(crate) fn views<'a>(&'a self, cx: &'a App) -> impl Iterator<Item = (PaneId, &'a DiffView)> {
         self.panes.iter().map(|(p, s)| (*p, &s.view.read(cx).view))
     }
@@ -778,7 +761,6 @@ impl DiffState {
         reveal_thread(reveal, panes.values().map(|s| &s.view.read(cx).view));
     }
 
-    /// Lays out every pane's rows for the current layout.
     pub fn relayout(&self, reset: bool, cx: &mut App) {
         let split = self.split;
         for s in self.panes.values() {
@@ -919,7 +901,6 @@ impl Desktop {
         entity.into_any_element()
     }
 
-    /// The composer and the PR threads in view, for the pane's rows to take: built from the chat and PR state the pane can't read.
     fn diff_cards(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Cards {
         let Some(v) = self.diff.view(pane, cx) else { return Cards::default() };
         let composing = v.rows.contains(&Row::Composer);
@@ -1007,7 +988,6 @@ impl Desktop {
         .detach();
     }
 
-    /// Picks the lines of `pane`'s diff from `i` on, as pressing "+" there does.
     pub fn open_composer(&mut self, pane: PaneId, i: usize, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(entity) = self.diff.get(pane).cloned() {
             entity.update(cx, |p, cx| p.open_composer(i, window, cx));

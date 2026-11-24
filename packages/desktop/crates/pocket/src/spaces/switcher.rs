@@ -9,12 +9,10 @@ use gpui_kit::*;
 use std::time::Instant;
 use theme::*;
 
-/// One space's button as `Desktop` hands it over each frame.
 #[derive(PartialEq)]
 pub(crate) struct Button {
     space: Space,
     glyph: &'static str,
-    /// A host's link dot colour.
     dot: Option<Token>,
     count: usize,
     tint: Option<u32>,
@@ -27,7 +25,6 @@ pub(crate) enum SwitcherEvent {
     Switch(Space),
 }
 
-/// A row or column of space buttons; the aside's foot and the compact rail each have their own.
 pub(crate) struct Switcher {
     /// Keeps the aside's ids and the rail's apart.
     prefix: &'static str,
@@ -73,7 +70,6 @@ impl Render for Switcher {
 }
 
 impl Desktop {
-    /// Hands `switcher` one button per space: its icon, a host's link dot, its colour under the one on screen and the count of sessions waiting on you in the others.
     pub(crate) fn hand_spaces(&self, switcher: &Entity<Switcher>, order: &[Space], current: &Space, cx: &mut Context<Self>) {
         let waiting_in = self.waiting_projects(cx);
         let now = Instant::now();
@@ -104,7 +100,6 @@ impl Desktop {
         self.switch_space(to.clone(), window, cx);
     }
 
-    /// The compact rail's space buttons.
     pub(crate) fn rail_spaces(&self, order: &[Space], current: &Space, cx: &mut Context<Self>) -> Entity<Switcher> {
         let spaces = self.sidebar.read(cx).rail_spaces.clone();
         self.hand_spaces(&spaces, order, current, cx);

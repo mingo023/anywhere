@@ -10,20 +10,16 @@ use workspace::Tab;
 /// The pane tab strip's height.
 const STRIP: f32 = 40.;
 
-/// What a toast says and what it floats clear of, from what `Desktop` owns.
 #[derive(Clone, Default, PartialEq)]
 pub(crate) struct Frame {
-    /// A chat shows in the main area, so the toasts float under its pane strip instead of over its composer.
     pub over_chat: bool,
     pub deleting: Option<String>,
-    /// The name of the agent a quote was just added to.
     pub added: Option<String>,
     pub tree: Option<Notice>,
 }
 
 struct Failure {
     message: String,
-    /// What the toast's Copy puts on the clipboard, when the failure left text worth keeping.
     copy: Option<String>,
 }
 
@@ -33,7 +29,6 @@ pub(crate) enum ToastEvent {
 
 impl EventEmitter<ToastEvent> for Toasts {}
 
-/// The toasts floated over the main area's corner: the last error until dismissed or replaced, worktrees being deleted, a quote added to a chat, the Explorer's notice and what a PR action did.
 pub(crate) struct Toasts {
     error: Option<Failure>,
     pr: Entity<PrSide>,
@@ -146,7 +141,6 @@ impl Toasts {
         Some(toast.with_animation("tree-toast-in", Animation::new(MENU_IN).with_easing(ease_out_quint()), |d, t| d.opacity(t)))
     }
 
-    /// What a PR action just did, floated over the window's corner.
     fn pr_notice(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         if self.error.is_some() {
             return None;
@@ -178,7 +172,6 @@ impl Desktop {
         self.toasts.update(cx, |t, cx| t.fail(message.into(), cx));
     }
 
-    /// The toasts over the main area, handed what they say.
     pub(crate) fn toasts_view(&self, cx: &mut Context<Self>) -> Entity<Toasts> {
         let shown = self.session_tree(cx).and_then(|t| self.workspaces.read(cx).get(&t)).map(|w| w.shown()).unwrap_or_default();
         let frame = Frame {

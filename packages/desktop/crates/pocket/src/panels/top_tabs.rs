@@ -24,7 +24,6 @@ pub(crate) fn copy(t: &Tree<Tab>) -> (Option<&Tab>, Option<&Tab>) {
 }
 
 impl Desktop {
-    /// The bar over worktree `tree`'s panes: its top tabs.
     pub(super) fn bar_frame(&self, tree: &str, pad: f32, toggle: Option<Stateful<Div>>, cx: &mut Context<Self>) -> BarFrame {
         let w = &self.workspaces.read(cx)[tree];
         let (at, closable) = (w.at, !w.others.is_empty());
@@ -32,7 +31,6 @@ impl Desktop {
         BarFrame { at, closable, tabs, pad, toggle, open_in: self.open_in_button(cx) }
     }
 
-    /// Top tab `i` of `w`, holding the panes of `t`.
     fn top_face(&self, w: &Workspace, i: usize, t: &Tree<Tab>, cx: &App) -> Face {
         let ink = if i == w.at { TEXT } else { TEXT_3 };
         let (head, meta) = copy(t);

@@ -35,7 +35,6 @@ pub struct NewForm {
     /// The new-session page fills the main area.
     shown: bool,
     pub(crate) composer: Entity<Composer>,
-    /// The composer's prompt, shared with it.
     pub(crate) prompt: Entity<TextareaState>,
     pub(crate) suggest: Suggest,
     search: Entity<InputState>,
@@ -46,12 +45,9 @@ pub struct NewForm {
     _subs: Vec<Subscription>,
 }
 
-/// What the page asks of the app.
 pub(crate) enum NewFormEvent {
     Start,
-    /// The prompt's words changed.
     Typed,
-    /// A row of the suggestions was picked.
     Suggest(usize),
     Project(String),
     OpenFolder,
@@ -522,8 +518,6 @@ impl NewForm {
         self.prompt.update(cx, |s, cx| s.set_value("", window, cx));
     }
 
-    /// Opens the page on the draft it held, with `prompt` added to its words. Says whether the draft keeps its
-    /// project, whether it has none, and which it was on.
     pub(crate) fn reopen(
         &mut self,
         prompt: Option<String>,
@@ -1040,7 +1034,6 @@ impl Desktop {
         });
     }
 
-    /// What the page draws from `Desktop`'s state.
     fn new_session_side(&self, cx: &App) -> Side {
         let space = self.space();
         let f = self.new_form.read(cx);

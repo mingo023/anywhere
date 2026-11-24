@@ -138,7 +138,6 @@ pub(crate) fn input(window: &mut Window, cx: &mut Context<Desktop>) -> Entity<Te
 
 /// The chat composer's state besides its input (`ChatState::input`), shared by every chat pane.
 pub(crate) struct ComposerState {
-    /// The prompt input, which holds one chat's text at a time.
     pub(crate) input: Entity<TextareaState>,
     pub(crate) draft: Draft,
     /// The text and attachments of each chat the input doesn't hold now.
@@ -166,57 +165,22 @@ pub(crate) struct ComposerState {
     pressing_send: bool,
 }
 
-/// What the composer's pills and trays ask of `Desktop`, which sends to pocketd and owns the chats.
 pub(crate) enum ChatBoxEvent {
-    /// Text sent at once rather than queued behind the turn.
-    Prompt {
-        agent: String,
-        text: &'static str,
-    },
-    Access {
-        agent: String,
-        access: String,
-    },
+    Prompt { agent: String, text: &'static str },
+    Access { agent: String, access: String },
     Interrupt(String),
-    ShowBlock {
-        agent: String,
-        turn: usize,
-        block: usize,
-    },
-    Queue {
-        agent: String,
-        what: queue::Queue,
-    },
+    ShowBlock { agent: String, turn: usize, block: usize },
+    Queue { agent: String, what: queue::Queue },
     Account(account_chip::Ask),
     Model(model_pill::Model),
-    /// The box's button was clicked, showing `Action` for the chat in `terminal`.
-    Press {
-        terminal: String,
-        action: Action,
-    },
-    /// Esc in the box of the chat in `terminal`, with no menu of the composer's to close.
+    Press { terminal: String, action: Action },
     Escape(String),
-    /// The + was pressed: files are asked for.
     Attach,
-    /// A pasted attachment couldn't be saved and left the draft: its title and the error.
     Unsaved(&'static str, String),
-    Command {
-        agent: String,
-        command: Command,
-    },
-    /// The suggestion list took Tab or Enter: this row is picked.
+    Command { agent: String, command: Command },
     Pick(usize),
-    Link {
-        agent: String,
-        link: String,
-        cwd: String,
-        press: super::markdown::Press,
-    },
-    /// Files were dropped on `agent`'s chat.
-    Drop {
-        agent: String,
-        paths: ExternalPaths,
-    },
+    Link { agent: String, link: String, cwd: String, press: super::markdown::Press },
+    Drop { agent: String, paths: ExternalPaths },
 }
 
 impl EventEmitter<ChatBoxEvent> for ComposerState {}
@@ -232,7 +196,6 @@ impl crate::composer::Drafted for ComposerState {
 }
 
 impl ComposerState {
-    /// Laid over `agent`'s chat so files dropped on it go up as `ChatBoxEvent::Drop`.
     pub(crate) fn drop_zone(&self, agent: &str, cx: &mut Context<Self>) -> Div {
         let agent = agent.to_string();
         drop_zone(cx.listener(move |_, paths: &ExternalPaths, _, cx| cx.emit(ChatBoxEvent::Drop { agent: agent.clone(), paths: paths.clone() })))
@@ -248,17 +211,14 @@ impl ComposerState {
         cx.notify();
     }
 
-    /// Whether the input holds `agent`'s chat.
     pub(crate) fn holds(&self, agent: &str) -> bool {
         self.drafts.owner() == Some(agent)
     }
 
-    /// The agent whose chat the input holds.
     pub(crate) fn owner(&self) -> Option<&str> {
         self.drafts.owner()
     }
 
-    /// Hands the input to `agent`'s chat; the chat that had it keeps its draft for when it's back.
     pub(crate) fn take_input(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
         let input = self.input.clone();
         let draft = &mut self.draft;
@@ -267,7 +227,6 @@ impl ComposerState {
         self.input.update(cx, |s, cx| s.set_value(text, window, cx));
     }
 
-    /// Gives up `agent`'s draft with its chat, emptying the input if it held it.
     pub(crate) fn close_draft(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
         if self.drafts.close(agent) {
             self.draft.clear();
@@ -275,7 +234,6 @@ impl ComposerState {
         }
     }
 
-    /// What `agent`'s chat has typed and attached: the input's while it holds that chat, else what waits for it.
     pub(crate) fn draft_of<'a>(&'a self, agent: &str, cx: &'a App) -> (String, Option<&'a Draft>) {
         if self.holds(agent) {
             return (self.input.read(cx).value().to_string(), Some(&self.draft));
@@ -283,7 +241,6 @@ impl ComposerState {
         self.drafts.parked(agent).map_or((String::new(), None), |(text, draft)| (text.clone(), Some(draft)))
     }
 
-    /// Adds `text` to the end of `agent`'s draft, in the input when its chat holds it.
     pub(crate) fn add_text(&mut self, agent: &str, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         if !self.holds(agent) {
             let (draft, _) = self.drafts.parked_mut(agent);
@@ -300,7 +257,6 @@ impl ComposerState {
         cx.notify();
     }
 
-    /// Edits `agent`'s draft to attach to: the input's while its chat holds it, else the one parked for it.
     pub(crate) fn edit_draft<R>(&mut self, agent: &str, cx: &mut Context<Self>, f: impl FnOnce(&mut Draft) -> R) -> R {
         if self.holds(agent) {
             cx.notify();
@@ -407,7 +363,6 @@ pub(crate) fn frame(typing: bool) -> Div {
     frame_on(div(), typing)
 }
 
-/// `base` as the prompt box.
 pub(crate) fn frame_on(base: Div, typing: bool) -> Div {
     let (ring, drop) = if typing { (TEXT_4, 0x11111314) } else { (SEPARATOR_STRONG, 0x1111130f) };
     base.relative()
@@ -423,33 +378,26 @@ pub(crate) fn frame_on(base: Div, typing: bool) -> Div {
         .text_color(TEXT)
 }
 
-/// What `Desktop` hands the composer to draw one chat's box: what it reads from what it owns.
 pub(crate) struct Frame {
     terminal: String,
     agent: Summary,
-    /// The agent's name, for a permission card.
     name: String,
     mode: Mode,
     ask: Option<(Ask, bool)>,
-    /// Whether this chat is the focused pane's.
     focused: bool,
     caps: chat::Capabilities,
     busy: bool,
     stopping: bool,
-    /// The prompt box's, built only while the box shows.
     face: Option<prompt_box::Face>,
     tray: Option<queue::Tray>,
     transcript: Option<std::sync::Arc<chat::Transcript>>,
     map: Option<AnyElement>,
     chip: Option<account_chip::Chip>,
-    /// What stands in for the footer's hint while it shows: a glyph and its text.
     said: Option<(&'static str, String)>,
-    /// The footer's branch, drawn by `Desktop`, which owns what a branch's name animates from.
     branch: Option<Div>,
 }
 
 impl ComposerState {
-    /// One chat's composer: the prompt box, or the agent's open ask in its place, over where the agent works and what Enter does.
     pub(crate) fn view(&mut self, frame: Frame, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let Frame { terminal, agent, name, mode, ask, focused, caps, busy, stopping, face, tray, transcript, map, chip, said, branch } = frame;
         let agent = &agent;
@@ -516,7 +464,6 @@ impl ComposerState {
     }
 }
 
-/// The agent's branch and account, then `hint`, amber while the agent asks; `said` stands in for the hint while it shows.
 fn footer(branch: Option<Div>, account: Option<Div>, hint: Option<&'static str>, said: Option<(&'static str, String)>, asking: bool) -> Div {
     div()
         .min_w_0()
@@ -577,7 +524,6 @@ fn close_menu(this: &mut Desktop, cx: &mut Context<Desktop>) {
 }
 
 /// A chip's menu of `rows` under `title`, opening upward from the chip's left edge as the composer sits at the bottom;
-/// a press outside it runs `close`.
 fn chip_menu<V: 'static>(
     id: &'static str,
     title: &'static str,
@@ -589,7 +535,6 @@ fn chip_menu<V: 'static>(
     hang(id, crate::composer::menu_list(id, title, width, rows), close, cx)
 }
 
-/// `menu` opening upward from the chip's left edge; a press outside it runs `close`.
 fn hang<V: 'static>(id: &'static str, menu: impl IntoElement, close: fn(&mut V, &mut Context<V>), cx: &mut Context<V>) -> Div {
     let menu = div()
         .id(SharedString::from(format!("{id}-out")))
@@ -1013,7 +958,6 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Edits `agent`'s draft to attach to: the input's while its chat holds it, else the one parked for it.
     pub(crate) fn chat_draft_edit<R>(&mut self, agent: &str, cx: &mut App, f: impl FnOnce(&mut Draft) -> R) -> R {
         self.chats.composer.update(cx, |c, cx| c.edit_draft(agent, cx, f))
     }

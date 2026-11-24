@@ -204,7 +204,6 @@ impl Settings {
         cx.notify();
     }
 
-    /// The trimmed text goes to pocketd, which checks it.
     fn commit_launch(&mut self, i: usize, f: Launch, cx: &mut Context<Self>) {
         let p = LaunchPick::PROVIDERS[i];
         let text = self.launch.0[i][f.index()].read(cx).value().trim().to_string();
@@ -214,7 +213,6 @@ impl Settings {
         }
     }
 
-    /// The efforts a launch of `provider` on `model` offers; with no model picked, it starts on Settings'.
     fn launch_efforts(&self, provider: &str, model: &str) -> Vec<String> {
         let settings = self.store.agents.provider(provider).model;
         let model = if model.is_empty() { &settings } else { model };
@@ -226,7 +224,6 @@ impl Settings {
 }
 
 impl Desktop {
-    /// The text goes to pocketd; a refusal puts the old one back.
     pub(crate) fn set_launch(&mut self, i: usize, f: Launch, text: String, before: String, window: &mut Window, cx: &mut Context<Self>) {
         let p = LaunchPick::PROVIDERS[i];
         if self.capturing {

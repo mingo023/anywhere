@@ -13,24 +13,17 @@ use gpui_kit::*;
 use std::path::PathBuf;
 use theme::*;
 
-/// What one chat's prompt box draws besides what the composer holds: what the agent can do now, and the parts `Desktop`
-/// builds from what it owns.
 pub(super) struct Face {
     pub(super) terminal: String,
-    /// Why the box takes no prompt; none takes one.
     pub(super) locked: Option<&'static str>,
     pub(super) busy: bool,
     pub(super) stopping: bool,
     pub(super) caps: chat::Capabilities,
     pub(super) pill: Pill,
     pub(super) access: Option<Shown>,
-    /// The chip that opens the sub-agent map.
     pub(super) map: Option<Stateful<Div>>,
-    /// Whether the input's chat is a listed agent's, for the suggestion keys.
     pub(super) listed: bool,
-    /// The list the suggestion keys pick from.
     pub(super) suggestions: Option<Div>,
-    /// Where a pasted image or long text is kept.
     pub(super) attachments: PathBuf,
 }
 

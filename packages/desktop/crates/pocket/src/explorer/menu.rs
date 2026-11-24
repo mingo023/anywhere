@@ -353,7 +353,6 @@ impl Explorer {
         took
     }
 
-    /// Follows ⌥ in the open menu.
     pub(crate) fn set_menu_alt(&mut self, alt: bool, cx: &mut Context<Self>) {
         if self.menu.as_mut().is_some_and(|m| m.set_alt(alt)) {
             cx.notify();

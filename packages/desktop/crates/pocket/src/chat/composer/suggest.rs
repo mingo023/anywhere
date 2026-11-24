@@ -564,7 +564,6 @@ impl Desktop {
         cx.notify();
     }
 
-    /// The chat's list.
     pub(crate) fn suggest_list(&self, cx: &mut Context<Self>) -> Option<Div> {
         let p = Prompt::Chat;
         let provider = self.suggest_target(p, cx).map(|t| t.provider).unwrap_or_default();
@@ -588,12 +587,10 @@ impl Desktop {
 }
 
 impl ComposerState {
-    /// The agent the list was worked out for, while `listed` says it still is, and the draft the input holds.
     fn suggesting(&self, listed: bool, cx: &App) -> (Option<String>, String) {
         (self.owner().filter(|_| listed).map(String::from), self.input.read(cx).value().to_string())
     }
 
-    /// The row Tab or Enter picks while the list shows; a server the agent can't use now can't be picked.
     fn take_pick(&self, listed: bool, cx: &App) -> Option<usize> {
         let (key, text) = self.suggesting(listed, cx);
         let ix = self.suggest.chosen(key.as_deref(), &text)?;
@@ -603,7 +600,6 @@ impl ComposerState {
         }
     }
 
-    /// Moves the selection a row while the list shows, and says whether it did.
     fn walk_list(&mut self, listed: bool, down: bool, cx: &mut Context<Self>) -> bool {
         let (key, text) = self.suggesting(listed, cx);
         let taken = self.suggest.walk(key.as_deref(), &text, down);
@@ -613,7 +609,6 @@ impl ComposerState {
         taken
     }
 
-    /// Asks `Desktop` to pick the chosen row while the list shows, and says whether it did.
     fn pick_chosen(&mut self, listed: bool, cx: &mut Context<Self>) -> bool {
         let ix = self.take_pick(listed, cx);
         if let Some(ix) = ix {
@@ -631,7 +626,6 @@ impl ComposerState {
         taken
     }
 
-    /// Takes the list's keys while it shows, before the input's own bindings do; `listed` is whether the input's chat is a listed agent's.
     pub(crate) fn suggest_keys(&self, listed: bool, d: Div, cx: &mut Context<Self>) -> Div {
         let stop = |cx: &mut Context<Self>, taken: bool| {
             if taken {
@@ -661,19 +655,15 @@ impl ComposerState {
     }
 }
 
-/// What a click on a row of the list does.
 pub(crate) type Press = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
 impl Suggest {
-    /// The list, while it was worked out for `key`'s draft as the input holds it and it has rows; servers show while
-    /// they load or when none fit, to say so.
     pub(crate) fn shown(&self, key: Option<&str>, text: &str) -> Option<&List> {
         let list = self.list.as_ref()?;
         let current = key.is_some_and(|k| k == list.agent) && *text == *list.text;
         (current && (list.rows.len() > 0 || matches!(list.rows, Rows::Servers { .. }))).then_some(list)
     }
 
-    /// Moves the selection a row while the list shows, and says whether it did.
     pub(crate) fn walk(&mut self, key: Option<&str>, text: &str, down: bool) -> bool {
         let Some(total) = self.shown(key, text).map(|l| l.rows.len()) else { return false };
         if total > 0 {
@@ -682,7 +672,6 @@ impl Suggest {
         true
     }
 
-    /// The selected row while the list shows.
     pub(crate) fn chosen(&self, key: Option<&str>, text: &str) -> Option<usize> {
         self.shown(key, text).map(|_| self.selected)
     }
@@ -691,7 +680,6 @@ impl Suggest {
         self.list = None;
     }
 
-    /// Hides the list if it shows, and says whether it did.
     pub(crate) fn dismiss(&mut self, key: Option<&str>, text: &str) -> bool {
         let shown = self.shown(key, text).is_some();
         if shown {
@@ -701,7 +689,6 @@ impl Suggest {
     }
 }
 
-/// A new session's list, over its prompt: `key` is the agent it was worked out for and `text` the draft the input holds.
 pub(crate) fn launch_list(
     s: &Suggest,
     key: Option<&str>,

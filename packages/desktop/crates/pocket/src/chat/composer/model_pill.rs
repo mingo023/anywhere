@@ -55,18 +55,15 @@ fn running_line(lines: &[Line<Entry>], agent: &Summary, own: &[ListedModel]) -> 
     checked(lines, |e| e.provider == agent.provider && running.contains(&e.value.as_str()))
 }
 
-/// What the chat's model pill draws: the model and effort the agent runs, and while its panel is open what the panel lists.
 pub(crate) struct Pill {
     agent: String,
     provider: String,
     name: String,
     effort: Option<String>,
-    /// Whether the pill opens a panel: pocketd can switch the model and the chat isn't view only.
     picks: bool,
     panel: Option<Panel>,
 }
 
-/// What the open panel shows: the viewed agent's models and the running model's efforts and settings.
 struct Panel {
     viewed: String,
     tabs: Vec<RailTab>,
@@ -76,7 +73,6 @@ struct Panel {
     note: Option<String>,
 }
 
-/// One of the running model's own settings, naming the value it is on.
 struct Setting {
     id: String,
     name: String,
@@ -84,26 +80,13 @@ struct Setting {
     on: String,
 }
 
-/// What the pill's panel asks of `Desktop`, which holds the models and the outbox.
 pub(crate) enum Model {
     Opened(String),
     Viewed(&'static str),
-    /// A model was clicked in the chat of `agent`, which runs on `provider`.
-    Picked {
-        agent: String,
-        provider: String,
-        entry: Entry,
-    },
+    Picked { agent: String, provider: String, entry: Entry },
     Starred(Entry),
-    Effort {
-        agent: String,
-        effort: String,
-    },
-    Option {
-        agent: String,
-        setting: String,
-        value: String,
-    },
+    Effort { agent: String, effort: String },
+    Option { agent: String, setting: String, value: String },
 }
 
 impl ComposerState {
@@ -163,7 +146,6 @@ impl ComposerState {
 }
 
 impl Desktop {
-    /// What `agent`'s model pill draws from; the panel's side only while it is open.
     pub(super) fn chat_model(&self, agent: &Summary, view_only: bool, composer: &Entity<ComposerState>, cx: &App) -> Pill {
         let model = agent.model.as_deref().unwrap_or_default();
         let levels = self.efforts_on(&agent.provider, model);

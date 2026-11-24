@@ -1359,7 +1359,6 @@ const INPUT_STEPS: [(&str, Step); 25] = [
         });
     }),
     ("clipboard", |_, _, cx| eprintln!("[clipboard] {:?}", cx.read_from_clipboard().and_then(|c| c.text()))),
-    // Times 300 frames, each after a trackpad scroll of `dy` points at `x,y` (CAPTURE_SCROLLS `x,y,dx,dy`), event dispatch included, and prints their spread and how many took over 8.3ms.
     ("bench-scroll", |_, window, cx| {
         let Some(arg) = next_arg("CAPTURE_SCROLLS", ';') else { return };
         let Some((at, by)) = arg.match_indices(',').nth(1).and_then(|(i, _)| Some((point_arg(&arg[..i])?, point_arg(&arg[i + 1..])?))) else { return };
@@ -1538,7 +1537,6 @@ const INPUT_STEPS: [(&str, Step); 25] = [
     // What the window coming to the front does, which a capture window never does.
     ("reload-themes", |d, _, cx| d.reload_themes(cx)),
     ("pause", |_, _, _| {}),
-    // A change from outside: a new file in the shown tree, which git and the explorer pick up on their own.
     ("touch-tree", |d, _, cx| {
         if let Some(cwd) = d.cwd(cx) {
             std::fs::write(Path::new(&cwd).join("touched-outside.txt"), "from outside\n").ok();
@@ -1785,7 +1783,6 @@ fn open_agent(d: &mut Desktop, pick: fn(&chat::ToolCall) -> bool, cx: &mut Conte
     });
 }
 
-/// Scrolls the shown chat to `rows` rows before its end.
 fn scroll_back(d: &Desktop, rows: usize, cx: &mut Context<Desktop>) {
     if let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) {
         v.update(cx, |v, cx| v.scroll_back(rows, cx));
@@ -2018,13 +2015,11 @@ async fn settle(cx: &mut AsyncApp, window: AnyWindowHandle, desktop: &Entity<Des
         cx.background_executor().timer(Duration::from_millis(100)).await;
     }
     cx.update_window(window, |_, window, cx| draw(window, cx)).ok();
-    // The frame the app takes after a draw that handed a cached view new data.
     if std::env::var_os("CAPTURE_CACHED").is_some() {
         cx.update_window(window, |_, window, cx| draw(window, cx)).ok();
     }
 }
 
-/// Presses at `x,y` of the next CAPTURE_PANS, moves by `dx,dy` in four steps drawing a frame at each, and lets go if `release`.
 /// Each step is its own deferred call, so what the one before emitted is handled first, as between a hand's events.
 fn hand_drag(window: &mut Window, cx: &mut App, release: bool) {
     let Some(arg) = next_arg("CAPTURE_PANS", ';') else { return };

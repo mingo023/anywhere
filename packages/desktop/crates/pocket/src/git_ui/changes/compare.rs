@@ -142,7 +142,6 @@ impl Desktop {
 }
 
 impl Changes {
-    /// The branch the shown worktree's Compare is against; `None` in Uncommitted, or against a base it doesn't have.
     pub(super) fn compare_branch(&self) -> Option<String> {
         let scope = &self.inputs.scope;
         let base = self.inputs.repo.as_ref().and_then(|r| r.base.as_deref());
@@ -247,7 +246,6 @@ impl Changes {
         cx.emit(ChangesEvent::OpenDoc(Doc::CompareFile { against, path }, pin));
     }
 
-    /// The first file of the Compare on screen.
     pub(crate) fn compared_first(&self) -> Option<String> {
         self.view.shown.as_ref().and_then(|s| s.files.as_ref()?.first()).map(|f| f.path.clone())
     }

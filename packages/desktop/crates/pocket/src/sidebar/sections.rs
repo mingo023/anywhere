@@ -12,7 +12,6 @@ use gpui_kit::*;
 use std::time::Instant;
 use store::sections::{Pin, Sort};
 
-/// The group being renamed.
 #[derive(Default)]
 pub(crate) struct Organize {
     pub(crate) rename: Option<GroupRename>,
@@ -176,7 +175,6 @@ impl Desktop {
         Listed { pinned, groups, other: arranged.other.into_iter().filter_map(block).collect() }
     }
 
-    /// The Projects header, handed what it draws from `Desktop`'s state.
     pub(super) fn projects_header(&self, cx: &mut Context<Self>) -> Entity<ProjectsHeader> {
         let frame = HeaderFrame { sort: self.store.sections.sort, host: self.space_host_name(&self.space()) };
         let header = self.sidebar.read(cx).header.clone();
@@ -214,7 +212,6 @@ impl Desktop {
         self.store.save();
     }
 
-    /// The sections, as the aside draws them: pinned rows, each group, then the ungrouped projects; while filtering, only what matches.
     pub(super) fn body_frame(&self, query: &str, space: &Space, cx: &mut Context<Self>) -> Body {
         let filtering = !query.is_empty();
         let listed = self.listed(query, cx);
@@ -315,7 +312,6 @@ impl Desktop {
 }
 
 impl Sidebar {
-    /// Edits group `group`'s name in its head, all selected.
     pub(crate) fn begin_group_rename(&mut self, group: u32, name: String, window: &mut Window, cx: &mut Context<Self>) {
         let (input, sub) = rename_field(name, window, cx, Self::finish_group_rename);
         self.organize.rename = Some(GroupRename { group, input, _sub: sub });

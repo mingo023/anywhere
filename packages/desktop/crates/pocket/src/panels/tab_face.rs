@@ -27,7 +27,6 @@ impl Desktop {
         }
     }
 
-    /// What a tab's face leads with: its icon, name and marks; the icon is dimmed unless `selected`.
     pub(super) fn tab_lead(&self, tab: &Tab, preview: bool, selected: bool, cx: &App) -> Lead {
         let text = || self.tab_text(tab, cx);
         let kind = match tab {
@@ -62,7 +61,6 @@ impl Desktop {
     }
 }
 
-/// What a tab's face draws, as plain data for the panels to draw from.
 pub(crate) struct Lead {
     kind: Kind,
     preview: bool,

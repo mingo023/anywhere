@@ -93,7 +93,6 @@ impl Desktop {
         }
     }
 
-    /// Hands the panel what it draws: its frame, and the entity of the side the rail picked.
     fn sync_panel(&mut self, cx: &mut Context<Self>) {
         let frame = self.panel_frame(cx);
         let body = frame.shown.then(|| match self.side {
@@ -113,7 +112,6 @@ impl Desktop {
         }
     }
 
-    /// Hands the rail at the window's right edge what it draws from `Desktop`'s state.
     pub(crate) fn sync_panel_rail(&self, cx: &mut Context<Self>) {
         let pr = self.shown_pr(cx).map(|(_, pr)| pr);
         let frame = PanelRailFrame {
@@ -131,18 +129,15 @@ impl Desktop {
     }
 }
 
-/// What the panel draws around its body.
 #[derive(PartialEq)]
 pub(crate) struct PanelFrame {
     pub(crate) open: bool,
     pub(crate) width: f32,
-    /// The glide has opened it far enough to draw its body.
     pub(crate) shown: bool,
     pub(crate) seam: bool,
     pub(crate) title: String,
 }
 
-/// The side the rail picked, as the entity that draws it.
 #[derive(PartialEq)]
 pub(crate) enum PanelBody {
     Sessions(Entity<SessionList>),
@@ -151,10 +146,8 @@ pub(crate) enum PanelBody {
     PullRequest(Entity<PrSide>),
 }
 
-/// What the panel asks `Desktop` for.
 #[derive(Clone, Copy)]
 pub(crate) enum PanelEvent {
-    /// The edge dragged this far from the rail.
     Drag(f32),
     Reset,
     NewSession,
@@ -162,7 +155,6 @@ pub(crate) enum PanelEvent {
 
 impl EventEmitter<PanelEvent> for Panel {}
 
-/// The right-hand panel: its title and add button over `body`, with the edge to drag.
 fn panel_chrome(f: &PanelFrame, body: Option<AnyElement>, cx: &mut Context<Panel>) -> Div {
     let seam = f.seam.then(|| {
         seam_handle_in("panel-seam", Axis::Row, |_: &mut Panel, _, cx| cx.emit(PanelEvent::Reset), cx).left(px(-SEAM / 2.)).on_drag(PanelEdge, |_, _, _, cx| {
@@ -230,27 +222,23 @@ impl Render for Panel {
             PanelBody::Changes(e) => e.clone().into_any_element(),
             PanelBody::PullRequest(e) => e.clone().into_any_element(),
         });
-        // `PanelFrame`'s seam and title are read by the chrome only.
         let chrome = panel_chrome(frame, body, cx);
         root.child(chrome)
     }
 }
 
-/// What the rail at the window's right edge asks `Desktop` for.
 pub(crate) enum PanelRailEvent {
     Pick(Side),
 }
 
 impl EventEmitter<PanelRailEvent> for PanelRail {}
 
-/// What `Desktop` hands the panel's rail each frame.
 #[derive(PartialEq)]
 pub(crate) struct PanelRailFrame {
     open: bool,
     side: Side,
     waiting: bool,
     changed: usize,
-    /// The pull request's glyph colour, and whether it wants the user.
     pr: Option<(Token, bool)>,
 }
 

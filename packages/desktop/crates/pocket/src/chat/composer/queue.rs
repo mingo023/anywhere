@@ -57,24 +57,20 @@ pub(super) fn control(key: String, tip: &'static str) -> Stateful<Div> {
         .tooltip(move |window, cx| Tooltip::new(tip).build(window, cx))
 }
 
-/// What the tray draws: the entries pocketd holds and the sends held here, with the facts about them `Desktop` knows.
 pub(crate) struct Tray {
     pub(crate) agent: String,
     pub(crate) sends: Vec<Pending>,
     pub(crate) entries: Vec<Waiting>,
     pub(crate) paused: bool,
-    /// A Stop of the user's holds the queue until their next send.
     pub(crate) held: bool,
 }
 
-/// An entry in pocketd's queue, and whether it can move up or down.
 pub(crate) struct Waiting {
     pub(crate) entry: Entry,
     pub(crate) up: bool,
     pub(crate) down: bool,
 }
 
-/// What a click on the tray asks of `Desktop`, which holds the queue and the outbox.
 #[derive(Clone)]
 pub(crate) enum Queue {
     Resume,
@@ -203,7 +199,6 @@ impl ComposerState {
 }
 
 impl Desktop {
-    /// What `agent`'s queue tray draws from, none when nothing waits.
     pub(super) fn queue_of(&self, agent: &str, sends: &[Pending], paused: bool) -> Tray {
         let queues = &self.agents.queues;
         let entries = queues

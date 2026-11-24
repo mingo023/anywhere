@@ -21,7 +21,6 @@ pub(crate) fn highlight(style: Style) -> HighlightStyle {
     }
 }
 
-/// Makes the edit `find` has for `input`'s text and selection; false when it has none.
 fn rich_edit(input: &Entity<TextareaState>, find: impl FnOnce(&str, Range<usize>) -> Option<Edit>, window: &mut Window, cx: &mut App) -> bool {
     let state = input.read(cx);
     let Some(edit) = find(&state.value(), state.selected_range()) else { return false };

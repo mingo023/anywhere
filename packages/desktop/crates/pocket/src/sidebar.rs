@@ -140,7 +140,6 @@ fn tree_name(tree: &str, label: String, sweeps: Option<Token>) -> AnyElement {
     }
 }
 
-/// What `label` replaced while a rename of `tree` is fresh, and when.
 fn row_was(renames: &Renames, tree: &str, label: &str) -> Option<(String, Instant)> {
     let now = Instant::now();
     // An unnamed tree shows its branch, so a branch rename renames it too.
@@ -176,10 +175,8 @@ struct DragTree {
     ix: usize,
 }
 
-/// The sidebar's state: folds, filter, rename, picker, menus, and how far the columns are open.
 pub struct Sidebar {
     pub(crate) search: Entity<InputState>,
-    /// The panel's Sessions side.
     pub(crate) sessions: Entity<SessionList>,
     pub(crate) space_header: Entity<SpaceHeader>,
     /// The space buttons in the aside's foot and in the compact rail, which can be on screen together while the layout animates.
@@ -188,12 +185,9 @@ pub struct Sidebar {
     /// Where a right-click opened the row menu; `None` drops it under its `···` button.
     pub(crate) menu_at: Option<Point<Pixels>>,
     pub(crate) picker: Entity<ProjectPicker>,
-    /// The compact rail, and the rail at the window's right edge.
     pub(crate) rail: Entity<Rail>,
     pub(crate) panel_rail: Entity<PanelRail>,
-    /// The right-hand panel's body, for every side but the pull request.
     pub(crate) panel_view: Entity<Panel>,
-    /// The inbox or Automations list left of the page.
     pub(crate) column: Entity<ColumnView>,
     /// The right-hand panel shows; collapsed at launch.
     panel_open: bool,
@@ -201,13 +195,11 @@ pub struct Sidebar {
     pub(crate) rename: Option<Rename>,
     /// Which row's hover card shows.
     pub(crate) hover: Hover,
-    /// The Projects header, with the filter and the organize and add menus.
     pub(crate) header: Entity<ProjectsHeader>,
     pub(crate) organize: Organize,
     pub(crate) closing: Closing,
     /// Set only while the sidebar draws; see `Desktop::placed`.
     pub(crate) placement: RefCell<Option<Placement>>,
-    /// What `Desktop` last handed the aside to draw.
     frame: Option<AsideFrame>,
     /// The lead column, between its `lead_stop`s.
     pub(crate) lead: Glide,
@@ -253,7 +245,6 @@ impl Sidebar {
         }
     }
 
-    /// The right-hand panel shows or is opening.
     pub(crate) fn panel_open(&self) -> bool {
         self.panel_open
     }
@@ -277,22 +268,18 @@ impl Sidebar {
         self.lead.at().clamp(0., 1.)
     }
 
-    /// The filter's text, lowercased; empty while it's closed.
     pub(crate) fn query(&self, cx: &App) -> String {
         self.header.read(cx).filter.query(cx)
     }
 
-    /// Whether the filter's Enter would pick this row.
     pub(crate) fn lit(&self, cx: &App, project: &str, tree: Option<&str>) -> bool {
         self.header.read(cx).filter.lit(project, tree)
     }
 
-    /// Whether a menu of the sidebar's own is open.
     pub(crate) fn menu_open(&self, cx: &App) -> bool {
         self.picker.read(cx).open || self.header.read(cx).menu_open() || self.space_header.read(cx).menu_open()
     }
 
-    /// Shuts `fold`, keeping its rows drawn until it has closed over them.
     pub(crate) fn close(&mut self, fold: Fold, cx: &mut Context<Self>) {
         self.closing.start(fold);
         cx.spawn(async move |this, cx| {
@@ -303,7 +290,6 @@ impl Sidebar {
         cx.notify();
     }
 
-    /// Shuts the sidebar's own menus.
     pub(crate) fn shut_menus(&mut self, cx: &mut Context<Self>) {
         cx.notify();
         self.menu_at = None;
@@ -527,7 +513,6 @@ impl Desktop {
         in_tree(self.cards(project, cx), Some(tree), |cwd| self.tree_of(cwd, cx))
     }
 
-    /// Hands the aside what it draws from `Desktop`'s state, in one pass over the sessions.
     pub(crate) fn sync_aside(&self, cx: &mut Context<Self>) {
         let (order, space) = (self.space_order(), self.space());
         self.space_header_set(&space, &order, cx);
@@ -563,7 +548,6 @@ impl Desktop {
         self.prs.get(tree).map(pull_requests::glyph)
     }
 
-    /// `row` under `p`; pinned, it names its project `sub`.
     pub(super) fn tree_frame(
         &self,
         p: &str,

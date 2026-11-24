@@ -6,7 +6,6 @@ use theme::*;
 use ui::Variant;
 
 impl ChatComposer {
-    /// The card for `quote`: its question, the session it goes to, and Add to input.
     pub(crate) fn card(&self, quote: &Quote, quoted: bool, cx: &mut Context<Self>) -> Div {
         let choices = &self.side.choices;
         let target = self.side.target.as_deref();

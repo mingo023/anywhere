@@ -5,7 +5,6 @@ use chat::{Session, Transcript};
 use gpui_kit::{Entity, ListState};
 use std::sync::Arc;
 
-/// What the rest of the window reads of a chat and does to its sends; `Desktop` hands each one the request pocketd got it as.
 impl View {
     pub(crate) fn session(&self) -> &Session {
         &self.session
@@ -31,7 +30,6 @@ impl View {
         self.session.outgoing.push(prompt, false, now_ms());
     }
 
-    /// A message typed in the chat, held while the agent works, else sent and held at the top.
     pub(crate) fn send(&mut self, text: String, working: bool, request: Option<String>) {
         let send = self.session.outgoing.push(text, working, now_ms());
         if let Some((send, request)) = send.zip(request) {
@@ -42,7 +40,6 @@ impl View {
         }
     }
 
-    /// A message the agent takes mid-turn.
     pub(crate) fn steer(&mut self, text: String, request: Option<String>) {
         let send = self.session.outgoing.steer_text(text, now_ms());
         if let Some(request) = request {
@@ -51,7 +48,6 @@ impl View {
         self.steered();
     }
 
-    /// A held send taken mid-turn; its text, if it was still held.
     pub(crate) fn steer_held(&mut self, send: u64) -> Option<String> {
         let text = self.session.outgoing.steer(send, now_ms())?;
         self.steered();

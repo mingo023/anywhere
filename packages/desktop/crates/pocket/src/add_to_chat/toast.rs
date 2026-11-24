@@ -1,7 +1,6 @@
 use gpui_kit::*;
 use theme::*;
 
-/// The confirmation that a quote went into `agent`'s input.
 pub(crate) fn added(agent: &str) -> Div {
     ui::pop(div())
         .h(px(32.))

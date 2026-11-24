@@ -199,13 +199,10 @@ pub fn target_for(to: &str, picked: Option<&str>, focused: Option<&str>, recent:
     }
 }
 
-/// What `Desktop` hands the composer whenever it builds a card: the sessions a quote can go to and the one it goes to.
 #[derive(Default, PartialEq)]
 pub(crate) struct Side {
     pub choices: Vec<Choice>,
-    /// The session the quote goes to, which the menu's pick, the setting and the open one decide.
     pub target: Option<String>,
-    /// The agents' names by provider.
     pub names: HashMap<String, String>,
 }
 
@@ -216,12 +213,9 @@ impl Side {
 }
 
 pub(crate) enum ChatEvent {
-    /// Add to input, or ⌘↵ in the question.
     Add,
     Cancel,
-    /// New session…, with the quote and the question as its prompt.
     NewSession,
-    /// A file selection is now being asked about.
     Asked,
     /// The menu closed on a press outside it, which may have left focus nowhere.
     MenuDismissed,
@@ -295,7 +289,6 @@ impl ChatComposer {
         self.file.as_ref().map(|(_, q)| q.clone())
     }
 
-    /// The provider last added to, while its toast shows.
     pub(crate) fn added(&self) -> Option<&str> {
         self.added.as_ref().map(|(p, _)| p.as_str())
     }
@@ -304,7 +297,6 @@ impl ChatComposer {
         self.added = None;
     }
 
-    /// Confirms an add to `provider` in a toast until its timer hides it.
     pub(crate) fn flash(&mut self, provider: String, cx: &mut Context<Self>) {
         let hide = cx.spawn(async |this, cx| {
             cx.background_executor().timer(ADDED_TOAST).await;
@@ -317,7 +309,6 @@ impl ChatComposer {
         self.added = Some((provider, hide));
     }
 
-    /// Puts the question and the pick away, and the menu; a target picked stays unless `forget_target`.
     pub(crate) fn reset(&mut self, forget_target: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.menu = false;
         (self.file, self.pill) = (None, None);
@@ -328,7 +319,6 @@ impl ChatComposer {
         cx.notify();
     }
 
-    /// Shows the pill over `pill`'s selection, or none.
     pub(crate) fn offer(&mut self, pill: Option<(Point<Pixels>, Quote)>, cx: &mut Context<Self>) {
         if pill != self.pill {
             self.pill = pill;
@@ -346,12 +336,10 @@ impl ChatComposer {
         cx.notify();
     }
 
-    /// Drops the pill; whether there was one.
     pub(crate) fn drop_pill(&mut self) -> bool {
         self.pill.take().is_some()
     }
 
-    /// Asks about `quote`, with its composer floating at `at`.
     pub(crate) fn ask(&mut self, at: Point<Pixels>, quote: Quote, window: &mut Window, cx: &mut Context<Self>) {
         (self.file, self.menu) = (Some((at, quote)), false);
         self.input.update(cx, |s, cx| {
@@ -398,13 +386,11 @@ impl Desktop {
         target_for(self.store.agents.chat_to(), self.chat.read(cx).target.as_deref(), self.session(), recent, choices)
     }
 
-    /// What the composer needs of the app to draw a card.
     pub(crate) fn chat_side(&self, cx: &App) -> Side {
         let choices = self.chat_choices(cx);
         Side { target: self.chat_target(&choices, cx), names: choices.iter().map(|c| (c.provider.clone(), self.agent_name(&c.provider))).collect(), choices }
     }
 
-    /// The card for a quote the diff is drafting, inline under its row.
     pub(crate) fn chat_card(&self, quote: &Quote, cx: &mut Context<Self>) -> Div {
         let side = self.chat_side(cx);
         self.chat.update(cx, |c, cx| {

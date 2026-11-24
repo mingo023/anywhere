@@ -36,7 +36,6 @@ enum Probe {
     NotGit,
 }
 
-/// The form, drawn over the page by `Desktop`, which hands it what it reads of the app each frame.
 pub(crate) struct RepoForm {
     name: Entity<InputState>,
     setup: Entity<InputState>,
@@ -50,41 +49,27 @@ pub(crate) struct RepoForm {
     _subs: Vec<Subscription>,
 }
 
-/// The popover open over the form.
 #[derive(Clone, Copy, PartialEq)]
 enum Menu {
     Mark,
-    /// The account menu of a provider.
     Account(&'static str),
 }
 
-/// What `Desktop` hands the form each frame.
 #[derive(Default)]
 pub(crate) struct Side {
-    /// The saved project at the form's folder, whose settings the form doesn't edit.
     pub stored: Option<RepoConfig>,
-    /// The agents on offer.
     pub offered: Vec<&'static str>,
     pub names: BTreeMap<&'static str, String>,
-    /// The accounts of the folder's machine.
     pub accounts: Vec<Account>,
-    /// The name of the machine the folder is on, when it isn't this Mac.
     pub path_host: Option<String>,
     pub hosts: Vec<HostRow>,
 }
 
 pub(crate) enum RepoEvent {
     Close,
-    Save {
-        path: String,
-        cfg: Box<RepoConfig>,
-    },
+    Save { path: String, cfg: Box<RepoConfig> },
     Remove(String),
-    /// Browse… asks for the host finder at `dir`.
-    Browse {
-        host: String,
-        dir: String,
-    },
+    Browse { host: String, dir: String },
 }
 
 impl EventEmitter<RepoEvent> for RepoForm {}
@@ -304,7 +289,6 @@ impl RepoForm {
         self.side = side;
     }
 
-    /// The folder the form is on.
     pub(crate) fn path(&self) -> Option<&str> {
         self.draft.path.as_deref()
     }
@@ -329,7 +313,6 @@ impl RepoForm {
         f.browse = None;
     }
 
-    /// Opens the form on the project `editing`, whose saved settings are `stored`, or on a new one.
     pub(crate) fn reset(&mut self, editing: Option<String>, stored: Option<RepoConfig>, color: u32, window: &mut Window, cx: &mut Context<Self>) {
         let cfg = stored.clone().unwrap_or_default();
         self.side.stored = stored;

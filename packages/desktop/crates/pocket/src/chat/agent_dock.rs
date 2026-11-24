@@ -93,7 +93,6 @@ fn escape_closes(dock_in: Option<&str>, session: Option<&str>, map_open: bool, a
     dock_in.is_some() && dock_in == session && !map_open && !asking
 }
 
-/// The panel at a chat's right edge with one sub-agent's details: one for the window, whichever chat it was opened from.
 pub(crate) struct AgentDock {
     pub(crate) pick: Pick,
     glide: Glide,
@@ -101,13 +100,8 @@ pub(crate) struct AgentDock {
 }
 
 pub(crate) enum DockEvent {
-    /// The dock shut by its own hand: the chat's input takes the keys back.
     Closed,
-    Link {
-        agent: String,
-        link: String,
-        press: Press,
-    },
+    Link { agent: String, link: String, press: Press },
 }
 
 impl EventEmitter<DockEvent> for AgentDock {}
@@ -131,12 +125,10 @@ impl AgentDock {
         moving
     }
 
-    /// The chat and call it shows.
     pub(crate) fn open(&self) -> Option<(&str, &str)> {
         self.pick.open.as_ref().map(|s| (s.agent.as_str(), s.call.as_str()))
     }
 
-    /// Shows `call` of `agent`'s chat, taking the keys, or closes the dock when it shows it.
     pub(crate) fn toggle(&mut self, agent: &str, call: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.pick.toggle(agent, call);
         if self.pick.open.is_some() {
@@ -269,7 +261,6 @@ impl Desktop {
         }
     }
 
-    /// `agent`'s dock while it shows or slides out.
     pub(crate) fn chat_dock(&self, agent: &str, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         let view = self.chats.views.get(agent)?;
         let (tools, transcript) = {

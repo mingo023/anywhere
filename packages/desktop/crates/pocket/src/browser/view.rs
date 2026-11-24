@@ -9,30 +9,24 @@ use std::sync::Arc;
 use theme::*;
 use workspace::tree::PaneId;
 
-/// A pane and what keeps its events coming.
 pub(crate) struct Slot {
     view: Entity<BrowserPane>,
     _sub: Subscription,
 }
 
-/// What `Desktop` hands a pane each time it draws it.
 struct Look {
     url: String,
     back: bool,
     forward: bool,
     picking: bool,
     can_pick: bool,
-    /// The tab's page, while it may be placed.
     page: Option<Rc<web::Page>>,
     shot: Option<Arc<RenderImage>>,
-    /// Set when the pane has the window's browser focus.
     focus: Option<FocusHandle>,
 }
 
 pub(crate) enum BrowserEvent {
-    /// Enter pressed in the address bar over `text`.
     Browse(String),
-    /// The pick button pressed.
     Pick,
 }
 

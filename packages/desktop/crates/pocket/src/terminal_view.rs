@@ -16,20 +16,17 @@ use std::collections::HashMap;
 use term::{Pointer, Scroll};
 use workspace::Place;
 
-/// A pane and what keeps its events coming.
 pub(crate) struct Slot {
     pub(crate) view: Entity<pane::TerminalPane>,
     pub(crate) _sub: Subscription,
 }
 
-/// The window-level part of the terminals: the one focus handle every focused pane takes, which pane keys go to, and the one open menu.
 pub struct TerminalViewState {
     pub(crate) focus: FocusHandle,
     pub(crate) focused: Option<String>,
     /// The pane whose right-click menu is open, and where the click was.
     pub(crate) menu: Option<(String, Point<Pixels>)>,
     pub(crate) dismissed: pane::DismissedBanners,
-    /// Each terminal's pane, by terminal id.
     panes: HashMap<String, Slot>,
 }
 
@@ -38,7 +35,6 @@ impl TerminalViewState {
         Self { focus: cx.focus_handle(), focused: None, menu: None, dismissed: pane::DismissedBanners::default(), panes: HashMap::new() }
     }
 
-    /// Drops the panes of terminals that are gone.
     pub(crate) fn forget_panes(&mut self, live: impl Fn(&str) -> bool) {
         self.panes.retain(|id, _| live(id));
     }
@@ -83,7 +79,6 @@ pub enum Release {
     Nothing,
 }
 
-/// The settings that decide what a click or letting go does.
 #[derive(Clone, Copy, Default)]
 pub struct Clicks {
     pub copy_on_select: bool,

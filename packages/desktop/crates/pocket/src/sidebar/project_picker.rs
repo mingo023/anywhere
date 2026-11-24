@@ -8,9 +8,7 @@ use gpui_kit::*;
 use std::path::Path;
 use theme::*;
 
-/// What the picker asks `Desktop` for.
 pub(crate) enum PickerEvent {
-    /// The search text changed, so its rows are to be listed again.
     Searched,
     Pick(Entry),
     NewProject,
@@ -19,7 +17,6 @@ pub(crate) enum PickerEvent {
 
 impl EventEmitter<PickerEvent> for ProjectPicker {}
 
-/// The rail's project menu: a search over the projects and their trees, and the rows `Desktop` hands down for it.
 pub struct ProjectPicker {
     pub(crate) open: bool,
     search: Entity<InputState>,
@@ -28,7 +25,6 @@ pub struct ProjectPicker {
     _sub: Subscription,
 }
 
-/// What a row leads with: the check on what is on screen, a tree's icon, or a project's tile.
 #[derive(Clone, PartialEq)]
 pub(crate) enum Lead {
     Check,
@@ -36,13 +32,11 @@ pub(crate) enum Lead {
     Project(ui::Mark),
 }
 
-/// A listed entry as the picker draws it.
 #[derive(Clone, PartialEq)]
 pub(crate) struct Row {
     pub(crate) entry: Entry,
     pub(crate) lead: Lead,
     pub(crate) title: String,
-    /// The folder a project sits in; empty on a tree.
     pub(crate) parent: String,
     pub(crate) state: Option<ui::State>,
 }
@@ -86,7 +80,6 @@ impl ProjectPicker {
         }
     }
 
-    /// Lights the first row that matches the search itself.
     pub(crate) fn highlight_first(&mut self) {
         self.highlight = first_hit(self.rows.iter().map(|r| &r.entry));
     }
@@ -195,7 +188,6 @@ impl Desktop {
         listed(self.store.projects.clone(), self.project.as_deref(), &query, search_texts, trees)
     }
 
-    /// The picker's rows as the rail shows them.
     pub(crate) fn picked_rows(&self, cx: &App) -> Vec<Row> {
         let (current, tree) = (self.project.as_deref().filter(|_| self.screen == Screen::Sessions), self.place(cx));
         self.picked_entries(cx)
@@ -220,7 +212,6 @@ impl Desktop {
             .collect()
     }
 
-    /// Hands the picker its rows while it is open.
     pub(crate) fn sync_picker(&self, cx: &mut App) {
         let picker = self.sidebar.read(cx).picker.clone();
         if picker.read(cx).open {

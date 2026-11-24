@@ -13,7 +13,6 @@ pub(crate) struct Rename {
 }
 
 impl Sidebar {
-    /// Edits `tree`'s row name in place, starting from `current`, all selected.
     pub(crate) fn begin_rename(&mut self, tree: String, current: String, window: &mut Window, cx: &mut Context<Self>) {
         let (input, sub) = rename_field(current, window, cx, Self::finish_rename);
         self.rename = Some(Rename { tree, input, _sub: sub });

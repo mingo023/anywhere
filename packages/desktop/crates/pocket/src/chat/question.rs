@@ -153,7 +153,6 @@ impl Wizard {
     }
 }
 
-/// The ask a wizard answers, and the agent it came from.
 pub(crate) struct Asked {
     pub(crate) agent: String,
     pub(crate) cwd: String,
@@ -161,7 +160,6 @@ pub(crate) struct Asked {
 }
 
 impl ComposerState {
-    /// The wizard for the open question, started afresh when the ask is new. Whether it is still taking answers.
     fn wizard(&mut self, asked: &Asked, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if self.wizard.as_ref().is_none_or(|w| w.request_id != asked.ask.request_id) {
             self.wizard = Some(Wizard::new(&asked.ask));

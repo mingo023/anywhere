@@ -12,7 +12,6 @@ use gpui_kit::*;
 use theme::*;
 
 impl NewForm {
-    /// The agent and the draft the suggestions follow.
     fn suggesting(&self, cx: &App) -> (Option<String>, String) {
         (self.side.as_ref().and_then(|s| s.suggest_key.clone()), self.prompt.read(cx).value().to_string())
     }

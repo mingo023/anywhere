@@ -314,7 +314,6 @@ impl<V> PreviewState<V> {
         self.drafts.contains_key(path)
     }
 
-    /// The files holding unsaved edits.
     pub fn draft_paths(&self) -> Vec<String> {
         self.drafts.keys().cloned().collect()
     }
@@ -358,22 +357,12 @@ impl<V> PreviewState<V> {
     }
 }
 
-/// What the previews ask `Desktop` for: what pins a tab, saves a file, or offers the selection to a chat.
 pub(crate) enum PreviewEvent {
-    /// A pane's editor changed; `flipped` is the file whose dirty state that turned, and `unsaved` whether the pane now holds edits not on disk.
-    Edited {
-        flipped: Option<String>,
-        unsaved: bool,
-    },
+    Edited { flipped: Option<String>, unsaved: bool },
     Blurred(PaneId),
-    /// A mouse selection in `pane`'s file ended at `at`.
-    Offer {
-        pane: PaneId,
-        at: Point<Pixels>,
-    },
+    Offer { pane: PaneId, at: Point<Pixels> },
 }
 
-/// The file every pane shows, the unsaved edits they share, and the editors that hold them.
 pub(crate) struct Previews {
     pub(crate) state: PreviewState,
     look: Look,
@@ -396,7 +385,6 @@ impl Previews {
         Self { state: PreviewState::default(), look: look(&Files::default()), code_size: 0, views: HashMap::new() }
     }
 
-    /// Hands down what the files and appearance settings ask of the editors.
     pub(crate) fn style(&mut self, files: &Files, code_size: u32) {
         (self.look, self.code_size) = (look(files), code_size);
     }
@@ -429,7 +417,6 @@ impl Previews {
         cx.notify();
     }
 
-    /// Builds `pane`'s editors, and loads its file into them after it changed, keeping the scroll position when the same file refreshes.
     fn sync(&mut self, pane: PaneId, window: &mut Window, cx: &mut Context<Self>) {
         let look @ (wrap, numbers, tab) = self.look;
         if self.state.panes.get(&pane).is_some_and(|f| f.views.is_none()) {
@@ -471,7 +458,6 @@ impl Previews {
     }
 }
 
-/// One pane's file: its body, and the switch between a markdown file's preview and source.
 pub(crate) struct FileView {
     pane: PaneId,
     model: WeakEntity<Previews>,
@@ -485,7 +471,6 @@ impl FileView {
         }
     }
 
-    /// Offers the pill where a mouse selection in the file ends.
     fn offers_chat(body: Div, cx: &Context<Self>) -> Div {
         body.capture_any_mouse_up(cx.listener(|_, ev: &MouseUpEvent, window, cx| {
             if ev.button != MouseButton::Left {

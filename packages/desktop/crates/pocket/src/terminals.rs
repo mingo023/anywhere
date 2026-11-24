@@ -32,11 +32,8 @@ pub(crate) enum Fit {
     Same,
 }
 
-/// What a terminal's window asks of `Desktop`, which holds the connection to pocketd.
 pub(crate) enum TerminalsEvent {
-    /// A pane's size settled: pocketd resizes its terminal to it.
     Resize { id: String, cols: u16, rows: u16 },
-    /// The update page's Restart service was pressed.
     RestartService,
 }
 
@@ -243,7 +240,6 @@ impl Terminals {
         Fit::Later
     }
 
-    /// As `fit`; a size that must wait goes out as `TerminalsEvent::Resize` once it settles.
     pub(crate) fn request_fit(&mut self, id: &str, cols: u16, rows: u16, cx: &mut Context<Self>) -> Fit {
         let fit = self.fit(id, cols, rows);
         if fit == Fit::Later {
@@ -260,7 +256,6 @@ impl Terminals {
         fit
     }
 
-    /// pocketd went away: asks the bundled service's state, and has the page redraw once it has been gone long enough to hint at it.
     pub(crate) fn watch_link(&mut self, cx: &mut Context<Self>) {
         if channel::is_release() {
             cx.spawn(async |this, cx| {
