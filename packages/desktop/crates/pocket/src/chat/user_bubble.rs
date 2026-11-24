@@ -257,11 +257,11 @@ pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expand
     let attached = (!images.is_empty() || !files.is_empty() || !elements.is_empty()).then(|| {
         let fit = IMAGE_MAX_W.min(width * WIDTH - 2.);
         // `img` takes its shape as its aspect ratio, so a max width also caps its height and a wide image shrinks to fit.
-        let picture = move |path: PathBuf| img(path).h(px(IMAGE_H)).max_w(px(fit)).rounded(px(IMAGE_RADIUS));
+        let placeholder = || div().size(px(54.)).into_any_element();
+        let picture = move |path: PathBuf| img(path).h(px(IMAGE_H)).max_w(px(fit)).rounded(px(IMAGE_RADIUS)).with_loading(placeholder);
         let tile = |path: &str| {
             let here = here.join(Path::new(path).file_name().unwrap_or_default());
-            let missing = || div().size(px(54.)).into_any_element();
-            let image = picture(PathBuf::from(path)).with_fallback(move || picture(here.clone()).with_fallback(missing).into_any_element());
+            let image = picture(PathBuf::from(path)).with_fallback(move || picture(here.clone()).with_fallback(placeholder).into_any_element());
             div().flex_none().rounded(px(IMAGE_RADIUS + 1.)).border_1().border_color(hairline(0.10)).child(image)
         };
         let card = |(i, path): (usize, &str)| file_card(SharedString::from(format!("{id}-file-{i}")), Path::new(path));
@@ -339,7 +339,7 @@ pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expand
     };
     let attached = attached.map(|files| if lit && text.is_empty() {
         let fade = Animation::new(super::transcript::FLASH).with_easing(ease_in_out);
-        files.p(px(4.)).m(px(-4.)).rounded(px(RADIUS)).with_animation(SharedString::from(format!("{id}-lit")), fade, |d, t| d.bg(ink(0.08 * (1. - t)))).into_any_element()
+        files.p(px(4.)).m(px(-4.)).max_w(px(width * WIDTH + 8.)).rounded(px(RADIUS)).with_animation(SharedString::from(format!("{id}-lit")), fade, |d, t| d.bg(ink(0.08 * (1. - t)))).into_any_element()
     } else {
         files.into_any_element()
     });
