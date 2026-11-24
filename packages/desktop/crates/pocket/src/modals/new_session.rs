@@ -971,6 +971,12 @@ mod tests {
     }
 
     #[test]
+    fn a_project_on_a_host_starts_in_a_new_worktree_since_its_pocketd_holds_no_locals() {
+        let draft = Draft { repo: Some("//devbox/p".into()), picked_checkout: Target::NewLocal, ..Draft::default() };
+        assert_eq!(draft.target(), Target::Worktree);
+    }
+
+    #[test]
     fn a_kept_draft_comes_back_with_its_checkout_base_and_local() {
         let mut draft = kept();
         draft.reopen(true, true, true);
@@ -1032,7 +1038,8 @@ mod tests {
     fn the_picker_offers_only_a_new_worktree_and_a_new_local() {
         let draft = Draft::default();
         assert_eq!(draft.targets(), [Target::Worktree, Target::NewLocal]);
-        assert_eq!(Draft { locals_offered: false, ..draft }.targets(), [Target::Worktree]);
+        assert_eq!(Draft { locals_offered: false, ..Draft::default() }.targets(), [Target::Worktree]);
+        assert_eq!(Draft { repo: Some("//devbox/p".into()), ..draft }.targets(), [Target::Worktree]);
         let local = checkout_choice(Target::NewLocal);
         assert_eq!((local.glyph, local.label), ("laptop", "Local"));
     }
@@ -1292,10 +1299,16 @@ mod tests {
     }
 
     #[test]
-    fn a_create_error_after_the_page_left_goes_to_the_window() {
-        let mut draft = Draft { reply: sent("r1"), ..Draft::default() };
+    fn a_create_error_after_the_page_left_goes_to_the_window_and_frees_the_page() {
+        let mut draft = Draft { repo: Some("/p".into()), reply: sent("r1"), ..Draft::default() };
         assert_eq!(draft.failed("r1", "Setup exited 1".into(), "npm ERR!".into(), false), Some("Setup exited 1".to_string()));
-        assert_eq!(draft.reply.error, None);
+        assert_eq!((draft.reply.error.clone(), draft.reply.waiting()), (None, false));
+        assert!(draft.ready(""));
+    }
+
+    #[test]
+    fn a_create_error_on_the_open_page_shows_there() {
+        let mut draft = Draft { reply: sent("r1"), ..Draft::default() };
         assert_eq!(draft.failed("r1", "Setup exited 1".into(), "npm ERR!".into(), true), None);
         assert_eq!(draft.reply.error, Some(("Setup exited 1".to_string(), "npm ERR!".to_string())));
     }
