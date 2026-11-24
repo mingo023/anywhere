@@ -1104,7 +1104,7 @@ impl Desktop {
             SettingsEvent::Close => self.close_settings(window, cx),
             SettingsEvent::FocusRoot => window.focus(&self.root, cx),
             SettingsEvent::Error(e) => {
-                self.error = Some(e.clone());
+                self.fail(e.clone(), cx);
                 cx.notify();
             }
             SettingsEvent::Port { port, before } => self.set_port(*port, *before, window, cx),

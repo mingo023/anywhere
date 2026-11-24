@@ -1,5 +1,6 @@
 use super::{Explorer, ExplorerEvent, Landing, files, name_of};
 use crate::desktop::Desktop;
+use crate::desktop::toast::{ToastEvent, Toasts};
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -11,7 +12,7 @@ const TRASHED_FOR: Duration = Duration::from_secs(6);
 /// Long enough to read a sentence.
 const READ_FOR: Duration = Duration::from_secs(5);
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(crate) enum Notice {
     Copied(String),
     Trashed(PathBuf),
@@ -166,65 +167,56 @@ impl Desktop {
         self.preview.update(cx, |p, _| p.state.move_files(&from, &to));
         self.save_soon(cx);
     }
+}
 
-    pub(crate) fn tree_toast(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let notice = self.explorer.read(cx).notice.as_ref().map(|(n, _)| n.clone())?;
-        let toast = self
-            .float(ui::pop(div().id("tree-toast")), 16., cx)
-            .h(px(32.))
-            .px(px(12.))
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .rounded(px(10.))
-            .text_size(px(12.5))
-            .text_color(TEXT_2)
-            .whitespace_nowrap();
-        let toast = match &notice {
-            Notice::Copied(text) => {
-                toast.child(icon("check", 14., SUCCESS)).child("Copied").child(div().font_family(MONO).text_size(px(11.5)).text_color(TEXT).child(short(text)))
-            }
-            Notice::Mentioned { provider, title } => toast.child(provider_icon(provider, 13., TEXT_2)).child(
+/// The Explorer's notice as a toast; the Trash's Undo asks `Desktop` to put the file back.
+pub(crate) fn notice(notice: &Notice, cx: &mut Context<Toasts>) -> Option<Stateful<Div>> {
+    let toast = ui::pop(div().id("tree-toast"))
+        .h(px(32.))
+        .px(px(12.))
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .rounded(px(10.))
+        .text_size(px(12.5))
+        .text_color(TEXT_2)
+        .whitespace_nowrap();
+    Some(match notice {
+        Notice::Copied(text) => {
+            toast.child(icon("check", 14., SUCCESS)).child("Copied").child(div().font_family(MONO).text_size(px(11.5)).text_color(TEXT).child(short(text)))
+        }
+        Notice::Mentioned { provider, title } => toast.child(provider_icon(provider, 13., TEXT_2)).child(
+            div()
+                .flex()
+                .gap(px(4.))
+                .child("Mentioned in")
+                .child(div().max_w(px(240.)).truncate().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title.clone())),
+        ),
+        Notice::InChat { .. } => return None,
+        Notice::Trashed(from) => toast
+            .child(icon("trash", 14., TEXT_3))
+            .child(
+                div().flex().gap(px(4.)).child("Moved").child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(name_of(from))).child("to Trash"),
+            )
+            .child(
                 div()
+                    .id("tree-toast-undo")
+                    .ml(px(4.))
+                    .px(px(6.))
+                    .py(px(2.))
                     .flex()
-                    .gap(px(4.))
-                    .child("Mentioned in")
-                    .child(div().max_w(px(240.)).truncate().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title.clone())),
+                    .items_center()
+                    .gap(px(6.))
+                    .rounded(px(6.))
+                    .cursor_pointer()
+                    .text_color(ACCENT)
+                    .font_weight(FontWeight::MEDIUM)
+                    .hover(|s| s.bg(FILL_2))
+                    .child("Undo")
+                    .child(ui::kbd("⌘Z"))
+                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ToastEvent::UndoTrash))),
             ),
-            Notice::InChat { .. } => return None,
-            Notice::Trashed(from) => toast
-                .child(icon("trash", 14., TEXT_3))
-                .child(
-                    div()
-                        .flex()
-                        .gap(px(4.))
-                        .child("Moved")
-                        .child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(name_of(from)))
-                        .child("to Trash"),
-                )
-                .child(
-                    div()
-                        .id("tree-toast-undo")
-                        .ml(px(4.))
-                        .px(px(6.))
-                        .py(px(2.))
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .rounded(px(6.))
-                        .cursor_pointer()
-                        .text_color(ACCENT)
-                        .font_weight(FontWeight::MEDIUM)
-                        .hover(|s| s.bg(FILL_2))
-                        .child("Undo")
-                        .child(ui::kbd("⌘Z"))
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.undo_trash(cx);
-                        })),
-                ),
-        };
-        Some(toast.with_animation("tree-toast-in", Animation::new(MENU_IN).with_easing(ease_out_quint()), |d, t| d.opacity(t)))
-    }
+    })
 }
 
 #[cfg(test)]

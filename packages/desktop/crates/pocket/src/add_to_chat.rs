@@ -1,7 +1,7 @@
 mod composer;
 mod menu;
 mod selection;
-mod toast;
+pub(crate) mod toast;
 
 use crate::actions::AddToChat;
 use crate::chat::Route;
@@ -453,7 +453,7 @@ impl Desktop {
             }
             Route::Blocked => {
                 self.chat.update(cx, |c, _| c.clear_added());
-                self.error = Some("This agent can't take pasted text right now.".into());
+                self.fail("This agent can't take pasted text right now.", cx);
                 return cx.notify();
             }
         }

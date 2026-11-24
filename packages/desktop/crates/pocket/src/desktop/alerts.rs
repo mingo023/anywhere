@@ -146,7 +146,7 @@ impl Desktop {
         if let Event::Host(host) = &ev
             && let Some(message) = upgrade_toast(self.agents.host.as_ref(), host)
         {
-            self.error = Some(message);
+            self.fail(message, cx);
         }
         let connected = matches!(ev, Event::Connected { .. });
         let automations = matches!(ev, Event::Automations { .. });
@@ -256,7 +256,7 @@ impl Desktop {
             }
             ev @ (Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. }) => self.on_launch(ev, window, cx),
             Event::SettingsFailed(message) | Event::AutomationError(message) | Event::BoardError(message) | Event::RegistryFailed(message) => {
-                self.error = Some(message);
+                self.fail(message, cx);
                 cx.notify();
             }
             Event::PromptFailed { agent, request } => {
@@ -270,7 +270,7 @@ impl Desktop {
                 if let Some(v) = self.chats.views.get(&agent) {
                     v.update(cx, |v, _| v.stop_refused());
                 }
-                self.error = Some(stop_failed(self.agents.get(&agent), &reason));
+                self.fail(stop_failed(self.agents.get(&agent), &reason), cx);
                 cx.notify();
             }
             Event::QueueFailed { agent, reason, text } => {
@@ -279,7 +279,7 @@ impl Desktop {
                 if let Some(text) = text {
                     self.chat_add_text(&agent, &text, window, cx);
                 }
-                self.error = Some(format!("Couldn't change the queue: {reason}"));
+                self.fail(format!("Couldn't change the queue: {reason}"), cx);
                 cx.notify();
             }
             Event::Commands { agent, commands } => {
@@ -303,13 +303,13 @@ impl Desktop {
                 self.chats.composer.update(cx, |c, _| c.suggest.mcp_act_failed(&agent));
                 // The servers may have moved on from what the rows show, as when a sign-in ended.
                 self.outbox.mcp(&agent);
-                self.error = Some(reason);
+                self.fail(reason, cx);
                 cx.notify();
             }
             Event::Btw { request, answer } => self.chat_btw_answered(&request, answer, cx),
             Event::RemoteControl { agent, url } => self.chat_remote_controlled(agent, url, cx),
             Event::NamingFailed(_) => {
-                self.error = Some("Couldn't name the session from its prompt".into());
+                self.fail("Couldn't name the session from its prompt", cx);
                 cx.notify();
             }
             ev => return Some(ev),

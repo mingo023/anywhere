@@ -672,7 +672,7 @@ impl Desktop {
             ChatBoxEvent::Escape(terminal) => self.chat_escape(terminal, cx),
             ChatBoxEvent::Attach => attachments::attach_files(self, Held::Chat, window, cx),
             ChatBoxEvent::Unsaved(title, detail) => {
-                self.error = Some(format!("{title}: {detail}"));
+                self.fail(format!("{title}: {detail}"), cx);
                 cx.notify();
             }
             ChatBoxEvent::Command { agent, command } => self.chat_command(agent, command.clone(), cx),
@@ -852,7 +852,7 @@ impl Desktop {
             Ok(Some(copies)) if copies.files != copied => return self.chat_copy_first(terminal, agent, &cwd, queue, copies, window, cx),
             Ok(_) => {}
             Err(host) => {
-                self.error = Some(format!("{} isn't connected", self.host_name(&host)));
+                self.fail(format!("{} isn't connected", self.host_name(&host)), cx);
                 return cx.notify();
             }
         }
@@ -911,7 +911,7 @@ impl Desktop {
                             d.chat_send(&terminal, queue, window, cx);
                         }
                     }
-                    Err(e) => d.error = Some(format!("Couldn't copy the attachments to {host}: {e}")),
+                    Err(e) => d.fail(format!("Couldn't copy the attachments to {host}: {e}"), cx),
                 }
                 cx.notify();
             })
@@ -930,7 +930,7 @@ impl Desktop {
                 self.show_notice(Notice::InChat { agent, icon: "check", text: remote_control_said(&url).into() }, cx);
             }
             Err(reason) => {
-                self.error = Some(reason);
+                self.fail(reason, cx);
                 cx.notify();
             }
         }

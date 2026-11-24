@@ -57,7 +57,7 @@ impl Desktop {
     /// Takes `host`'s list as what its machine holds; a host's first list also sends it the projects cached for it.
     pub(crate) fn on_registry(&mut self, host: Option<&str>, mut list: List, cx: &mut Context<Self>) {
         // Sent before the list replaces the store, which would otherwise undo a change not yet sent.
-        self.publish_registry();
+        self.publish_registry(cx);
         let pushed = host.map(|h| self.store.adopt_cached(h, &mut list)).unwrap_or_default();
         pushed.iter().for_each(|c| _ = self.send_change(c));
         let before = self.store.projects.clone();
@@ -78,7 +78,7 @@ impl Desktop {
     }
 
     /// Sends each pocketd the changes to what it owns made here since it was last heard from.
-    pub(crate) fn publish_registry(&mut self) {
+    pub(crate) fn publish_registry(&mut self, cx: &mut Context<Self>) {
         for host in self.registry.machines() {
             let host = host.as_deref();
             let now = self.store.registry(host);
@@ -87,7 +87,8 @@ impl Desktop {
                 continue;
             }
             if self.agents.registry_outdated(host) {
-                self.error = Some(outdated(host.map(|h| self.host_name(h)).as_deref()));
+                let message = outdated(host.map(|h| self.host_name(h)).as_deref());
+                self.fail(message, cx);
                 self.registry.listed(host, now);
                 continue;
             }

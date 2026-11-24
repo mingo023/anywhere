@@ -443,7 +443,7 @@ impl Desktop {
     pub(crate) fn keep_project(&mut self, p: &str, cx: &mut Context<Self>) {
         self.store.add(p);
         self.store.save();
-        self.publish_registry();
+        self.publish_registry(cx);
         self.refresh_git(cx);
         cx.notify();
     }
@@ -459,7 +459,7 @@ impl Desktop {
         }
         self.store.remove(p);
         self.store.save();
-        self.publish_registry();
+        self.publish_registry(cx);
         let only = [p.to_string()];
         self.repos.retain(|cwd, _| project::project_of(cwd, &only, &self.worktrees).is_none());
         self.worktrees.remove(p);

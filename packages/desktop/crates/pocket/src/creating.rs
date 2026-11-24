@@ -586,7 +586,7 @@ impl Desktop {
 
     fn retry_create(&mut self, request: &str, cx: &mut Context<Self>) {
         let Some(spec) = self.creates.read(cx).list.iter().find(|c| c.request == request).map(|c| c.again()) else { return };
-        if let Some(sent) = self.send_create(spec.clone()) {
+        if let Some(sent) = self.send_create(spec.clone(), cx) {
             self.creates.update(cx, |cs, _| {
                 if let Some(c) = cs.get(request) {
                     *c = Create::new(sent, c.path.clone(), spec, Instant::now());

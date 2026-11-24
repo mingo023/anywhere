@@ -426,7 +426,7 @@ impl Desktop {
             _ = this.update(cx, |d, cx| {
                 match reply {
                     Ok(m) => d.accounts.take(&host, m),
-                    Err(e) => d.error = Some(e),
+                    Err(e) => d.fail(e, cx),
                 }
                 cx.notify();
             });
@@ -463,7 +463,7 @@ impl Desktop {
                     }
                     Err(e) => {
                         d.accounts.signins.retain(|s| !s.on(&key.host, &key.provider));
-                        d.error = Some(e);
+                        d.fail(e, cx);
                     }
                 }
                 cx.notify();

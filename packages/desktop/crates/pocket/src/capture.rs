@@ -1052,7 +1052,7 @@ const STEPS: [(&str, Step); 308] = [
         d.ask(Confirm::DeleteWorktree { removal, dirty: 2, lost: 3, lost_anyway: 0, subtrees: vec![], requested: true }, cx);
         cx.notify();
     }),
-    ("error", |d, _, _| d.error = Some("Couldn't save placeholder.tsx: Permission denied (os error 13)".into())),
+    ("error", |d, _, cx| d.fail("Couldn't save placeholder.tsx: Permission denied (os error 13)", cx)),
     ("update-ready", |d, _, _| d.updates.update = Update::Ready { version: "0.2.0".into() }),
     ("whats-new", |d, _, _| d.updates.update = Update::WhatsNew { version: "0.2.0".into() }),
     ("star", |d, _, cx| d.star.update(cx, |s, _| s.shown = true)),

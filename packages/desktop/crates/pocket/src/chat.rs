@@ -92,8 +92,6 @@ pub(crate) struct ChatState {
     pub(crate) composer: Entity<composer::ComposerState>,
     pub(crate) files: Option<locate::Choice>,
     pub(crate) select: Entity<selection::Select>,
-    /// The error toast that tells of a closed chat's unsent text, and that text, which the toast copies.
-    pub(crate) unsent: Option<(String, String)>,
     /// The chats whose attachments are being copied to their host; each sends nothing until its copy is done.
     pub(crate) copying: HashSet<String>,
     /// Each chat's attachments copied to its host, by file here, for the send they were copied for.
@@ -131,7 +129,6 @@ impl ChatState {
                 composer,
                 files: None,
                 select,
-                unsent: None,
                 copying: HashSet::new(),
                 copied: HashMap::new(),
                 map,
@@ -192,8 +189,7 @@ impl Desktop {
         let unsent = self.chats.views.remove(agent).map(|v| v.update(cx, |v, _| v.drain_unsent())).unwrap_or_default();
         self.chat_prune_dock(cx);
         if let Some((message, text)) = unsent_notice(who, unsent, typed) {
-            self.error = Some(message.clone());
-            self.chats.unsent = Some((message, text));
+            self.toasts.update(cx, |t, cx| t.fail_with_copy(message, text, cx));
         }
     }
 

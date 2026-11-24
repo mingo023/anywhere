@@ -194,7 +194,7 @@ impl Desktop {
 
     pub(crate) fn delegated_open(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(host) = unlisted_host(&self.agents.list, agent) {
-            self.error = Some(format!("That session runs on {}, which isn't connected", self.host_name(host)));
+            self.fail(format!("That session runs on {}, which isn't connected", self.host_name(host)), cx);
             return cx.notify();
         }
         let from = self.session().map(str::to_string);

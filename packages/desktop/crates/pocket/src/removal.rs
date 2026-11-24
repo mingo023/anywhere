@@ -758,7 +758,7 @@ impl Desktop {
                         cx.background_executor().spawn(async move { dispose(&aside, trash) }).detach();
                     }
                     if let Some((branch, e)) = kept {
-                        d.error = Some(format!("Deleted the worktree; kept branch {branch}: {e}"));
+                        d.fail(format!("Deleted the worktree; kept branch {branch}: {e}"), cx);
                     }
                     let mut subtrees = std::mem::take(&mut d.store.subtrees);
                     reparent(&mut subtrees, &r.tree, &removal.tree, |f| d.folder_tree(f, cx));
@@ -780,10 +780,8 @@ impl Desktop {
                     Some((r, Failure::Teardown(tail))) => {
                         d.ask(Confirm::TeardownFailed { removal: removal.clone(), failed: r.tree, tail, subtrees: rest }, cx);
                     }
-                    Some((r, Failure::Remove(e))) if r.tree == removal.tree => d.error = Some(e),
-                    Some((r, Failure::Remove(e))) => {
-                        d.error = Some(format!("Kept {}, as {} couldn't be deleted: {e}", basename(&removal.tree), basename(&r.tree)))
-                    }
+                    Some((r, Failure::Remove(e))) if r.tree == removal.tree => d.fail(e, cx),
+                    Some((r, Failure::Remove(e))) => d.fail(format!("Kept {}, as {} couldn't be deleted: {e}", basename(&removal.tree), basename(&r.tree)), cx),
                 }
                 d.refresh_git(cx);
                 cx.notify();
@@ -894,7 +892,7 @@ impl Desktop {
                     }
                     // Tried again once its host comes back.
                     Err(Held::Unread(e)) => {
-                        d.error = Some(e);
+                        d.fail(e, cx);
                         d.removals.failed.insert(f);
                         cx.notify();
                         return;
@@ -906,7 +904,7 @@ impl Desktop {
                         cx.background_executor().spawn(async move { dispose(&aside, trash) }).detach();
                     }
                     if let Some((branch, e)) = kept {
-                        d.error = Some(format!("Deleted the worktree; kept branch {branch}: {e}"));
+                        d.fail(format!("Deleted the worktree; kept branch {branch}: {e}"), cx);
                     }
                     d.forget_tree(&r.tree, cx);
                 }
@@ -921,7 +919,7 @@ impl Desktop {
                         d.ask(Confirm::TeardownFailed { failed: r.tree.clone(), removal: r, tail, subtrees: vec![] }, cx);
                     }
                     Some((r, Failure::Teardown(e) | Failure::Remove(e))) => {
-                        d.error = Some(format!("Couldn't delete {}: {e}", basename(&r.tree)));
+                        d.fail(format!("Couldn't delete {}: {e}", basename(&r.tree)), cx);
                         d.removals.failed.insert(f);
                     }
                 }

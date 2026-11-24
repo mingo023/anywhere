@@ -245,7 +245,7 @@ pub(crate) fn choose_background(setting: &'static Setting, cx: &mut Context<Desk
             Ok(_) if d.store.appearance.background != before => {}
             Ok(to) => set_background(d, Some(to.to_string_lossy().into_owned()), setting, cx),
             Err(why) => {
-                d.error = Some(why);
+                d.fail(why, cx);
                 cx.notify();
             }
         })

@@ -662,9 +662,9 @@ impl Desktop {
                 if !self.store.projects.contains(&project) {
                     self.store.projects.push(project);
                     self.store.save();
-                    self.publish_registry();
+                    self.publish_registry(cx);
                 }
-                if self.send_create(spec).is_none() {
+                if self.send_create(spec, cx).is_none() {
                     let name = self.host_name(&host);
                     return self.step_failed(generation, format!("{name} went offline"), cx);
                 }

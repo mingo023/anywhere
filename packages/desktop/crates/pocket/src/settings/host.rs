@@ -194,7 +194,7 @@ impl Desktop {
             let result = cx.background_executor().spawn(async move { daemon::request(&json!({"op": "config-set", "key": "port", "text": text})) }).await;
             this.update_in(cx, |d, window, cx| {
                 if let Err(e) = result {
-                    d.error = Some(format!("Anywhere kept port {}: {e}", port_field(before)));
+                    d.fail(format!("Anywhere kept port {}: {e}", port_field(before)), cx);
                     d.store.phone.port = before;
                     d.settings.update(cx, |s, cx| s.host.port.update(cx, |f, cx| f.set_value(port_field(before), window, cx)));
                 }
@@ -213,7 +213,7 @@ impl Desktop {
             let result = cx.background_executor().spawn(async move { daemon::request(&json!({"op": "devices.rename", "id": id, "text": name})) }).await;
             this.update(cx, |d, cx| {
                 if let Err(e) = result {
-                    d.error = Some(format!("Couldn't rename the phone: {e}"));
+                    d.fail(format!("Couldn't rename the phone: {e}"), cx);
                 }
                 d.load_host(cx);
             })
@@ -264,7 +264,7 @@ impl Desktop {
             let result = cx.background_executor().spawn(async move { daemon::request(&json!({"op": "config-set", "key": key, "text": text})) }).await;
             if let Err(e) = result {
                 this.update(cx, |d, cx| {
-                    d.error = Some(format!("The background service didn't save that setting: {e}"));
+                    d.fail(format!("The background service didn't save that setting: {e}"), cx);
                     d.load_host(cx);
                     cx.notify();
                 })
@@ -283,7 +283,7 @@ impl Desktop {
             let result = cx.background_executor().spawn(async move { daemon::request(&json!({"op": "config-set", "key": key, "text": text})) }).await;
             this.update(cx, |d, cx| {
                 if let Err(e) = result {
-                    d.error = Some(format!("The background service didn't save that setting: {e}"));
+                    d.fail(format!("The background service didn't save that setting: {e}"), cx);
                 }
                 d.load_host(cx);
             })
@@ -300,7 +300,7 @@ impl Desktop {
             let result = cx.background_executor().spawn(async move { daemon::request(&json!({"op": "devices.revoke", "id": id})) }).await;
             this.update(cx, |d, cx| {
                 if let Err(e) = result {
-                    d.error = Some(format!("Couldn't remove the phone: {e}"));
+                    d.fail(format!("Couldn't remove the phone: {e}"), cx);
                 }
                 d.load_host(cx);
             })

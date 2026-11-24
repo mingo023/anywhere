@@ -186,7 +186,7 @@ impl Desktop {
             let result = cx.background_executor().spawn(async move { daemon::service::open_at_login(on) }).await;
             this.update(cx, |d, cx| {
                 if let Err(e) = result {
-                    d.error = Some(format!("Couldn't change opening at login: {e}"));
+                    d.fail(format!("Couldn't change opening at login: {e}"), cx);
                     d.store.general.open_at_login = !on;
                     d.save_soon(cx);
                     cx.notify();

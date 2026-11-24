@@ -1,30 +1,25 @@
-use crate::desktop::Desktop;
 use gpui_kit::*;
 use theme::*;
 
-impl Desktop {
-    pub(crate) fn added_toast(&self, cx: &App) -> Option<impl IntoElement> {
-        let provider = self.chat.read(cx).added()?;
-        let toast = self
-            .float(ui::pop(div()), 16., cx)
-            .h(px(32.))
-            .px(px(12.))
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .rounded(px(10.))
-            .text_size(px(12.5))
-            .text_color(TEXT_2)
-            .whitespace_nowrap()
-            .child(icon("check", 14., SUCCESS))
-            .child(
-                div()
-                    .flex()
-                    .gap(px(4.))
-                    .child("Added to")
-                    .child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(format!("{}'s", self.agent_name(provider))))
-                    .child("input · ⏎ sends"),
-            );
-        Some(toast.with_animation("added-toast-in", Animation::new(MENU_IN).with_easing(ease_out_quint()), |d, t| d.opacity(t)))
-    }
+/// The confirmation that a quote went into `agent`'s input.
+pub(crate) fn added(agent: &str) -> Div {
+    ui::pop(div())
+        .h(px(32.))
+        .px(px(12.))
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .rounded(px(10.))
+        .text_size(px(12.5))
+        .text_color(TEXT_2)
+        .whitespace_nowrap()
+        .child(icon("check", 14., SUCCESS))
+        .child(
+            div()
+                .flex()
+                .gap(px(4.))
+                .child("Added to")
+                .child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(format!("{agent}'s")))
+                .child("input · ⏎ sends"),
+        )
 }

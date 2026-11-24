@@ -763,7 +763,7 @@ impl Desktop {
             return;
         }
         if self.terminals.read(cx).link.stale().is_some() {
-            self.error = Some(link::UPDATING.into());
+            self.fail(link::UPDATING, cx);
             return cx.notify();
         }
         if self.new_form.read(cx).draft.scratch {
@@ -798,12 +798,12 @@ impl Desktop {
         if auto_name {
             spec["checkout"]["new"]["autoName"] = true.into();
         }
-        self.fill_launch(&mut spec, pick, &project);
+        self.fill_launch(&mut spec, pick, &project, cx);
         if worktree {
             self.store.collapsed.remove(&project);
         }
         self.store.save();
-        let Some(request) = self.send_create(spec.clone()) else { return cx.notify() };
+        let Some(request) = self.send_create(spec.clone(), cx) else { return cx.notify() };
         if !worktree {
             self.creates.update(cx, |c, _| c.sent_in_place(request.clone(), spec["prompt"].as_str().unwrap_or_default()));
             self.new_form.update(cx, |f, cx| f.edit(cx, |d| d.reply.sent(request)));
@@ -824,7 +824,7 @@ impl Desktop {
             Ok(Some(copies)) if copies.files != self.new_form.read(cx).draft.copied_for(project) => copies,
             Ok(_) => return false,
             Err(host) => {
-                self.error = Some(format!("{} isn't connected", self.host_name(&host)));
+                self.fail(format!("{} isn't connected", self.host_name(&host)), cx);
                 return true;
             }
         };
@@ -884,7 +884,7 @@ impl Desktop {
                 match made {
                     Ok(folder) => {
                         let pick = d.new_form_pick(cx);
-                        d.adopt_scratch(&folder);
+                        d.adopt_scratch(&folder, cx);
                         // A send pocketd refuses is retried here, not in yet another new folder.
                         d.new_form.update(cx, |f, cx| {
                             f.draft.pick_repo(Some(folder.clone()), true);
@@ -905,12 +905,12 @@ impl Desktop {
     }
 
     /// Gives `spec` what the settings add to it, and remembers `pick` as `project`'s.
-    fn fill_launch(&mut self, spec: &mut serde_json::Value, pick: LaunchPick, project: &str) {
+    fn fill_launch(&mut self, spec: &mut serde_json::Value, pick: LaunchPick, project: &str, cx: &mut Context<Self>) {
         let efforts = self.launch_efforts(&pick.provider, &pick.model);
         self.store.agents.launch(spec, &self.agents, &efforts);
         self.store.repos.entry(project.to_string()).or_default().launch = pick;
         // Ahead of the create, so pocketd starts it as the project's settings now say.
-        self.publish_registry();
+        self.publish_registry(cx);
     }
 
     fn send_in_scratch(&mut self, folder: String, pick: LaunchPick, sent: String, cx: &mut Context<Self>) {
@@ -918,10 +918,10 @@ impl Desktop {
         if names_folder(self.agents.names_offered(), self.agents.given_name(&folder), sent.trim()) {
             spec["checkout"]["autoName"] = true.into();
         }
-        self.fill_launch(&mut spec, pick, &folder);
+        self.fill_launch(&mut spec, pick, &folder, cx);
         self.store.save();
         self.select_tree(folder, None, cx);
-        let Some(request) = self.send_create(spec.clone()) else { return cx.notify() };
+        let Some(request) = self.send_create(spec.clone(), cx) else { return cx.notify() };
         self.creates.update(cx, |c, _| c.sent_in_place(request.clone(), spec["prompt"].as_str().unwrap_or_default()));
         self.new_form.update(cx, |f, cx| f.edit(cx, |d| d.reply.sent(request)));
         cx.notify();
@@ -983,7 +983,7 @@ impl Desktop {
                 self.creates.update(cx, |c, _| c.failed_in_place(&request));
                 let made = self.creates.update(cx, |cs, _| cs.get(&request).map(|c| c.fail(message.clone(), detail.clone(), Instant::now())).is_some());
                 if !made && let Some(message) = self.new_form.update(cx, |f, _| f.draft.failed(&request, message, detail, f.shown)) {
-                    self.error = Some(message);
+                    self.fail(message, cx);
                 }
             }
             _ => {}

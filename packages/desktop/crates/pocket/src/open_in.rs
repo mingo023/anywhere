@@ -303,7 +303,7 @@ impl Desktop {
             }
             OpenInEvent::CopyPath => self.copy_worktree_path(&CopyWorktreePath, window, cx),
             OpenInEvent::Failed(label) => {
-                self.error = Some(format!("Couldn't open this folder in {label}"));
+                self.fail(format!("Couldn't open this folder in {label}"), cx);
                 cx.notify();
             }
         }

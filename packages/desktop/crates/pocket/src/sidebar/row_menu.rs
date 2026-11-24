@@ -228,7 +228,7 @@ impl Desktop {
     /// Starts a copy of agent `id`'s session; with a `terminal` place, in its agent's TUI with its tab there (see `fork_spec`).
     pub(crate) fn fork_session(&mut self, id: &str, terminal: Option<Place>, cx: &mut Context<Self>) {
         if self.terminals.read(cx).link.stale().is_some() {
-            self.error = Some(link::UPDATING.into());
+            self.fail(link::UPDATING, cx);
             return cx.notify();
         }
         let projects = self.projects(cx);
@@ -238,7 +238,7 @@ impl Desktop {
         }) else {
             return;
         };
-        if let (Some(request), Some(place)) = (self.send_create(spec), terminal) {
+        if let (Some(request), Some(place)) = (self.send_create(spec, cx), terminal) {
             self.terminals.update(cx, |t, _| _ = t.tab_terms.insert(request, place));
         }
         cx.notify();

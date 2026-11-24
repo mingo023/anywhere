@@ -70,20 +70,20 @@ impl Desktop {
     /// Opens the new chat beside `id`'s, `fork` telling it the conversation so far. Whether the create was sent.
     pub(crate) fn open_switched_chat(&mut self, id: &str, provider: &str, model: &str, fork: bool, cx: &mut Context<Self>) -> bool {
         if self.terminals.read(cx).link.stale().is_some() {
-            self.error = Some(link::UPDATING.into());
+            self.fail(link::UPDATING, cx);
             cx.notify();
             return false;
         }
         let projects = self.projects(cx);
         let Some(s) = self.agents.get(id) else { return false };
         let Some(project) = self.agent_project(s, &s.cwd, &projects) else {
-            self.error = Some("Couldn't find this chat's project".into());
+            self.fail("Couldn't find this chat's project", cx);
             cx.notify();
             return false;
         };
         let prompt = if fork { chat::handoff::prompt(&self.chat_conversation(s, cx), &self.agent_name(&s.provider)) } else { String::new() };
         let spec = switched_spec(s, project, (provider, model), &prompt, &self.store.agents, &self.agents, &self.launch_efforts(provider, model));
-        let request = self.send_create(spec);
+        let request = self.send_create(spec, cx);
         let sent = request.is_some();
         if let Some(request) = request {
             self.terminals.update(cx, |t, _| _ = t.tab_chats.insert(request, Place::Pane(None)));

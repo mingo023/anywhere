@@ -347,7 +347,7 @@ impl Desktop {
                 }
             }
             ("spawned", _) => {
-                self.error = None;
+                self.toasts.update(cx, |t, cx| t.clear_error(cx));
                 if let Some(Intent(tree, place)) = self.terminals.update(cx, |t, _| t.spawned(host)) {
                     self.adopt(m.id, tree, place, window, cx);
                 }
@@ -355,7 +355,7 @@ impl Desktop {
             }
             ("error", _) => {
                 self.terminals.update(cx, |t, _| t.errored(host, &m.id));
-                self.error = Some(m.error);
+                self.fail(m.error, cx);
             }
             ("exit", _) => {
                 self.sign_in_ended(&m.id, cx);
@@ -404,17 +404,20 @@ impl Desktop {
         let host = hosts::split(&intent.0).0.map(str::to_string);
         let sent = self.daemon.send_to(host.as_deref(), op);
         self.terminals.update(cx, |t, _| t.spawn_sent(sent, intent));
-        self.error = host.filter(|_| !sent).map(|h| format!("{} isn't connected", self.host_name(&h)));
+        match host.filter(|_| !sent).map(|h| format!("{} isn't connected", self.host_name(&h))) {
+            Some(error) => self.fail(error, cx),
+            None => self.toasts.update(cx, |t, cx| t.clear_error(cx)),
+        }
         cx.notify();
     }
 
     /// Sends a create to the pocketd holding `spec`'s project; `None`, with the error shown, when that's a host that isn't connected.
-    pub(crate) fn send_create(&mut self, mut spec: serde_json::Value) -> Option<String> {
+    pub(crate) fn send_create(&mut self, mut spec: serde_json::Value, cx: &mut Context<Self>) -> Option<String> {
         self.accounts.offer(&mut spec);
         match self.outbox.create(spec) {
             Ok(request) => Some(request),
             Err(host) => {
-                self.error = Some(format!("{} isn't connected", self.host_name(&host)));
+                self.fail(format!("{} isn't connected", self.host_name(&host)), cx);
                 None
             }
         }
@@ -427,7 +430,7 @@ impl Desktop {
         let missing = t.skipped(&shell).map(|p| p.trim().to_string());
         self.run_in_tree(place, &[], None, |cwd| daemon::shell_op(&shell, args, cwd), cx);
         if let Some(missing) = missing {
-            self.error = Some(format!("Can't run {missing}, so this terminal opened your login shell"));
+            self.fail(format!("Can't run {missing}, so this terminal opened your login shell"), cx);
         }
     }
 
@@ -448,7 +451,7 @@ impl Desktop {
     pub(crate) fn new_chat_tab(&mut self, place: Place, cx: &mut Context<Self>) {
         let (Some(project), Some(tree)) = (self.project.clone(), self.place(cx)) else { return };
         if self.terminals.read(cx).link.stale().is_some() {
-            self.error = Some(link::UPDATING.into());
+            self.fail(link::UPDATING, cx);
             return cx.notify();
         }
         let pick = self.last_pick(Some(&project));
@@ -456,7 +459,7 @@ impl Desktop {
         spec["chat"] = true.into();
         let efforts = self.launch_efforts(&pick.provider, &pick.model);
         self.store.agents.launch(&mut spec, &self.agents, &efforts);
-        if let Some(request) = self.send_create(spec) {
+        if let Some(request) = self.send_create(spec, cx) {
             self.terminals.update(cx, |t, _| _ = t.tab_chats.insert(request, place));
         }
         cx.notify();

@@ -242,7 +242,7 @@ impl Desktop {
                 cx.background_executor().spawn(async move { daemon::request(&serde_json::json!({"op": "config-set", "key": key, "text": sent})) }).await;
             this.update_in(cx, |d, window, cx| {
                 if let Err(e) = result {
-                    d.error = Some(format!("Anywhere kept the {} {}: {e}", d.agent_name(p), f.noun()));
+                    d.fail(format!("Anywhere kept the {} {}: {e}", d.agent_name(p), f.noun()), cx);
                     // A newer edit has its own request; putting `before` back would undo it.
                     if f.text(&d.store.agents, p) == text {
                         f.set(&mut d.store.agents, p, before);

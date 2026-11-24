@@ -70,7 +70,7 @@ impl Desktop {
     /// Writes `desktop.json` once the window, layout, widths, graph share and panels have held still for `SAVE_DELAY`,
     /// and sends each pocketd what changed of what it owns now.
     pub(crate) fn save_soon(&mut self, cx: &mut Context<Self>) {
-        self.publish_registry();
+        self.publish_registry(cx);
         self.geometry.save = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SAVE_DELAY).await;
             let Ok(Some((path, raw))) = this.update(cx, |d, cx| d.remember_chrome(cx)) else { return };

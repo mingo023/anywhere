@@ -11,7 +11,7 @@ use crate::util::now_ms;
 use git::github::{self, Check, Note, Pr, PrState, Thread};
 use gpui_kit::*;
 use std::time::Instant;
-use theme::{MENU_IN, Token, provider_name};
+use theme::{Token, provider_name};
 use workspace::Doc;
 use workspace::tree::PaneId;
 
@@ -190,20 +190,6 @@ impl Desktop {
         cx.notify();
     }
 
-    /// What a PR action just did, floated over the window's corner.
-    pub(crate) fn pr_notice(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        if self.error.is_some() {
-            return None;
-        }
-        let raised = self.removals.label().is_some() || self.chat.read(cx).added().is_some();
-        let toast = self.pr.update(cx, |p, cx| p.toast(cx))?;
-        Some(self.float(toast, if raised { 56. } else { 16. }, cx).with_animation(
-            "pr-notice-in",
-            Animation::new(MENU_IN).with_easing(ease_out_quint()),
-            |d, t| d.opacity(t),
-        ))
-    }
-
     /// Runs `gh` in the worktree on screen while the card says `busy`, then `done` with what it printed.
     fn run_gh(&mut self, busy: &'static str, argv: Vec<String>, cx: &mut Context<Self>, done: impl FnOnce(&mut Self, String, &mut Context<Self>) + 'static) {
         let Some(dir) = self.cwd(cx) else { return };
@@ -218,7 +204,7 @@ impl Desktop {
                 d.pr.update(cx, |p, cx| p.end_gh(cx));
                 match res {
                     Ok(out) => done(d, out, cx),
-                    Err(e) => d.error = Some(e),
+                    Err(e) => d.fail(e, cx),
                 }
                 cx.notify();
             })
@@ -332,7 +318,7 @@ impl Desktop {
             return None;
         }
         let Some(target) = self.chat_target(&self.chat_choices(cx), cx) else {
-            self.error = Some("Start an agent in this worktree to send it this.".into());
+            self.fail("Start an agent in this worktree to send it this.", cx);
             cx.notify();
             return None;
         };
@@ -348,7 +334,7 @@ impl Desktop {
                 .detach();
             }
             Route::Blocked => {
-                self.error = Some("This agent can't take pasted text right now.".into());
+                self.fail("This agent can't take pasted text right now.", cx);
                 cx.notify();
                 return None;
             }
@@ -405,7 +391,7 @@ impl Desktop {
             this.update(cx, |d, cx| {
                 if let Err(e) = res {
                     d.prs.expire(&tree, Instant::now());
-                    d.error = Some(format!("Couldn't post the reply: {e}"));
+                    d.fail(format!("Couldn't post the reply: {e}"), cx);
                     d.poll_prs(cx);
                 }
                 cx.notify();
@@ -498,7 +484,7 @@ impl Desktop {
                             t.resolved = !resolved;
                         }
                     });
-                    d.error = Some(format!("Couldn't update the conversation: {e}"));
+                    d.fail(format!("Couldn't update the conversation: {e}"), cx);
                 }
                 cx.notify();
             })

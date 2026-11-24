@@ -208,7 +208,7 @@ impl Desktop {
                 let _ = events.unbounded_send((id, ev));
             }) {
                 Ok(page) => b.page = Some(Rc::new(page)),
-                Err(e) => self.error = Some(format!("Couldn't open the page: {e}")),
+                Err(e) => self.fail(format!("Couldn't open the page: {e}"), cx),
             },
         }
         window.focus(&self.browsers.focus, cx);

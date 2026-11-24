@@ -509,7 +509,7 @@ impl Desktop {
                 self.explorer.update(cx, |e, cx| e.trashed(path, trashed, cx));
             }
             ExplorerEvent::Failed(message) => {
-                self.error = Some(message);
+                self.fail(message, cx);
                 cx.notify();
             }
             ExplorerEvent::Landed(landing) => {

@@ -25,6 +25,7 @@ use crate::desktop::dock::Badge;
 use crate::desktop::geometry::Geometry;
 use crate::desktop::jump::Chips;
 use crate::desktop::sounds::Chime;
+use crate::desktop::toast::Toasts;
 use crate::explorer::Explorer;
 use crate::explorer::preview::Previews;
 use crate::fleet::Fleet;
@@ -116,7 +117,7 @@ pub struct Desktop {
     pub(crate) handoff: Entity<crate::handoff::HandoffState>,
     pub(crate) automations: Entity<Automations>,
     pub(crate) board: Entity<Board>,
-    pub(crate) error: Option<String>,
+    pub(crate) toasts: Entity<Toasts>,
     pub(crate) root: FocusHandle,
     pub(crate) palette: Entity<Palette>,
     pub(crate) sidebar: Entity<Sidebar>,
@@ -181,6 +182,8 @@ impl Desktop {
         let explorer_subs = cx.subscribe_in(&explorer, window, Self::on_explorer_event);
         let pr = cx.new(|cx| PrSide::new(window, cx));
         let pr_subs = [cx.subscribe_in(&pr, window, Self::on_pr_event), cx.observe(&pr, |_, _, cx| cx.notify())];
+        let toasts = cx.new(|cx| Toasts::new(pr.clone(), cx));
+        let toasts_subs = [cx.subscribe_in(&toasts, window, Self::on_toasts_event), cx.observe(&toasts, |_, _, cx| cx.notify())];
         let new_form = cx.new(|cx| new_session::NewForm::new(window, cx));
         let new_subs = Self::watch_new_form(&new_form, window, cx);
         let repo_form = cx.new(|cx| add_project::RepoForm::new(window, cx));
@@ -268,6 +271,7 @@ impl Desktop {
         _subs.push(explorer_subs);
         _subs.push(preview_subs);
         _subs.extend(pr_subs);
+        _subs.extend(toasts_subs);
         _subs.extend(new_subs);
         _subs.push(repo_subs);
         _subs.push(confirm_subs);
@@ -317,7 +321,7 @@ impl Desktop {
             explorer,
             git_run: 0,
             git_done: 0,
-            error: None,
+            toasts,
             root,
             terminal: TerminalViewState::new(cx),
             panels,
@@ -661,20 +665,7 @@ impl Desktop {
                 None => self.blank_page(cx),
             },
         };
-        ui::page(div())
-            .relative()
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .flex()
-            .flex_col()
-            .overflow_hidden()
-            .child(body)
-            .children(self.error_toast(cx))
-            .children(self.deleting_toast(cx))
-            .children(self.added_toast(cx))
-            .children(self.tree_toast(cx))
-            .children(self.pr_notice(cx))
+        ui::page(div()).relative().flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).child(self.toasts_view(cx))
     }
 
     fn link_page(&self, cx: &mut Context<Self>) -> Div {
@@ -724,7 +715,7 @@ impl Desktop {
             let result = cx.background_executor().spawn(async { daemon::service::restart() }).await;
             this.update(cx, |d, cx| {
                 if let Err(e) = result {
-                    d.error = Some(format!("Couldn't restart the service: {e}"));
+                    d.fail(format!("Couldn't restart the service: {e}"), cx);
                     cx.notify();
                 }
             })

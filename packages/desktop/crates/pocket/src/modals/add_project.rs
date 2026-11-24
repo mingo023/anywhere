@@ -719,7 +719,7 @@ impl Desktop {
         self.store.add(&path);
         self.store.repos.insert(path.clone(), cfg);
         self.store.save();
-        self.publish_registry();
+        self.publish_registry(cx);
         // A clone can finish after its dialog was dismissed and another opened.
         if matches!(self.overlay, Some(Overlay::AddRepo | Overlay::Clone)) {
             self.close_overlay(window, cx);

@@ -610,7 +610,7 @@ impl Desktop {
                         }
                         d.refresh_git(cx);
                     }
-                    Err(e) => d.error = Some(format!("Couldn't save {}: {e}", basename(&path))),
+                    Err(e) => d.fail(format!("Couldn't save {}: {e}", basename(&path)), cx),
                 }
                 cx.notify();
             })

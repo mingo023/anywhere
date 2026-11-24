@@ -87,12 +87,12 @@ impl Desktop {
         })
     }
 
-    pub(crate) fn adopt_scratch(&mut self, path: &str) {
+    pub(crate) fn adopt_scratch(&mut self, path: &str, cx: &mut Context<Self>) {
         self.store.add_scratch(path);
         self.store.scratch_folded = false;
         self.store.save();
         // pocketd starts sessions only in folders it lists.
-        self.publish_registry();
+        self.publish_registry(cx);
         // Its row needs this now; `refresh_git` lists it two seconds from now.
         self.worktrees
             .insert(path.to_string(), vec![git::Worktree { path: path.to_string(), branch: git::INIT_BRANCH.into(), main: true, made: false, created: None }]);
@@ -101,7 +101,7 @@ impl Desktop {
     /// Deletes a folder with nothing to lose straight away, and asks about any other.
     pub(super) fn ask_delete_scratch(&mut self, path: String, cx: &mut Context<Self>) {
         if let Some(host) = hosts::split(&path).0.filter(|h| hosts::remote::connected(h).is_none()) {
-            self.error = Some(format!("{} isn't connected", self.host_name(host)));
+            self.fail(format!("{} isn't connected", self.host_name(host)), cx);
             return cx.notify();
         }
         let job = path.clone();
