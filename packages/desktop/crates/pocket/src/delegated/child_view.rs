@@ -32,6 +32,77 @@ where
     if at > 0 { format!("Delegated by {by} \u{b7} {}", clock(at, tz)) } else { format!("Delegated by {by}") }
 }
 
+/// `‹ <chat> / <session>` over the top of a delegated session's chat, which fades out beneath it; Back is the chat that delegated it.
+#[derive(Clone)]
+pub(crate) struct Crumb {
+    parent: String,
+    parent_title: String,
+    provider: String,
+    title: String,
+    down: Option<String>,
+}
+
+pub(crate) enum CrumbEvent {
+    Back(String),
+}
+
+impl EventEmitter<CrumbEvent> for Crumb {}
+
+impl Render for Crumb {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let to = self.parent.clone();
+        let solid: Hsla = if is_dark() { window_fill() } else { SURFACE_SUNKEN.into() };
+        let back = div()
+            .id("delegated-back")
+            .h(px(28.))
+            .pl(px(6.))
+            .pr(px(9.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .flex_shrink(1.)
+            .min_w_0()
+            .rounded(px(8.))
+            .text_size(px(13.))
+            .text_color(TEXT_3)
+            .cursor_pointer()
+            .hover(|s| s.bg(FILL_3).text_color(TEXT))
+            .on_click(cx.listener(move |_, _, _, cx| cx.emit(CrumbEvent::Back(to.clone()))))
+            .child(icon("back", 14., TEXT_3))
+            .child(div().min_w_0().truncate().child(self.parent_title.clone()));
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .h(px(CRUMB_H))
+            .px(px(14.))
+            .bg(linear_gradient(180., linear_color_stop(solid, 0.55), linear_color_stop(solid.opacity(0.), 1.)))
+            .block_mouse_except_scroll()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .child(back)
+            .child(div().text_size(px(13.)).text_color(TEXT_6).child("/"))
+            .child(
+                div()
+                    .min_w_0()
+                    .px(px(6.))
+                    .flex()
+                    .items_center()
+                    .gap(px(7.))
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(TEXT)
+                    .child(provider_icon(&self.provider, 13., TEXT))
+                    .child(div().min_w_0().truncate().child(self.title.clone()))
+                    .children(self.down.clone().map(|label| div().flex_none().font_weight(FontWeight::NORMAL).text_color(WAITING_TEXT).child(label))),
+            )
+            .child(div().flex_1())
+            .child(ui::kbd("esc"))
+    }
+}
+
 impl Desktop {
     fn delegated_parent(&self, agent: &str) -> Option<&Summary> {
         parent_of(&self.agents.list, agent)
@@ -57,71 +128,45 @@ impl Desktop {
         Some((parent.provider.clone(), by_label(provider_name(&parent.provider), at, &Local)))
     }
 
-    /// `‹ <chat> / <session>` over the top of a delegated session's chat, which fades out beneath it; Back is the chat that delegated it.
-    pub(crate) fn delegated_crumb(&self, agent: &str, cx: &mut Context<Self>) -> Option<Div> {
-        let parent = self.crumb_parent(agent)?;
-        let child = self.agents.get(agent)?;
-        let to = parent.id.clone();
-        let down = self
-            .agents
-            .delegations
-            .of(&parent.id)
-            .iter()
-            .find(|d| d.child_id == agent)
-            .and_then(|d| super::unreachable_host(d, &self.fleet.hosts.list, &self.fleet.hosts.links));
-        let solid: Hsla = if is_dark() { window_fill() } else { SURFACE_SUNKEN.into() };
-        let back = div()
-            .id("delegated-back")
-            .h(px(28.))
-            .pl(px(6.))
-            .pr(px(9.))
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .flex_shrink(1.)
-            .min_w_0()
-            .rounded(px(8.))
-            .text_size(px(13.))
-            .text_color(TEXT_3)
-            .cursor_pointer()
-            .hover(|s| s.bg(FILL_3).text_color(TEXT))
-            .on_click(cx.listener(move |this, _, window, cx| this.delegated_open(&to, window, cx)))
-            .child(icon("back", 14., TEXT_3))
-            .child(div().min_w_0().truncate().child(status::title(parent)));
-        Some(
-            div()
-                .absolute()
-                .top_0()
-                .left_0()
-                .right_0()
-                .h(px(CRUMB_H))
-                .px(px(14.))
-                .bg(linear_gradient(180., linear_color_stop(solid, 0.55), linear_color_stop(solid.opacity(0.), 1.)))
-                .block_mouse_except_scroll()
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .child(back)
-                .child(div().text_size(px(13.)).text_color(TEXT_6).child("/"))
-                .child(
-                    div()
-                        .min_w_0()
-                        .px(px(6.))
-                        .flex()
-                        .items_center()
-                        .gap(px(7.))
-                        .text_size(px(13.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(TEXT)
-                        .child(provider_icon(&child.provider, 13., TEXT))
-                        .child(div().min_w_0().truncate().child(status::title(child)))
-                        .children(
-                            down.map(|host| div().flex_none().font_weight(FontWeight::NORMAL).text_color(WAITING_TEXT).child(super::unreachable_label(&host))),
-                        ),
-                )
-                .child(div().flex_1())
-                .child(ui::kbd("esc")),
-        )
+    /// The breadcrumb over a delegated session's chat, handed what it says; none while `agent` isn't one.
+    pub(crate) fn delegated_crumb(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<Entity<Crumb>> {
+        let look = self.crumb_parent(agent).zip(self.agents.get(agent)).map(|(parent, child)| {
+            let down = self
+                .agents
+                .delegations
+                .of(&parent.id)
+                .iter()
+                .find(|d| d.child_id == agent)
+                .and_then(|d| super::unreachable_host(d, &self.fleet.hosts.list, &self.fleet.hosts.links));
+            Crumb {
+                parent: parent.id.clone(),
+                parent_title: status::title(parent),
+                provider: child.provider.clone(),
+                title: status::title(child),
+                down: down.map(|host| super::unreachable_label(&host)),
+            }
+        });
+        let Some(look) = look else {
+            self.delegated.crumbs.remove(agent);
+            return None;
+        };
+        let view = match self.delegated.crumbs.get(agent) {
+            Some(slot) => slot.view.clone(),
+            None => {
+                let view = cx.new(|_| look.clone());
+                let sub = cx.subscribe_in(&view, window, |this, _, ev: &CrumbEvent, window, cx| match ev {
+                    CrumbEvent::Back(parent) => this.delegated_open(parent, window, cx),
+                });
+                self.delegated.crumbs.insert(agent.to_string(), super::Slot { view: view.clone(), _sub: sub });
+                view
+            }
+        };
+        view.update(cx, |c, _| *c = look);
+        Some(view)
+    }
+
+    pub(crate) fn delegated_forget(&mut self, agent: &str) {
+        self.delegated.crumbs.remove(agent);
     }
 
     pub(crate) fn delegated_back(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {

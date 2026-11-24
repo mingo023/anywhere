@@ -188,6 +188,7 @@ impl Desktop {
         self.chats.composer.update(cx, |c, cx| c.close_draft(agent, window, cx));
         self.chats.transcripts.remove(agent);
         self.chats.view_subs.remove(agent);
+        self.delegated_forget(agent);
         let unsent = self.chats.views.remove(agent).map(|v| v.update(cx, |v, _| v.drain_unsent())).unwrap_or_default();
         self.chat_prune_dock(cx);
         if let Some((message, text)) = unsent_notice(who, unsent, typed) {
@@ -222,7 +223,7 @@ impl Desktop {
             Some(agent) => self.arriving(agent, crate::creating::DOCK, composer, window, cx),
             None => composer,
         };
-        let crumb = agent.as_ref().and_then(|agent| self.delegated_crumb(agent, cx));
+        let crumb = agent.as_ref().and_then(|agent| self.delegated_crumb(agent, window, cx));
         let panel = agent.as_ref().and_then(|agent| self.delegated_panel(agent, window, cx));
         let pushed = agent.as_ref().and_then(|agent| self.delegated_pushed(agent, window, cx));
         let dock = agent.as_ref().and_then(|agent| self.chat_dock(agent, cx));
@@ -375,7 +376,7 @@ impl Desktop {
             return None;
         }
         let transcript = region::cached(&self.chats.transcripts.get(from)?.1, StyleRefinement::default().flex_1().min_h_0());
-        let crumb = self.delegated_crumb(from, cx);
+        let crumb = self.delegated_crumb(from, window, cx);
         let panel = self.delegated_panel(from, window, cx);
         Some(
             div()

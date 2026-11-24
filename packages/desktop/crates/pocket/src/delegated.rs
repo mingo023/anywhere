@@ -19,14 +19,16 @@ use hosts::Host;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-struct Slot {
-    view: Entity<panel::PanelView>,
+struct Slot<V> {
+    view: Entity<V>,
     _sub: Subscription,
 }
 
 pub(crate) struct DelegatedState {
     /// Each delegating chat's panel, by agent id.
-    panels: HashMap<String, Slot>,
+    panels: HashMap<String, Slot<panel::PanelView>>,
+    /// Each delegated session's breadcrumb, by agent id.
+    crumbs: HashMap<String, Slot<child_view::Crumb>>,
     /// The chats whose delegations were asked for on this connection.
     asked: HashSet<String>,
     /// Tasks the user cleared from a panel: pocketd lists them again after a reconnect, and they stay hidden.
@@ -41,7 +43,15 @@ pub(crate) struct DelegatedState {
 
 impl DelegatedState {
     pub(crate) fn new() -> Self {
-        Self { panels: HashMap::new(), asked: HashSet::new(), cleared: HashSet::new(), viewing: HashMap::new(), push: None, clock: None }
+        Self {
+            panels: HashMap::new(),
+            crumbs: HashMap::new(),
+            asked: HashSet::new(),
+            cleared: HashSet::new(),
+            viewing: HashMap::new(),
+            push: None,
+            clock: None,
+        }
     }
 
     fn clear_settled(&mut self, list: &[Delegation]) {
