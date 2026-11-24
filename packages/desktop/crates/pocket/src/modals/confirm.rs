@@ -104,8 +104,16 @@ impl ConfirmText {
     }
 
     fn quit(unsaved: usize) -> Self {
+        Self::unsaved("Quit", unsaved)
+    }
+
+    fn relaunch(unsaved: usize) -> Self {
+        Self::unsaved("Restart", unsaved)
+    }
+
+    fn unsaved(action: &'static str, unsaved: usize) -> Self {
         let files = if unsaved == 1 { "1 file has".to_string() } else { format!("{unsaved} files have") };
-        Self { title: "Quit without saving?".into(), action: "Quit", facts: vec![format!("{files} unsaved edits")], dirty: 0, lost: 0, danger: true }
+        Self { title: format!("{action} without saving?"), action, facts: vec![format!("{files} unsaved edits")], dirty: 0, lost: 0, danger: true }
     }
 
     fn open_external(url: &str) -> Self {
@@ -221,6 +229,7 @@ impl Desktop {
             Some(Confirm::CloseTerminals { ids, busy, worktree }) => ConfirmText::close_terminals(busy, worktree, ids.len()),
             Some(Confirm::CloseFile(path)) => ConfirmText::close_file(path),
             Some(Confirm::Quit(n)) => ConfirmText::quit(*n),
+            Some(Confirm::Relaunch(n)) => ConfirmText::relaunch(*n),
             Some(Confirm::OpenExternal(url)) => ConfirmText::open_external(url),
             Some(Confirm::DeleteAutomation(id)) => ConfirmText::delete_automation(self.agents.automations.items.iter().find(|a| &a.id == id).map_or("this automation", |a| a.name.as_str())),
             Some(Confirm::DeleteTicket(id)) => ConfirmText::delete_ticket(&self.delete_ticket_title(id)),
@@ -330,6 +339,7 @@ impl Desktop {
             Some(Confirm::CloseTerminals { ids, .. }) => ids.iter().for_each(|id| self.close_pane(id, cx)),
             Some(Confirm::CloseFile(path)) => self.save_file(path, true, cx),
             Some(Confirm::Quit(_)) => cx.quit(),
+            Some(Confirm::Relaunch(_)) => cx.restart(),
             Some(Confirm::OpenExternal(url)) => cx.open_url(&url),
             Some(Confirm::DeleteAutomation(id)) => self.delete_automation(&id),
             Some(Confirm::DeleteTicket(id)) => self.delete_ticket(&id),
@@ -499,6 +509,12 @@ mod tests {
     fn quitting_with_unsaved_edits_counts_the_files() {
         assert_eq!(ConfirmText::quit(1).detail(), Some("1 file has unsaved edits.".into()));
         assert_eq!(ConfirmText::quit(3).detail(), Some("3 files have unsaved edits.".into()));
+    }
+
+    #[test]
+    fn restarting_onto_an_update_with_unsaved_edits_asks_like_quitting() {
+        let got = ConfirmText::relaunch(2);
+        assert_eq!((got.title.as_ref(), got.action, got.detail(), got.danger), ("Restart without saving?", "Restart", Some("2 files have unsaved edits.".into()), true));
     }
 
     #[test]

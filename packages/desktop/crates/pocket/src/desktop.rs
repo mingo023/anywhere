@@ -628,7 +628,8 @@ impl Desktop {
             if replaced.await {
                 this.update(cx, |d, cx| {
                     if !d.relaunch(cx) {
-                        d.error = Some("Save or discard your unsaved edits, then restart Anywhere onto its update.".into());
+                        d.confirm = Some(Confirm::Relaunch(d.preview.drafts.len()));
+                        d.overlay = Some(Overlay::Confirm);
                         cx.notify();
                     }
                 })
