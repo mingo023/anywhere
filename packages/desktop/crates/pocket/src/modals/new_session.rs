@@ -164,7 +164,12 @@ impl Draft {
 
     /// A pull request always gets its own worktree; the checkout picked returns once it is unlinked.
     fn in_worktree(&self) -> bool {
-        self.picked_checkout == Target::Worktree || !self.locals_offered || matches!(self.source, Source::Pr(_))
+        self.picked_checkout == Target::Worktree || !self.locals_here() || matches!(self.source, Source::Pr(_))
+    }
+
+    /// Only this Mac's pocketd keeps Locals, so a project on a host has none.
+    fn locals_here(&self) -> bool {
+        self.locals_offered && self.repo.as_deref().is_none_or(|r| hosts::split(r).0.is_none())
     }
 
     fn link_pr(&mut self, typed: &str) {
@@ -188,7 +193,7 @@ impl Draft {
     }
 
     fn targets(&self) -> Vec<Target> {
-        [Some(Target::Worktree), self.locals_offered.then_some(Target::NewLocal)].into_iter().flatten().collect()
+        [Some(Target::Worktree), self.locals_here().then_some(Target::NewLocal)].into_iter().flatten().collect()
     }
 
     fn pick_checkout(&mut self, target: Target) {
@@ -260,9 +265,10 @@ impl Draft {
         pick.spec(project, checkout, prompt.trim())
     }
 
-    /// Reopening the page clears its error row, so a failure that arrives while it is gone goes to the window's error line.
+    /// Reopening the page clears its error row, so a failure that arrives while it is gone goes to the window's error line; either way it frees the page for the next start.
     fn failed(&mut self, request: &str, message: String, detail: String, open: bool) -> Option<String> {
-        if open && self.reply.answer(request, Some((message.clone(), detail))) {
+        let shown = open.then(|| (message.clone(), detail));
+        if self.reply.answer(request, shown) && open {
             return None;
         }
         Some(message)
