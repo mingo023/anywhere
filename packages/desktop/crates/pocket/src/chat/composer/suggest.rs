@@ -1,3 +1,4 @@
+use super::{ChatBoxEvent, ComposerState};
 use crate::chat::locate::touched;
 use crate::composer::model_menu::{PAD, ROW, row, rows};
 use crate::desktop::Desktop;
@@ -464,15 +465,6 @@ impl Desktop {
         self.suggest_state(p, cx).shown(key.as_deref(), &self.suggest_input(p, cx).read(cx).value())
     }
 
-    fn suggest_move(&mut self, p: Prompt, down: bool, cx: &mut Context<Self>) -> bool {
-        let Some(total) = self.suggestions(p, cx).map(|l| l.rows.len()) else { return false };
-        if total > 0 {
-            self.with_suggest(p, cx, |s| s.step(down, total));
-            cx.notify();
-        }
-        true
-    }
-
     /// Puts the picked row in the draft: a command's name, ready for its argument, a file's path, or a server's tag.
     /// A command the desktop runs itself runs at once, but `/compact`, which can't be undone and may take instructions;
     /// `/mcp` gives way to a tag, which lists the servers. A server the agent can't use now can't be picked.
@@ -572,41 +564,6 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Takes the list's keys while it shows, before the input's own bindings do.
-    pub(crate) fn suggest_keys(&self, p: Prompt, d: Div, cx: &mut Context<Self>) -> Div {
-        let stop = |cx: &mut Context<Self>, taken: bool| {
-            if taken {
-                cx.stop_propagation();
-            }
-        };
-        d.capture_action(cx.listener(move |this, _: &MoveUp, _, cx| {
-            let taken = this.suggest_move(p, false, cx);
-            stop(cx, taken);
-        }))
-        .capture_action(cx.listener(move |this, _: &MoveDown, _, cx| {
-            let taken = this.suggest_move(p, true, cx);
-            stop(cx, taken);
-        }))
-        .capture_action(cx.listener(move |this, _: &IndentInline, window, cx| {
-            let selected = this.suggest_state(p, cx).selected;
-            let taken = this.suggest_pick(p, selected, window, cx);
-            stop(cx, taken);
-        }))
-        .capture_action(cx.listener(move |this, e: &Enter, window, cx| {
-            let selected = this.suggest_state(p, cx).selected;
-            let taken = !e.secondary && !e.shift && this.suggest_pick(p, selected, window, cx);
-            stop(cx, taken);
-        }))
-        .capture_action(cx.listener(move |this, _: &Escape, _, cx| {
-            let taken = this.suggestions(p, cx).is_some();
-            if taken {
-                this.with_suggest(p, cx, |s| s.list = None);
-                cx.notify();
-            }
-            stop(cx, taken);
-        }))
-    }
-
     /// The chat's list.
     pub(crate) fn suggest_list(&self, cx: &mut Context<Self>) -> Option<Div> {
         let p = Prompt::Chat;
@@ -627,6 +584,80 @@ impl Desktop {
                 cx.notify();
             }),
         ))
+    }
+}
+
+impl ComposerState {
+    /// The agent the list was worked out for, while `listed` says it still is, and the draft the input holds.
+    fn suggesting(&self, listed: bool, cx: &App) -> (Option<String>, String) {
+        (self.owner().filter(|_| listed).map(String::from), self.input.read(cx).value().to_string())
+    }
+
+    /// The row Tab or Enter picks while the list shows; a server the agent can't use now can't be picked.
+    fn take_pick(&self, listed: bool, cx: &App) -> Option<usize> {
+        let (key, text) = self.suggesting(listed, cx);
+        let ix = self.suggest.chosen(key.as_deref(), &text)?;
+        match &self.suggest.shown(key.as_deref(), &text)?.rows {
+            Rows::Servers { pickable, .. } if ix >= *pickable => None,
+            _ => Some(ix),
+        }
+    }
+
+    /// Moves the selection a row while the list shows, and says whether it did.
+    fn walk_list(&mut self, listed: bool, down: bool, cx: &mut Context<Self>) -> bool {
+        let (key, text) = self.suggesting(listed, cx);
+        let taken = self.suggest.walk(key.as_deref(), &text, down);
+        if taken {
+            cx.notify();
+        }
+        taken
+    }
+
+    /// Asks `Desktop` to pick the chosen row while the list shows, and says whether it did.
+    fn pick_chosen(&mut self, listed: bool, cx: &mut Context<Self>) -> bool {
+        let ix = self.take_pick(listed, cx);
+        if let Some(ix) = ix {
+            cx.emit(ChatBoxEvent::Pick(ix));
+        }
+        ix.is_some()
+    }
+
+    fn dismiss_list(&mut self, listed: bool, cx: &mut Context<Self>) -> bool {
+        let (key, text) = self.suggesting(listed, cx);
+        let taken = self.suggest.dismiss(key.as_deref(), &text);
+        if taken {
+            cx.notify();
+        }
+        taken
+    }
+
+    /// Takes the list's keys while it shows, before the input's own bindings do; `listed` is whether the input's chat is a listed agent's.
+    pub(crate) fn suggest_keys(&self, listed: bool, d: Div, cx: &mut Context<Self>) -> Div {
+        let stop = |cx: &mut Context<Self>, taken: bool| {
+            if taken {
+                cx.stop_propagation();
+            }
+        };
+        d.capture_action(cx.listener(move |this, _: &MoveUp, _, cx| {
+            let taken = this.walk_list(listed, false, cx);
+            stop(cx, taken);
+        }))
+        .capture_action(cx.listener(move |this, _: &MoveDown, _, cx| {
+            let taken = this.walk_list(listed, true, cx);
+            stop(cx, taken);
+        }))
+        .capture_action(cx.listener(move |this, _: &IndentInline, _, cx| {
+            let taken = this.pick_chosen(listed, cx);
+            stop(cx, taken);
+        }))
+        .capture_action(cx.listener(move |this, e: &Enter, _, cx| {
+            let taken = !e.secondary && !e.shift && this.pick_chosen(listed, cx);
+            stop(cx, taken);
+        }))
+        .capture_action(cx.listener(move |this, _: &Escape, _, cx| {
+            let taken = this.dismiss_list(listed, cx);
+            stop(cx, taken);
+        }))
     }
 }
 

@@ -204,6 +204,8 @@ pub(crate) enum ChatBoxEvent {
         agent: String,
         command: Command,
     },
+    /// The suggestion list took Tab or Enter: this row is picked.
+    Pick(usize),
     Link {
         agent: String,
         link: String,
@@ -405,6 +407,128 @@ pub(crate) fn frame_on(base: Div, typing: bool) -> Div {
         .text_color(TEXT)
 }
 
+/// What `Desktop` hands the composer to draw one chat's box: what it reads from what it owns.
+pub(crate) struct Frame {
+    terminal: String,
+    agent: Summary,
+    /// The agent's name, for a permission card.
+    name: String,
+    mode: Mode,
+    ask: Option<(Ask, bool)>,
+    /// Whether this chat is the focused pane's.
+    focused: bool,
+    caps: chat::Capabilities,
+    busy: bool,
+    stopping: bool,
+    /// The prompt box's, built only while the box shows.
+    face: Option<prompt_box::Face>,
+    tray: Option<queue::Tray>,
+    transcript: Option<std::sync::Arc<chat::Transcript>>,
+    map: Option<AnyElement>,
+    chip: Option<account_chip::Chip>,
+    /// What stands in for the footer's hint while it shows: a glyph and its text.
+    said: Option<(&'static str, String)>,
+    /// The footer's branch, drawn by `Desktop`, which owns what a branch's name animates from.
+    branch: Option<Div>,
+}
+
+impl ComposerState {
+    /// One chat's composer: the prompt box, or the agent's open ask in its place, over where the agent works and what Enter does.
+    pub(crate) fn view(&mut self, frame: Frame, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        let Frame { terminal, agent, name, mode, ask, focused, caps, busy, stopping, face, tray, transcript, map, chip, said, branch } = frame;
+        let agent = &agent;
+        let dock = div().flex_none().flex().justify_center().px(px(32.)).pb(px(16.));
+        let input = self.input.read(cx).focus_handle(cx);
+        let handoff = match mode {
+            _ if !focused => None,
+            Mode::Prompt => {
+                let mut from = vec![self.ask_focus.clone(), self.answer.read(cx).focus_handle(cx)];
+                // The search or the effort slider takes the keys while the model panel is open; closing it would leave them nowhere.
+                if self.draft.menu != Some(Menu::Model) {
+                    from.push(self.search.read(cx).focus_handle(cx));
+                    from.extend(self.draft.slider.borrow().focus.clone());
+                }
+                Some(hand_focus(from, input))
+            }
+            Mode::Permission { answerable: true } | Mode::Question { answerable: true } => Some(hand_focus(vec![input], self.ask_focus.clone())),
+            _ => None,
+        };
+        let can_queue = caps.send_while_working;
+        let placeholder = placeholder(busy, stopping, can_queue);
+        if self.placeholder.replace(placeholder) != placeholder {
+            self.input.update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
+        }
+        let body = match (mode, ask, face) {
+            (Mode::Permission { answerable }, Some((ask, feedback)), _) => {
+                let card = self.permission_card(&agent.id, &name, &ask, feedback, answerable, cx);
+                fade_in(id(format!("chat-ask:{}", ask.request_id)), card).into_any_element()
+            }
+            (Mode::Question { answerable }, Some((ask, _)), _) => {
+                let request = ask.request_id.clone();
+                let asked = Rc::new(question::Asked { agent: agent.id.clone(), cwd: agent.cwd.clone(), ask });
+                let panel = self.question_panel(&asked, answerable, cx);
+                fade_in(id(format!("chat-ask:{request}")), panel).into_any_element()
+            }
+            (_, _, Some(face)) => self.prompt_box(agent, face, window, cx).into_any_element(),
+            (_, _, None) => div().into_any_element(),
+        };
+        let tray = tray.and_then(|t| self.queue_tray(&t, cx));
+        let tray = tray.map(|t| fade_in(id(format!("chat-queue:{terminal}")), t));
+        let stop = |tasks: &[&chat::ToolCall]| mode == Mode::Prompt && background::stops(agent.chat_only, caps.interrupt, busy, tasks);
+        let background =
+            matches!(mode, Mode::Prompt | Mode::ViewOnly).then(|| transcript.as_ref().and_then(|t| self.background_tray(&agent.id, t, stop, cx))).flatten();
+        let background = background.map(|t| fade_in(id(format!("chat-background-in:{terminal}")), t));
+        let btw = matches!(mode, Mode::Prompt).then(|| self.btw_card(&agent.id, cx)).flatten();
+        let (typed, draft) = self.draft_of(&agent.id, cx);
+        let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
+        let asking = matches!(mode, Mode::Permission { .. } | Mode::Question { .. });
+        let account = chip.map(|chip| self.account_chip(&chip, cx));
+        let footer = footer(branch, account, hint(mode, busy, stopping, empty, can_queue), said, asking);
+        let column = div()
+            .w_full()
+            .max_w(px(MAX_WIDTH))
+            .flex()
+            .flex_col()
+            .children(map)
+            .children(btw)
+            .children(background)
+            .children(tray)
+            .child(body)
+            .child(footer)
+            .children(handoff);
+        dock.child(column)
+    }
+}
+
+/// The agent's branch and account, then `hint`, amber while the agent asks; `said` stands in for the hint while it shows.
+fn footer(branch: Option<Div>, account: Option<Div>, hint: Option<&'static str>, said: Option<(&'static str, String)>, asking: bool) -> Div {
+    div()
+        .min_w_0()
+        .pt(px(8.))
+        .px(px(8.))
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .text_size(px(12.))
+        .text_color(TEXT_3)
+        .children(branch)
+        .children(account)
+        .child(div().flex_1())
+        .children(match said {
+            Some((glyph, said)) => Some(
+                div()
+                    .min_w_0()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .text_color(TEXT_2)
+                    .child(icon(glyph, 13., TEXT_3))
+                    .child(div().min_w_0().truncate().child(said)),
+            ),
+            None => hint.map(|h| div().flex_none().whitespace_nowrap().text_color(if asking { WAITING_TEXT } else { TEXT_4 }).child(h)),
+        })
+}
+
 /// Laid over a whole conversation so files dropped anywhere on it reach its prompt; dashed in while they hover.
 pub(crate) fn drop_zone(on_drop: impl Fn(&ExternalPaths, &mut Window, &mut App) + 'static) -> Div {
     div()
@@ -547,6 +671,7 @@ impl Desktop {
                 cx.notify();
             }
             ChatBoxEvent::Command { agent, command } => self.chat_command(agent, command.clone(), cx),
+            ChatBoxEvent::Pick(ix) => _ = self.suggest_pick(suggest::Prompt::Chat, *ix, window, cx),
             ChatBoxEvent::Link { agent, link, cwd, press } => self.chat_link(agent, link, cwd, *press, window, cx),
         }
         cx.notify();
@@ -891,103 +1016,30 @@ impl Desktop {
     /// `terminal`'s chat composer: the prompt box, or the agent's open ask in its place, over where the agent works and what Enter does.
     pub(crate) fn chat_composer(&self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let Some(agent) = self.summary(terminal) else { return div() };
-        let dock = div().flex_none().flex().justify_center().px(px(32.)).pb(px(16.));
         let ask = self.chat_ask(terminal);
         let mark = self.handoff_mark(&agent.id, cx);
         let mode = self.chat_mode(terminal, cx);
-        let composer = self.chats.composer.clone();
-        let c = composer.read(cx);
-        let input = self.chats.input.read(cx).focus_handle(cx);
-        let handoff = match mode {
-            _ if self.focused_chat().as_deref() != Some(terminal) => None,
-            Mode::Prompt => {
-                let mut from = vec![c.ask_focus.clone(), c.answer.read(cx).focus_handle(cx)];
-                // The search or the effort slider takes the keys while the model panel is open; closing it would leave them nowhere.
-                if c.draft.menu != Some(Menu::Model) {
-                    from.push(c.search.read(cx).focus_handle(cx));
-                    from.extend(c.draft.slider.borrow().focus.clone());
-                }
-                Some(hand_focus(from, input))
-            }
-            Mode::Permission { answerable: true } | Mode::Question { answerable: true } => Some(hand_focus(vec![input], c.ask_focus.clone())),
-            _ => None,
-        };
-        let can_queue = self.chat_caps(&agent.provider).send_while_working;
         let (busy, stopping) = (self.chat_busy(agent, cx), self.chat_stopping(agent, cx));
-        let placeholder = placeholder(busy, stopping, can_queue);
-        if c.placeholder.replace(placeholder) != placeholder {
-            self.chats.input.update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
-        }
-        let body = match (mode, ask) {
-            (Mode::Permission { answerable }, Some((ask, feedback))) => {
-                let name = self.agent_name(&agent.provider);
-                let card = composer.update(cx, |c, cx| c.permission_card(&agent.id, &name, &ask, feedback, answerable, cx));
-                fade_in(id(format!("chat-ask:{}", ask.request_id)), card).into_any_element()
-            }
-            (Mode::Question { answerable }, Some((ask, _))) => {
-                let request = ask.request_id.clone();
-                let asked = Rc::new(question::Asked { agent: agent.id.clone(), cwd: agent.cwd.clone(), ask });
-                let panel = composer.update(cx, |c, cx| c.question_panel(&asked, answerable, cx));
-                fade_in(id(format!("chat-ask:{request}")), panel).into_any_element()
-            }
-            _ => {
-                let locked = (mode == Mode::ViewOnly).then_some(mark.as_ref().map_or("View only", crate::handoff::Mark::composer));
-                let face = self.prompt_face(terminal, agent, locked, cx);
-                composer.update(cx, |c, cx| c.prompt_box(agent, face, window, cx)).into_any_element()
-            }
-        };
+        let composer = self.chats.composer.clone();
+        let asked = matches!((mode, &ask), (Mode::Permission { .. } | Mode::Question { .. }, Some(_)));
+        let face = (!asked).then(|| {
+            let locked = (mode == Mode::ViewOnly).then_some(mark.as_ref().map_or("View only", crate::handoff::Mark::composer));
+            self.prompt_face(terminal, agent, locked, cx)
+        });
         let held = self.chats.views.get(&agent.id).map(|v| {
             let s = v.read(cx).session();
             (s.outgoing.list().to_vec(), s.outgoing.paused(&s.transcript), s.transcript.clone())
         });
         let (pending, paused) = held.as_ref().map_or((&[][..], false), |(pending, paused, _)| (pending.as_slice(), *paused));
-        let transcript = held.as_ref().map(|(_, _, t)| t);
         let tray = (mode == Mode::Prompt).then(|| self.queue_of(&agent.id, pending, paused));
-        let tray = tray.and_then(|t| composer.update(cx, |c, cx| c.queue_tray(&t, cx)));
-        let tray = tray.map(|t| fade_in(id(format!("chat-queue:{terminal}")), t));
-        let interrupt = self.chat_caps(&agent.provider).interrupt;
-        let stop = |tasks: &[&chat::ToolCall]| mode == Mode::Prompt && background::stops(agent.chat_only, interrupt, busy, tasks);
-        let background = matches!(mode, Mode::Prompt | Mode::ViewOnly)
-            .then(|| transcript.and_then(|t| composer.update(cx, |c, cx| c.background_tray(&agent.id, t, stop, cx))))
-            .flatten();
-        let background = background.map(|t| fade_in(id(format!("chat-background-in:{terminal}")), t));
+        let transcript = held.map(|(_, _, t)| t);
         let tools = self.chats.views.get(&agent.id).map(|v| v.read(cx).tools());
-        let map = transcript.zip(tools).and_then(|(t, tools)| self.chats.map.update(cx, |m, cx| m.view(agent, t, &tools, cx)));
-        let btw = matches!(mode, Mode::Prompt).then(|| composer.update(cx, |c, cx| c.btw_card(&agent.id, cx))).flatten();
-        let (typed, draft) = self.chat_draft(&agent.id, cx);
-        let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
-        let asking = matches!(mode, Mode::Permission { .. } | Mode::Question { .. });
-        let notice = self.explorer.read(cx).notice.as_ref().map(|(n, _)| n.clone());
-        let said = said_in_chat(notice.as_ref(), &agent.id);
+        let map = transcript.as_ref().zip(tools).and_then(|(t, tools)| self.chats.map.update(cx, |m, cx| m.view(agent, t, &tools, cx)));
         let open = matches!(composer.read(cx).draft.menu, Some(Menu::Usage { .. } | Menu::Switch));
-        let account = (mode != Mode::ViewOnly).then(|| self.chat_account_chip(agent, open)).flatten();
-        let account = account.map(|chip| composer.update(cx, |c, cx| c.account_chip(&chip, cx)));
-        let footer = self.composer_footer(agent, account, hint(mode, busy, stopping, empty, can_queue), said, asking, cx.reduce_motion());
-        let column = div()
-            .w_full()
-            .max_w(px(MAX_WIDTH))
-            .flex()
-            .flex_col()
-            .children(map)
-            .children(btw)
-            .children(background)
-            .children(tray)
-            .child(body)
-            .child(footer)
-            .children(handoff);
-        dock.child(column)
-    }
-
-    /// The agent's branch and `account`, then `hint`, amber while the agent asks; `said` stands in for the hint while it shows.
-    fn composer_footer(
-        &self,
-        agent: &Summary,
-        account: Option<Div>,
-        hint: Option<&'static str>,
-        said: Option<(&'static str, &str)>,
-        asking: bool,
-        reduce_motion: bool,
-    ) -> Div {
+        let chip = (mode != Mode::ViewOnly).then(|| self.chat_account_chip(agent, open)).flatten();
+        let notice = self.explorer.read(cx).notice.as_ref().map(|(n, _)| n.clone());
+        let said = said_in_chat(notice.as_ref(), &agent.id).map(|(glyph, said)| (glyph, said.to_string()));
+        let reduce_motion = cx.reduce_motion();
         let branch = self.worktree_of(&agent.cwd).filter(|t| !t.branch.is_empty()).map(|t| {
             div().min_w_0().flex().items_center().gap(px(6.)).child(icon("worktree", 13., TEXT_3)).child(
                 div().min_w_0().truncate().font_family(code_font()).text_size(px(11.5)).text_color(TEXT_2).child(renames::branch_label(
@@ -1000,31 +1052,25 @@ impl Desktop {
                 )),
             )
         });
-        div()
-            .min_w_0()
-            .pt(px(8.))
-            .px(px(8.))
-            .flex()
-            .items_center()
-            .gap(px(10.))
-            .text_size(px(12.))
-            .text_color(TEXT_3)
-            .children(branch)
-            .children(account)
-            .child(div().flex_1())
-            .children(match said {
-                Some((glyph, said)) => Some(
-                    div()
-                        .min_w_0()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .text_color(TEXT_2)
-                        .child(icon(glyph, 13., TEXT_3))
-                        .child(div().min_w_0().truncate().child(said.to_string())),
-                ),
-                None => hint.map(|h| div().flex_none().whitespace_nowrap().text_color(if asking { WAITING_TEXT } else { TEXT_4 }).child(h)),
-            })
+        let frame = Frame {
+            terminal: terminal.to_string(),
+            agent: agent.clone(),
+            name: self.agent_name(&agent.provider),
+            mode,
+            ask,
+            focused: self.focused_chat().as_deref() == Some(terminal),
+            caps: self.chat_caps(&agent.provider),
+            busy,
+            stopping,
+            face,
+            tray,
+            transcript,
+            map,
+            chip,
+            said,
+            branch,
+        };
+        composer.update(cx, |c, cx| c.view(frame, window, cx))
     }
 
     /// Where files dropped on `terminal`'s chat go to its input, while its prompt box is the one shown and takes them.

@@ -1,6 +1,5 @@
 use super::access_pill::Shown;
 use super::model_pill::Pill;
-use super::suggest::Prompt;
 use super::{
     ChatBoxEvent, ComposerState, INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, MIN_ROWS, attachments, frame_on, marks_overlay, pointer_left, send_button, shows_button,
 };
@@ -27,8 +26,9 @@ pub(super) struct Face {
     pub(super) access: Option<Shown>,
     /// The chip that opens the sub-agent map.
     pub(super) map: Option<Stateful<Div>>,
-    /// The box with the suggestion keys bound on it, and the list they pick from.
-    pub(super) keys: Div,
+    /// Whether the input's chat is a listed agent's, for the suggestion keys.
+    pub(super) listed: bool,
+    /// The list the suggestion keys pick from.
     pub(super) suggestions: Option<Div>,
     /// Where a pasted image or long text is kept.
     pub(super) attachments: PathBuf,
@@ -49,7 +49,7 @@ impl Desktop {
             pill: self.chat_model(agent, view_only, &composer, cx),
             access: self.chat_access(agent, view_only),
             map,
-            keys: self.suggest_keys(Prompt::Chat, div(), cx),
+            listed: composer.read(cx).owner().is_some_and(|id| self.agents.get(id).is_some()),
             suggestions: (!view_only && held).then(|| self.suggest_list(cx)).flatten(),
             attachments: self.store.home().join("attachments"),
         }
@@ -58,7 +58,7 @@ impl Desktop {
 
 impl ComposerState {
     pub(super) fn prompt_box(&self, agent: &Summary, face: Face, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let Face { terminal, locked, busy, stopping, caps, pill, access, map, keys, suggestions, attachments: dir } = face;
+        let Face { terminal, locked, busy, stopping, caps, pill, access, map, listed, suggestions, attachments: dir } = face;
         let view_only = locked.is_some();
         let held = self.holds(&agent.id);
         let (typed, draft) = self.draft_of(&agent.id, cx);
@@ -127,7 +127,7 @@ impl ComposerState {
             .child(div().flex_1())
             .children(attach)
             .children(send);
-        crate::composer::rich::rich_keys(&self.input, frame_on(keys, typing), cx)
+        crate::composer::rich::rich_keys(&self.input, frame_on(self.suggest_keys(listed, div(), cx), typing), cx)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _: &MouseDownEvent, window, cx| {
