@@ -8,6 +8,10 @@ pub(crate) const STALE_AFTER: Duration = Duration::from_secs(15);
 pub(crate) const HAND_BACK: Duration = Duration::from_millis(700);
 pub(crate) const UPDATING: &str = "Anywhere's background service is updating; try again in a moment.";
 
+pub(crate) fn replaced(ours: &str, on_disk: Option<&str>) -> bool {
+    on_disk.is_some_and(|v| v != ours)
+}
+
 /// What the page tells the user once pocketd has been gone a while.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Hint {
@@ -108,6 +112,13 @@ impl Link {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_app_swapped_on_disk_for_another_build_is_replaced() {
+        assert!(replaced("0.1.60", Some("0.1.61")));
+        assert!(!replaced("0.1.61", Some("0.1.61")), "the app on disk is this build");
+        assert!(!replaced("0.1.60", None), "no readable bundle, as in a dev build run from target/");
+    }
 
     #[test]
     fn the_install_hint_waits_ten_seconds_from_the_first_down() {

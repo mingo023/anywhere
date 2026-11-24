@@ -59,6 +59,11 @@ pub fn register() -> Result<(), String> {
     service("install").map(|_| ())
 }
 
+/// No app bundle to swap off macOS.
+pub fn bundle_version() -> Option<String> {
+    None
+}
+
 /// Restarts the service; pocketd resumes its agents on the way back.
 pub fn restart() -> Result<(), String> {
     let label = channel::daemon_label();

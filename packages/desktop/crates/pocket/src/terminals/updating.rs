@@ -142,7 +142,7 @@ impl Desktop {
                     step(icon("warning", 14., WAITING_DOT), "Couldn't update the background service in place", TEXT_2),
                     note(div().flex().flex_col().gap(px(10.)).items_start())
                         .child(format!("It's still on {stale}. Restarting it interrupts open sessions, which then resume."))
-                        .child(ui::button("restart-service", Variant::Primary, None, "Restart service").on_click(cx.listener(|this, _, _, cx| this.restart_service(cx)))),
+                        .child(ui::button("restart-service", Variant::Primary, None, "Restart service").on_click(cx.listener(|this, _, _, cx| this.relaunch_or_restart_service(cx)))),
                 ],
             ),
             Update::Back(_) => ("Updating Anywhere", vec![installed, done("Background service updated")]),

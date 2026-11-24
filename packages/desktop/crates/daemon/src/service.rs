@@ -5,7 +5,7 @@
 mod bundled;
 
 #[cfg(not(target_os = "macos"))]
-pub use bundled::{open_at_login, open_login_items, register, restart, status};
+pub use bundled::{bundle_version, open_at_login, open_login_items, register, restart, status};
 #[cfg(windows)]
 pub use bundled::own_token;
 
@@ -102,9 +102,38 @@ pub fn open_login_items() {
     unsafe { objc2_service_management::SMAppService::openSystemSettingsLoginItems() }
 }
 
+/// The version of the app bundle on disk, read fresh: an update may have swapped another build in under the running app.
+/// Runs `plutil`; keep it off the UI thread.
+#[cfg(target_os = "macos")]
+pub fn bundle_version() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    plist_version(&exe.parent()?.parent()?.join("Info.plist"))
+}
+
+#[cfg(target_os = "macos")]
+fn plist_version(plist: &std::path::Path) -> Option<String> {
+    let out = crate::command("plutil").args(["-extract", "CFBundleShortVersionString", "raw", "-o", "-"]).arg(plist).output().ok()?;
+    let version = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    (out.status.success() && !version.is_empty()).then_some(version)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_bundle_version_is_read_from_the_info_plist_on_disk() {
+        let dir = std::env::temp_dir().join(format!("bundle-version-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let plist = dir.join("Info.plist");
+        std::fs::write(&plist, r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>0.1.61</string></dict></plist>"#).unwrap();
+        let read = plist_version(&plist);
+        let missing = plist_version(&dir.join("gone.plist"));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!((read.as_deref(), missing), (Some("0.1.61"), None));
+    }
 
     #[test]
     fn status_codes_map_to_service_states() {

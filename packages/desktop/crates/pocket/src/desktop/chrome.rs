@@ -80,6 +80,7 @@ pub enum Confirm {
     Paste { pane: String, text: String },
     CloseFile(String),
     Quit(usize),
+    Relaunch(usize),
     OpenExternal(String),
     DeleteAutomation(String),
     DeleteTicket(String),
