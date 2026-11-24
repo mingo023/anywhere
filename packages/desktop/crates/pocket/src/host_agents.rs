@@ -23,19 +23,10 @@ impl HostAgents {
 }
 
 impl Desktop {
-    /// Sends a connected host its projects and their settings, which its pocketd reads where the desktop isn't asked.
-    pub(crate) fn sync_host_registry(&self, id: &str, cx: &mut Context<Self>) {
-        if let Some(client) = hosts::remote::connected(id) {
-            let registry = self.store.host_registry(id);
-            cx.background_executor().spawn(async move { _ = client.sync_registry(&registry) }).detach();
-        }
-    }
-
-    /// Lists the host's agents beside this Mac's, and lists its projects where its pocketd looks for them.
+    /// Lists the host's agents beside this Mac's.
     pub(crate) fn open_host_agents(&mut self, id: &str, endpoint: &daemon::Endpoint, home: String, window: &mut Window, cx: &mut Context<Self>) {
         self.host_agents.homes.insert(id.into(), home);
         self.gh_accounts.reconnected(id);
-        self.sync_host_registry(id, cx);
         // Its channel rides out the link's drops on its own, as the terminals' does.
         if self.outbox.has(id) {
             return;
@@ -62,6 +53,7 @@ impl Desktop {
         self.host_agents.homes.remove(id);
         self.outbox.remove(id);
         self.agents.forget(id);
+        self.registry.forget(id);
         // Its leftovers wait for its next listing: until then nothing says who works in them.
         self.removals.host_dropped(id);
     }

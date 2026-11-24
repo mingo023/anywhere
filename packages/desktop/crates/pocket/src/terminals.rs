@@ -362,7 +362,7 @@ impl Desktop {
     /// Sends a create to the pocketd holding `spec`'s project; `None`, with the error shown, when that's a host that isn't connected.
     pub(crate) fn send_create(&mut self, mut spec: serde_json::Value) -> Option<String> {
         self.accounts.offer(&mut spec);
-        match self.outbox.create(spec, |h| self.store.host_registry(h)) {
+        match self.outbox.create(spec) {
             Ok(request) => Some(request),
             Err(host) => {
                 self.error = Some(format!("{} isn't connected", self.host_name(&host)));

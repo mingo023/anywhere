@@ -41,6 +41,10 @@ pub struct Summary {
     pub parent: String,
     /// `subagent` or `fork`, when `parent` is set.
     pub relationship: String,
+    /// The id of the project pocketd first placed it in; empty when it placed it in none.
+    pub project_id: String,
+    /// The worktree it runs in, or the project's folder when that's no repository.
+    pub tree: String,
 }
 
 /// An agent's `/goal`.
@@ -183,6 +187,12 @@ mod tests {
 
     fn summary(provider: &str, model: Option<&str>) -> Summary {
         Summary { provider: provider.into(), model: model.map(Into::into), ..Default::default() }
+    }
+
+    #[test]
+    fn a_summary_carries_the_project_pocketd_placed_it_in_and_its_tree() {
+        let a: Summary = serde_json::from_str(r#"{"id":"a1","projectId":"p1a2","tree":"/w/app/cute-boa"}"#).unwrap();
+        assert_eq!((a.project_id.as_str(), a.tree.as_str()), ("p1a2", "/w/app/cute-boa"));
     }
 
     #[test]

@@ -124,6 +124,10 @@ impl Desktop {
 
     /// An agent event from this Mac's pocketd, or from `host`'s already tagged; a host's hello says nothing of this Mac's pocketd.
     pub(crate) fn on_agents_from(&mut self, host: Option<&str>, ev: Event, window: &mut Window, cx: &mut Context<Self>) {
+        let ev = match ev {
+            Event::Registry(list) => return self.on_registry(host, list, cx),
+            ev => ev,
+        };
         let Some(ev) = self.on_agent_reply(ev, window, cx) else { return };
         if let Event::Host(host) = &ev
             && let Some(message) = upgrade_toast(self.agents.host.as_ref(), host)
@@ -163,6 +167,9 @@ impl Desktop {
             self.delegated_reconnected();
         }
         self.agents.apply_from(host, ev);
+        if connected {
+            self.registry_connected(host);
+        }
         if listed.is_some() {
             self.delegated_listed();
             self.remember_subtrees(cx);
@@ -228,7 +235,7 @@ impl Desktop {
             ev @ (Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_)) => self.on_pair(ev, cx),
             ev @ (Event::Hosts(_) | Event::HostUpdate { .. } | Event::HostProgress { .. } | Event::HostError { .. } | Event::HostDone(_)) => self.on_hosts(ev, window, cx),
             ev @ (Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. }) => self.on_launch(ev, window, cx),
-            Event::SettingsFailed(message) | Event::AutomationError(message) | Event::BoardError(message) => {
+            Event::SettingsFailed(message) | Event::AutomationError(message) | Event::BoardError(message) | Event::RegistryFailed(message) => {
                 self.error = Some(message);
                 cx.notify();
             }
@@ -293,7 +300,7 @@ impl Desktop {
     pub(crate) fn alert_place(&self, a: &Summary) -> String {
         let projects = self.projects();
         let Some(info) = self.terminals.sessions.get(&a.terminal_id).map(|s| &s.info) else { return String::new() };
-        match (self.project_of(&info.cwd, &projects), self.place_of(info)) {
+        match (self.agent_project(a, &info.cwd, &projects), self.place_of(info)) {
             (Some(project), Some(tree)) => format!("{} · {}", self.repo_name(project), self.place_name(&tree)),
             _ => String::new(),
         }

@@ -93,7 +93,7 @@ impl Desktop {
 
     /// The project `agent` works in, whose hidden agents its model panel leaves out.
     fn chat_project(&self, agent: &Summary) -> Option<String> {
-        self.project_of(&agent.cwd, &self.projects()).cloned()
+        self.agent_project(agent, &agent.cwd, &self.projects()).cloned()
     }
 
     /// The chat's model panel just opened on the agent with this `id`.

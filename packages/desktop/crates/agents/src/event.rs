@@ -1,9 +1,10 @@
 use crate::automations::{self, Automation, Run};
 use crate::delegations::Delegation;
 use crate::hosts;
-use crate::ids::{AUTO, BOARD, BTW, COMMANDS, CREATE, MCP, MCP_ACT, REMOTE_CONTROL, SETTINGS};
+use crate::ids::{AUTO, BOARD, BTW, COMMANDS, CREATE, MCP, MCP_ACT, REGISTRY, REMOTE_CONTROL, SETTINGS};
 use crate::locals::Local;
 use crate::providers::ProviderInfo;
+use crate::registry;
 use crate::queue::Entry;
 use crate::tickets::{self, Ticket};
 use crate::{Command, Item, McpServer, Permission, Summary};
@@ -104,6 +105,10 @@ pub enum Event {
     NamingFailed(String),
     /// Every Local the user added, sent whole.
     Locals(Vec<Local>),
+    /// The projects, tracked worktrees and shared settings the pocketd owns, sent whole.
+    Registry(registry::List),
+    /// pocketd refused a change to them; the list it sends next undoes it.
+    RegistryFailed(String),
     /// Every automation and run, sent whole.
     Automations { automations: Vec<Automation>, runs: Vec<Run> },
     /// pocketd refused an automation message.
@@ -178,6 +183,13 @@ pub(super) fn names_event(f: &Frame) -> Option<Event> {
         "error" if f.id.starts_with(MCP_ACT) => Some(Event::McpActFailed { agent: f.id[MCP_ACT.len()..].to_string(), reason: readable(&f.message) }),
         "error" => Some(Event::Commands { agent: f.id.strip_prefix(COMMANDS)?.to_string(), commands: Vec::new() }),
         _ => None,
+    }
+}
+
+pub(super) fn registry_event(f: &Frame, raw: &str) -> Option<Event> {
+    match f.kind.as_str() {
+        "error" if f.id.starts_with(REGISTRY) => Some(Event::RegistryFailed(readable(&f.message))),
+        kind => registry::decode(kind, raw).map(Event::Registry),
     }
 }
 
@@ -322,6 +334,14 @@ mod tests {
         let frame = serde_json::from_str::<Frame>(r#"{"type":"host.changed","host":{"tailnet":true,"keepingAwake":false,"upgradeFailed":"1.2.0"}}"#).unwrap();
         let Some(Event::Host(host)) = host_event(&frame) else { panic!("no host event") };
         assert_eq!(host.upgrade_failed, "1.2.0");
+    }
+
+    #[test]
+    fn registry_frames_become_registry_events() {
+        let ev = |raw: &str| registry_event(&serde_json::from_str::<Frame>(raw).unwrap(), raw);
+        assert!(matches!(ev(r#"{"type":"registry.list","projects":[{"id":"p1","path":"/app","repo":{}}],"tracked":[],"settings":{}}"#), Some(Event::Registry(l)) if l.projects[0].path == "/app"));
+        assert!(matches!(ev(r#"{"type":"error","id":"registry-3","code":"unknown_project","message":"No such project"}"#), Some(Event::RegistryFailed(m)) if m == "No such project"));
+        assert!(ev(r#"{"type":"error","id":"board-3","message":"Nope"}"#).is_none());
     }
 
     #[test]

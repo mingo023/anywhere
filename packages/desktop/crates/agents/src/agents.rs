@@ -10,6 +10,7 @@ pub mod tickets;
 pub mod locals;
 pub mod providers;
 pub mod queue;
+pub mod registry;
 
 mod ask;
 mod caps;
@@ -31,7 +32,7 @@ pub use outbox::{CreateReply, Decision, Outbox};
 pub use summary::{Goal, GoalStatus, Level, ListedModel, ModelSetting, Summary, level, model_label, model_name, percent};
 
 use automations::Automations;
-use caps::{ACCESS_CAP, AUTOMATIONS_CAP, BOARD_CAP, FORK_CAP, HOSTS_CAP, LOCALS_CAP, NAMES_CAP, OPEN_CAP, ORCHESTRATOR_CAP, PAIR_CAP, SETTINGS_CAP};
+use caps::{ACCESS_CAP, AUTOMATIONS_CAP, BOARD_CAP, FORK_CAP, HOSTS_CAP, LOCALS_CAP, NAMES_CAP, OPEN_CAP, ORCHESTRATOR_CAP, PAIR_CAP, REGISTRY_CAP, SETTINGS_CAP};
 use delegations::Delegations;
 use tickets::Board;
 use locals::Local;
@@ -66,6 +67,8 @@ pub struct Agents {
     pub queues: Queues,
     /// The pocketds that hold sessions' queues: this Mac's as "", a host's by its id.
     pub holders: HashSet<String>,
+    /// Whether each pocketd that said hello, this Mac's as "" and a host's by its id, takes registry changes.
+    pub registries: HashMap<String, bool>,
 }
 
 impl Agents {
@@ -112,6 +115,7 @@ impl Agents {
         self.timelines.retain(|id, _| id.split_once('/').map(|(h, _)| h) != Some(source));
         self.delegations.forget(source);
         self.queues.forget(source);
+        self.registries.remove(source);
     }
 
     /// Applies an event, already tagged, from this Mac's pocketd (`None`) or host `source`'s:
@@ -130,6 +134,7 @@ impl Agents {
                 self.pending.retain(|p| !mine(&p.request_id));
                 self.names.retain(|path, _| !my_name(path));
                 self.holds_queues(source, &caps);
+                self.says_registry(source, &caps);
             }
             Event::Agent(a) if a.status == "closed" => self.list.retain(|x| x.id != a.id),
             Event::Agent(a) => {
@@ -159,6 +164,7 @@ impl Agents {
                 self.host = None;
                 self.scopes = scopes;
                 self.holds_queues(source, &caps);
+                self.says_registry(source, &caps);
                 self.caps = caps;
                 self.version = version;
                 self.names.retain(|path, _| !my_name(path));
@@ -173,6 +179,7 @@ impl Agents {
                 self.names.extend(names);
             }
             Event::Locals(locals) => self.locals = locals,
+            Event::Registry(_) | Event::RegistryFailed(_) => {}
             Event::Automations { automations, runs } => self.automations.apply(automations, runs),
             Event::Board { tickets, limit } => self.board = Board { tickets, limit },
             Event::Delegations { agent, items } => self.delegations.replace(&agent, items),
@@ -304,6 +311,15 @@ impl Agents {
             self.holders.remove(key);
         }
         self.queues.reconnected(source);
+    }
+
+    fn says_registry(&mut self, source: Option<&str>, caps: &[String]) {
+        self.registries.insert(source.unwrap_or_default().to_string(), caps.iter().any(|c| c == REGISTRY_CAP));
+    }
+
+    /// Whether `host`'s pocketd (this Mac's for `None`) said hello without taking registry changes: it needs updating.
+    pub fn registry_outdated(&self, host: Option<&str>) -> bool {
+        self.registries.get(host.unwrap_or_default()) == Some(&false)
     }
 
     /// The pocketd holding `agent_id`'s session keeps its queue: a send while the agent works goes there, not held here.
@@ -654,6 +670,21 @@ mod tests {
         a.apply_from(Some("devbox"), Event::Agents(vec![agent("devbox/b2")]));
         a.forget("devbox");
         assert_eq!(a.list.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), ["a2"]);
+    }
+
+    #[test]
+    fn only_a_pocketd_that_said_hello_without_registry_v2_needs_updating() {
+        let hello = |caps: &[&str]| Event::Connected { scopes: vec!["owner".into()], caps: caps.iter().map(|c| c.to_string()).collect(), version: String::new() };
+        let mut a = Agents::default();
+        assert!(!a.registry_outdated(Some("devbox")), "a host not yet heard from isn't known to be old");
+        a.apply_from(Some("devbox"), hello(&["hosts.v1"]));
+        a.apply(hello(&[REGISTRY_CAP]));
+        assert!(a.registry_outdated(Some("devbox")) && !a.registry_outdated(None));
+        a.apply_from(Some("devbox"), hello(&[REGISTRY_CAP]));
+        assert!(!a.registry_outdated(Some("devbox")));
+        a.apply_from(Some("old"), hello(&[]));
+        a.forget("old");
+        assert!(!a.registry_outdated(Some("old")));
     }
 
     #[test]

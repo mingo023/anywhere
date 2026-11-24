@@ -20,8 +20,6 @@ pub const NEEDS: [&str; 2] = ["exec.v1", "fs.v1"];
 
 /// How long a file operation may take.
 const FS_TIMEOUT: Duration = Duration::from_secs(30);
-/// The most of a host's `desktop.json` read before adding projects to it.
-const REGISTRY_MAX: usize = 16 << 20;
 /// Added to an exec's own timeout, which pocketd enforces, for the reply's trip back.
 const REPLY_SLACK: Duration = Duration::from_secs(5);
 
@@ -99,8 +97,6 @@ pub struct Client {
     pocket: OnceLock<String>,
     /// Connections a failed write retired, left open until the calls already sent on them are answered or give up.
     retired: Mutex<Vec<Conn>>,
-    /// Held across `sync_registry`'s read and write, so two creates don't drop each other's projects.
-    registry: Mutex<()>,
 }
 
 impl Client {
@@ -109,7 +105,7 @@ impl Client {
     }
 
     pub fn to(id: &str, endpoint: Endpoint) -> Self {
-        Self { id: id.into(), endpoint, conn: Mutex::new(None), next: AtomicU64::new(1), root: OnceLock::new(), home: OnceLock::new(), pocket: OnceLock::new(), retired: Mutex::default(), registry: Mutex::default() }
+        Self { id: id.into(), endpoint, conn: Mutex::new(None), next: AtomicU64::new(1), root: OnceLock::new(), home: OnceLock::new(), pocket: OnceLock::new(), retired: Mutex::default() }
     }
 
     pub fn id(&self) -> &str {
@@ -281,27 +277,6 @@ impl Client {
         let reply = self.fs("fs.trash", json!({"path": self.host_path(path)}))?;
         Ok(self.key(reply["trashed"].as_str().unwrap_or_default()))
     }
-
-    /// Lists `ours`' projects in the `desktop.json` beside the host's pocketd, which makes worktrees only for those listed there.
-    pub fn sync_registry(&self, ours: &Value) -> io::Result<()> {
-        use git::Exec;
-        let _held = self.registry.lock().unwrap();
-        let path = registry_path(&self.status()?);
-        let theirs = match self.stat(&path)? {
-            Some(_) => serde_json::from_slice(&self.read(&path, REGISTRY_MAX)?).map_err(io::Error::other)?,
-            None => json!({}),
-        };
-        let merged = merged(theirs.clone(), ours);
-        if merged != theirs {
-            self.write(&path, &serde_json::to_vec_pretty(&merged)?, false)?;
-        }
-        Ok(())
-    }
-}
-
-/// The `desktop.json` the host's pocketd reads, in its own folder there.
-fn registry_path(info: &HostInfo) -> String {
-    format!("{}/desktop.json", pocket_dir(info))
 }
 
 /// pocketd's own folder: the one `status` names, else where this channel keeps it under the user's home.
@@ -310,29 +285,6 @@ fn pocket_dir(info: &HostInfo) -> String {
         "" => format!("{}/{}", info.user_home, channel::home_dir_name()),
         home => home.replace('\\', "/"),
     }
-}
-
-/// `ours` laid over a host's `desktop.json`. A Mac host's own desktop keeps its store there, so the rest stays.
-fn merged(mut theirs: Value, ours: &Value) -> Value {
-    if !theirs.is_object() {
-        theirs = json!({});
-    }
-    let mut projects = theirs["projects"].as_array().cloned().unwrap_or_default();
-    for p in ours["projects"].as_array().into_iter().flatten() {
-        if !projects.contains(p) {
-            projects.push(p.clone());
-        }
-    }
-    theirs["projects"] = projects.into();
-    for (path, repo) in ours["repos"].as_object().into_iter().flatten() {
-        if !theirs["repos"][path].is_object() {
-            theirs["repos"][path] = json!({});
-        }
-        for (key, value) in repo.as_object().into_iter().flatten() {
-            theirs["repos"][path][key] = value.clone();
-        }
-    }
-    theirs
 }
 
 /// A write that blocks past `write_timeout` fails, so a host that stopped reading can't hold the lock `call` writes under.
@@ -453,14 +405,6 @@ mod tests {
                 });
             }
         });
-    }
-
-    #[test]
-    fn a_hosts_projects_go_in_the_folder_its_pocketd_reports_even_before_it_moves_home() {
-        let info = |home: &str, user_home: &str| HostInfo { home: home.into(), user_home: user_home.into(), ..Default::default() };
-        assert_eq!(registry_path(&info("/home/dev/.coding-pocket", "/home/dev")), "/home/dev/.coding-pocket/desktop.json");
-        assert_eq!(registry_path(&info(r"C:\Users\me\.coding-pocket", "C:/Users/me")), "C:/Users/me/.coding-pocket/desktop.json");
-        assert_eq!(registry_path(&info("", "/home/dev")), format!("/home/dev/{}/desktop.json", channel::home_dir_name()));
     }
 
     #[test]
@@ -705,17 +649,5 @@ mod tests {
         let info = |caps: &[&str]| HostInfo { caps: caps.iter().map(|c| c.to_string()).collect(), ..HostInfo::default() };
         assert!(info(&["host.v2", "fs.v1", "exec.v1"]).serves_projects());
         assert!(!info(&["fs.v1"]).serves_projects());
-    }
-
-    #[test]
-    fn our_projects_join_a_hosts_desktop_json_without_losing_what_its_own_desktop_keeps() {
-        let theirs = json!({"projects": ["/u/site"], "repos": {"/u/app": {"color": 3, "setup": "make"}}, "sounds": {"done": false}});
-        let ours = json!({"projects": ["/u/app"], "repos": {"/u/app": {"name": "app", "setup": "npm i"}}});
-        let got = merged(theirs, &ours);
-        assert_eq!(got["projects"], json!(["/u/site", "/u/app"]));
-        assert_eq!(got["repos"]["/u/app"], json!({"color": 3, "setup": "npm i", "name": "app"}));
-        assert_eq!(got["sounds"], json!({"done": false}));
-        assert_eq!(merged(got.clone(), &ours), got, "a second sync changes nothing");
-        assert_eq!(merged(Value::Null, &ours)["projects"], json!(["/u/app"]));
     }
 }

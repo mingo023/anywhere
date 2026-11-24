@@ -5,6 +5,7 @@ use workspace::Workspace;
 
 pub mod backgrounds;
 pub mod prefs;
+pub mod registry;
 pub mod scope;
 pub mod sections;
 pub mod themes;
@@ -471,6 +472,12 @@ pub struct Store {
     /// Terminals of sessions started as a chat, which show their agent's chat for good.
     #[serde(deserialize_with = "lenient")]
     pub chats: BTreeSet<String>,
+    /// Hosts sent their cached projects once, when their pocketd first listed its own.
+    #[serde(deserialize_with = "lenient")]
+    pub registry_pushed: BTreeSet<String>,
+    /// Each project's id, by its path, as its pocketd last listed it.
+    #[serde(skip)]
+    pub ids: BTreeMap<String, String>,
     #[serde(skip)]
     path: PathBuf,
 }
@@ -590,21 +597,6 @@ impl Store {
             (None, _) => format!("{}/{name}", self.worktree_root(home)),
             (Some(host), _) => hosts::place(host, &format!("{home}/{DEFAULT_WORKTREES}/{name}")),
         }
-    }
-
-    /// What host `host`'s pocketd reads of its projects in its own `desktop.json`: their paths there and how to make their worktrees.
-    pub fn host_registry(&self, host: &str) -> serde_json::Value {
-        let on_host = |key: &str| match hosts::split(key) {
-            (Some(h), path) if h == host => Some(path.to_string()),
-            _ => None,
-        };
-        let mut repos = serde_json::Map::new();
-        for project in &self.projects {
-            let Some(path) = on_host(project) else { continue };
-            let (setup, accounts) = self.repos.get(project).map(|r| (r.setup.clone(), r.accounts.clone())).unwrap_or_default();
-            repos.insert(path, serde_json::json!({"name": self.repo_name(project), "setup": setup, "accounts": accounts}));
-        }
-        serde_json::json!({"projects": repos.keys().collect::<Vec<_>>(), "repos": repos})
     }
 
     /// The name `repo` was given, else its folder's.
@@ -1090,19 +1082,6 @@ mod tests {
         let s = Store { worktree: WorktreeDefaults { root: "/wt".into(), ..Default::default() }, ..Default::default() };
         assert_eq!(s.worktrees_dir("//devbox/u/app", "/home/me"), "//devbox/home/me/.anywhere/worktrees/app");
         assert_eq!(s.worktrees_dir("//win/C:/code/app", r"C:\Users\me"), "//win/C:/Users/me/.anywhere/worktrees/app");
-    }
-
-    #[test]
-    fn a_hosts_registry_lists_only_its_projects_in_its_own_paths() {
-        let mut s = Store::default();
-        for p in ["/src/here", "//devbox/u/app", "//other/u/x"] {
-            s.add(p);
-        }
-        let accounts = BTreeMap::from([("claude".to_string(), "work".to_string())]);
-        s.repos.insert("//devbox/u/app".into(), RepoConfig { setup: "npm i".into(), accounts, ..Default::default() });
-        let r = s.host_registry("devbox");
-        assert_eq!(r["projects"], serde_json::json!(["/u/app"]));
-        assert_eq!(r["repos"]["/u/app"], serde_json::json!({"name": "app", "setup": "npm i", "accounts": {"claude": "work"}}));
     }
 
     #[test]

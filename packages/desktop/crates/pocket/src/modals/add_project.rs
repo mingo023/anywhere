@@ -501,9 +501,7 @@ impl Desktop {
         self.store.add(&path);
         self.store.repos.insert(path.clone(), cfg);
         self.store.save();
-        if let (Some(host), _) = hosts::split(&path) {
-            self.sync_host_registry(host, cx);
-        }
+        self.publish_registry();
         // A clone can finish after its dialog was dismissed and another opened.
         if matches!(self.overlay, Some(Overlay::AddRepo | Overlay::Clone)) {
             self.close_overlay(window, cx);

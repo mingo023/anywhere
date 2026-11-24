@@ -16,6 +16,7 @@ pub(super) const MCP_ACT: &str = "mcpact-";
 pub(super) const DELEGATIONS: &str = "delegations-";
 pub(super) const QUEUE: &str = "queue-";
 pub(super) const INTERRUPT: &str = "interrupt-";
+pub(super) const REGISTRY: &str = "registry-";
 
 pub(super) static NEXT: AtomicU64 = AtomicU64::new(0);
 
@@ -33,6 +34,10 @@ pub(super) fn queue_id() -> String {
 
 pub(super) fn board_id() -> String {
     format!("{BOARD}{}", NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+pub(super) fn registry_id() -> String {
+    format!("{REGISTRY}{}", NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
 /**

@@ -1,7 +1,8 @@
 use crate::automations::AutomationDraft;
 use crate::hosts;
-use crate::ids::{BTW, COMMANDS, CREATE, DELEGATIONS, INTERRUPT, MCP, MCP_ACT, NEXT, PAIR, PROMPT, QUEUE, REMOTE_CONTROL, SETTINGS, auto_id, board_id, host_id, queue_id, request_id};
+use crate::ids::{BTW, COMMANDS, CREATE, DELEGATIONS, INTERRUPT, MCP, MCP_ACT, NEXT, PAIR, PROMPT, QUEUE, REMOTE_CONTROL, SETTINGS, auto_id, board_id, host_id, queue_id, registry_id, request_id};
 use crate::locals::Local;
+use crate::registry::Shared;
 use crate::tickets::{self, TicketDraft};
 use crate::McpAction;
 use serde_json::{Value, json};
@@ -199,6 +200,32 @@ impl Outbox {
     /// Deletes the Local and closes its terminals; its files stay.
     pub fn local_delete(&self, id: &str) {
         self.send(json!({"type": "local.delete", "id": "local", "localId": id}));
+    }
+
+    /// Lists the folder `path` as a project, with `repo` as its settings; a path already listed stays as it is.
+    pub fn project_add(&self, path: &str, repo: Option<&Value>) {
+        let mut msg = json!({"type": "project.add", "id": registry_id(), "path": path});
+        if let Some(repo) = repo {
+            msg["repo"] = repo.clone();
+        }
+        self.send(msg);
+    }
+
+    pub fn project_remove(&self, path: &str) {
+        self.send(json!({"type": "project.remove", "id": registry_id(), "path": path}));
+    }
+
+    pub fn project_set(&self, path: &str, repo: &Value) {
+        self.send(json!({"type": "project.set", "id": registry_id(), "path": path, "repo": repo}));
+    }
+
+    pub fn worktree_track(&self, path: &str, tracked: bool) {
+        self.send(json!({"type": "worktree.track", "id": registry_id(), "path": path, "tracked": tracked}));
+    }
+
+    /// Replaces the shared settings whole.
+    pub fn settings_shared(&self, settings: &Shared) {
+        self.send(json!({"type": "settings.shared", "id": registry_id(), "settings": settings}));
     }
 
     /// Adds the ticket to To do, or edits the one with the draft's `id`; `start` also queues it.
@@ -413,6 +440,32 @@ mod tests {
         assert_eq!((&sent[2]["column"], &sent[2]["before"]), (&json!("todo"), &json!("")));
         assert_eq!((&sent[3]["type"], &sent[3]["limit"]), (&json!("board.limit"), &json!(3)));
         assert!(sent.iter().all(|m| m["id"].as_str().unwrap().starts_with(BOARD)));
+    }
+
+    #[test]
+    fn registry_messages_carry_a_registry_request_id_and_the_plans_fields() {
+        let (tx, rx) = channel();
+        let out = Outbox(tx);
+        out.project_add("/app", Some(&json!({"name": "App"})));
+        out.project_add("/api", None);
+        out.project_remove("/app");
+        out.project_set("/app", &json!({"setup": "make"}));
+        out.worktree_track("/w/fox", false);
+        out.settings_shared(&Shared { worktree_root: "/w".into(), ..Shared::default() });
+        let sent: Vec<Value> = rx.try_iter().collect();
+        assert!(sent.iter().all(|m| m["id"].as_str().unwrap().starts_with("registry-")));
+        let sent: Vec<Value> = sent.into_iter().map(without_id).collect();
+        assert_eq!(
+            sent,
+            vec![
+                json!({"type": "project.add", "path": "/app", "repo": {"name": "App"}}),
+                json!({"type": "project.add", "path": "/api"}),
+                json!({"type": "project.remove", "path": "/app"}),
+                json!({"type": "project.set", "path": "/app", "repo": {"setup": "make"}}),
+                json!({"type": "worktree.track", "path": "/w/fox", "tracked": false}),
+                json!({"type": "settings.shared", "settings": {"git": {"remote": "", "commit_all": null, "force_with_lease": false}, "access": "", "worktree_root": "/w", "external_worktrees": false}}),
+            ]
+        );
     }
 
     #[test]

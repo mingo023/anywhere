@@ -109,6 +109,9 @@ fn tag_summary(host: &str, a: &mut Summary) {
     if !a.parent.is_empty() {
         a.parent = tag(host, &a.parent);
     }
+    if !a.tree.is_empty() {
+        a.tree = crate::place(host, &a.tree);
+    }
 }
 
 fn tag_delegation(host: &str, d: &mut agents::delegations::Delegation) {
@@ -154,7 +157,11 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
         }
         Event::Skills { project, .. } => *project = crate::place(host, project),
         Event::Names(names) => *names = std::mem::take(names).into_iter().map(|(path, name)| (crate::place(host, &path), name)).collect(),
-        Event::Connected { .. } | Event::SettingsFailed(_) | Event::Btw { .. } => {}
+        Event::Registry(list) => {
+            list.projects.iter_mut().for_each(|p| p.path = crate::place(host, &p.path));
+            list.tracked.iter_mut().for_each(|t| *t = crate::place(host, t));
+        }
+        Event::Connected { .. } | Event::SettingsFailed(_) | Event::Btw { .. } | Event::RegistryFailed(_) => {}
         Event::Host(_)
         | Event::PairCode { .. }
         | Event::Paired(_)
@@ -351,12 +358,34 @@ impl Outboxes {
         }
     }
 
+    /// Sends `send` to the pocketd holding `key`, with `key` in its paths; false while that one isn't connected.
+    fn by_path(&self, key: &str, send: impl FnOnce(&Outbox, &str)) -> bool {
+        let (host, path) = crate::split(key);
+        self.to(host).map(|out| send(&out, path)).is_some()
+    }
+
+    pub fn project_add(&self, key: &str, repo: Option<&Value>) -> bool {
+        self.by_path(key, |o, path| o.project_add(path, repo))
+    }
+
+    pub fn project_remove(&self, key: &str) -> bool {
+        self.by_path(key, |o, path| o.project_remove(path))
+    }
+
+    pub fn project_set(&self, key: &str, repo: &Value) -> bool {
+        self.by_path(key, |o, path| o.project_set(path, repo))
+    }
+
+    pub fn worktree_track(&self, key: &str, tracked: bool) -> bool {
+        self.by_path(key, |o, path| o.worktree_track(path, tracked))
+    }
+
     /**
      * Sends a create to the pocketd holding `spec`'s project, in its paths, and returns the requestId, tagged for a host.
-     * A host's pocketd only makes worktrees for projects its `desktop.json` lists, so `registry(host)` is written there first.
+     * It goes on the caller's thread, so it follows the `project.add` that lists a new project.
      * `Err` names the host when it isn't connected, so nothing was sent.
      */
-    pub fn create(&self, mut spec: Value, registry: impl FnOnce(&str) -> Value) -> Result<String, String> {
+    pub fn create(&self, mut spec: Value) -> Result<String, String> {
         let project = spec["project"].as_str().unwrap_or_default().to_string();
         let (Some(host), path) = crate::split(&project) else { return Ok(self.local.create(spec)) };
         spec["project"] = path.into();
@@ -366,13 +395,7 @@ impl Outboxes {
         let request = agents::request_id();
         let tagged = tag(host, &request);
         let Some(out) = self.to(Some(host)) else { return Err(host.into()) };
-        let (host, registry) = (host.to_string(), registry(host));
-        std::thread::spawn(move || {
-            if let Some(client) = crate::remote::connected(&host) {
-                _ = client.sync_registry(&registry);
-            }
-            out.create_as(&request, spec);
-        });
+        out.create_as(&request, spec);
         Ok(tagged)
     }
 }
@@ -450,10 +473,11 @@ mod tests {
 
     #[test]
     fn a_hosts_agent_events_are_tagged_and_its_phone_and_pairing_news_dropped() {
-        let mut list = Event::Agents(vec![Summary { id: "a1".into(), terminal_id: "7f3a".into(), cwd: "/home/me/app".into(), ..Summary::default() }]);
+        let mut list = Event::Agents(vec![Summary { id: "a1".into(), terminal_id: "7f3a".into(), cwd: "/home/me/app".into(), tree: "/home/me/app".into(), project_id: "p1".into(), ..Summary::default() }]);
         assert!(tag_event("devbox", &mut list));
         let Event::Agents(list) = list else { unreachable!() };
         assert_eq!((list[0].id.as_str(), list[0].terminal_id.as_str(), list[0].cwd.as_str()), ("devbox/a1", "devbox/7f3a", "//devbox/home/me/app"));
+        assert_eq!((list[0].tree.as_str(), list[0].project_id.as_str()), ("//devbox/home/me/app", "p1"), "its project id is its host's own");
 
         let mut creating = Event::Creating { request: "r1".into(), terminal: "7f3a".into(), cwd: "/home/me/.worktrees/app/fox".into(), setup: true };
         assert!(tag_event("devbox", &mut creating));
@@ -547,21 +571,43 @@ mod tests {
     fn a_create_for_a_hosts_project_goes_there_in_its_paths_under_a_tagged_request() {
         let (out, here, there) = outboxes();
         let spec = json!({"project": "//devbox/home/me/app", "checkout": {"worktree": "//devbox/home/me/.worktrees/app/fox"}});
-        let request = out.create(spec, |host| json!({"projects": [host]})).unwrap();
-        let sent = there.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        let request = out.create(spec).unwrap();
+        let sent = there.try_iter().next().unwrap();
         assert_eq!(request, tag("devbox", sent["requestId"].as_str().unwrap()));
         assert_eq!((sent["spec"]["project"].as_str(), sent["spec"]["checkout"]["worktree"].as_str()), (Some("/home/me/app"), Some("/home/me/.worktrees/app/fox")));
         assert!(here.try_iter().next().is_none());
 
-        let mine = out.create(json!({"project": "/src/app"}), |_| unreachable!("this Mac's pocketd reads the desktop's own desktop.json")).unwrap();
+        let mine = out.create(json!({"project": "/src/app"})).unwrap();
         assert_eq!(here.try_iter().next().unwrap()["requestId"], mine.as_str());
     }
 
     #[test]
     fn a_create_for_a_host_that_isnt_connected_sends_nothing_and_names_it() {
         let (out, here, there) = outboxes();
-        assert_eq!(out.create(json!({"project": "//laptop/home/me/app"}), |_| json!({})), Err("laptop".into()));
+        assert_eq!(out.create(json!({"project": "//laptop/home/me/app"})), Err("laptop".into()));
         assert!(here.try_iter().next().is_none() && there.try_iter().next().is_none());
+    }
+
+    #[test]
+    fn a_registry_change_goes_to_the_pocketd_holding_the_path_in_its_own_paths() {
+        let (out, here, there) = outboxes();
+        assert!(out.project_add("//devbox/home/me/app", Some(&json!({"name": "App"}))));
+        assert!(out.worktree_track("//devbox/home/me/.anywhere/worktrees/app/fox", true));
+        assert!(out.project_set("/src/app", &json!({})));
+        assert!(!out.project_remove("//laptop/home/me/app"), "a host not connected is sent nothing");
+        let sent: Vec<Value> = there.try_iter().collect();
+        assert_eq!((&sent[0]["path"], &sent[0]["repo"]["name"]), (&json!("/home/me/app"), &json!("App")));
+        assert_eq!(sent[1]["path"], "/home/me/.anywhere/worktrees/app/fox");
+        assert_eq!(here.try_iter().map(|m| m["path"].clone()).collect::<Vec<_>>(), [json!("/src/app")]);
+    }
+
+    #[test]
+    fn a_hosts_registry_list_names_its_projects_and_worktrees_under_the_host() {
+        let project = agents::registry::Project { id: "p1".into(), path: "/home/me/app".into(), repo: json!({}) };
+        let mut list = Event::Registry(agents::registry::List { projects: vec![project], tracked: vec!["/home/me/wt/fox".into()], ..Default::default() });
+        assert!(tag_event("devbox", &mut list));
+        let Event::Registry(list) = list else { unreachable!() };
+        assert_eq!((list.projects[0].path.as_str(), list.projects[0].id.as_str(), list.tracked[0].as_str()), ("//devbox/home/me/app", "p1", "//devbox/home/me/wt/fox"));
     }
 
     #[test]

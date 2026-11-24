@@ -144,8 +144,9 @@ impl Desktop {
     pub(crate) fn adopt_scratch(&mut self, path: &str) {
         self.store.add_scratch(path);
         self.store.scratch_folded = false;
-        // pocketd reads this file to know the folder before the first session starts in it.
         self.store.save();
+        // pocketd starts sessions only in folders it lists.
+        self.publish_registry();
         // Its row needs this now; `refresh_git` lists it two seconds from now.
         self.worktrees.insert(path.to_string(), vec![git::Worktree { path: path.to_string(), branch: git::INIT_BRANCH.into(), main: true, made: false, created: None }]);
     }
