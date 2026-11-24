@@ -106,7 +106,7 @@ pub struct Desktop {
     pub(crate) graph: Entity<Graph>,
     pub(crate) commit: Commits,
     pub(crate) terminal: TerminalViewState,
-    pub(crate) panels: Panels,
+    pub(crate) panels: Entity<Panels>,
     pub(crate) open_in: Entity<OpenIn>,
     pub(crate) browsers: Browsers,
     pub(crate) explorer: Entity<Explorer>,
@@ -165,7 +165,10 @@ impl Desktop {
         let chat = cx.new(|cx| ChatComposer::new(window, cx));
         let chat_subs = [cx.subscribe_in(&chat, window, Self::on_chat_event), cx.observe(&chat, |_, _, cx| cx.notify())];
         let (chats, chats_subs) = ChatState::new(window, cx);
-        let (panels, panels_subs) = Panels::new(window, cx);
+        let workspaces = cx.new(|_| Workspaces::default());
+        let creates = cx.new(|_| Creates::default());
+        let panels = cx.new(|cx| Panels::new(workspaces.clone(), creates.clone(), cx));
+        let panels_subs = [cx.subscribe_in(&panels, window, Self::on_panels_event), cx.observe(&panels, |_, _, cx| cx.notify())];
         let regions = Regions::new(cx);
         let changes = cx.new(|cx| Changes::new(graph.clone(), window, cx));
         let changes_subs = cx.subscribe_in(&changes, window, Self::on_changes_event);
@@ -209,7 +212,6 @@ impl Desktop {
         let home = store.home().to_path_buf();
         let open_in = cx.new(|cx| OpenIn::new(&home, cx));
         let open_in_subs = cx.subscribe_in(&open_in, window, Self::on_open_in_event);
-        let creates = cx.new(|_| Creates::default());
         let creates_subs = cx.subscribe_in(&creates, window, Self::on_creates_event);
         let inbox = cx.new(Inbox::new);
         let inbox_subs = cx.subscribe_in(&inbox, window, Self::on_inbox_event);
@@ -297,7 +299,7 @@ impl Desktop {
             side: Side::Sessions,
             layout,
             widths,
-            workspaces: cx.new(|_| Workspaces::default()),
+            workspaces,
             repos: HashMap::new(),
             diff,
             chat,
@@ -473,7 +475,7 @@ impl Desktop {
         let Some(tree) = self.place(cx) else { return };
         self.screen = Screen::Sessions;
         self.new_form.update(cx, |f, _| f.shown = false);
-        let bounds = self.panels.bounds;
+        let bounds = self.panels.read(cx).bounds;
         let files = &self.store.files;
         let (pin, next) = (pin || !files.preview_tabs, files.new_tabs == store::prefs::files::NewTabs::AfterCurrent);
         let (pane, _) = self.workspace(&tree, cx, |w| {
@@ -557,9 +559,7 @@ impl Desktop {
 
     pub(crate) fn menu_open(&self, cx: &App) -> bool {
         self.board.read(cx).menu_open()
-            || self.panels.menu.is_some()
-            || self.panels.actions.is_some()
-            || self.panels.top_actions.is_some()
+            || self.panels.read(cx).menu_open()
             || self.row_menu.is_some()
             || self.changes.read(cx).menu_open()
             || self.pr.ship_menu
@@ -583,7 +583,8 @@ impl Desktop {
     /// Returns whether a menu was open.
     pub(crate) fn close_menus(&mut self, cx: &mut App) -> bool {
         let open = self.menu_open(cx);
-        (self.panels.menu, self.panels.actions, self.panels.top_actions, self.row_menu) = (None, None, None, None);
+        self.panels.update(cx, |p, _| p.close_menus());
+        self.row_menu = None;
         self.changes.update(cx, |c, _| c.shut_menus());
         (self.pr.ship_menu, self.pr.merge_menu, self.pr.create_menu) = (false, false, false);
         self.sidebar.menu_at = None;
@@ -625,7 +626,7 @@ impl Desktop {
     pub(crate) fn idle_main(&self, cx: &App) -> bool {
         let Some(p) = self.project.as_deref() else { return false };
         let Some(main) = self.tree_of(p, cx) else { return false };
-        self.panels.restored
+        self.workspaces.read(cx).is_restored()
             && new_session::may_start(&self.agents)
             && self.worktrees.get(p).is_some_and(|w| !w.is_empty())
             && self.place(cx).as_ref() == Some(&main)
@@ -797,7 +798,7 @@ impl Render for Desktop {
         let (now, capturing, reduce_motion) = (Instant::now(), self.capturing, cx.reduce_motion() || self.capturing);
         // Not `||`: each steps every frame.
         if self.sidebar.tick(self.layout, now, reduce_motion)
-            | self.panels.tick(now, reduce_motion)
+            | self.panels.update(cx, |p, _| p.tick(now, reduce_motion))
             | self.star.update(cx, |s, _| s.tick(now, capturing))
             | self.chats.dock.update(cx, |d, _| d.tick(now, reduce_motion))
         {
@@ -850,7 +851,7 @@ impl Render for Desktop {
                     return;
                 }
                 if this.close_host_finder(cx)
-                    || this.panels.cancel_drag(cx)
+                    || this.panels.update(cx, |p, cx| p.cancel_drag(cx))
                     || this.explorer.update(cx, |e, _| e.cancel_edit())
                     || this.sidebar.cancel_rename()
                     || this.sidebar.space_header.update(cx, |h, _| h.cancel_rename())

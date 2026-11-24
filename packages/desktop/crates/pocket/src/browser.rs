@@ -66,7 +66,7 @@ impl Browsers {
                 let image = cx.background_spawn(async move { tiff.and_then(|t| shot(&t)) }).await;
                 let applied = this.update_in(cx, |d: &mut Desktop, window, cx| {
                     // A shot that lands after the drop would cover the live page.
-                    if d.panels.holding(cx)
+                    if d.panels.read(cx).holding(cx)
                         && let Some(b) = d.browsers.tabs.get_mut(&id)
                     {
                         if let Some(old) = std::mem::replace(&mut b.shot, image) {
@@ -135,14 +135,14 @@ impl Desktop {
             || self.menu_open(cx)
             || self.sidebar.menu_at.is_some()
             || self.shown_create(cx).is_some()
-            || self.panels.parks_pages();
+            || self.panels.read(cx).parks_pages();
         let shown: Vec<u64> = match self.session_tree(cx).and_then(|t| self.workspaces.read(cx).get(&t)) {
             Some(w) if !covered => w.shown().into_iter().filter_map(|(_, t)| web(t)).collect(),
             _ => Vec::new(),
         };
         let live: HashSet<u64> =
             self.workspaces.read(cx).values().flat_map(|w| w.tops()).flat_map(|t| t.panes()).flat_map(|p| &p.tabs).filter_map(web).collect();
-        let ended = !self.panels.holding(cx);
+        let ended = !self.panels.read(cx).holding(cx);
         for shot in self.browsers.tabs.iter_mut().filter(|(id, _)| ended || !live.contains(*id)).filter_map(|(_, b)| b.shot.take()) {
             window.drop_image(shot).ok();
         }

@@ -7,7 +7,7 @@ use workspace::Doc;
 
 impl Desktop {
     pub(super) fn more_menu(&mut self, cx: &mut Context<Self>) -> Div {
-        let at = self.panels.more_at.unwrap_or_default();
+        let at = self.panels.read(cx).more_at.unwrap_or_default();
         let menu = ui::pop(div().absolute().left(at.x - px(216.)).top(at.y + px(18.)).w(px(230.)).p(px(6.)).flex().flex_col()).occlude();
         let path = match self.active_doc(cx) {
             Some(Doc::File(p)) => Some(p),

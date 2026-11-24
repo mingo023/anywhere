@@ -128,8 +128,7 @@ impl Desktop {
                 this.sidebar.hover.press();
                 this.row_menu = Some(opens.clone());
                 this.sidebar.menu_at = None;
-                this.panels.menu = None;
-                this.panels.actions = None;
+                this.panels.update(cx, |p, _| (p.menu, p.actions) = (None, None));
                 cx.notify();
             }),
         );

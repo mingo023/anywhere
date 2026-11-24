@@ -264,7 +264,7 @@ impl Desktop {
     }
 
     pub fn new_tab(&mut self, _: &NewTab, _: &mut Window, cx: &mut Context<Self>) {
-        self.panels.menu = None;
+        self.panels.update(cx, |p, _| p.menu = None);
         self.open_tab(Place::Pane(None), cx);
     }
 

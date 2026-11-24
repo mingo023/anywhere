@@ -20,7 +20,7 @@ impl Desktop {
 
     fn split_focused(&mut self, edge: Edge, cx: &mut Context<Self>) {
         let Some(tree) = self.panel_tree(cx) else { return };
-        let bounds = self.panels.bounds;
+        let bounds = self.panels.read(cx).bounds;
         let (pane, can) = self.workspace(&tree, cx, |w| (w.tree.focused, w.tree.can_split(w.tree.focused, edge, bounds)));
         if can {
             self.release_page(cx);

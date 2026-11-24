@@ -1,4 +1,5 @@
-use super::top_bar::{Bar, Face, TopBar, TopEvent};
+use super::frame::BarFrame;
+use super::top_bar::Face;
 use crate::desktop::Desktop;
 use crate::util::tilde;
 use gpui_kit::*;
@@ -23,26 +24,12 @@ pub(crate) fn copy(t: &Tree<Tab>) -> (Option<&Tab>, Option<&Tab>) {
 }
 
 impl Desktop {
-    /// The bar over worktree `tree`'s panes: its top tabs and a + whose menu opens a new one. It moves the window.
-    pub(super) fn top_bar(&mut self, tree: &str, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let (pad, toggle) = self.bar_start(6., cx);
+    /// The bar over worktree `tree`'s panes: its top tabs.
+    pub(super) fn bar_frame(&self, tree: &str, pad: f32, toggle: Option<Stateful<Div>>, cx: &mut Context<Self>) -> BarFrame {
         let w = &self.workspaces.read(cx)[tree];
         let (at, closable) = (w.at, !w.others.is_empty());
         let tabs = w.tops().into_iter().enumerate().map(|(i, t)| self.top_face(w, i, t, cx)).collect();
-        let bar = Bar {
-            tree: tree.to_string(),
-            at,
-            closable,
-            tabs,
-            pad,
-            toggle,
-            plus: self.new_tab_controls(workspace::Place::Top, TEXT_3, cx),
-            trailing: [self.open_in_button(cx).map(IntoElement::into_any_element), self.top_actions(cx).map(IntoElement::into_any_element)]
-                .into_iter()
-                .flatten()
-                .collect(),
-        };
-        self.panels.top.update(cx, |b, cx| b.view(bar, window, cx))
+        BarFrame { at, closable, tabs, pad, toggle, open_in: self.open_in_button(cx) }
     }
 
     /// Top tab `i` of `w`, holding the panes of `t`.
@@ -75,46 +62,6 @@ impl Desktop {
         Face { lead, title: head.map(|h| self.tab_text(h, cx)).unwrap_or_default(), meta, italic, menu }
     }
 
-    pub(crate) fn on_top_event(&mut self, _: &Entity<TopBar>, ev: &TopEvent, window: &mut Window, cx: &mut Context<Self>) {
-        match ev {
-            TopEvent::Switch(i) => self.switch_top(*i, window, cx),
-            TopEvent::Close(i) => self.close_top(*i, cx),
-            TopEvent::Grabbed => self.freeze_pages(window, cx),
-            TopEvent::Aim { from, at } => {
-                if let Some(tree) = self.place(cx) {
-                    self.aim_top(*from, &tree, *at, cx);
-                }
-            }
-            TopEvent::Level => {
-                if self.place(cx).is_some() && self.panels.pane_drag.take().is_some() {
-                    cx.notify();
-                }
-            }
-            TopEvent::Released(moved) => self.release_top(*moved, window, cx),
-            TopEvent::Menu(agent, at) => {
-                self.close_menus(cx);
-                self.panels.top_actions = Some((agent.clone(), *at));
-                cx.notify();
-            }
-        }
-    }
-
-    fn release_top(&mut self, moved: Option<(usize, usize)>, window: &mut Window, cx: &mut Context<Self>) {
-        if self.drop_top(window, cx) {
-            return;
-        }
-        let Some((from, to)) = moved else { return };
-        let Some(tree) = self.place(cx) else { return };
-        let at = self.workspace(&tree, cx, |w| {
-            w.move_top(from, to);
-            w.at
-        });
-        // The shown tab was dragged into view already; scrolling to its new index would jump the bar.
-        self.panels.top.update(cx, |b, _| b.revealed(tree, at));
-        self.save_soon(cx);
-        cx.notify();
-    }
-
     /// What kind of tab a lone tab is: its agent, a terminal, the folder of its file, its changes, or a page.
     fn tab_kind(&self, tab: &Tab, cx: &App) -> String {
         match tab {
@@ -139,7 +86,7 @@ impl Desktop {
     }
 
     /// Shows top tab `i`, and what its focused pane shows.
-    fn switch_top(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn switch_top(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tree) = self.place(cx) else { return };
         let (p, a) = self.workspace(&tree, cx, |w| {
             w.switch(i);

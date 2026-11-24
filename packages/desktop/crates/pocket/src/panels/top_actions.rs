@@ -1,27 +1,25 @@
-use crate::desktop::Desktop;
+use super::frame::TopActions;
+use super::{Panels, PanelsEvent};
 use gpui_kit::*;
-use workspace::Place;
 
-impl Desktop {
+impl Panels {
     /// A top tab's right-click menu, while it is open.
-    pub(super) fn top_actions(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let (agent, at) = self.panels.top_actions.clone()?;
-        let s = self.agents.get(&agent)?;
-        let fork = (self.chat_shown(&s.terminal_id) && self.can_fork(s)).then(|| {
-            let agent = agent.clone();
+    pub(super) fn top_actions(&self, rows: Option<&TopActions>, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let (_, at) = self.top_actions.clone()?;
+        let rows = rows?;
+        let fork = rows.fork.then(|| {
+            let agent = rows.agent.clone();
             ui::menu_row("top-open-terminal", "terminal", "Open in Terminal chat", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.panels.top_actions = None;
-                this.fork_session(&agent, Some(Place::Top), cx);
-                cx.notify();
+                this.top_actions = None;
+                cx.emit(PanelsEvent::Fork(agent.clone()));
             }))
         });
-        let handoff = self.can_hand_off(s).then(|| {
-            ui::menu_row("top-handoff", "server", crate::handoff::menu_label(self.handoff.read(cx).moving(&agent)), None).on_click(cx.listener(
-                move |this, _: &ClickEvent, window, cx| {
-                    this.panels.top_actions = None;
-                    this.open_handoff(&agent, window, cx);
-                },
-            ))
+        let handoff = rows.handoff.map(|label| {
+            let agent = rows.agent.clone();
+            ui::menu_row("top-handoff", "server", label, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.top_actions = None;
+                cx.emit(PanelsEvent::Handoff(agent.clone()));
+            }))
         });
         if fork.is_none() && handoff.is_none() {
             return None;
@@ -33,7 +31,7 @@ impl Desktop {
             .flex_col()
             .occlude()
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.panels.top_actions = None;
+                this.top_actions = None;
                 cx.notify();
             }))
             .children(fork)

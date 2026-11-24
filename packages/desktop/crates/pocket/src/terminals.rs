@@ -315,7 +315,7 @@ impl Desktop {
                     self.sweep_host_leftovers(cx);
                 }
                 self.activity_changed(cx);
-                let restoring = !self.panels.restored;
+                let restoring = !self.workspaces.read(cx).is_restored();
                 match host {
                     None => self.restore_layouts(cx),
                     Some(h) => self.restore_host_layouts(h, cx),

@@ -507,12 +507,16 @@ const STEPS: [(&str, Step); 303] = [
             d.open_doc(Doc::Commit(sha), false, cx);
         }
     }),
-    ("tab-menu", |d, _, cx| d.panels.menu = Some(workspace::Place::Pane(Some(d.focused_pane(cx))))),
-    ("top-menu", |d, _, _| d.panels.menu = Some(workspace::Place::Top)),
+    ("tab-menu", |d, _, cx| {
+        let pane = d.focused_pane(cx);
+        d.panels.update(cx, |p, _| p.menu = Some(workspace::Place::Pane(Some(pane))));
+    }),
+    ("top-menu", |d, _, cx| d.panels.update(cx, |p, _| p.menu = Some(workspace::Place::Top))),
     // The focused session's right-click menus: its top tab's, and its row's.
     ("top-actions", |d, _, cx| {
         let Some(workspace::Tab::Term(t)) = d.pane_tab(d.focused_pane(cx), cx) else { return };
-        d.panels.top_actions = d.summary(&t).map(|s| (s.id.clone(), point(px(330.), px(36.))));
+        let open = d.summary(&t).map(|s| (s.id.clone(), point(px(330.), px(36.))));
+        d.panels.update(cx, |p, _| p.top_actions = open);
     }),
     ("session-menu", |d, _, cx| {
         let Some(workspace::Tab::Term(t)) = d.pane_tab(d.focused_pane(cx), cx) else { return };
@@ -1439,7 +1443,10 @@ const INPUT_STEPS: [(&str, Step); 24] = [
     ("hand-release", |_, window, cx| {
         window.defer(cx, |window, cx| {
             let position = window.mouse_position();
-            window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position, modifiers: Modifiers::default(), click_count: 1 }), cx);
+            window.dispatch_event(
+                PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position, modifiers: Modifiers::default(), click_count: 1 }),
+                cx,
+            );
         });
     }),
     // A two-finger trackpad scroll: touch down, four moves of a quarter `dx`, `dy` each, then lift.
@@ -1893,7 +1900,8 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
         s.reset(window, cx);
         s.menu = None;
     });
-    (d.layout, d.widths, d.sidebar.panel_open, d.panels.menu) = (Layout::Sidebars, [None; 2], false, None);
+    (d.layout, d.widths, d.sidebar.panel_open) = (Layout::Sidebars, [None; 2], false);
+    d.panels.update(cx, |p, _| p.menu = None);
     (d.worktree, d.terminal.focused) = (None, None);
     d.preview.update(cx, |p, _| p.state.panes.values_mut().for_each(|f| f.file = None));
     for s in d.diff.panes.values() {

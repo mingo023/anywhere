@@ -1,5 +1,5 @@
-use crate::desktop::Desktop;
-use crate::explorer::preview::relative;
+use super::frame::TabFile;
+use super::{Panels, PanelsEvent};
 use crate::util::basename;
 use gpui_kit::*;
 use std::path::Path;
@@ -11,42 +11,25 @@ fn neighbours(i: usize, len: usize) -> (Option<usize>, Option<usize>) {
     (i.checked_sub(1), (i + 1 < len).then_some(i + 1))
 }
 
-impl Desktop {
-    fn copy_path(&mut self, path: &str, cx: &mut Context<Self>) {
-        cx.write_to_clipboard(ClipboardItem::new_string(path.to_string()));
-    }
-
-    /// Closes every tab of `pane` but tab `keep`, highest index first so the rest keep theirs, stopping at the first that asks to be confirmed.
-    fn close_others(&mut self, pane: PaneId, keep: usize, cx: &mut Context<Self>) {
-        let count =
-            |this: &Self, cx: &App| this.place(cx).and_then(|t| this.workspaces.read(cx).get(&t)?.tree.pane(pane).map(|p| p.tabs.len())).unwrap_or_default();
-        for i in (0..count(self, cx)).rev().filter(|i| *i != keep) {
-            let before = count(self, cx);
-            self.close_tab(pane, i, cx);
-            if count(self, cx) == before {
-                return;
-            }
-        }
-    }
-
+impl Panels {
     /// `pane`'s right-click menu, while the tab it was opened on is still among `tabs`.
-    pub(crate) fn tab_actions(&self, tree: &str, pane: PaneId, tabs: &[Tab], cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let (_, tab, at) = self.panels.actions.as_ref().filter(|(p, _, _)| *p == pane)?;
+    pub(super) fn tab_actions(&self, tree: &str, pane: PaneId, tabs: &[Tab], file: Option<&TabFile>, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let (_, tab, at) = self.actions.as_ref().filter(|(p, _, _)| *p == pane)?;
         let i = tabs.iter().position(|t| t == tab)?;
         let (left, right) = neighbours(i, tabs.len());
         let row = |id: &'static str, icon: &str, label: &str, to: usize, cx: &mut Context<Self>| {
             ui::menu_row(id, icon, label, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.panels.actions = None;
+                this.actions = None;
                 this.move_tab(pane, i, to, cx);
             }))
         };
-        let bounds = self.panels.bounds;
+        let bounds = self.bounds;
         let [can_right, can_down] = [Edge::Right, Edge::Bottom].map(|edge| self.workspaces.read(cx)[tree].tree.can_split(pane, edge, bounds));
         let split = |id: &'static str, icon: &str, label: &str, edge: Edge, can: bool, cx: &mut Context<Self>| {
             (tabs.len() > 1 && can).then(|| {
-                ui::menu_row(id, icon, label, None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.panels.actions = None;
-                    this.move_tab_to(pane, i, Target::Split { pane, edge }, window, cx);
+                ui::menu_row(id, icon, label, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.actions = None;
+                    this.move_tab_to(pane, i, Target::Split { pane, edge }, cx);
                 }))
             })
         };
@@ -59,32 +42,24 @@ impl Desktop {
         .into_iter()
         .flatten()
         .collect();
-        let file = match tab {
-            Tab::Doc(Doc::File(p)) => Some(p.clone()),
-            Tab::Doc(Doc::Diff(p) | Doc::CommitFile { path: p, .. } | Doc::PrFile { path: p, .. } | Doc::CompareFile { path: p, .. }) => {
-                self.cwd(cx).map(|cwd| format!("{cwd}/{p}"))
-            }
-            _ => None,
-        };
         let mut files = Vec::new();
-        if let Some(path) = file {
-            let rel = relative(&path, &self.explore_root(cx).unwrap_or_default());
+        if let Some((path, rel)) = file.and_then(|f| f.0.clone()) {
             if matches!(tab, Tab::Doc(Doc::File(_))) {
                 let prompt = format!("About {rel}: ");
-                files.push(ui::menu_row("tab-ask", "sparkle", "Ask about this file", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.panels.actions = None;
-                    this.new_session(Some(prompt.clone()), false, window, cx);
+                files.push(ui::menu_row("tab-ask", "sparkle", "Ask about this file", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.actions = None;
+                    cx.emit(PanelsEvent::Ask(prompt.clone()));
                 })));
             }
             let opened = path.clone();
             files.push(ui::menu_row("tab-open", "external", "Open in Default App", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.panels.actions = None;
+                this.actions = None;
                 cx.open_with_system(Path::new(&opened));
                 cx.notify();
             })));
             let revealed = path.clone();
             files.push(ui::menu_row("tab-reveal", "folder", "Reveal in Finder", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.panels.actions = None;
+                this.actions = None;
                 cx.reveal_path(Path::new(&revealed));
                 cx.notify();
             })));
@@ -93,21 +68,21 @@ impl Desktop {
                 [("tab-copy-path", "Copy Path", path), ("tab-copy-relative", "Copy Relative Path", rel), ("tab-copy-name", "Copy File Name", name)]
             {
                 files.push(ui::menu_row(id, "copy", label, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.panels.actions = None;
-                    this.copy_path(&text, cx);
+                    this.actions = None;
+                    cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
                     cx.notify();
                 })));
             }
         }
         let mut closes = vec![ui::menu_row("tab-close", "x", "Close", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.panels.actions = None;
-            this.close_tab(pane, i, cx);
+            this.actions = None;
+            cx.emit(PanelsEvent::Close(pane, i));
             cx.notify();
         }))];
         if tabs.len() > 1 {
             closes.push(ui::menu_row("tab-close-others", "x", "Close Others", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.panels.actions = None;
-                this.close_others(pane, i, cx);
+                this.actions = None;
+                cx.emit(PanelsEvent::CloseOthers(pane, i));
                 cx.notify();
             })));
         }
@@ -121,7 +96,7 @@ impl Desktop {
             .flex_col()
             .occlude()
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.panels.actions = None;
+                this.actions = None;
                 cx.notify();
             }))
             .children(groups);

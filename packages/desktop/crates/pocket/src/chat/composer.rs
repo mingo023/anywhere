@@ -655,9 +655,9 @@ impl Desktop {
             Some(f) => named.iter().find(|(_, h)| *h == f).map_or("other", |(n, _)| n),
         };
         let menus = [
-            ("panels.menu", self.panels.menu.is_some()),
-            ("panels.actions", self.panels.actions.is_some()),
-            ("panels.top_actions", self.panels.top_actions.is_some()),
+            ("panels.menu", self.panels.read(cx).menu.is_some()),
+            ("panels.actions", self.panels.read(cx).actions.is_some()),
+            ("panels.top_actions", self.panels.read(cx).top_actions.is_some()),
             ("row_menu", self.row_menu.is_some()),
             ("changes.commit_menu", self.changes.read(cx).commit_menu),
             ("changes.menu", self.changes.read(cx).menu),

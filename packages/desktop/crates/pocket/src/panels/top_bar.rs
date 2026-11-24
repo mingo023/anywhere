@@ -1,10 +1,12 @@
-use super::rect;
+use super::frame::{BarFrame, Drawing};
 use super::strip::{DragTop, GAP, TabDrag, slots};
+use super::{Panels, PanelsEvent, rect};
 use crate::desktop::chrome::drag_area;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::time::Instant;
 use theme::*;
+use workspace::Place;
 use workspace::tree::Rect;
 
 /// The bar over a worktree's panes: its top tabs, held, dragged and scrolled here, over what `Desktop` hands it each frame.
@@ -246,5 +248,59 @@ impl TopBar {
     fn release(&mut self, cx: &mut Context<Self>) {
         let Some(d) = self.drag.as_mut() else { return };
         cx.emit(TopEvent::Released(d.release()));
+    }
+}
+
+impl Panels {
+    /// The bar over worktree `tree`'s panes: its top tabs and a + whose menu opens a new one. It moves the window.
+    pub(super) fn top_bar(&mut self, tree: &str, bar: BarFrame, draw: &Drawing, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        let BarFrame { at, closable, tabs, pad, toggle, open_in } = bar;
+        let bar = Bar {
+            tree: tree.to_string(),
+            at,
+            closable,
+            tabs,
+            pad,
+            toggle,
+            plus: self.new_tab_controls(Place::Top, TEXT_3, draw, cx),
+            trailing: [open_in.map(IntoElement::into_any_element), self.top_actions(draw.menus.top.as_ref(), cx).map(IntoElement::into_any_element)]
+                .into_iter()
+                .flatten()
+                .collect(),
+        };
+        self.top.update(cx, |b, cx| b.view(bar, window, cx))
+    }
+
+    pub(super) fn on_top_event(&mut self, _: Entity<TopBar>, ev: &TopEvent, cx: &mut Context<Self>) {
+        match ev {
+            TopEvent::Switch(i) => cx.emit(PanelsEvent::TopSwitch(*i)),
+            TopEvent::Close(i) => cx.emit(PanelsEvent::TopClose(*i)),
+            TopEvent::Grabbed => cx.emit(PanelsEvent::Freeze),
+            TopEvent::Aim { from, at } => self.aim_top(*from, *at, cx),
+            TopEvent::Level => {
+                if self.pane_drag.take().is_some() {
+                    cx.notify();
+                }
+            }
+            TopEvent::Released(moved) => self.release_top(*moved, cx),
+            TopEvent::Menu(agent, at) => cx.emit(PanelsEvent::TopMenu(agent.clone(), *at)),
+        }
+    }
+
+    fn release_top(&mut self, moved: Option<(usize, usize)>, cx: &mut Context<Self>) {
+        if self.drop_top(cx) {
+            return;
+        }
+        let Some((from, to)) = moved else { return };
+        let Some(at) = self.edit(cx, |w| {
+            w.move_top(from, to);
+            w.at
+        }) else {
+            return;
+        };
+        let Some(tree) = self.tree().map(str::to_string) else { return };
+        // The shown tab was dragged into view already; scrolling to its new index would jump the bar.
+        self.top.update(cx, |b, _| b.revealed(tree, at));
+        cx.emit(PanelsEvent::Changed);
     }
 }
