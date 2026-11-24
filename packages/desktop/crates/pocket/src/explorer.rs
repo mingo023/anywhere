@@ -198,6 +198,11 @@ impl Explorer {
         self.tree.remove(dir).is_some()
     }
 
+    /// Lets go of the repo handed down, which the next hand-down gives back and so draws again.
+    pub(crate) fn let_go_of_repo(&mut self) {
+        self.inputs.repo = None;
+    }
+
     pub(crate) fn clear_tree(&mut self, cx: &mut Context<Self>) {
         self.tree.clear();
         cx.notify();

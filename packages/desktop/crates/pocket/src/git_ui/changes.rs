@@ -360,6 +360,11 @@ impl Changes {
         &self.inputs
     }
 
+    /// Lets go of the repo handed down, which the next hand-down gives back and so draws again.
+    pub(crate) fn let_go_of_repo(&mut self) {
+        self.inputs.repo = None;
+    }
+
     /// Takes what `Desktop` hands down, drawing again when it differs from what was drawn.
     pub(crate) fn hand(&mut self, inputs: Inputs, cx: &mut Context<Self>) {
         if self.inputs != inputs {
@@ -628,9 +633,14 @@ impl Desktop {
     /// Flips the rows at once: `git add -A` and `git reset` leave each path wholly staged or wholly unstaged.
     fn stage(&mut self, paths: Vec<String>, staged: bool, cx: &mut Context<Self>) {
         let Some(cwd) = self.cwd(cx) else { return };
+        // The panel and the tree let go of their handles first, so `repos` holds the only one and the flip is in place rather than a copy of every file.
+        self.changes.update(cx, |c, _| c.let_go_of_repo());
+        self.explorer.update(cx, |e, _| e.let_go_of_repo());
         if let Some(repo) = self.repos.get_mut(&cwd) {
             flip_staged(&mut Arc::make_mut(repo).files, &paths, staged);
         }
+        self.sync_changes(cx);
+        self.sync_explorer(cx);
         // Drops refreshes already running: they read the index from before this change.
         self.git_run += 1;
         cx.notify();
