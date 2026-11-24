@@ -6,10 +6,11 @@ import Wire
 @testable import Stores
 
 private func session(
-    _ id: String, _ cwd: String, status: Status = .idle, created: Int = 0, pinned: Bool = false, terminal: String? = nil, parent: String? = nil
+    _ id: String, _ cwd: String, status: Status = .idle, created: Int = 0, pinned: Bool = false, terminal: String? = nil, parent: String? = nil,
+    projectId: String? = nil, tree: String? = nil
 ) -> HomeList.Session {
     HomeList.Session(card: .init(id: id, title: "Session \(id)", status: status, createdAt: created, updatedAt: created, pinned: pinned),
-                     cwd: cwd, terminalId: terminal ?? "t-\(id)", parent: parent)
+                     cwd: cwd, terminalId: terminal ?? "t-\(id)", parent: parent, projectId: projectId, tree: tree)
 }
 
 private func build(_ sessions: [HomeList.Session], query: String = "", localOfTerminal: [String: String] = [:]) -> HomeList.Built {
@@ -92,6 +93,61 @@ struct HomeListTests {
         let projects = [Project(path: "/p", name: "p", worktrees: [Worktree(name: "main", path: "/p/main", branch: "main", isMain: true)])]
         let built = HomeList.build(projects: projects, names: [:], locals: [], localOfTerminal: [:], sessions: [session("s", "/p/other")])
         #expect(built.sections[0].trees[0].sessions == ["s"])
+    }
+
+    @Test("two projects with the same name and different paths each get the sessions of their id")
+    func sameNameProjects() {
+        let projects = [
+            Project(path: "/a/app", name: "app", worktrees: [Worktree(name: "main", path: "/a/app", branch: "main", isMain: true)], projectId: "pa"),
+            Project(path: "/b/app", name: "app", worktrees: [Worktree(name: "main", path: "/b/app", branch: "main", isMain: true)], projectId: "pb"),
+        ]
+        let built = HomeList.build(projects: projects, names: [:], locals: [], localOfTerminal: [:], sessions: [
+            session("one", "/elsewhere", projectId: "pa", tree: "/a/app"), session("two", "/elsewhere", projectId: "pb", tree: "/b/app"),
+        ])
+        #expect(built.sections.map { $0.trees.flatMap(\.sessions) } == [["one"], ["two"]])
+        #expect(built.elsewhere.isEmpty)
+    }
+
+    @Test("a session whose folder lies in a worktree the list filtered out lands in its project's main tree by id")
+    func filteredWorktree() {
+        let projects = [Project(path: "/p", name: "p", worktrees: [Worktree(name: "main", path: "/p/main", branch: "main", isMain: true)], projectId: "pp")]
+        let built = HomeList.build(projects: projects, names: [:], locals: [], localOfTerminal: [:], sessions: [
+            session("s", "/w/gone/src", projectId: "pp", tree: "/w/gone"), session("c", "/w/gone", parent: "s", projectId: "pp", tree: "/w/gone"),
+        ])
+        #expect(built.sections[0].trees.map(\.id) == ["/p/main"])
+        #expect(built.sections[0].trees[0].sessions == ["s"])
+    }
+
+    @Test("a session goes to its tree when its project lists it, and to the project's main tree when it doesn't")
+    func projectTree() {
+        let projects = [Project(path: "/p", name: "p", worktrees: [
+            Worktree(name: "main", path: "/p", branch: "main", isMain: true), Worktree(name: "wt", path: "/w/wt", branch: "wt", isMain: false),
+        ], projectId: "pp")]
+        let built = HomeList.build(projects: projects, names: [:], locals: [], localOfTerminal: [:], sessions: [
+            session("in-wt", "/p", projectId: "pp", tree: "/w/wt"), session("no-tree", "/w/wt", projectId: "pp"),
+            session("other", "/w/wt", projectId: "pp", tree: "/q"),
+        ])
+        let trees = Dictionary(uniqueKeysWithValues: built.sections[0].trees.map { ($0.id, $0.sessions) })
+        #expect(trees["/w/wt"] == ["in-wt"])
+        #expect(Set(trees["/p"] ?? []) == ["no-tree", "other"])
+    }
+
+    @Test("an id no project has falls back to the folder, and so does a session without one")
+    func unknownProjectId() {
+        let built = build([
+            session("unknown", otter, projectId: "nope", tree: "/nowhere"), session("none", otter), session("lost", "/tmp/x", projectId: "nope"),
+        ])
+        let trees = Dictionary(uniqueKeysWithValues: built.sections[0].trees.map { ($0.id, $0.sessions) })
+        #expect(Set(trees[otter] ?? []) == ["unknown", "none"])
+        #expect(built.elsewhere == ["lost"])
+    }
+
+    @Test("a session opened in a Local stays there whatever its project id")
+    func localWinsOverId() {
+        let projects = [Project(path: "/p", name: "p", worktrees: [], projectId: "pp")]
+        let built = HomeList.build(projects: projects, names: [:], locals: [Local(id: "l", project: "/p", name: "L")], localOfTerminal: ["t-s": "l"],
+                                   sessions: [session("s", "/p", projectId: "pp", tree: "/p")])
+        #expect(built.sections[0].trees.first { $0.id == "l" }?.sessions == ["s"])
     }
 
     @Test("a tree's sessions are pinned first, then newest, and the tree and project roll up the most urgent")

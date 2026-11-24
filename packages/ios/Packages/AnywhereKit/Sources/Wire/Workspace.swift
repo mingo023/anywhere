@@ -14,13 +14,20 @@ public struct Worktree: Codable, Hashable, Sendable {
 }
 
 public struct Project: Codable, Hashable, Sendable, Identifiable {
+    /// pocketd's id for the project; stable when two projects share a name.
+    public var projectId: String?
     public var path: String
     public var name: String
     public var worktrees: [Worktree]
 
     public var id: String { path }
 
-    public init(path: String, name: String, worktrees: [Worktree]) {
+    private enum CodingKeys: String, CodingKey {
+        case projectId = "id", path, name, worktrees
+    }
+
+    public init(path: String, name: String, worktrees: [Worktree], projectId: String? = nil) {
+        self.projectId = projectId
         self.path = path
         self.name = name
         self.worktrees = worktrees
