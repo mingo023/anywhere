@@ -199,13 +199,25 @@ impl Agents {
     fn upsert(&mut self, id: String, items: Vec<Item>) {
         *self.revisions.entry(id.clone()).or_default() += 1;
         let t = self.timelines.entry(id).or_default();
-        for item in items {
-            // A streaming draft rewrites the newest item, so look from the end.
-            match t.iter().rposition(|x| x.id == item.id) {
-                Some(ix) => t[ix] = item,
-                None => t.push(item),
+        let mut order = Vec::new();
+        let mut fresh: HashMap<String, Item> = HashMap::new();
+        for x in items {
+            let id = x.id.clone();
+            if fresh.insert(id.clone(), x).is_none() {
+                order.push(id);
             }
         }
+        // A streaming draft rewrites the newest item, so look from the end; an older page of a long chat adds
+        // thousands at once, which one pass takes.
+        for x in t.iter_mut().rev() {
+            if fresh.is_empty() {
+                break;
+            }
+            if let Some(item) = fresh.remove(&x.id) {
+                *x = item;
+            }
+        }
+        t.extend(order.iter().filter_map(|id| fresh.remove(id)));
         t.sort_by_key(|x| x.seq);
     }
 
@@ -454,6 +466,18 @@ mod tests {
         a.apply(Event::Items("a".into(), vec![item("2", 2, "b!")]));
         let t: Vec<_> = a.timelines["a"].iter().map(|i| i.text.as_str()).collect();
         assert_eq!(t, vec!["a", "b!"]);
+    }
+
+    #[test]
+    fn a_batch_keeps_each_items_last_version_in_the_order_first_named() {
+        let mut a = Agents::default();
+        let item = |id: &str, seq, text: &str| Item { id: id.into(), seq, kind: "assistant".into(), text: text.into(), ..Default::default() };
+        a.apply(Event::Items("a".into(), vec![item("1", 1, "held")]));
+        a.apply(Event::Items("a".into(), vec![item("1", 1, "a"), item("2", 2, "b"), item("1", 1, "a!"), item("2", 2, "b!")]));
+        let t: Vec<_> = a.timelines["a"].iter().map(|i| i.text.as_str()).collect();
+        assert_eq!(t, vec!["a!", "b!"]);
+        a.apply(Event::Items("b".into(), (0..6).map(|n| item(&format!("x{n}"), 5, "")).collect()));
+        assert_eq!(a.timelines["b"].iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["x0", "x1", "x2", "x3", "x4", "x5"], "items of one seq keep their order");
     }
 
     #[test]

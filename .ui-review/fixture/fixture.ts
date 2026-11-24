@@ -1,6 +1,6 @@
 // Recreates a design scenario for `pocket-desktop --capture`: git repos under <dir>/home, and a fake
 // pocketd (unix socket + phone websocket) under <dir>/pocket. Usage: bun fixture.ts <scenario> <dir>
-// The chat scenario's agent starts with the items of chat/$FIXTURE_CHAT.json (default every-tool-kind);
+// The chat scenario's agent starts with the items of chat/$FIXTURE_CHAT.json (default every-tool-kind), or subagent-<rows>;
 // prompting it "/fixture <name>" plays chat/<name>.json, perf-<items> (perf-1200, perf-5000), the "permission"/"question" ask,
 // "exit" (the agent closes), "clear" (a new conversation, as after /clear), "restart" (pocketd restarts mid-turn), "stream-code" (a reply whose code block streams in over 4.5s)
 // or "delegate" (the agent hands three sessions to others: they appear under it, one asks "Which test runner?", one finishes, one fails, and pocketd tells the chat of each).
@@ -241,8 +241,17 @@ const perf = (items: number): Item[] =>
       { id: `${t}-r`, kind: "result", ok: true, durationMs: 30_000, usage: { inputTokens: 9000, outputTokens: 1200 } },
     ];
   }).flat();
+// Two short turns, then one whose sub-agent writes `rows` items, so the newest page holds almost none of the chat's own.
+const subagent = (rows: number): Item[] => [
+  { id: "u1", kind: "user", text: "The first prompt of this chat." },
+  { id: "a1", kind: "assistant", text: "The first reply." },
+  { id: "r1", kind: "result", ok: true, durationMs: 4_000 },
+  { id: "u2", kind: "user", text: "Review every module with a sub-agent." },
+  { id: "t2", kind: "tool", call: { toolUseId: "tu-big", name: "Agent", detail: { kind: "task", description: "Review every module" }, status: "running" } },
+  ...Array.from({ length: rows }, (_, n) => ({ id: `s${n}`, kind: "tool", parentToolUseId: "tu-big", call: { toolUseId: `tu-s${n}`, name: "Read", detail: { kind: "read", path: `src/m${n}.rs` }, status: "ok", durationMs: 10 } })),
+];
 const chatItems = (name: string): Item[] =>
-  /^perf-\d+$/.test(name) ? perf(Number(name.slice(5))) : JSON.parse(readFileSync(join(import.meta.dir, "chat", `${name}.json`), "utf8"));
+  /^perf-\d+$/.test(name) ? perf(Number(name.slice(5))) : /^subagent-\d+$/.test(name) ? subagent(Number(name.slice(9))) : JSON.parse(readFileSync(join(import.meta.dir, "chat", `${name}.json`), "utf8"));
 const firstChat = chatItems(process.env.FIXTURE_CHAT ?? "every-tool-kind");
 const seqs = new Map<string, number>();
 // Numbered from the agent's last item, so a played scenario lands after what's shown.
@@ -289,6 +298,12 @@ const asking = (a: Agent): Item[] => {
 };
 // Only Activity's screens show a turn's prompt and steps; the others keep the one result they were reviewed with.
 const turns = name === "activity";
+// As pocketd pages: the newest `limit` items (200 unless asked), sub-agents' included.
+const held = new Map<string, { seq: number }[]>();
+const paged = (items: { seq: number }[], limit = 200) => {
+  const page = items.slice(Math.max(0, items.length - limit));
+  return { items: page, hasOlder: page.length < items.length };
+};
 const timeline = (a: Agent) => a.id === CHAT_AGENT ? stamp(a.id, firstChat) : process.env.FIXTURE_HANDOFF && a.id === "fix" ? handoffTurns.map((t, i) => ({ id: `fix-${i}`, seq: i, ts: now - (40 - i) * 60_000, kind: t.kind, text: t.text.replace("<fix>", cwd(a)) })) : turns && a.waiting ? stamp(a.id, asking(a)) : [...(turns && a.failed ? [{ id: `${a.id}-user`, seq: 0, ts: now - (a.ago + 1) * 60_000, kind: "user", text: a.title }] : []), {
   id: `${a.id}-result`, seq: 1, ts: now - a.ago * 60_000, kind: "result", ok: !a.failed, error: a.failed ? "exit 1" : "",
   usage: { inputTokens: (100 - left[a.provider]) * 2000, cacheReadTokens: 0 },
@@ -1078,9 +1093,14 @@ Bun.serve({
       const hostOnly = (id: string): Task[] => process.env.FIXTURE_HOST_ONLY ? TASKS.map(([title, agent, model], i) => ({ taskId: `${id}-host${i + 1}`, parentId: id, childId: `${process.env.FIXTURE_HOST_DOWN ? (i === 2 ? "10-0-4-12/" : "devbox/") : ""}${id}-host-c${i + 1}`, title, agent, model, status: "working", ...(i === 0 && { question: "Which test runner?" }), createdAt: Date.now() + i })) : [];
       if (f.type === "agent.delegations") ws.send(JSON.stringify({ type: "agent.delegations", id: f.id, agentId: f.agentId, items: tasks.get(f.agentId) ?? hostOnly(f.agentId) }));
       if (f.type === "agent.timeline" && childTimelines.has(f.agentId)) ws.send(JSON.stringify({ type: "agent.timeline", agentId: f.agentId, items: childTimelines.get(f.agentId) }));
-      if (f.type === "agent.timeline") {
+      if (f.type === "agent.timeline" && f.beforeSeq != null) ws.send(JSON.stringify({ type: "agent.timeline", id: f.id, agentId: f.agentId, ...paged((held.get(f.agentId) ?? []).filter((i) => i.seq < f.beforeSeq), f.limit) }));
+      else if (f.type === "agent.timeline") {
         const a = scenario.agents.find((a) => a.id === f.agentId);
-        if (a) ws.send(JSON.stringify({ type: "agent.timeline", agentId: a.id, items: timeline(a) }));
+        if (a) {
+          const items = timeline(a);
+          held.set(a.id, items);
+          ws.send(JSON.stringify({ type: "agent.timeline", id: f.id, agentId: a.id, ...paged(items, f.limit) }));
+        }
         if (a?.id === CHAT_AGENT && firstChat.at(-1)?.kind === "user") reply(ws, a.id);
         if (a?.id === CHAT_AGENT && process.env.FIXTURE_CHAT === "permissions") ask(ws, a.id, "permission");
       }

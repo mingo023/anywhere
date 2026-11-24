@@ -21,6 +21,7 @@ pub(super) struct Frame {
     pub(super) item: Option<Item>,
     pub(super) items: Vec<Item>,
     pub(super) max_seq: i64,
+    pub(super) has_older: bool,
     pub(super) request: Option<Permission>,
     pub(super) request_id: String,
     pub(super) host: Option<Host>,
