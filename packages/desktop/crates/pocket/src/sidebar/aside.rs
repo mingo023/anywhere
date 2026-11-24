@@ -12,7 +12,6 @@ use git::github::Pr;
 use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use std::ops::Range;
 use std::time::{Duration, Instant};
 use theme::*;
 use ui::{self, icon_button_sized};
@@ -35,11 +34,8 @@ pub(crate) struct ProjectFrame {
     pub(crate) flashed: bool,
     pub(crate) section: Section,
     pub(crate) manual: bool,
-    /// Its tree rows that are near the viewport, while they are drawn.
+    /// Its tree rows, while they are drawn.
     pub(crate) rows: Vec<TreeFrame>,
-    /// How many of its rows lie above and below `rows`, left to spacers.
-    pub(crate) before: usize,
-    pub(crate) after: usize,
 }
 
 /// How a worktree's row marks itself.
@@ -185,8 +181,6 @@ pub(crate) struct AsideFrame {
     pub(crate) update: Update,
     pub(crate) star: Option<Entity<Star>>,
     pub(crate) menu: Option<MenuFrame>,
-    /// The stretch of the list's height whose rows are built; `None` builds them all.
-    pub(crate) built: Option<Range<f32>>,
 }
 
 /// What the aside asks `Desktop` for.
@@ -195,52 +189,23 @@ pub(crate) enum SidebarEvent {
     Collapse,
     Palette,
     Page(Screen),
-    SelectTree {
-        project: String,
-        tree: Option<String>,
-        progress: bool,
-    },
+    SelectTree { project: String, tree: Option<String>, progress: bool },
     NewPlace(String),
     ToggleProject(String),
     OpenChanges,
     Rename(String),
-    Renamed {
-        tree: String,
-        title: String,
-    },
-    GroupRenamed {
-        group: u32,
-        name: String,
-    },
-    DropTree {
-        project: String,
-        from: String,
-        to: String,
-    },
-    DropProject {
-        path: String,
-        onto: String,
-        section: Section,
-    },
-    DropInto {
-        path: String,
-        section: Section,
-    },
+    Renamed { tree: String, title: String },
+    GroupRenamed { group: u32, name: String },
+    DropTree { project: String, from: String, to: String },
+    DropProject { path: String, onto: String, section: Section },
+    DropInto { path: String, section: Section },
     TogglePins,
-    ToggleGroup {
-        id: u32,
-        clicks: usize,
-    },
+    ToggleGroup { id: u32, clicks: usize },
     ToggleScratch,
     NewScratch,
-    DropScratch {
-        from: String,
-        to: String,
-    },
+    DropScratch { from: String, to: String },
     Menu(MenuEvent),
     Swipe(ScrollEvent),
-    /// The list scrolled toward rows that aren't built.
-    Scrolled,
     RestartToUpdate,
     DismissWhatsNew,
     Reconnect(String),
@@ -257,8 +222,6 @@ impl EventEmitter<SidebarEvent> for Sidebar {}
 const HEAD: &str = "aside-scratch-head";
 /// Past this the section scrolls, so a long list can't squeeze Projects out.
 const MAX_ROWS: f32 = 8.5;
-/// How close the view may come to the edge of what is built before `Desktop` builds more.
-const NEAR: f32 = 100.;
 
 #[derive(Clone)]
 struct DragScratch {
@@ -266,19 +229,7 @@ struct DragScratch {
     ix: usize,
 }
 
-/// Stands in for `rows` tree rows that aren't built, as tall as they would be.
-fn spacer(rows: usize) -> Option<AnyElement> {
-    (rows > 0).then(|| div().flex_none().h(px(fold::stacked(vec![ui::SIDEBAR_ROW_H; rows], 1.))).into_any_element())
-}
-
 impl Sidebar {
-    /// The stretch of the list's height in view, once it has been drawn.
-    pub(crate) fn seen(&self) -> Option<Range<f32>> {
-        let height = f32::from(self.repos_scroll.bounds().size.height);
-        let top = -f32::from(self.repos_scroll.offset().y);
-        (height > 0.).then_some(top..top + height)
-    }
-
     pub(crate) fn set_frame(&mut self, frame: AsideFrame, cx: &mut Context<Self>) {
         if self.frame.as_ref() != Some(&frame) {
             self.frame = Some(frame);
@@ -479,15 +430,14 @@ impl Sidebar {
             }))
             .on_mouse_down(MouseButton::Right, open_on_right_click(menu, Self::send, cx))
             .on_drag(DragProject { path: path.to_string(), ix: i }, |_, _, _, cx| cx.new(|_| EmptyView));
-        let total = p.before + p.rows.len() + p.after;
-        let out: Vec<AnyElement> = spacer(p.before).into_iter().chain(p.rows.iter().map(|r| self.tree_row(r, rf, cx))).chain(spacer(p.after)).collect();
+        let out: Vec<AnyElement> = p.rows.iter().map(|r| self.tree_row(r, rf, cx)).collect();
         // The rows are fixed-height, so the open height is known without measuring: top pad, rows, gaps between them, bottom pad.
-        let height = if total == 0 { 0. } else { 1. + fold::stacked(vec![ui::SIDEBAR_ROW_H; total], 1.) + 6. };
+        let height = if out.is_empty() { 0. } else { 1. + fold::stacked(vec![ui::SIDEBAR_ROW_H; out.len()], 1.) + 6. };
         let rows = fold::springing(
             id(format!("aside-fold:{path}")),
             p.open,
             height,
-            div().flex().flex_col().gap(px(1.)).when(total > 0, |d| d.pt(px(1.)).pb(px(6.))).children(out),
+            div().flex().flex_col().gap(px(1.)).when(!out.is_empty(), |d| d.pt(px(1.)).pb(px(6.))).children(out),
         );
         let (to, section, manual) = (path.to_string(), p.section, p.manual);
         let block = div()
@@ -951,14 +901,7 @@ impl Render for Sidebar {
                 .into_any_element(),
             None => list.into_any_element(),
         };
-        let body = div().id("aside-repos").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.repos_scroll).flex().flex_col().child(list);
-        if let (Some(seen), Some(built)) = (self.seen(), f.built.as_ref()) {
-            let length = seen.end - seen.start + f32::from(self.repos_scroll.max_offset().y);
-            let missing = (seen.start - NEAR < built.start && built.start > 0.) || (seen.end + NEAR > built.end && built.end < length);
-            if missing {
-                cx.emit(SidebarEvent::Scrolled);
-            }
-        }
+        let body = div().id("aside-repos").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().child(list);
         let scratch = f.scratch.as_ref().map(|s| self.scratch_section(s, f, cx));
         let aside = ui::side(div())
             .bg(nav_fill())

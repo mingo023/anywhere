@@ -9,50 +9,8 @@ use crate::sidebar::{ProjectRow, Sidebar, rolled_state, tree_label, tree_place};
 use crate::spaces::{Space, space_of};
 use gpui_kit::component::input::InputState;
 use gpui_kit::*;
-use std::ops::Range;
 use std::time::Instant;
 use store::sections::{Pin, Sort};
-
-/// How far past the view rows are built, so a scroll finds them there.
-const OVERDRAW: f32 = 400.;
-/// `OVERDRAW`'s edges are rounded out to this, so a small scroll builds the same rows.
-const STEP: f32 = 100.;
-const ROW_H: f32 = ui::SIDEBAR_ROW_H;
-/// A section's box and head above its rows, and its padding and margin below them.
-const BOX_TOP: f32 = 40.;
-const BOX_BOTTOM: f32 = 12.;
-
-/// The stretch of the Projects list to build rows for, around `seen`.
-pub(super) fn built_around(seen: &Range<f32>) -> Range<f32> {
-    ((seen.start - OVERDRAW) / STEP).floor() * STEP..((seen.end + OVERDRAW) / STEP).ceil() * STEP
-}
-
-/// Walks down the Projects list by its nominal heights, saying which of a project's fixed-height rows lie outside the `built` stretch.
-pub(super) struct Reach {
-    y: f32,
-    built: Option<Range<f32>>,
-}
-
-impl Reach {
-    pub(super) fn new(built: Option<Range<f32>>) -> Self {
-        Self { y: 0., built }
-    }
-
-    pub(super) fn pass(&mut self, height: f32) {
-        self.y += height;
-    }
-
-    /// A project's row, and below it `rows` tree rows: how many of them lie above and below what is built.
-    pub(super) fn block(&mut self, rows: usize) -> (usize, usize) {
-        let first = self.y + ROW_H + 1.;
-        self.y = first + if rows > 0 { rows as f32 * (ROW_H + 1.) + 6. } else { 0. };
-        let Some(built) = &self.built else { return (0, 0) };
-        let at = |from: f32| ((from - first) / (ROW_H + 1.)).clamp(0., rows as f32) as usize;
-        let before = at(built.start);
-        let upto = ((built.end - first) / (ROW_H + 1.)).ceil().clamp(0., rows as f32) as usize;
-        (before.min(upto), rows - upto)
-    }
-}
 
 /// The group being renamed.
 #[derive(Default)]
@@ -257,7 +215,7 @@ impl Desktop {
     }
 
     /// The sections, as the aside draws them: pinned rows, each group, then the ungrouped projects; while filtering, only what matches.
-    pub(super) fn body_frame(&self, query: &str, space: &Space, reach: &mut Reach, cx: &mut Context<Self>) -> Body {
+    pub(super) fn body_frame(&self, query: &str, space: &Space, cx: &mut Context<Self>) -> Body {
         let filtering = !query.is_empty();
         let listed = self.listed(query, cx);
         let sections = &self.store.sections;
@@ -268,20 +226,14 @@ impl Desktop {
         let pinned_open = filtering || !sections.pins_folded;
         let pinned = (!listed.pinned.is_empty()).then(|| {
             let items = if self.sidebar.read(cx).closing.drawn(&Fold::Pinned, pinned_open) {
-                reach.pass(BOX_TOP);
-                let items = listed
+                listed
                     .pinned
                     .iter()
                     .map(|item| match item {
-                        Item::Project(b) => PinnedItem::Project(self.project_frame(b.ix, &b.project, b.only.as_deref(), Section::Pinned, reach, cx)),
-                        Item::Tree { project, key } => {
-                            reach.pass(ROW_H + 2.);
-                            PinnedItem::Tree { key: key.clone(), row: self.pinned_tree_frame(project, key, cx).map(Box::new) }
-                        }
+                        Item::Project(b) => PinnedItem::Project(self.project_frame(b.ix, &b.project, b.only.as_deref(), Section::Pinned, cx)),
+                        Item::Tree { project, key } => PinnedItem::Tree { key: key.clone(), row: self.pinned_tree_frame(project, key, cx).map(Box::new) },
                     })
-                    .collect();
-                reach.pass(BOX_BOTTOM);
-                items
+                    .collect()
             } else {
                 vec![]
             };
@@ -298,10 +250,7 @@ impl Desktop {
                 (false, _) => GroupBody::Hidden,
                 (true, true) => GroupBody::Hint,
                 (true, false) => {
-                    reach.pass(BOX_TOP);
-                    let frames = blocks.iter().map(|b| self.project_frame(b.ix, &b.project, b.only.as_deref(), Section::Group(*id), reach, cx)).collect();
-                    reach.pass(BOX_BOTTOM);
-                    GroupBody::Blocks(frames)
+                    GroupBody::Blocks(blocks.iter().map(|b| self.project_frame(b.ix, &b.project, b.only.as_deref(), Section::Group(*id), cx)).collect())
                 }
             };
             groups.push(GroupFrame { id: *id, name: group.name.clone(), icon: group.icon.clone(), open, body });
@@ -310,8 +259,7 @@ impl Desktop {
         let tail = if filtering && listed.other.is_empty() {
             if above { Tail::None } else { Tail::NoMatch(self.sidebar.read(cx).header.read(cx).filter.input.read(cx).value().trim().to_string()) }
         } else {
-            reach.pass(ROW_H + 1.);
-            let blocks = listed.other.iter().map(|b| self.project_frame(b.ix, &b.project, b.only.as_deref(), Section::Other, reach, cx)).collect();
+            let blocks = listed.other.iter().map(|b| self.project_frame(b.ix, &b.project, b.only.as_deref(), Section::Other, cx)).collect();
             Tail::Other { blocks, headed: above || !listed.groups.is_empty() }
         };
         Body::Sections(SectionsFrame { pinned_open, pinned, groups, tail })
@@ -327,7 +275,7 @@ impl Desktop {
 
     /// A project's row, then while it is open its checkout's and worktrees' rows, less those pinned.
     /// `only` holds the trees the filter lets through, unfolding it; `section` is where it sits, so where a project dropped on it goes.
-    fn project_frame(&self, ix: usize, p: &str, only: Option<&[String]>, section: Section, reach: &mut Reach, cx: &App) -> ProjectFrame {
+    fn project_frame(&self, ix: usize, p: &str, only: Option<&[String]>, section: Section, cx: &App) -> ProjectFrame {
         let current = self.place(cx).filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
         let trees = self.trees_shown(p, cx);
         let setups = self.creates.read(cx).setups(&self.terminals.read(cx).setups);
@@ -337,18 +285,14 @@ impl Desktop {
         let state = if open { None } else { self.calm(p, rolled_state(&self.cards(p, cx)).filter(|_| !setting_up)) };
         let name = self.repo_name(p);
         let offline = hosts::split(p).0.is_some_and(|h| !self.fleet.hosts.links.online(h));
-        let (rows, before, after) = if self.sidebar.read(cx).closing.drawn(&Fold::Project(p.to_string()), open) {
-            let rows: Vec<TreeRow> = self
-                .tree_rows(p, trees.as_deref().unwrap_or_default(), cx)
-                .into_iter()
+        let rows = if self.sidebar.read(cx).closing.drawn(&Fold::Project(p.to_string()), open) {
+            self.tree_rows(p, trees.as_deref().unwrap_or_default(), cx)
+                .iter()
                 .filter(|r| only.is_none_or(|o| o.contains(&r.key)) && !self.tree_pinned(p, &r.key))
-                .collect();
-            let (before, after) = reach.block(rows.len());
-            let near = rows[before..rows.len() - after].iter().map(|row| self.tree_frame(p, row, current.as_deref(), &setups, None, cx)).collect();
-            (near, before, after)
+                .map(|row| self.tree_frame(p, row, current.as_deref(), &setups, None, cx))
+                .collect()
         } else {
-            reach.block(0);
-            (vec![], 0, 0)
+            vec![]
         };
         ProjectFrame {
             ix,
@@ -366,8 +310,6 @@ impl Desktop {
             section,
             manual: self.store.sections.sort == Sort::Manual,
             rows,
-            before,
-            after,
         }
     }
 }
@@ -391,37 +333,8 @@ impl Sidebar {
 
 #[cfg(test)]
 mod tests {
-    use super::{ROW_H, Reach, built_around, shown, sort_projects};
+    use super::{shown, sort_projects};
     use store::sections::Sort;
-
-    #[test]
-    fn rows_are_all_built_until_the_view_is_known() {
-        assert_eq!(Reach::new(None).block(60), (0, 0));
-    }
-
-    #[test]
-    fn only_the_rows_near_the_view_are_built() {
-        let (step, height) = (ROW_H + 1., ROW_H + 1.);
-        let built = built_around(&(2000.0..2800.));
-        let (before, after) = Reach::new(Some(built.clone())).block(200);
-        assert!(before as f32 * step < built.start && (before + 1) as f32 * step + height > built.start - 2. * height);
-        assert!(after < 200 - before);
-        assert!((200 - after) as f32 * step >= built.end - 2. * height);
-    }
-
-    #[test]
-    fn a_project_wholly_above_or_below_the_view_builds_none_of_its_rows() {
-        let mut reach = Reach::new(Some(1000.0..1200.));
-        assert_eq!(reach.block(5), (5, 0));
-        reach.pass(2000.);
-        assert_eq!(reach.block(5), (0, 5));
-    }
-
-    #[test]
-    fn the_built_stretch_moves_in_whole_steps() {
-        assert_eq!(built_around(&(500.0..900.)), 100.0..1300.);
-        assert_eq!(built_around(&(510.0..930.)), 100.0..1400.);
-    }
 
     fn trees() -> Vec<(String, String)> {
         [("/p", "Local"), ("/wt/a", "fix-login"), ("/wt/b", "feat-search")].map(|(k, l)| (k.to_string(), l.to_string())).to_vec()

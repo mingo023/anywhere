@@ -209,8 +209,6 @@ pub struct Sidebar {
     pub(crate) placement: RefCell<Option<Placement>>,
     /// What `Desktop` last handed the aside to draw.
     frame: Option<AsideFrame>,
-    /// How far the Projects list is scrolled.
-    pub(crate) repos_scroll: ScrollHandle,
     /// The lead column, between its `lead_stop`s.
     pub(crate) lead: Glide,
     /// How far the right-hand panel is open.
@@ -250,7 +248,6 @@ impl Sidebar {
             closing: Closing::default(),
             placement: RefCell::default(),
             frame: None,
-            repos_scroll: ScrollHandle::new(),
             lead: Glide::default(),
             panel: Glide::default(),
         }
@@ -466,7 +463,6 @@ impl Desktop {
             }
             SidebarEvent::Menu(ev) => self.on_menu_event(ev.clone(), window, cx),
             SidebarEvent::Swipe(e) => self.swipe_spaces(e, window, cx),
-            SidebarEvent::Scrolled => cx.notify(),
             SidebarEvent::RestartToUpdate => self.restart_to_update(cx),
             SidebarEvent::DismissWhatsNew => self.dismiss_whats_new(cx),
             SidebarEvent::Reconnect(id) => {
@@ -545,10 +541,6 @@ impl Desktop {
     fn aside_frame(&self, space: &Space, cx: &mut Context<Self>) -> AsideFrame {
         let reduce_motion = cx.reduce_motion();
         let query = self.sidebar.read(cx).query(cx);
-        let offline = self.offline_frame(space);
-        let built = self.sidebar.read(cx).seen().filter(|_| offline.is_none()).map(|seen| sections::built_around(&seen));
-        let mut reach = sections::Reach::new(built.clone());
-        let body = self.body_frame(&query, space, &mut reach, cx);
         AsideFrame {
             width: self.aside_width(),
             seam: self.overlay.is_none(),
@@ -557,13 +549,12 @@ impl Desktop {
             screen: self.screen,
             pages: pages::offered(&self.agents).map(|p| (p.name, p.icon, p.screen)).collect(),
             scratch: self.scratch_frame(&query, space, cx),
-            offline,
-            body,
+            offline: self.offline_frame(space),
+            body: self.body_frame(&query, space, cx),
             slide: self.spaces.sliding(Instant::now()).filter(|_| !reduce_motion && !self.capturing),
             update: self.updates.update.clone(),
             star: self.star.read(cx).visible().then(|| self.star.clone()),
             menu: self.row_menu.as_ref().filter(|m| !matches!(m, RowMenu::Session(_))).and(self.menu_frame(cx)),
-            built,
         }
     }
 
