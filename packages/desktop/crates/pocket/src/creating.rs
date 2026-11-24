@@ -543,11 +543,6 @@ impl Desktop {
         self.creates.update(cx, |c, _| c.hand_off(|a| agents.get(a).is_some(), Instant::now()))
     }
 
-    /// `el`, rising into `agent`'s chat just opened from its create.
-    pub(crate) fn arriving(&self, agent: &str, part: Part, el: Div, window: &mut Window, cx: &App) -> Div {
-        arriving(&self.creates, agent, part, el, window, cx)
-    }
-
     fn tick_create(&mut self, cx: &mut Context<Self>) {
         if self.creates.read(cx).ticking || !self.shown_create(cx).is_some_and(|c| c.failed.is_none()) {
             return;

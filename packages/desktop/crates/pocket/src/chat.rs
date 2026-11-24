@@ -216,7 +216,7 @@ impl Desktop {
         };
         let composer = self.chat_composer(terminal, window, cx);
         let composer = match &agent {
-            Some(agent) => self.arriving(agent, crate::creating::DOCK, composer, window, cx),
+            Some(agent) => crate::creating::arriving(&self.creates, agent, crate::creating::DOCK, composer, window, cx),
             None => composer,
         };
         let crumb = agent.as_ref().and_then(|agent| self.delegated_crumb(agent, window, cx));
