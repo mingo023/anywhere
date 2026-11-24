@@ -614,9 +614,9 @@ impl Desktop {
 
     pub(crate) fn relaunch_if_replaced(&mut self, cx: &mut Context<Self>) {
         let replaced = replaced_on_disk(cx);
-        cx.spawn(async move |_, cx| {
+        cx.spawn(async move |this, cx| {
             if replaced.await {
-                cx.update(|cx| cx.restart());
+                this.update(cx, |d, cx| d.relaunch(cx)).ok();
             }
         })
         .detach();
@@ -626,12 +626,27 @@ impl Desktop {
         let replaced = replaced_on_disk(cx);
         cx.spawn(async move |this, cx| {
             if replaced.await {
-                cx.update(|cx| cx.restart());
+                this.update(cx, |d, cx| {
+                    if !d.relaunch(cx) {
+                        d.error = Some("Save or discard your unsaved edits, then restart Anywhere onto its update.".into());
+                        cx.notify();
+                    }
+                })
+                .ok();
             } else {
                 this.update(cx, |d, cx| d.restart_service(cx)).ok();
             }
         })
         .detach();
+    }
+
+    /// Unsaved edits live only in memory, so a relaunch waits for them as quitting does.
+    fn relaunch(&mut self, cx: &mut Context<Self>) -> bool {
+        let clean = self.preview.drafts.is_empty();
+        if clean {
+            cx.restart();
+        }
+        clean
     }
 
     pub(crate) fn restart_service(&mut self, cx: &mut Context<Self>) {
