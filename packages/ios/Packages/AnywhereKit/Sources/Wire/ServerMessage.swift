@@ -29,6 +29,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
     case automations(Automations)
     case board(Board)
     case projectList(ProjectList)
+    case registryList(RegistryList)
     case terminalList(TerminalList)
     case terminalAttached(TerminalAttached)
     case terminalResized(TerminalResized)
@@ -94,6 +95,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case "automations": self = .automations(try Automations(from: decoder))
         case "board": self = .board(try Board(from: decoder))
         case "project.list": self = .projectList(try ProjectList(from: decoder))
+        case "registry.list": self = .registryList(try RegistryList(from: decoder))
         case "terminal.list": self = .terminalList(try TerminalList(from: decoder))
         case "terminal.attached": self = .terminalAttached(try TerminalAttached(from: decoder))
         case "terminal.resized": self = .terminalResized(try TerminalResized(from: decoder))
@@ -162,6 +164,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .automations(let m): try m.encode(to: encoder)
         case .board(let m): try m.encode(to: encoder)
         case .projectList(let m): try m.encode(to: encoder)
+        case .registryList(let m): try m.encode(to: encoder)
         case .terminalList(let m): try m.encode(to: encoder)
         case .terminalAttached(let m): try m.encode(to: encoder)
         case .terminalResized(let m): try m.encode(to: encoder)
@@ -227,6 +230,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .automations: "automations"
         case .board: "board"
         case .projectList: "project.list"
+        case .registryList: "registry.list"
         case .terminalList: "terminal.list"
         case .terminalAttached: "terminal.attached"
         case .terminalResized: "terminal.resized"
