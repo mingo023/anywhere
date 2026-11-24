@@ -45,7 +45,7 @@ func withTerminals(t *testing.T, terms *terminal.Manager, project string) func(*
 		t.Fatal(err)
 	}
 	return func(s *Server) {
-		s.Terminals, s.TerminalHost, s.Registry, s.Locals = terms, shells{terms}, registry.New(path), locals.Open(dir)
+		s.Terminals, s.TerminalHost, s.Registry, s.Locals = terms, shells{terms}, registry.Open(filepath.Dir(path)), locals.Open(dir)
 	}
 }
 

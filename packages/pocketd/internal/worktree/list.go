@@ -150,7 +150,7 @@ func Projects(f registry.File) []proto.Project {
 		if err != nil {
 			continue
 		}
-		ps = append(ps, proto.Project{Path: p, Name: f.Name(p), Worktrees: Listed(f, ws)})
+		ps = append(ps, proto.Project{ID: f.Repos[p].ID, Path: p, Name: f.Name(p), Worktrees: Listed(f, ws)})
 	}
 	return ps
 }

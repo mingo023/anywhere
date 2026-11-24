@@ -138,6 +138,15 @@ impl Desktop {
         project::project_of(cwd, projects, &self.worktrees)
     }
 
+    /// The project `a` runs in: among `projects`, the one pocketd placed it in while its folder `cwd` is one of that
+    /// project's, so its row shows it; else the one `cwd` is in.
+    pub fn agent_project<'a>(&self, a: &agents::Summary, cwd: &str, projects: &'a [String]) -> Option<&'a String> {
+        let host = hosts::session::untag(&a.id).0;
+        let placed = Some(a.project_id.as_str()).filter(|id| !id.is_empty()).and_then(|id| self.store.project_with_id(host, id));
+        let placed = placed.and_then(|p| projects.iter().find(|q| *q == p)).filter(|p| self.project_of(cwd, std::slice::from_ref(*p)).is_some());
+        placed.or_else(|| self.project_of(cwd, projects))
+    }
+
     pub fn worktree_of(&self, cwd: &str) -> Option<&git::Worktree> {
         project::worktree_of(cwd, &self.worktrees, |t| self.store.lists(t))
     }
@@ -183,7 +192,7 @@ impl Desktop {
         status::listed(&self.agents.list)
             .into_iter()
             .filter_map(|a| Some((a, self.terminals.sessions.get(&a.terminal_id)?)))
-            .filter_map(|(a, s)| Some((self.project_of(&s.info.cwd, projects)?, status::Card { local: s.info.local.clone(), ..status::card(a, &s.info.cwd) })))
+            .filter_map(|(a, s)| Some((self.agent_project(a, &s.info.cwd, projects)?, status::Card { local: s.info.local.clone(), ..status::card(a, &s.info.cwd) })))
     }
 
     /// Runs `f` with `projects` and `cards` answered from one pass over the sessions. Every sidebar row asks for its
@@ -397,6 +406,7 @@ impl Desktop {
     pub(crate) fn keep_project(&mut self, p: &str, cx: &mut Context<Self>) {
         self.store.add(p);
         self.store.save();
+        self.publish_registry();
         self.refresh_git(cx);
         cx.notify();
     }
@@ -412,6 +422,7 @@ impl Desktop {
         }
         self.store.remove(p);
         self.store.save();
+        self.publish_registry();
         let only = [p.to_string()];
         self.repos.retain(|cwd, _| project::project_of(cwd, &only, &self.worktrees).is_none());
         self.worktrees.remove(p);

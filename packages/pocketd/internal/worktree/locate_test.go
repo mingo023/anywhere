@@ -35,11 +35,11 @@ func TestFindNamesTheProjectAndWorktreeAnAgentWorksIn(t *testing.T) {
 	git(t, p, "worktree", "add", "-q", "-b", "calm-otter", linked)
 	plain := t.TempDir()
 	os.Mkdir(filepath.Join(plain, "src"), 0o755)
-	f := registry.File{Projects: []string{plain, p}, Repos: map[string]registry.Repo{p: {Name: "Pocket"}}}
+	f := registry.File{Projects: []string{plain, p}, Repos: map[string]registry.Repo{p: {ID: "p1", Name: "Pocket"}, plain: {ID: "p2"}}}
 	for cwd, want := range map[string]Place{
-		p:                           {Project: "Pocket", Worktree: "pocket", Branch: "main", Main: true},
-		linked:                      {Project: "Pocket", Worktree: "calm-otter", Branch: "calm-otter"},
-		filepath.Join(plain, "src"): {Project: filepath.Base(plain), Worktree: filepath.Base(plain), Main: true},
+		p:                           {Project: "Pocket", ProjectID: "p1", Tree: p, Worktree: "pocket", Branch: "main", Main: true},
+		linked:                      {Project: "Pocket", ProjectID: "p1", Tree: linked, Worktree: "calm-otter", Branch: "calm-otter"},
+		filepath.Join(plain, "src"): {Project: filepath.Base(plain), ProjectID: "p2", Tree: plain, Worktree: filepath.Base(plain), Main: true},
 	} {
 		if got, ok := Find(f, cwd); !ok || got != want {
 			t.Errorf("%s: %+v, want %+v", cwd, got, want)

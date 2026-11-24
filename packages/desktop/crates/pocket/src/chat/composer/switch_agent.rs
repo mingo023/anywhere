@@ -69,7 +69,7 @@ impl Desktop {
         }
         let projects = self.projects();
         let Some(s) = self.agents.get(id) else { return false };
-        let Some(project) = self.project_of(&s.cwd, &projects) else {
+        let Some(project) = self.agent_project(s, &s.cwd, &projects) else {
             self.error = Some("Couldn't find this chat's project".into());
             cx.notify();
             return false;

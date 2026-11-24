@@ -144,7 +144,7 @@ func serve(sock, handed string) error {
 	if err != nil {
 		return err
 	}
-	reg := registry.New(registry.Path())
+	reg := registry.Open(home)
 	h := hub.New()
 	d := &daemon.Daemon{
 		Terminals: terminal.NewManager(),
@@ -283,6 +283,7 @@ func serve(sock, handed string) error {
 	d.OnEnv = func() { go ws.PublishProviders() }
 	projectList := workspace.NewProjects(reg)
 	go projectList.Run(ctx)
+	go rescanOnChange(ctx, reg, projectList)
 	ws.Workspace = wsserver.WorkspaceService{Projects: projectList, Accounts: &workspace.AccountList{Store: d.Accounts, Running: d.Running}, Switch: d.Switch, SubagentTrees: o.subagentTrees, Session: o.session}
 	if ws.Hosts != nil {
 		ws.Workspace.HostDelete = ws.Hosts.Manager.DeleteWorktree
@@ -575,4 +576,21 @@ func computerName(fallback string) string {
 		return name
 	}
 	return fallback
+}
+
+// rescanOnChange lists a project the moment it's added, not at the next Poll.
+func rescanOnChange(ctx context.Context, reg *registry.Registry, projects *workspace.Projects) {
+	changes, stop := reg.Subscribe()
+	defer stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case _, ok := <-changes:
+			if !ok {
+				return
+			}
+			projects.Changed()
+		}
+	}
 }

@@ -122,4 +122,24 @@ struct ServerMessageTests {
         #expect(HelloOk(serverId: "m", hostname: "m", protocolVersion: 2).serverTooOld)
         #expect(!HelloOk(serverId: "m", hostname: "m", protocolVersion: 3, protocol: .init(min: 3, max: 3)).serverTooOld)
     }
+
+    @Test("a project frame decodes the id pocketd gives it, and one without still decodes")
+    func projectId() throws {
+        let project = #"{"path":"/p","name":"p","worktrees":[]}"#
+        let with = try decode(#"{"type":"project.list","projects":[{"id":"p1","path":"/p","name":"p","worktrees":[]}]}"#)
+        let without = try decode(#"{"type":"project.list","projects":["# + project + "]}")
+        guard case .projectList(let a) = with.message, case .projectList(let b) = without.message else { Issue.record("not project lists"); return }
+        #expect(a.projects.map(\.projectId) == ["p1"])
+        #expect(a.projects.map(\.id) == ["/p"])
+        #expect(b.projects.map(\.projectId) == [nil])
+    }
+
+    @Test("an agent summary decodes the project id and tree it started in")
+    func agentProject() throws {
+        let json = #"{"id":"a","terminalId":"t","title":"x","cwd":"/p","provider":"claude","status":"idle","attached":true,"epoch":1,"maxSeq":0,"createdAt":1,"updatedAt":1"#
+        let with = try JSONDecoder().decode(AgentSummary.self, from: Data((json + #","projectId":"p1","tree":"/p/wt"}"#).utf8))
+        let without = try JSONDecoder().decode(AgentSummary.self, from: Data((json + "}").utf8))
+        #expect([with.projectId, with.tree] == ["p1", "/p/wt"])
+        #expect(without.projectId == nil && without.tree == nil)
+    }
 }

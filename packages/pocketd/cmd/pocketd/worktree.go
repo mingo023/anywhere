@@ -10,6 +10,7 @@ import (
 	"slices"
 	"text/tabwriter"
 
+	"pocketd/internal/config"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
 	"pocketd/internal/worktree"
@@ -22,7 +23,7 @@ func worktreeMain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, worktreeUsage)
 		return 2
 	}
-	f := registry.New(registry.Path()).Load()
+	f := registry.Open(config.Home()).Load()
 	flags := flag.NewFlagSet("pocketd worktree "+args[0], flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	var err error

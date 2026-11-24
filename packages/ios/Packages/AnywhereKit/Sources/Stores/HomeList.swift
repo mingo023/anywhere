@@ -11,12 +11,17 @@ public enum HomeList {
         public var terminalId: String
         /// The chat that delegated to it.
         public var parent: String?
+        /// pocketd's id of the project it started in, and the tree there.
+        public var projectId: String?
+        public var tree: String?
 
-        public init(card: Sidebar.Card, cwd: String, terminalId: String, parent: String? = nil) {
+        public init(card: Sidebar.Card, cwd: String, terminalId: String, parent: String? = nil, projectId: String? = nil, tree: String? = nil) {
             self.card = card
             self.cwd = cwd
             self.terminalId = terminalId
             self.parent = parent
+            self.projectId = projectId
+            self.tree = tree
         }
     }
 
@@ -84,10 +89,10 @@ public enum HomeList {
         let ids = Set(sessions.map(\.card.id))
         for s in sessions {
             if let parent = s.parent, ids.contains(parent) {
-                if let tree = index.tree(of: s.cwd) { childTrees.insert(tree) }
+                if let tree = index.tree(of: s) { childTrees.insert(tree) }
             } else if let local = localOfTerminal[s.terminalId], localIds.contains(local) {
                 byTree[local, default: []].append(s.card)
-            } else if let tree = index.tree(of: s.cwd) {
+            } else if let tree = index.tree(of: s) {
                 byTree[tree, default: []].append(s.card)
             } else {
                 elsewhere.append(s.card)
@@ -155,16 +160,24 @@ public enum HomeList {
     struct Index {
         var worktrees: [String: String] = [:]
         var folders: [String: String] = [:]
+        var byId: [String: (main: String, trees: Set<String>)] = [:]
 
         init(_ projects: [Project]) {
             for p in projects {
                 let main = p.worktrees.first(where: \.isMain)?.path ?? p.path
+                if let id = p.projectId, byId[id] == nil { byId[id] = (main, Set(p.worktrees.map(\.path) + [main])) }
                 folders[p.path] = main
                 for w in p.worktrees {
                     worktrees[w.path] = w.path
                     folders[w.path] = main
                 }
             }
+        }
+
+        /// The tree the session started in, when its project lists it, else the project's main tree; by folder when no project has its id.
+        func tree(of s: Session) -> String? {
+            guard let id = s.projectId, let project = byId[id] else { return tree(of: s.cwd) }
+            return s.tree.flatMap { project.trees.contains($0) ? $0 : nil } ?? project.main
         }
 
         func tree(of cwd: String) -> String? {

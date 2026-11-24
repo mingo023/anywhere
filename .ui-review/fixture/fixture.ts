@@ -35,6 +35,8 @@
 // FIXTURE_HOST_STATUS_FAILS=n refuses devbox's first n status asks, as a pocketd still starting does.
 // FIXTURE_FIRST_LAUNCH=<unix seconds> saves that first launch in desktop.json; three days back makes the sidebar ask for a star.
 // FIXTURE_BACKGROUND=<image path> saves it as the background image in desktop.json.
+// FIXTURE_REGISTRY=1 speaks registry.v2: pocketd sends registry.list with the scenario's repos plus app-extra, a clone desktop.json doesn't
+// list, and answers project.*, worktree.track and settings.shared; devbox (with FIXTURE_HOST_AGENTS) sends an empty list.
 // FIXTURE_LOOSE=1 runs a Claude session in ~/Downloads and a shell in ~/notes, folders no project holds.
 // FIXTURE_EXPIRED=1 adds two Claude accounts whose login expired: one never read, one with stale usage.
 // FIXTURE_ONE_ACCOUNT=1 lists only the built-in Claude login.
@@ -160,7 +162,7 @@ const lines = (tag: string, n: number) => Array.from({ length: n }, (_, i) => `e
 const repoPath = (r: string) => join(home, "code", r);
 const treePath = (r: string, b: string) => join(home, "code", `${r}.worktrees`, b.replace("/", "-"));
 
-for (const r of scenario.repos) {
+for (const r of [...scenario.repos, ...(process.env.FIXTURE_REGISTRY ? ["app-extra"] : [])]) {
   const p = repoPath(r);
   mkdirSync(p, { recursive: true });
   git(p, "init", "-q", "-b", "main");
@@ -324,6 +326,20 @@ const legacyHosts = process.env.FIXTURE_NO_HOSTS ? [{ id: "devbox", name: "devbo
 const hostProjects = process.env.FIXTURE_HANDOFF_UNLISTED ? [] : process.env.FIXTURE_HANDOFF ? handoffHosts.filter((h) => h.clone).map((h) => `//${h.id}${h.home}/code/app-android`) : process.env.FIXTURE_HOST_FILES ? ["//devbox/home/dev/code/app-ios", "//10-0-4-12/home/dev/api"] : [];
 if (process.env.FIXTURE_HOST_GH) tracked.push("//devbox/home/dev/code/app-ios-login");
 write(join(pocket, "desktop.json"), JSON.stringify({ projects: [...scenario.repos.map(repoPath), ...hostProjects], children: children.map((c) => [c.id, c.parent]), repos: process.env.FIXTURE_HOST_GH ? { "//devbox/home/dev/code/app-ios": { gh_account: "work" } } : {}, tracked, hosts: legacyHosts, first_launch: process.env.FIXTURE_FIRST_LAUNCH ? Number(process.env.FIXTURE_FIRST_LAUNCH) : undefined, appearance: process.env.FIXTURE_BACKGROUND ? { background: process.env.FIXTURE_BACKGROUND } : undefined }));
+
+// As pocketd's registry: the projects it holds, by path, each with the id it minted.
+const registered = new Map<string, { id: string; repo: Record<string, unknown> }>(
+  [...scenario.repos.map(repoPath), join(home, "code", "app-extra")].map((path, i) => [path, { id: `p${i + 1}`, repo: {} }]),
+);
+const registrySettings = { git: { remote: "", commit_all: null, force_with_lease: false }, access: "", worktree_root: "", external_worktrees: false };
+const registryList = () => JSON.stringify({ type: "registry.list", projects: [...registered].map(([path, p]) => ({ id: p.id, path, repo: p.repo })), tracked, settings: registrySettings });
+const registryVerb = (f: { type: string; path?: string; repo?: Record<string, unknown>; settings?: typeof registrySettings }) => {
+  if (f.type === "project.add" && f.path && !registered.has(f.path)) registered.set(f.path, { id: `p${registered.size + 1}`, repo: f.repo ?? {} });
+  else if (f.type === "project.remove" && f.path) registered.delete(f.path);
+  else if (f.type === "project.set" && f.path && registered.has(f.path)) registered.get(f.path)!.repo = f.repo ?? {};
+  else if (f.type === "settings.shared" && f.settings) Object.assign(registrySettings, f.settings);
+  return ["project.add", "project.remove", "project.set", "worktree.track", "settings.shared"].includes(f.type);
+};
 
 type HostTarget = { kind: "alias"; name: string } | { kind: "address"; addr: string; port: number; user?: string; keyFile?: string };
 type Host = { id: string; name: string; target: HostTarget; socket: string; link: { state: string; version?: string; uptime?: number; failure?: string } };
@@ -754,9 +770,11 @@ if (process.env.FIXTURE_HOST_AGENTS) {
         const f = JSON.parse(raw.toString());
         if (log) appendFileSync(log, raw + "\n");
         if (f.type === "hello") {
-          ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "devbox", hostname: "devbox", protocolVersion: 3, caps: ["scopes.v1", "summary.v2", "access.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+          ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "devbox", hostname: "devbox", protocolVersion: 3, caps: ["scopes.v1", "summary.v2", "access.v1", ...(process.env.FIXTURE_REGISTRY ? ["registry.v2"] : [])], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
           ws.send(JSON.stringify({ type: "agent.list", agents }));
+          if (process.env.FIXTURE_REGISTRY) ws.send(JSON.stringify({ type: "registry.list", projects: [], tracked: [], settings: registrySettings }));
         }
+        if (f.type.startsWith("project.")) ws.send(JSON.stringify({ type: "ack", id: f.id }));
         if (f.type === "agent.create") {
           const { project, provider, prompt, checkout, fork } = f.spec;
           const id = `devbox-${f.requestId}`;
@@ -1061,8 +1079,9 @@ Bun.serve({
       // What the desktop sent, for checks that a click or key reached pocketd.
       if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG, raw + "\n");
       if (f.type === "hello") {
-        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1", ...(process.env.FIXTURE_NO_ORCHESTRATOR ? [] : ["orchestrator.v1"]), ...(process.env.FIXTURE_NO_HOSTS ? [] : ["hosts.v1"])], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1", ...(process.env.FIXTURE_REGISTRY ? ["registry.v2"] : []), ...(process.env.FIXTURE_NO_ORCHESTRATOR ? [] : ["orchestrator.v1"]), ...(process.env.FIXTURE_NO_HOSTS ? [] : ["hosts.v1"])], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
+        if (process.env.FIXTURE_REGISTRY) ws.send(registryList());
         ws.send(JSON.stringify({ type: "automations", automations: AUTOMATIONS, runs: RUNS }));
         ws.send(JSON.stringify({ type: "board", tickets: TICKETS, limit: 4 }));
         if (!process.env.FIXTURE_NO_HOSTS) ws.send(JSON.stringify({ type: "host.list", hosts }));
@@ -1084,6 +1103,10 @@ Bun.serve({
         }
       }
       if (f.type.startsWith("host.")) hostVerb(ws, f);
+      if (process.env.FIXTURE_REGISTRY && registryVerb(f)) {
+        ws.send(JSON.stringify({ type: "ack", id: f.id }));
+        ws.send(registryList());
+      }
       if (f.type === "pair.begin") {
         const code = "abcdefghijklmnopqrstuv";
         ws.send(JSON.stringify({ type: "pair.offer", id: f.id, url: `anywhere://pair?v=1&h=100.64.0.1:4517&c=${code}`, code, expiresAt: Date.now() + 300_000 }));

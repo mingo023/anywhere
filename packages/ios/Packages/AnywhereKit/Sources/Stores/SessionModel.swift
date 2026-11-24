@@ -43,7 +43,8 @@ public final class SessionModel: Identifiable {
     static func listing(_ s: AgentSummary, _ status: Status) -> HomeList.Session {
         HomeList.Session(
             card: .init(id: s.id, title: s.title, status: status, createdAt: s.createdAt, updatedAt: s.updatedAt, pinned: s.pinned ?? false),
-            cwd: s.cwd, terminalId: s.terminalId, parent: s.relationship == "subagent" && s.parent?.isEmpty == false ? s.parent : nil)
+            cwd: s.cwd, terminalId: s.terminalId, parent: s.relationship == "subagent" && s.parent?.isEmpty == false ? s.parent : nil,
+            projectId: s.projectId, tree: s.tree)
     }
 
     static func status(_ s: AgentSummary) -> Status {

@@ -1,4 +1,4 @@
-use crate::event::{Frame, automation_event, board_event, delegation_event, host_event, launch_event, names_event};
+use crate::event::{Frame, automation_event, board_event, delegation_event, host_event, launch_event, names_event, registry_event};
 use crate::ids::PAIR;
 use crate::caps::CAPS;
 use crate::{Event, Outbox, hosts, queue};
@@ -94,7 +94,7 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
         if !matches!(f.kind.as_str(), "agent.creating" | "agent.progress") {
             unanswered.retain(|m| m["id"] != f.id.as_str());
         }
-        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)).or_else(|| board_event(&f)).or_else(|| hosts::decode(&f.kind, &raw)).or_else(|| delegation_event(&f.kind, &raw)).or_else(|| queue::decode(&f.kind, &raw).map(|(agent, entries)| Event::Queue { agent, entries })) {
+        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)).or_else(|| board_event(&f)).or_else(|| registry_event(&f, &raw)).or_else(|| hosts::decode(&f.kind, &raw)).or_else(|| delegation_event(&f.kind, &raw)).or_else(|| queue::decode(&f.kind, &raw).map(|(agent, entries)| Event::Queue { agent, entries })) {
             tx.unbounded_send(ev).ok()?;
             continue;
         }
@@ -255,7 +255,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "board.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1", "orchestrator.v1", "hosts.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "board.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1", "orchestrator.v1", "hosts.v1", "registry.v2"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));

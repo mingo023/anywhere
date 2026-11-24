@@ -158,7 +158,7 @@ var serverGolden = map[string]any{
 	"pair_offer":         NewPairOffer("b1", "anywhere://pair?v=1&h=100.64.0.1:4517&c=abcdefghijklmnopqrstuv", "abcdefghijklmnopqrstuv", 1790000000000),
 	"pair_done":          NewPairDone("d1", "iPhone"),
 	"error_scope_denied": NewErrorCode("r1", CodeScopeDenied, "permission.resolve needs approve; run it outside Pocket Terminals, or against a scratch pocketd (POCKETD_SOCK)"),
-	"project_list": NewProjectList("p1", []Project{{Path: "/Users/me/dev/pocket", Name: "pocket", Worktrees: []Worktree{
+	"project_list": NewProjectList("p1", []Project{{ID: "p1a2b3c4d5e6f7a8", Path: "/Users/me/dev/pocket", Name: "pocket", Worktrees: []Worktree{
 		{Name: "pocket", Path: "/Users/me/dev/pocket", Branch: "main", IsMain: true},
 		{Name: "calm-otter", Path: "/Users/me/.worktrees/pocket/calm-otter", Branch: ""},
 	}}}),
@@ -166,6 +166,19 @@ var serverGolden = map[string]any{
 	"naming_failed":    NewNamingFailed("a1"),
 	"local_list":       NewLocalList([]Local{{ID: "l1", Project: "/Users/me/dev/pocket", Name: "Local 2"}}),
 	"local_list_empty": NewLocalList(nil),
+	"agent_update_placed": NewAgentUpdate(with(func(s *AgentSummary) {
+		s.ProjectID, s.Tree = "p1a2b3c4d5e6f7a8", "/Users/me/.anywhere/worktrees/pocket/calm-otter"
+	})),
+	"registry_list_empty": NewRegistryList(nil, nil, SharedSettings{}),
+	"registry_list": NewRegistryList([]RegistryProject{
+		{ID: "p1a2b3c4d5e6f7a8", Path: "/Users/me/app", Repo: RepoConfig{
+			Name: "App", Color: 4286578816, Setup: "make setup", Teardown: "make clean", DevURL: "http://localhost:3000",
+			Launch:    json.RawMessage(`{"provider":"claude","model":"opus","effort":"","access":"full","account":""}`),
+			Icon:      json.RawMessage(`{"emoji":"A"}`),
+			GhAccount: "work", Accounts: map[string]string{"claude": "3f9a0c1b2d4e"}, Hidden: []string{"codex"}}},
+		{ID: "q9b8c7d6e5f4a3b2", Path: "/Users/me/other"},
+	}, []string{"/Users/me/.anywhere/worktrees/app/cute-boa"},
+		SharedSettings{Git: GitSettings{Remote: "fork", CommitAll: ptr(false), ForceWithLease: true}, Access: "edits", WorktreeRoot: "/Users/me/.anywhere/worktrees", ExternalWorktrees: true}),
 }
 
 func helloOKHost() HelloOK {
@@ -222,6 +235,17 @@ func TestClientGolden(t *testing.T) {
 
 func TestDecodeClientRejects(t *testing.T) {
 	for _, raw := range []string{
+		`{"type":"project.add","id":"1"}`,
+		`{"type":"project.add","id":"1","path":""}`,
+		`{"type":"project.add","id":"1","path":"/p","repo":null}`,
+		`{"type":"project.add","id":"1","path":"/p","repo":{"color":"red"}}`,
+		`{"type":"project.remove","id":"1"}`,
+		`{"type":"project.set","id":"1","path":"/p"}`,
+		`{"type":"project.set","id":"1","repo":{}}`,
+		`{"type":"worktree.track","id":"1","path":"/p"}`,
+		`{"type":"worktree.track","id":"1","tracked":true}`,
+		`{"type":"settings.shared","id":"1"}`,
+		`{"type":"settings.shared","id":"1","settings":{"git":"fork"}}`,
 		`not json`,
 		`{"type":"agent.list"}`,
 		`{"type":"agent.create","id":"1","cwd":"/","profileId":"p","prompt":"x"}`,

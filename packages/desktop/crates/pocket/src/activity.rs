@@ -203,7 +203,7 @@ impl Desktop {
             .into_iter()
             .filter_map(|a| {
                 let cwd = &self.terminals.sessions.get(&a.terminal_id)?.info.cwd;
-                let project = self.project_of(cwd, &projects).cloned().unwrap_or_else(|| cwd.clone());
+                let project = self.agent_project(a, cwd, &projects).cloned().unwrap_or_else(|| cwd.clone());
                 let tree = self.worktree_of(cwd);
                 let status = Status::of(a);
                 let pr_open = tree.and_then(|w| self.prs.get(&w.path)).is_some_and(|pr| pr.state == PrState::Open);

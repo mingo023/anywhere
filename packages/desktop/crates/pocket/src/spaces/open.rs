@@ -27,9 +27,6 @@ impl Desktop {
         let cfg = self.new_repo_config(key);
         self.store.repos.entry(key.to_string()).or_insert(cfg);
         self.keep_project(key, cx);
-        if let (Some(host), _) = hosts::split(key) {
-            self.sync_host_registry(host, cx);
-        }
     }
 
     /// Lights `key`, a project's row or a space's button, then lets it go.

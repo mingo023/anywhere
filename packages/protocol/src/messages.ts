@@ -11,11 +11,12 @@ import { GhClient, GhServer } from "./gh.js";
 import { FsClient, FsServer } from "./fs.js";
 import { PushClient } from "./push.js";
 import { HostsClient, HostsServer } from "./hosts.js";
+import { RegistryClient, RegistryServer } from "./registry.js";
 
 export const ProjectListRequest = Schema.Struct({ type: Schema.Literal("project.list"), id: Schema.String });
 export const Worktree = Schema.Struct({ name: Schema.String, path: Schema.String, branch: Schema.String, isMain: Schema.Boolean });
 export type Worktree = typeof Worktree.Type;
-export const Project = Schema.Struct({ path: Schema.String, name: Schema.String, worktrees: Schema.Array(Worktree) });
+export const Project = Schema.Struct({ id: Schema.optional(Schema.String), path: Schema.String, name: Schema.String, worktrees: Schema.Array(Worktree) });
 export type Project = typeof Project.Type;
 export const ProjectList = Schema.Struct({
   type: Schema.Literal("project.list"),
@@ -172,6 +173,7 @@ export const ClientMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("automation.run"), id: Schema.String, automationId: Schema.String }),
   ...TerminalClient,
   ...WorkspaceClient,
+  ...RegistryClient,
   ...GitClient,
   ...GhClient,
   ...FsClient,
@@ -300,6 +302,7 @@ export const ServerMessage = Schema.Union(
   ProjectList,
   ...TerminalServer,
   ...WorkspaceServer,
+  ...RegistryServer,
   ...GitServer,
   ...GhServer,
   ...FsServer,

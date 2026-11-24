@@ -743,6 +743,8 @@ impl Desktop {
         let efforts = self.launch_efforts(&pick.provider, &pick.model);
         self.store.agents.launch(spec, &self.agents, &efforts);
         self.store.repos.entry(project.to_string()).or_default().launch = pick;
+        // Ahead of the create, so pocketd starts it as the project's settings now say.
+        self.publish_registry();
     }
 
     fn send_in_scratch(&mut self, folder: String, pick: LaunchPick, sent: String, cx: &mut Context<Self>) {

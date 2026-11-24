@@ -104,7 +104,7 @@ func (p *Projects) Scan() {
 			c = cached{stamp: s, trees: ws}
 		}
 		next[path] = c
-		list = append(list, proto.Project{Path: path, Name: f.Name(path), Worktrees: worktree.Listed(f, c.trees)})
+		list = append(list, proto.Project{ID: f.Repos[path].ID, Path: path, Name: f.Name(path), Worktrees: worktree.Listed(f, c.trees)})
 	}
 	p.mu.Lock()
 	changed := !p.ready || !reflect.DeepEqual(list, p.list)

@@ -345,7 +345,7 @@ impl Desktop {
             model: s.model.clone().unwrap_or_default(),
             effort: s.effort.clone().unwrap_or_default(),
             working: s.status == "working",
-            repo: basename(self.project_of(&s.cwd, &projects).map_or(&s.cwd, |p| p)),
+            repo: basename(self.agent_project(s, &s.cwd, &projects).map_or(&s.cwd, |p| p)),
             branch: repo.map(|r| r.branch.clone()).unwrap_or_default(),
             files: repo.map_or(0, |r| r.files.len()),
             added,
@@ -519,6 +519,7 @@ impl Desktop {
                 if !self.store.projects.contains(&project) {
                     self.store.projects.push(project);
                     self.store.save();
+                    self.publish_registry();
                 }
                 if self.send_create(spec).is_none() {
                     let name = self.host_name(&host);

@@ -374,7 +374,7 @@ impl Desktop {
         let s = self.summary(&terminal).filter(|s| self.can_hand_off(s))?;
         let title = if self.handoff.moving(&s.id) { crate::handoff::menu_label(true).to_string() } else { format!("Hand off “{}” to a host…", s.title) };
         let projects = self.projects();
-        let detail = format!("{} · {}", self.agent_name(&s.provider), self.repo_name(self.project_of(&s.cwd, &projects).unwrap_or(&s.cwd)));
+        let detail = format!("{} · {}", self.agent_name(&s.provider), self.repo_name(self.agent_project(s, &s.cwd, &projects).unwrap_or(&s.cwd)));
         Some(Entry { pick: Pick::Handoff(s.id.clone()), lead: Lead::Icon("server"), title, detail, keys: None })
     }
 

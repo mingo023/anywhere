@@ -58,7 +58,7 @@ func repo(t *testing.T) (*Service, string) {
 	desktop := filepath.Join(base, "desktop.json")
 	raw, _ := json.Marshal(registry.File{Projects: []string{root}})
 	os.WriteFile(desktop, raw, 0o644)
-	return &Service{Registry: registry.New(desktop), Env: gitEnv, Attachments: filepath.Join(base, "home", "attachments")}, root
+	return &Service{Registry: registry.Open(filepath.Dir(desktop)), Env: gitEnv, Attachments: filepath.Join(base, "home", "attachments")}, root
 }
 
 func names(entries []proto.FsEntry) []string {
@@ -168,7 +168,7 @@ func TestAFolderOutsideARepositoryListsWithoutLetters(t *testing.T) {
 	desktop := filepath.Join(base, "desktop.json")
 	raw, _ := json.Marshal(registry.File{Projects: []string{root}})
 	os.WriteFile(desktop, raw, 0o644)
-	s := &Service{Registry: registry.New(desktop), Env: gitEnv}
+	s := &Service{Registry: registry.Open(filepath.Dir(desktop)), Env: gitEnv}
 	entries, err := s.List(context.Background(), root, "")
 	if err != nil || len(entries) != 1 || entries[0].Git != "" || entries[0].Ignored {
 		t.Fatal(entries, err)

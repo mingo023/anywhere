@@ -53,6 +53,9 @@ type ClientMessage struct {
 	Options         map[string]string
 	Action          string
 	Server          string
+	Repo            *RepoConfig
+	Tracked         bool
+	Settings        *SharedSettings
 	// BeforeSeq pages agent.timeline backwards; never set with SinceSeq.
 	BeforeSeq *float64
 	// Front is agent.view's word on whether the app is in front; nil leaves it to the ids.
@@ -254,6 +257,10 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 	case m.Type == "board.limit":
 		ok = f.integer("limit", &m.BoardLimit, MinBoardLimit, MaxBoardLimit)
 	default:
+		if decode := registryVerbs[m.Type]; decode != nil {
+			ok = decode(f, &m)
+			break
+		}
 		if handled, good := orchestratorVerb(f, &m); handled {
 			ok = good
 			break
@@ -432,6 +439,7 @@ type Worktree struct {
 }
 
 type Project struct {
+	ID        string     `json:"id,omitempty"`
 	Path      string     `json:"path"`
 	Name      string     `json:"name"`
 	Worktrees []Worktree `json:"worktrees"`

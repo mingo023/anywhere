@@ -517,7 +517,7 @@ func TestAnAgentStartsFromTheDesktopInNoProject(t *testing.T) {
 
 func TestLocationTokensAndOriginShowInTheSummary(t *testing.T) {
 	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
-	a.SetLocation("Pocket", "calm-otter", "calm-otter", false)
+	a.SetLocation("Pocket", "p1", "/wt/calm-otter", "calm-otter", "calm-otter", false)
 	a.SetTokens(1200, 200_000)
 	a.SetTokens(1500, 0)
 	a.SetOrigin("phone")
@@ -525,6 +525,24 @@ func TestLocationTokensAndOriginShowInTheSummary(t *testing.T) {
 	if s.Project != "Pocket" || s.Worktree != "calm-otter" || s.Branch != "calm-otter" || s.MainWorktree ||
 		s.TokensUsed != 1500 || s.ContextWindow != 200_000 || s.Origin != "phone" {
 		t.Fatalf("%+v", s)
+	}
+}
+
+func TestALaterPlacementKeepsTheFirstProjectIdAndTree(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.SetLocation("", "", "", "", "", false)
+	if s := a.Summary(); s.ProjectID != "" || s.Tree != "" {
+		t.Fatalf("%+v", s)
+	}
+	a.SetLocation("Pocket", "p1", "/wt/calm-otter", "calm-otter", "calm-otter", false)
+	a.SetLocation("Pocket", "p2", "/wt/other", "other", "renamed", false)
+	s := a.Summary()
+	if s.ProjectID != "p1" || s.Tree != "/wt/calm-otter" || s.Worktree != "calm-otter" || s.Branch != "renamed" {
+		t.Fatalf("%+v", s)
+	}
+	a.SetLocation("", "", "", "", "", false)
+	if s := a.Summary(); s.ProjectID != "" || s.Tree != "" || s.Worktree != "" || s.MainWorktree {
+		t.Fatalf("out of its project: %+v", s)
 	}
 }
 

@@ -22,7 +22,7 @@ func withLocals(t *testing.T, terms *terminal.Manager) func(*Server) {
 		t.Fatal(err)
 	}
 	return func(s *Server) {
-		s.Locals, s.Registry, s.Terminals = locals.Open(dir), registry.New(path), terms
+		s.Locals, s.Registry, s.Terminals = locals.Open(dir), registry.Open(filepath.Dir(path)), terms
 	}
 }
 

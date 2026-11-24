@@ -346,7 +346,7 @@ impl Desktop {
         status::listed(&self.agents.list)
             .into_iter()
             .filter(|a| Status::of(a) == Some(Status::NeedsYou))
-            .filter_map(|a| self.project_of(&self.terminals.sessions.get(&a.terminal_id)?.info.cwd, &projects).cloned())
+            .filter_map(|a| self.agent_project(a, &self.terminals.sessions.get(&a.terminal_id)?.info.cwd, &projects).cloned())
             .collect()
     }
 

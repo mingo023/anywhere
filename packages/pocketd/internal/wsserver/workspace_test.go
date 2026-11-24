@@ -73,7 +73,7 @@ func withWorkspace(t *testing.T, b *bench) func(*Server) {
 	raw, _ := json.Marshal(registry.File{Projects: []string{b.project}, Repos: map[string]registry.Repo{}, Worktree: registry.Worktree{Root: b.root}})
 	path := filepath.Join(home, "desktop.json")
 	os.WriteFile(path, raw, 0o600)
-	reg := registry.New(path)
+	reg := registry.Open(filepath.Dir(path))
 	b.terms = terminal.NewManager()
 	t.Cleanup(func() { b.terms.CloseAll(0) })
 	d := &daemon.Daemon{Terminals: b.terms}

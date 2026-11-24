@@ -88,7 +88,7 @@ impl Desktop {
         }
         let projects = self.projects();
         let Some(s) = self.agents.get(id) else { return };
-        let Some(spec) = self.project_of(&s.cwd, &projects).and_then(|p| fork_spec(s, p, &self.store.agents, &self.agents, &self.efforts_on(&s.provider, s.model.as_deref().unwrap_or_default()), terminal.is_some())) else { return };
+        let Some(spec) = self.agent_project(s, &s.cwd, &projects).and_then(|p| fork_spec(s, p, &self.store.agents, &self.agents, &self.efforts_on(&s.provider, s.model.as_deref().unwrap_or_default()), terminal.is_some())) else { return };
         if let (Some(request), Some(place)) = (self.send_create(spec), terminal) {
             self.terminals.tab_terms.insert(request, place);
         }

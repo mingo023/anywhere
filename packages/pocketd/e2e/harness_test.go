@@ -357,8 +357,8 @@ func launchReady(setup string) func(*Harness) {
 	}
 }
 
-// Owner opens the desktop's channel: the unix socket, no token (E03).
-func (h *Harness) Owner(caps ...string) *Phone {
+// DialOwner opens the desktop's channel without saying hello: the unix socket, no token (E03).
+func (h *Harness) DialOwner() *Phone {
 	h.t.Helper()
 	unix := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", h.Sock)
@@ -368,7 +368,13 @@ func (h *Harness) Owner(caps ...string) *Phone {
 		h.t.Fatal(err)
 	}
 	h.t.Cleanup(func() { ws.CloseNow() })
-	p := &Phone{t: h.t, ws: ws}
+	return &Phone{t: h.t, ws: ws}
+}
+
+// Owner opens the desktop's channel and says hello.
+func (h *Harness) Owner(caps ...string) *Phone {
+	h.t.Helper()
+	p := h.DialOwner()
 	hello := map[string]any{"type": "hello", "id": "h", "clientId": "e2e-desktop", "protocolVersion": 3}
 	if caps != nil {
 		hello["caps"] = caps

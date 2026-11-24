@@ -17,8 +17,8 @@ func TestATerminalInAProjectGetsTheTokenOfTheAccountItPicked(t *testing.T) {
 	os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\n[ -z \"$GH_TOKEN\" ] && echo \"tok-$6\"\n"), 0o755)
 	d.env = &shellenv.Result{Env: []string{"PATH=" + bin + ":/usr/bin:/bin", "GH_TOKEN=leaked"}}
 	path := filepath.Join(t.TempDir(), "desktop.json")
-	d.Registry = registry.New(path)
 	os.WriteFile(path, []byte(`{"projects":["`+project+`"],"repos":{"`+project+`":{"gh_account":"work"}}}`), 0o600)
+	d.Registry = registry.Open(filepath.Dir(path))
 
 	got := d.GhEnv([]string{"A=1", "GH_TOKEN=old"}, filepath.Join(project, "src"))
 	if want := []string{"A=1", "GH_TOKEN=tok-work"}; !reflect.DeepEqual(got, want) {

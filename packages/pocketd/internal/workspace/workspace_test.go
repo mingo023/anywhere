@@ -49,7 +49,7 @@ func registryOf(t *testing.T, projects ...string) *registry.Registry {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "desktop.json")
 	write(path, registry.File{Projects: projects, Sidebar: registry.Sidebar{ExternalWorktrees: true}})
-	return registry.New(path)
+	return registry.Open(filepath.Dir(path))
 }
 
 func write(path string, f registry.File) {
@@ -115,21 +115,35 @@ func TestTheProjectListIsPushedOnceThenOnlyWhenAWorktreeComesGoesOrSwitches(t *t
 	}
 }
 
+func TestEachProjectRowCarriesTheIdItsRegistryMinted(t *testing.T) {
+	p, q := repo(t, "pocket"), repo(t, "pocket")
+	reg := registryOf(t, p, q)
+	ps := NewProjects(reg)
+	ps.Scan()
+	list, _ := ps.List()
+	f := reg.Load()
+	if len(list) != 2 || list[0].ID == "" || list[0].ID == list[1].ID || list[0].ID != f.Repos[p].ID || list[1].ID != f.Repos[q].ID {
+		t.Fatalf("%+v", list)
+	}
+}
+
 func TestTrackingAWorktreeOnTheDesktopPushesTheListWithIt(t *testing.T) {
 	p := repo(t, "pocket")
 	wt := filepath.Join(filepath.Dir(p), "calm-otter")
 	git(t, p, "worktree", "add", "-q", "-b", "calm-otter", wt)
-	path := filepath.Join(t.TempDir(), "desktop.json")
-	write(path, registry.File{Projects: []string{p}})
-	ps := NewProjects(registry.New(path))
+	dir := t.TempDir()
+	write(filepath.Join(dir, "desktop.json"), registry.File{Projects: []string{p}})
+	reg := registry.Open(dir)
+	ps := NewProjects(reg)
 	msgs, stop := ps.Subscribe()
 	defer stop()
 	ps.Scan()
 	if got := pushed(msgs); len(got) != 1 || !reflect.DeepEqual(paths(got[0]), []string{p + "@main"}) {
 		t.Fatalf("before tracking: %v", got)
 	}
-	time.Sleep(10 * time.Millisecond)
-	write(path, registry.File{Projects: []string{p}, Tracked: []string{wt}})
+	if err := reg.Track(wt, true); err != nil {
+		t.Fatal(err)
+	}
 	ps.Scan()
 	if got := pushed(msgs); len(got) != 1 || !reflect.DeepEqual(paths(got[0]), []string{p + "@main", wt + "@calm-otter"}) {
 		t.Fatalf("after tracking: %v", got)
@@ -144,7 +158,7 @@ func TestClaimingAWorktreeAnywhereMadePushesTheListWithIt(t *testing.T) {
 	f := registry.File{Projects: []string{p}, Worktree: registry.Worktree{Root: root}}
 	path := filepath.Join(t.TempDir(), "desktop.json")
 	write(path, f)
-	ps := NewProjects(registry.New(path))
+	ps := NewProjects(registry.Open(filepath.Dir(path)))
 	msgs, stop := ps.Subscribe()
 	defer stop()
 	ps.Scan()

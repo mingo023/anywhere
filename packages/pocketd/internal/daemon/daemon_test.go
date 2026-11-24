@@ -30,7 +30,7 @@ import (
 func newDaemon(t *testing.T) *Daemon {
 	h := hub.New()
 	d := &Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(h), Broker: broker.New(h), Home: t.TempDir(), Exe: "/bin/true",
-		Registry: registry.New(filepath.Join(t.TempDir(), "desktop.json"))}
+		Registry: registry.Open(t.TempDir())}
 	d.Terminals.OnInput = d.Input
 	d.Terminals.OnReport = d.Report
 	return d

@@ -95,7 +95,7 @@ func repo(t *testing.T, remote bool) (project, tree string, reg *registry.Regist
 	git(t, tree, "commit", "-q", "--allow-empty", "-m", "Fix it")
 	path := filepath.Join(root, "desktop.json")
 	os.WriteFile(path, []byte(fmt.Sprintf(`{"projects":[%q]}`, project)), 0o600)
-	return project, tree, registry.New(path)
+	return project, tree, registry.Open(filepath.Dir(path))
 }
 
 func ctx(t *testing.T) context.Context {
@@ -316,13 +316,14 @@ func TestCreatePushesTheBranchThenOpensItsPR(t *testing.T) {
 func TestCreatePushesToTheRemoteDesktopSettingsName(t *testing.T) {
 	f := newFake(t)
 	f.put("created", "https://github.com/acme/app/pull/58\n")
-	project, tree, _ := repo(t, true)
+	project, tree, reg := repo(t, true)
 	root := filepath.Dir(project)
 	git(t, root, "init", "-q", "--bare", "fork.git")
 	git(t, project, "remote", "add", "fork", filepath.Join(root, "fork.git"))
-	path := filepath.Join(root, "desktop.json")
-	os.WriteFile(path, []byte(fmt.Sprintf(`{"projects":[%q],"git":{"remote":"fork"}}`, project)), 0o600)
-	if _, _, err := New(f.env(true), registry.New(path)).Create(ctx(t), tree, "Fix it", "", "", false); err != nil {
+	if err := reg.SetSettings(proto.SharedSettings{Git: proto.GitSettings{Remote: "fork"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := New(f.env(true), reg).Create(ctx(t), tree, "Fix it", "", "", false); err != nil {
 		t.Fatal(err)
 	}
 	if git(t, project, "ls-remote", "fork", "refs/heads/fix") == "" || git(t, project, "ls-remote", "origin", "refs/heads/fix") != "" {

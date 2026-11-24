@@ -60,6 +60,10 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
     /// Unix milliseconds; only a status step moves it.
     public var updatedAt: Int
     public var project: String?
+    /// pocketd's id of the project the agent started in.
+    public var projectId: String?
+    /// The worktree the agent started in, or the project folder for a non-repo project.
+    public var tree: String?
     public var worktree: String?
     public var mainWorktree: Bool?
     public var branch: String?
@@ -87,7 +91,7 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
         access: String? = nil, status: AgentStatus, failed: Bool? = nil, error: String? = nil, attached: Bool, restore: RestoreOutcome? = nil,
         compacting: Bool? = nil, pinned: Bool? = nil, epoch: Int, maxSeq: Int, resets: Int? = nil, providerSessionId: String? = nil,
         createdAt: Int, updatedAt: Int, project: String? = nil, worktree: String? = nil, mainWorktree: Bool? = nil, branch: String? = nil,
-        tokensUsed: Int? = nil, contextWindow: Int? = nil, origin: String? = nil, activity: String? = nil, account: String? = nil,
+        projectId: String? = nil, tree: String? = nil, tokensUsed: Int? = nil, contextWindow: Int? = nil, origin: String? = nil, activity: String? = nil, account: String? = nil,
         switching: String? = nil, chatOnly: Bool? = nil, goal: Goal? = nil, options: [String: String]? = nil,
         parent: String? = nil, relationship: String? = nil, createdBy: String? = nil, delegation: DelegationRef? = nil
     ) {
@@ -113,6 +117,8 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.project = project
+        self.projectId = projectId
+        self.tree = tree
         self.worktree = worktree
         self.mainWorktree = mainWorktree
         self.branch = branch

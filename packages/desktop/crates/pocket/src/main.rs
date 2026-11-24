@@ -31,6 +31,7 @@ mod palette;
 mod panels;
 mod pick_menu;
 mod region;
+mod registry;
 mod removal;
 mod renames;
 mod settings;

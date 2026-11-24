@@ -113,7 +113,7 @@ func (l *Launcher) name(a *agent.Agent, claim int, j job) {
 		return
 	}
 	if p, ok := worktree.Find(l.reg.Load(), j.tree); ok {
-		a.SetLocation(p.Project, p.Worktree, p.Branch, p.Main)
+		a.SetLocation(p.Project, p.ProjectID, p.Tree, p.Worktree, p.Branch, p.Main)
 	}
 }
 

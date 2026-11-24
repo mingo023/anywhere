@@ -10,6 +10,7 @@ import (
 
 	"pocketd/internal/automation"
 	"pocketd/internal/board"
+	"pocketd/internal/config"
 	"pocketd/internal/names"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
@@ -53,7 +54,7 @@ func TestTheFoldersOnRecordAreNamedWorktreesTicketsAndRunsWorktreesAndTerminalsF
 
 func TestWorktreesOnRecordAreClaimedTheFirstTimeOnly(t *testing.T) {
 	p := scratch(t)
-	f := registry.New(registry.Path()).Load()
+	f := registry.Open(config.Home()).Load()
 	early, late := filepath.Join(worktree.Dir(f, p), "early"), filepath.Join(worktree.Dir(f, p), "late")
 	for _, w := range []string{early, late} {
 		if out, err := exec.Command("git", "-C", p, "worktree", "add", "-q", "-b", filepath.Base(w), w).CombinedOutput(); err != nil {

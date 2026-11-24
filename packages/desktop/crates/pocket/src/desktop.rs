@@ -127,6 +127,7 @@ pub struct Desktop {
     pub(crate) settings: SettingsState,
     pub(crate) fleet: Fleet,
     pub(crate) host_agents: HostAgents,
+    pub(crate) registry: crate::registry::Registry,
     pub(crate) accounts: Accounts,
     pub(crate) updates: Updates,
     pub(crate) star: Star,
@@ -228,6 +229,7 @@ impl Desktop {
         let (layout, widths) = (store.general.launch_layout.unwrap_or(store.layout), [store.widths.projects, store.widths.sessions]);
         let graph = GraphState::new(store.graph_share, &store.diff);
         let diff = DiffState::new(&store.diff);
+        let registry = crate::registry::Registry::new(&store);
         Self {
             daemon,
             outbox,
@@ -281,6 +283,7 @@ impl Desktop {
             settings,
             fleet,
             host_agents: HostAgents::default(),
+            registry,
             accounts: Accounts::default(),
             updates,
             star,

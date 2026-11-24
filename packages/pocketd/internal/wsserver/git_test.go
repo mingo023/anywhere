@@ -45,7 +45,7 @@ func withGitProject(t *testing.T) (string, func(*Server)) {
 	raw, _ := json.Marshal(map[string]any{"projects": []string{repo}, "repos": map[string]any{}})
 	os.WriteFile(reg, raw, 0o600)
 	return repo, func(s *Server) {
-		s.Registry = registry.New(reg)
+		s.Registry = registry.Open(filepath.Dir(reg))
 		s.Git = &gitview.Service{Env: gitEnv, Every: 20 * time.Millisecond}
 	}
 }
@@ -213,12 +213,13 @@ func TestAPhoneForcePushesARewrittenBranchOnlyWhenTheDesktopLetsIt(t *testing.T)
 	gitIn(t, repo, "remote", "add", "origin", filepath.Join(dir, "origin.git"))
 	gitIn(t, repo, "push", "-qu", "origin", "main")
 	gitIn(t, repo, "commit", "-q", "--amend", "-m", "Amended")
-	settings := func(git map[string]any) {
-		raw, _ := json.Marshal(map[string]any{"projects": []string{repo}, "git": git})
-		os.WriteFile(filepath.Join(dir, "desktop.json"), raw, 0o600)
+	var reg *registry.Registry
+	_, _, p := local(t, phoneDevice, opt, func(s *Server) { reg = s.Registry })
+	settings := func(git proto.GitSettings) {
+		if err := reg.SetSettings(proto.SharedSettings{Git: git}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	settings(map[string]any{})
-	_, _, p := local(t, phoneDevice, opt)
 	helloWith(p, proto.CapGit)
 
 	p.send(`{"type":"git.status","id":"s","tree":` + q(repo) + `}`)
@@ -234,7 +235,7 @@ func TestAPhoneForcePushesARewrittenBranchOnlyWhenTheDesktopLetsIt(t *testing.T)
 		t.Fatalf("%v", m)
 	}
 
-	settings(map[string]any{"force_with_lease": true})
+	settings(proto.GitSettings{ForceWithLease: true})
 	p.send(`{"type":"git.status","id":"s2","tree":` + q(repo) + `}`)
 	if m := p.reply("s2"); m["forceWithLease"] != true || m["unpulled"] != 1.0 {
 		t.Fatalf("%v", m)
@@ -246,12 +247,12 @@ func TestAPhoneForcePushesARewrittenBranchOnlyWhenTheDesktopLetsIt(t *testing.T)
 	gitIn(t, repo, "init", "-q", "--bare", "-b", "main", filepath.Join(dir, "fork.git"))
 	gitIn(t, repo, "remote", "add", "fork", filepath.Join(dir, "fork.git"))
 	gitIn(t, repo, "push", "-q", "fork", "main")
-	settings(map[string]any{"force_with_lease": true, "remote": "fork"})
+	settings(proto.GitSettings{ForceWithLease: true, Remote: "fork"})
 	p.send(`{"type":"git.status","id":"s3","tree":` + q(repo) + `}`)
 	if m := p.reply("s3"); m["forceWithLease"] != nil || m["unpulled"] != 1.0 {
 		t.Fatalf("a confirm counted on origin for a push to fork: %v", m)
 	}
-	settings(map[string]any{"force_with_lease": true})
+	settings(proto.GitSettings{ForceWithLease: true})
 	p.send(`{"type":"git.push","id":"l2","tree":` + q(repo) + `,"lease":true}`)
 	if m := p.reply("l2"); m["type"] != "ack" {
 		t.Fatalf("%v", m)
