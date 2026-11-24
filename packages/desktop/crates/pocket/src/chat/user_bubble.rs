@@ -256,8 +256,8 @@ pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expand
     let text = text.to_string();
     let attached = (!images.is_empty() || !files.is_empty() || !elements.is_empty()).then(|| {
         let fit = IMAGE_MAX_W.min(width * WIDTH - 2.);
+        let placeholder = || div().w(px(IMAGE_H * 0.75)).h_full().rounded(px(IMAGE_RADIUS)).bg(FILL_3).into_any_element();
         // `img` takes its shape as its aspect ratio, so a max width also caps its height and a wide image shrinks to fit.
-        let placeholder = || div().size(px(54.)).into_any_element();
         let picture = move |path: PathBuf| img(path).h(px(IMAGE_H)).max_w(px(fit)).rounded(px(IMAGE_RADIUS)).with_loading(placeholder);
         let tile = |path: &str| {
             let here = here.join(Path::new(path).file_name().unwrap_or_default());
