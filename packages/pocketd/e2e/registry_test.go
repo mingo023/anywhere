@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"pocketd/internal/proto"
@@ -118,5 +119,48 @@ func TestTheDesktopWithoutTheRegistryCapIsRefusedAndAPhoneWithoutItIsServedItsPr
 	}
 	if len(list.Projects) != 2 || list.Projects[0].ID == "" || list.Projects[0].ID == list.Projects[1].ID {
 		t.Fatalf("%s", m.Raw)
+	}
+}
+
+func TestSharedSettingsAnOwnerSendsSetANewSessionsAccessWhereItsWorktreeGoesAndWhichWorktreesAreListed(t *testing.T) {
+	h := Start(t, launchReady(""))
+	home, _ := filepath.EvalSymlinks(h.Home)
+	external, root := filepath.Join(home, "elsewhere"), filepath.Join(home, "trees")
+	gitOut(t, h.Repo, "worktree", "add", "-q", "-b", "outside", external)
+	owner, phone := h.Owner("registry.v2"), h.Paired(proto.CapWorkspace, proto.CapLaunch)
+	registryList(owner, "the list on hello", anyList)
+	listed := func(id string) []string {
+		phone.Send(map[string]any{"type": "project.list", "id": id})
+		var list proto.ProjectList
+		json.Unmarshal([]byte(phone.WaitFor("project.list", func(m Message) bool { return m.Type == "project.list" && m.ID == id }).Raw), &list)
+		var out []string
+		for _, w := range list.Projects[0].Worktrees {
+			out = append(out, w.Path)
+		}
+		return out
+	}
+	if slices.Contains(listed("l1"), external) {
+		t.Fatal("an external worktree listed with the setting off")
+	}
+
+	owner.Send(map[string]any{"type": "settings.shared", "id": "s", "settings": map[string]any{
+		"git": map[string]any{"remote": "", "commit_all": nil, "force_with_lease": false}, "access": "edits", "worktree_root": root, "external_worktrees": true}})
+	owner.WaitFor("ack", func(m Message) bool { return m.Type == "ack" && m.ID == "s" })
+
+	phone.Send(map[string]any{"type": "agent.providers", "id": "c-ap"})
+	var providers proto.AgentProviders
+	json.Unmarshal([]byte(reply(phone, "agent.providers").Raw), &providers)
+	if providers.DefaultAccess != "edits" {
+		t.Errorf("a new session's access %q", providers.DefaultAccess)
+	}
+	if !slices.Contains(listed("l2"), external) {
+		t.Error("an external worktree not listed with the setting on")
+	}
+	create(phone, "r1", inRepo(h, map[string]any{"chat": true, "checkout": map[string]any{"new": map[string]any{"name": "calm-otter"}}}))
+	if m := reply(phone, "agent.created", "error"); m.Type != "agent.created" {
+		t.Fatalf("got %s", m.Raw)
+	}
+	if out := gitOut(t, h.Repo, "worktree", "list", "--porcelain"); !strings.Contains(out, "worktree "+filepath.Join(root, "wt", "calm-otter")+"\n") {
+		t.Errorf("the new worktree isn't under the root: %s", out)
 	}
 }
