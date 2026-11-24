@@ -163,23 +163,20 @@ impl Desktop {
     }
 
     fn pane_body(&mut self, p: PaneId, focused: bool, tab: Option<Tab>, window: &mut Window, cx: &mut Context<Self>) -> Body {
-        Body::Page(
-            match tab {
-                Some(Tab::Term(id)) => {
-                    let id = self.delegated_term(&id);
-                    if self.chat_shown(&id) { self.chat_view(&id, window, cx) } else { self.term_body(&id, focused, window, cx) }
-                }
-                Some(Tab::Doc(doc @ Doc::File(_))) if self.loaded(p, &doc, cx) => self.file_view(p, cx),
-                Some(Tab::Doc(doc @ (Doc::Diff(_) | Doc::CommitFile { .. } | Doc::PrFile { .. } | Doc::CompareFile { .. }))) if self.loaded(p, &doc, cx) => {
-                    self.diff_view(p, cx)
-                }
-                Some(Tab::Doc(doc @ Doc::Commit(_))) if self.loaded(p, &doc, cx) => self.commit_view(p, cx),
-                Some(Tab::Web(id)) => self.browser_view(p, id, window, cx),
-                Some(Tab::Doc(_)) => div().flex_1(),
-                None => return Body::Empty(self.empty()),
+        Body::Page(match tab {
+            Some(Tab::Term(id)) => {
+                let id = self.delegated_term(&id);
+                if self.chat_shown(&id) { self.chat_view(&id, window, cx) } else { self.term_body(&id, focused, window, cx) }.into_any_element()
             }
-            .into_any_element(),
-        )
+            Some(Tab::Doc(doc @ Doc::File(_))) if self.loaded(p, &doc, cx) => self.file_view(p, cx).into_any_element(),
+            Some(Tab::Doc(doc @ (Doc::Diff(_) | Doc::CommitFile { .. } | Doc::PrFile { .. } | Doc::CompareFile { .. }))) if self.loaded(p, &doc, cx) => {
+                self.diff_view(p, cx)
+            }
+            Some(Tab::Doc(doc @ Doc::Commit(_))) if self.loaded(p, &doc, cx) => self.commit_view(p, cx).into_any_element(),
+            Some(Tab::Web(id)) => self.browser_view(p, id, window, cx).into_any_element(),
+            Some(Tab::Doc(_)) => div().flex_1().into_any_element(),
+            None => return Body::Empty(self.empty()),
+        })
     }
 
     fn empty(&self) -> Empty {
@@ -348,9 +345,11 @@ impl Desktop {
         cx.notify();
     }
 
-    pub(crate) fn open_more(&mut self, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_more(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
         self.panels.update(cx, |p, _| p.more_at = Some(at));
-        self.open(Overlay::More, window, cx);
+        self.close_menus(cx);
+        self.overlay = Some(Overlay::More);
+        cx.notify();
     }
 
     /// Shows what worktree `tree`'s focused pane shows, once its panes have moved.

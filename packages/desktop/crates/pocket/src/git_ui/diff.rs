@@ -507,6 +507,25 @@ pub(crate) struct Cards {
 pub(crate) enum DiffEvent {
     /// A line was picked or its "+" pressed: the composer is about this pane now.
     Claimed,
+    /// The Split / Unified switch was set to split.
+    Split(bool),
+    /// "more" was pressed at this point.
+    More(Point<Pixels>),
+}
+
+/// What the pane's bar says about the file on screen.
+pub(crate) struct Head {
+    crumbs: Vec<String>,
+    meta: Vec<Meta>,
+    image: bool,
+}
+
+enum Meta {
+    Sha(String),
+    Subject(String),
+    Against(String),
+    Totals(usize, usize),
+    By { provider: String, text: String },
 }
 
 /// One pane's diff view as its own `Entity`: its rows and the picks made in them. `Desktop` hands it the layout, options, code size and cards each frame.
@@ -516,6 +535,7 @@ pub struct DiffPane {
     pub(crate) options: git::Options,
     pub(crate) code_size: u32,
     pub(crate) cards: Cards,
+    head: Option<Head>,
     chat: Entity<TextareaState>,
 }
 
@@ -523,7 +543,7 @@ impl EventEmitter<DiffEvent> for DiffPane {}
 
 impl DiffPane {
     fn new(chat: Entity<TextareaState>) -> Self {
-        Self { view: DiffView::default(), split: false, options: git::Options::default(), code_size: 0, cards: Cards::default(), chat }
+        Self { view: DiffView::default(), split: false, options: git::Options::default(), code_size: 0, cards: Cards::default(), head: None, chat }
     }
 
     /// One side of a row: pressing picks its line, dragging or shift-clicking stretches the pick; "+" or a drag opens the composer.
@@ -621,23 +641,67 @@ impl DiffPane {
     }
 }
 
+impl DiffPane {
+    /// The bar over the file: where it is, what it compares, and how to lay it out.
+    fn bar(&self, head: &Head, cx: &mut Context<Self>) -> Div {
+        let right = div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .when(!head.image, |d| {
+                d.child(div().id("diff-mode").child(ui::segmented(
+                    vec![
+                        Segment { icon: None, value: false, label: "Unified".into(), badge: None },
+                        Segment { icon: None, value: true, label: "Split".into(), badge: None },
+                    ],
+                    self.split,
+                    true,
+                    false,
+                    |_, v, cx| cx.emit(DiffEvent::Split(v)),
+                    cx,
+                )))
+            })
+            .child(ui::icon_group([
+                ui::group_button("diff-more", "more").on_click(cx.listener(|_, e: &ClickEvent, _, cx| cx.emit(DiffEvent::More(e.position()))))
+            ]));
+        let meta = head
+            .meta
+            .iter()
+            .map(|m| match m {
+                Meta::Sha(sha) => ui::meta_item().child(ui::meta_value(sha.clone())).into_any_element(),
+                Meta::Subject(subject) => ui::meta_item().child(div().max_w(px(320.)).truncate().child(subject.clone())).into_any_element(),
+                Meta::Against(against) => ui::meta_item().child("against").child(ui::meta_value(against.clone())).into_any_element(),
+                Meta::Totals(added, removed) => ui::meta_item().child(ui::meta_diff(*added, *removed, 11.5)).into_any_element(),
+                Meta::By { provider, text } => {
+                    ui::meta_item().child(provider_icon(provider, 13., TEXT_2)).child("by").child(ui::meta_value(text.clone())).into_any_element()
+                }
+            })
+            .collect();
+        doc_bar(head.crumbs.clone(), meta, right)
+    }
+}
+
 impl Render for DiffPane {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if let Some(images) = self.view.images.clone() {
-            return image_sides(images).into_any_element();
-        }
-        let rows = list(self.view.list.clone(), cx.processor(|this, ix, _, cx| this.row(ix, cx))).pb(px(8.));
-        code_text(div(), self.code_size)
-            .flex_1()
-            .min_h_0()
-            .bg(PAGE)
-            .border_t(px(0.5))
-            .border_color(SEPARATOR)
-            .overflow_hidden()
-            .child(rows.size_full())
-            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, window, cx| this.end_drag(window, cx)))
-            .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _, window, cx| this.end_drag(window, cx)))
-            .into_any_element()
+        let bar = self.head.as_ref().map(|head| self.bar(head, cx));
+        let body = match self.view.images.clone() {
+            Some(images) => image_sides(images).into_any_element(),
+            None => {
+                let rows = list(self.view.list.clone(), cx.processor(|this, ix, _, cx| this.row(ix, cx))).pb(px(8.));
+                code_text(div(), self.code_size)
+                    .flex_1()
+                    .min_h_0()
+                    .bg(PAGE)
+                    .border_t(px(0.5))
+                    .border_color(SEPARATOR)
+                    .overflow_hidden()
+                    .child(rows.size_full())
+                    .on_mouse_up(MouseButton::Left, cx.listener(|this, _, window, cx| this.end_drag(window, cx)))
+                    .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _, window, cx| this.end_drag(window, cx)))
+                    .into_any_element()
+            }
+        };
+        div().flex_1().min_h_0().flex().flex_col().children(bar).child(body)
     }
 }
 
@@ -799,6 +863,12 @@ impl Desktop {
                 self.chat.update(cx, |c, cx| c.clear_file(cx));
                 self.diff.draft_in(pane, cx);
             }
+            DiffEvent::Split(split) => {
+                self.store.diff.split = *split;
+                self.apply_diff_style(cx);
+                self.save_soon(cx);
+            }
+            DiffEvent::More(at) => self.open_more(*at, cx),
         }
         cx.notify();
     }
@@ -809,57 +879,32 @@ impl Desktop {
         self.diff_entity(pane, cx).update(cx, |p, _| p.view.select(path, at, split));
     }
 
-    pub fn diff_view(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Div {
+    pub fn diff_view(&mut self, pane: PaneId, cx: &mut Context<Self>) -> AnyElement {
         let Some((path, at)) = self.diff.view(pane, cx).and_then(|v| Some((v.file.clone()?, v.at.clone()))) else {
-            return empty("No changes.");
+            return empty("No changes.").into_any_element();
         };
         let file = self.repo(cx).and_then(|r| r.files.iter().find(|f| f.path == path)).cloned().filter(|_| at == At::Working);
-        let image = image_format(&path).is_some();
-        let right = div()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .when(!image, |d| {
-                d.child(div().id("diff-mode").child(ui::segmented(
-                    vec![
-                        Segment { icon: None, value: false, label: "Unified".into(), badge: None },
-                        Segment { icon: None, value: true, label: "Split".into(), badge: None },
-                    ],
-                    self.diff.split,
-                    true,
-                    false,
-                    |this, v, cx| {
-                        this.store.diff.split = v;
-                        this.apply_diff_style(cx);
-                        this.save_soon(cx);
-                        cx.notify();
-                    },
-                    cx,
-                )))
-            })
-            .child(ui::icon_group([
-                ui::group_button("diff-more", "more").on_click(cx.listener(|this, e: &ClickEvent, window, cx| this.open_more(e.position(), window, cx)))
-            ]));
         let mut meta = Vec::new();
         if let At::Commit(sha) = &at {
-            meta.push(ui::meta_item().child(ui::meta_value(git::short_sha(sha).to_string())).into_any_element());
+            meta.push(Meta::Sha(git::short_sha(sha).to_string()));
             if let Some(c) = self.graph.read(cx).commit(sha) {
-                meta.push(ui::meta_item().child(div().max_w(px(320.)).truncate().child(c.subject.clone())).into_any_element());
+                meta.push(Meta::Subject(c.subject.clone()));
             }
         }
         if let At::Base(against) | At::Compare(against) = &at {
-            meta.push(ui::meta_item().child("against").child(ui::meta_value(against.clone())).into_any_element());
+            meta.push(Meta::Against(against.clone()));
         }
         if let Some(f) = &file {
-            meta.push(ui::meta_item().child(ui::meta_diff(f.added, f.removed, 11.5)).into_any_element());
+            meta.push(Meta::Totals(f.added, f.removed));
         }
         if at == At::Working {
             let abs = self.cwd(cx).map(|c| format!("{c}/{path}")).unwrap_or_default();
             if let Some((a, ts)) = self.agents.last_edit(&abs) {
-                let by = format!("{} · {}", self.agent_name(&a.provider), ago_long(ts, now_ms()));
-                meta.push(ui::meta_item().child(provider_icon(&a.provider, 13., TEXT_2)).child("by").child(ui::meta_value(by)).into_any_element());
+                let text = format!("{} · {}", self.agent_name(&a.provider), ago_long(ts, now_ms()));
+                meta.push(Meta::By { provider: a.provider.clone(), text });
             }
         }
+        let image = image_format(&path).is_some();
         let (dir, name) = path.rsplit_once('/').map_or((None, path.clone()), |(d, n)| (Some(d.to_string()), n.to_string()));
         let first = match &at {
             At::Working => "Changes".to_string(),
@@ -870,8 +915,8 @@ impl Desktop {
         let crumbs = std::iter::once(first).chain(dir).chain([name]).collect();
         let cards = self.diff_cards(pane, cx);
         let entity = self.diff_entity(pane, cx);
-        entity.update(cx, |p, _| p.cards = cards);
-        div().flex_1().min_h_0().flex().flex_col().child(doc_bar(crumbs, meta, right)).child(entity)
+        entity.update(cx, |p, _| (p.cards, p.head) = (cards, Some(Head { crumbs, meta, image })));
+        entity.into_any_element()
     }
 
     /// The composer and the PR threads in view, for the pane's rows to take: built from the chat and PR state the pane can't read.
