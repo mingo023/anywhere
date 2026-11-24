@@ -299,7 +299,7 @@ impl Desktop {
             .map(|p| (p.agent_id.clone(), p.clone()))
             .collect();
         let folder = self.project.clone().filter(|p| !self.store.is_scratch(p)).or_else(|| folders.first().cloned()).unwrap_or_default();
-        let lead = crate::desktop::chrome::past_lights(self.store.appearance.zoom_factor(), self.lead_width(), 18.);
+        let lead = crate::desktop::chrome::past_lights(self.store.appearance.zoom_factor(), self.lead_width(cx), 18.);
         Side { labels, projects, folders, titles, asks, defaults: self.store.automations.clone(), folder, lead }
     }
 

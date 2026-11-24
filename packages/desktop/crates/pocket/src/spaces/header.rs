@@ -275,14 +275,14 @@ impl Desktop {
             reach: self.space_reach(space),
             terminal: self.space_terminal_target(space).is_some() && self.space_reach(space) == Reach::Online,
         };
-        self.sidebar.space_header.update(cx, |h, _| h.set(head));
+        self.sidebar.read(cx).space_header.clone().update(cx, |h, _| h.set(head));
     }
 
     pub(crate) fn on_space_header_event(&mut self, _: &Entity<SpaceHeader>, ev: &HeaderEvent, window: &mut Window, cx: &mut Context<Self>) {
         match ev {
             HeaderEvent::OpenMenu => {
                 self.close_menus(cx);
-                self.sidebar.space_header.update(cx, |h, cx| h.open(cx));
+                self.sidebar.read(cx).space_header.clone().update(cx, |h, cx| h.open(cx));
             }
             HeaderEvent::OpenTerminal => self.open_space_terminal(cx),
             HeaderEvent::HostSettings => self.show_hosts(window, cx),

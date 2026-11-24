@@ -28,7 +28,7 @@ struct DragScratch {
 impl Desktop {
     /// The Threads section above Projects; `None` when the sidebar's filter leaves nothing in it.
     pub(super) fn scratch_section(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let query = self.sidebar.filter.query(cx);
+        let query = self.sidebar.read(cx).filter.query(cx);
         let filtering = !query.is_empty();
         let space = self.space();
         let rows: Vec<String> =
@@ -71,7 +71,7 @@ impl Desktop {
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.store.scratch_folded = !this.store.scratch_folded;
                 if this.store.scratch_folded {
-                    this.sidebar.closing.start(Fold::Scratch);
+                    this.sidebar.update(cx, |s, _| s.closing.start(Fold::Scratch));
                 }
                 this.store.save();
                 cx.notify();
@@ -82,7 +82,7 @@ impl Desktop {
         let head = section_head().pl(px(6.)).child(toggle).child(new);
         let height = fold::stacked(rows.iter().map(|_| ui::SIDEBAR_ROW_H), 1.).min(ui::SIDEBAR_ROW_H * MAX_ROWS);
         let current = self.place(cx).filter(|_| self.screen == Screen::Sessions && self.project.as_deref().is_some_and(|p| rows.iter().any(|r| r == p)));
-        let drawn: Vec<AnyElement> = if self.sidebar.closing.drawn(&Fold::Scratch, open) {
+        let drawn: Vec<AnyElement> = if self.sidebar.read(cx).closing.drawn(&Fold::Scratch, open) {
             rows.iter()
                 .enumerate()
                 .map(|(ix, p)| if loose.contains(p) { self.loose_row(p, current.as_deref(), cx) } else { self.scratch_row(ix, p, current.as_deref(), cx) })
@@ -115,7 +115,7 @@ impl Desktop {
         let selected = current == Some(path);
         let state = rolled_state(&self.cards(path, cx));
         let mark = ui::indicator(id(format!("aside-spin:{path}")), state);
-        let label = match self.sidebar.rename.as_ref().filter(|r| r.tree == path) {
+        let label = match self.sidebar.read(cx).rename.as_ref().filter(|r| r.tree == path) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
             None => done_name(row_name(&self.renames, path, name, state, selected, cx.reduce_motion()), state),
         };
@@ -127,7 +127,7 @@ impl Desktop {
             .child(trail)
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                 // The rename input sits inside the row; its clicks must not restart or leave it.
-                if this.sidebar.renaming(&key) {
+                if this.sidebar.read(cx).renaming(&key) {
                     return;
                 }
                 if ev.click_count() > 1 && this.agents.names_offered() {

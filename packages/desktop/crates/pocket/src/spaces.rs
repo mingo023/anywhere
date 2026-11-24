@@ -389,7 +389,7 @@ impl Desktop {
 
     fn go_space(&mut self, to: &Space, cx: &mut Context<Self>) -> bool {
         let order = self.space_order();
-        self.sidebar.space_header.update(cx, |h, _| h.shut());
+        self.sidebar.read(cx).space_header.clone().update(cx, |h, _| h.shut());
         self.spaces.go(to.clone(), &order, Instant::now(), self.spot(cx))
     }
 

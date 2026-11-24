@@ -192,7 +192,7 @@ impl Desktop {
                 heading,
             })
             .collect();
-        let lead = past_lights(self.store.appearance.zoom_factor(), self.lead_width(), 16.);
+        let lead = past_lights(self.store.appearance.zoom_factor(), self.lead_width(cx), 16.);
         self.inbox.update(cx, |i, _| i.set(rows, lead, width));
         self.inbox.clone()
     }

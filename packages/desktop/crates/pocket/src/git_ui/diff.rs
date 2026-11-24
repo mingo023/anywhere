@@ -918,7 +918,8 @@ impl Desktop {
     pub fn open_changes(&mut self, path: Option<String>, pin: bool, cx: &mut Context<Self>) {
         let shown = self.diff.view(self.focused_pane(cx), cx).and_then(|v| v.working_file()).map(str::to_string);
         let path = path.or(shown).or_else(|| self.repo(cx)?.files.first().map(|f| f.path.clone()));
-        (self.side, self.sidebar.panel_open) = (Side::Changes, true);
+        self.side = Side::Changes;
+        self.sidebar.update(cx, |s, _| s.panel_open = true);
         match path {
             Some(path) => self.open_doc(Doc::Diff(path), pin, cx),
             None => cx.notify(),

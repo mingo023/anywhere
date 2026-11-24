@@ -25,7 +25,7 @@ impl Render for Region {
 }
 
 /// `region` in a box `style` sizes: a cached view is laid out without its content, so the box can't fit to it.
-pub(crate) fn cached(region: &Entity<Region>, style: StyleRefinement) -> AnyElement {
+pub(crate) fn cached<V: Render>(region: &Entity<V>, style: StyleRefinement) -> AnyElement {
     AnyView::from(region.clone()).cached(style).into_any_element()
 }
 
@@ -37,18 +37,11 @@ pub(crate) fn column(width: f32) -> StyleRefinement {
 /// The columns either side of the page.
 pub(crate) struct Regions {
     pub(crate) aside: Entity<Region>,
-    pub(crate) nav: Entity<Region>,
     pub(crate) panel: Entity<Region>,
-    pub(crate) rail: Entity<Region>,
 }
 
 impl Regions {
     pub(crate) fn new(cx: &mut Context<Desktop>) -> Self {
-        Self {
-            aside: Region::new(cx, |d, _, cx| d.aside(cx).into_any_element()),
-            nav: Region::new(cx, |d, _, cx| d.nav(cx).into_any_element()),
-            panel: Region::new(cx, |d, _, cx| d.workspace_panel(cx).into_any_element()),
-            rail: Region::new(cx, |d, _, cx| d.workspace_rail(cx).into_any_element()),
-        }
+        Self { aside: Region::new(cx, |d, _, cx| d.aside(cx).into_any_element()), panel: Region::new(cx, |d, _, cx| d.workspace_panel(cx).into_any_element()) }
     }
 }

@@ -48,7 +48,7 @@ use crate::region::Regions;
 use crate::removal::Removals;
 use crate::renames::Renames;
 use crate::settings::Settings;
-use crate::sidebar::SidebarState;
+use crate::sidebar::Sidebar;
 use crate::spaces::Spaces;
 use crate::star::Star;
 use crate::terminal_view::TerminalViewState;
@@ -120,7 +120,7 @@ pub struct Desktop {
     pub(crate) error: Option<String>,
     pub(crate) root: FocusHandle,
     pub(crate) palette: Entity<Palette>,
-    pub(crate) sidebar: SidebarState,
+    pub(crate) sidebar: Entity<Sidebar>,
     pub(crate) spaces: Spaces,
     pub(crate) regions: Regions,
     pub(crate) settings: Entity<Settings>,
@@ -156,7 +156,8 @@ impl Desktop {
         let palette_subs = cx.subscribe_in(&palette, window, Self::on_palette_event);
         let graph = cx.new(|_| Graph::new(store.graph_share, &store.diff));
         let graph_subs = cx.subscribe_in(&graph, window, Self::on_graph_event);
-        let (sidebar, sidebar_subs) = SidebarState::new(store.general.panel_open, window, cx);
+        let sidebar = cx.new(|cx| Sidebar::new(store.general.panel_open, window, cx));
+        let sidebar_subs = Self::sidebar_subs(&sidebar, window, cx);
         let spaces = Spaces::new(store.sidebar.space.as_deref());
         let settings = cx.new(|cx| Settings::new(&store, window, cx));
         let settings_subs = [cx.subscribe_in(&settings, window, Self::on_settings_event), cx.observe(&settings, |_, _, cx| cx.notify())];
@@ -565,10 +566,7 @@ impl Desktop {
             || self.pr.ship_menu
             || self.pr.merge_menu
             || self.pr.create_menu
-            || self.sidebar.picker.open
-            || self.sidebar.add_menu
-            || self.sidebar.organize.menu
-            || self.sidebar.space_header.read(cx).menu_open()
+            || self.sidebar.read(cx).menu_open(cx)
             || self.automations.read(cx).menu.is_some()
             || self.explorer.read(cx).menu_open()
             || self.terminal.menu.is_some()
@@ -587,11 +585,7 @@ impl Desktop {
         self.row_menu = None;
         self.changes.update(cx, |c, _| c.shut_menus());
         (self.pr.ship_menu, self.pr.merge_menu, self.pr.create_menu) = (false, false, false);
-        self.sidebar.menu_at = None;
-        self.sidebar.picker.open = false;
-        self.sidebar.add_menu = false;
-        self.sidebar.organize.menu = false;
-        self.sidebar.space_header.update(cx, |h, _| h.shut());
+        self.sidebar.update(cx, |s, cx| s.shut_menus(cx));
         self.automations.update(cx, |a, _| a.menu = None);
         self.board.update(cx, |b, _| b.close_menu());
         self.activity.update(cx, |a, _| a.menu = None);
@@ -797,7 +791,7 @@ impl Render for Desktop {
         // A capture draws one frame a step, which would catch a glide midway.
         let (now, capturing, reduce_motion) = (Instant::now(), self.capturing, cx.reduce_motion() || self.capturing);
         // Not `||`: each steps every frame.
-        if self.sidebar.tick(self.layout, now, reduce_motion)
+        if self.sidebar.update(cx, |s, _| s.tick(self.layout, now, reduce_motion))
             | self.panels.update(cx, |p, _| p.tick(now, reduce_motion))
             | self.star.update(cx, |s, _| s.tick(now, capturing))
             | self.chats.dock.update(cx, |d, _| d.tick(now, reduce_motion))
@@ -813,7 +807,7 @@ impl Render for Desktop {
         if settings {
             self.sync_settings(cx);
         }
-        let lead = (shown && !settings).then(|| self.lead());
+        let lead = (shown && !settings).then(|| self.lead(cx));
         let column = if !shown {
             None
         } else if settings {
@@ -823,7 +817,7 @@ impl Render for Desktop {
             crate::sidebar::column_shown(self.layout, self.screen).then(|| self.column_view(cx))
         };
         let page = shown.then(|| if settings { self.settings.clone().into_any_element() } else { self.main_view(window, cx).into_any_element() });
-        let workspace = (shown && self.screen == Screen::Sessions && self.sidebar.unfocused() > 0.).then(|| self.workspace_side());
+        let workspace = (shown && self.screen == Screen::Sessions && self.sidebar.read(cx).unfocused() > 0.).then(|| self.workspace_side(cx));
         // The finder opened from the new-session page has no overlay under it.
         let overlay = if shown { self.overlay_view(cx).or_else(|| self.host_finder_view(cx)) } else { None };
         div()
@@ -853,8 +847,7 @@ impl Render for Desktop {
                 if this.close_host_finder(cx)
                     || this.panels.update(cx, |p, cx| p.cancel_drag(cx))
                     || this.explorer.update(cx, |e, _| e.cancel_edit())
-                    || this.sidebar.cancel_rename()
-                    || this.sidebar.space_header.update(cx, |h, _| h.cancel_rename())
+                    || this.sidebar.update(cx, |s, cx| s.cancel_rename(cx))
                     || this.new_form.update(cx, |f, cx| f.close_picker(cx))
                     || this.escape_composer_menu(cx)
                     || this.close_menus(cx)

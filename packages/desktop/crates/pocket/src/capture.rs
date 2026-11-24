@@ -427,8 +427,8 @@ const STEPS: [(&str, Step); 303] = [
     ("focus", |d, window, cx| d.toggle_focus(&ToggleFocus, window, cx)),
     ("sidebar", |d, window, cx| d.toggle_sidebar(&ToggleSidebar, window, cx)),
     ("projects", |d, window, cx| d.toggle_project_picker(window, cx)),
-    ("add-menu", |d, _, _| d.sidebar.add_menu = true),
-    ("organize-menu", |d, _, _| d.sidebar.organize.menu = true),
+    ("add-menu", |d, _, cx| d.sidebar.update(cx, |s, _| s.add_menu = true)),
+    ("organize-menu", |d, _, cx| d.sidebar.update(cx, |s, _| s.organize.menu = true)),
     ("sections", |d, _, cx| {
         let projects = d.projects(cx);
         let sections = &mut d.store.sections;
@@ -447,10 +447,11 @@ const STEPS: [(&str, Step); 303] = [
     }),
     ("filter", |d, window, cx| {
         d.open_filter(window, cx);
-        d.sidebar.filter.input.update(cx, |s, cx| s.set_value("fix", window, cx));
+        d.sidebar.read(cx).filter.input.clone().update(cx, |s, cx| s.set_value("fix", window, cx));
     }),
     ("explore", |d, _, cx| {
-        (d.side, d.sidebar.panel_open) = (Side::Explorer, true);
+        d.side = Side::Explorer;
+        d.sidebar.update(cx, |s, _| s.panel_open = true);
         d.refresh_git(cx);
     }),
     ("tree-menu", |d, window, cx| {
@@ -700,7 +701,7 @@ const STEPS: [(&str, Step); 303] = [
     ("space-devbox", |d, window, cx| d.switch_space(Space::Host("devbox".into()), window, cx)),
     ("space-menu", |d, window, cx| {
         d.switch_space(Space::Host("devbox".into()), window, cx);
-        d.sidebar.space_header.update(cx, |h, cx| h.open(cx));
+        d.sidebar.read(cx).space_header.clone().update(cx, |h, cx| h.open(cx));
     }),
     ("space-offline", |d, window, cx| d.switch_space(Space::Host("10-0-4-12".into()), window, cx)),
     ("space-empty", |d, window, cx| {
@@ -1900,7 +1901,8 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
         s.reset(window, cx);
         s.menu = None;
     });
-    (d.layout, d.widths, d.sidebar.panel_open) = (Layout::Sidebars, [None; 2], false);
+    (d.layout, d.widths) = (Layout::Sidebars, [None; 2]);
+    d.sidebar.update(cx, |s, _| s.panel_open = false);
     d.panels.update(cx, |p, _| p.menu = None);
     (d.worktree, d.terminal.focused) = (None, None);
     d.preview.update(cx, |p, _| p.state.panes.values_mut().for_each(|f| f.file = None));
@@ -1917,9 +1919,9 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.pr.track.all = false;
     d.agents.names.clear();
     d.agents.locals.clear();
-    d.sidebar.rename = None;
+    d.sidebar.update(cx, |s, _| s.rename = None);
     d.spaces.reset();
-    d.sidebar.space_header.update(cx, |h, _| h.reset());
+    d.sidebar.read(cx).space_header.clone().update(cx, |h, _| h.reset());
     d.updates.update = Update::Idle;
     d.terminals.update(cx, |t, _| {
         t.link.up();
@@ -1957,7 +1959,10 @@ fn hand_drag(window: &mut Window, cx: &mut App, release: bool) {
     window.defer(cx, move |window, cx| {
         let modifiers = Modifiers::default();
         window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: from, pressed_button: None, modifiers }), cx);
-        window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: from, modifiers, click_count: 1, first_mouse: false }), cx);
+        window.dispatch_event(
+            PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: from, modifiers, click_count: 1, first_mouse: false }),
+            cx,
+        );
         draw(window, cx);
         hand_step(window, cx, (from, by), 1, release);
     });

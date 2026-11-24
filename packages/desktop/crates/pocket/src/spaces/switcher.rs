@@ -101,8 +101,9 @@ impl Desktop {
 
     /// The compact rail's space buttons.
     pub(crate) fn rail_spaces(&self, order: &[Space], current: &Space, cx: &mut Context<Self>) -> Entity<Switcher> {
-        self.hand_spaces(&self.sidebar.rail_spaces, order, current, cx);
-        self.sidebar.rail_spaces.clone()
+        let spaces = self.sidebar.read(cx).rail_spaces.clone();
+        self.hand_spaces(&spaces, order, current, cx);
+        spaces
     }
 
     /// The aside's foot: the space buttons, add a host, and Settings at the right.
@@ -127,8 +128,9 @@ impl Desktop {
             .child(
                 // With many hosts the buttons scroll, so Add and Settings stay in reach.
                 div().id("aside-spaces").flex().items_center().gap(px(2.)).min_w_0().p(px(1.)).overflow_x_scroll().child({
-                    self.hand_spaces(&self.sidebar.aside_spaces, order, current, cx);
-                    self.sidebar.aside_spaces.clone()
+                    let spaces = self.sidebar.read(cx).aside_spaces.clone();
+                    self.hand_spaces(&spaces, order, current, cx);
+                    spaces
                 }),
             )
             .child(add)

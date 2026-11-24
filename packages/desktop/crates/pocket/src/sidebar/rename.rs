@@ -2,7 +2,7 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 
 use crate::desktop::Desktop;
-use crate::sidebar::SidebarState;
+use crate::sidebar::Sidebar;
 use agents::locals::is_local;
 
 /// A worktree's or Local's row name, edited in place; leaving it saves, as Enter does.
@@ -12,15 +12,15 @@ pub(crate) struct Rename {
     _sub: Subscription,
 }
 
-impl SidebarState {
+impl Sidebar {
     pub(crate) fn renaming(&self, tree: &str) -> bool {
         self.rename.as_ref().is_some_and(|r| r.tree == tree)
     }
 
     /// Drops an open rename, a row's or a group's, unsaved; true when there was one.
-    pub(crate) fn cancel_rename(&mut self) -> bool {
+    pub(crate) fn cancel_rename(&mut self, cx: &mut App) -> bool {
         // `|`, not `||`: both must drop.
-        self.rename.take().is_some() | self.organize.rename.take().is_some()
+        (self.rename.take().is_some() | self.organize.rename.take().is_some()) || self.space_header.update(cx, |h, _| h.cancel_rename())
     }
 }
 
@@ -50,12 +50,12 @@ impl Desktop {
         let current = self.agents.given_name(&tree).unwrap_or_default().to_string();
         let (input, sub) = rename_field(current, window, cx, Self::save_rename);
         self.row_menu = None;
-        self.sidebar.rename = Some(Rename { tree, input, _sub: sub });
+        self.sidebar.update(cx, |s, _| s.rename = Some(Rename { tree, input, _sub: sub }));
         cx.notify();
     }
 
     fn save_rename(&mut self, cx: &mut Context<Self>) {
-        let Some(r) = self.sidebar.rename.take() else { return };
+        let Some(r) = self.sidebar.update(cx, |s, _| s.rename.take()) else { return };
         let title = r.input.read(cx).value().trim().to_string();
         // Leaving an untouched name mustn't pin naming's title as the user's.
         if title == self.agents.given_name(&r.tree).unwrap_or_default() {

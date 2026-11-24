@@ -49,7 +49,7 @@ impl Chips {
 
 impl Desktop {
     pub(crate) fn visible_sessions(&self, cx: &App) -> Vec<Card> {
-        self.sessions_matching(&self.sidebar.search.read(cx).value(), cx)
+        self.sessions_matching(&self.sidebar.read(cx).search.read(cx).value(), cx)
     }
 
     pub(crate) fn sessions_matching(&self, query: &str, cx: &App) -> Vec<Card> {

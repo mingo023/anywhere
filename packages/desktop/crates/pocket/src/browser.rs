@@ -133,7 +133,7 @@ impl Desktop {
         let covered = self.overlay.is_some()
             || self.host_finder.read(cx).is_open()
             || self.menu_open(cx)
-            || self.sidebar.menu_at.is_some()
+            || self.sidebar.read(cx).menu_at.is_some()
             || self.shown_create(cx).is_some()
             || self.panels.read(cx).parks_pages();
         let shown: Vec<u64> = match self.session_tree(cx).and_then(|t| self.workspaces.read(cx).get(&t)) {

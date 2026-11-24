@@ -85,7 +85,7 @@ impl Desktop {
         cx.listener(move |this, e: &MouseDownEvent, _, cx| {
             this.close_menus(cx);
             this.row_menu = Some(menu.clone());
-            this.sidebar.menu_at = Some(e.position);
+            this.sidebar.update(cx, |s, _| s.menu_at = Some(e.position));
             cx.notify();
         })
     }
@@ -125,9 +125,9 @@ impl Desktop {
             icon_button_sized(id(format!("aside-more:{key}")), "more", 22., TEXT_3).rounded(px(6.)),
             open,
             cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                this.sidebar.hover.press();
+                this.sidebar.update(cx, |s, _| s.hover.press());
                 this.row_menu = Some(opens.clone());
-                this.sidebar.menu_at = None;
+                this.sidebar.update(cx, |s, _| s.menu_at = None);
                 this.panels.update(cx, |p, _| (p.menu, p.actions) = (None, None));
                 cx.notify();
             }),
@@ -147,12 +147,12 @@ impl Desktop {
                 .occlude()
                 .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                     this.row_menu = None;
-                    this.sidebar.menu_at = None;
+                    this.sidebar.update(cx, |s, _| s.menu_at = None);
                     cx.notify();
                 }))
                 .children(self.row_menu_items(menu, cx)),
         );
-        match self.sidebar.menu_at {
+        match self.sidebar.read(cx).menu_at {
             Some(at) => deferred(anchored().position(at).snap_to_window_with_margin(px(8.)).child(pop)).with_priority(1).into_any_element(),
             None => ui::dropdown(26., pop).into_any_element(),
         }

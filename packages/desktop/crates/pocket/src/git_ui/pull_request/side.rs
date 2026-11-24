@@ -14,7 +14,8 @@ use ui::Variant;
 impl Desktop {
     /// Opens the panel on the Pull request side.
     pub(crate) fn show_pr_side(&mut self, cx: &mut Context<Self>) {
-        (self.side, self.sidebar.panel_open) = (Side::PullRequest, true);
+        self.side = Side::PullRequest;
+        self.sidebar.update(cx, |s, _| s.panel_open = true);
         cx.notify();
     }
 

@@ -187,7 +187,7 @@ impl Desktop {
     /// The Projects header: its name and search button, or the filter's field while it's open, then its menus.
     pub(super) fn projects_header(&self, cx: &mut Context<Self>) -> Div {
         let header = section_head();
-        let header = if self.sidebar.filter.open {
+        let header = if self.sidebar.read(cx).filter.open {
             header.child(self.filter_field(cx))
         } else {
             let search = icon_button_sized("aside-filter", "search", 22., TEXT_3)
@@ -200,26 +200,26 @@ impl Desktop {
 
     /// The header's sort button and its menu: new group, the sort, folding every project.
     fn organize_menu(&self, cx: &mut Context<Self>) -> Div {
-        let open = self.sidebar.organize.menu;
+        let open = self.sidebar.read(cx).organize.menu;
         let button = ui::popover_trigger(
             icon_button_sized("aside-organize", "arrow-down-wide-narrow", 22., TEXT_3).rounded(px(6.)),
             open,
             cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 this.close_menus(cx);
-                this.sidebar.organize.menu = true;
+                this.sidebar.update(cx, |s, _| s.organize.menu = true);
                 cx.notify();
             }),
         );
         div().relative().child(button).when(open, |d| {
             let new = ui::menu_row("aside-new-group", "folder-plus", "New group", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.sidebar.organize.menu = false;
+                this.sidebar.update(cx, |s, _| s.organize.menu = false);
                 this.new_group(None, window, cx);
             }));
             let sort = self.store.sections.sort;
             let sorts = [(Sort::Manual, "Manual"), (Sort::Name, "Name"), (Sort::Recent, "Recent activity")].map(|(s, label)| {
                 ui::menu_pick(SharedString::from(format!("aside-sort-{label}")), div(), label, s == sort).on_click(cx.listener(
                     move |this, _: &ClickEvent, _, cx| {
-                        this.sidebar.organize.menu = false;
+                        this.sidebar.update(cx, |s, _| s.organize.menu = false);
                         this.store.sections.sort = s;
                         this.store.save();
                         cx.notify();
@@ -228,10 +228,10 @@ impl Desktop {
             });
             let fold = |id: &'static str, label: &'static str, fold: bool| {
                 ui::menu_row(id, if fold { "chevron-right" } else { "chevron-down" }, label, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.sidebar.organize.menu = false;
+                    this.sidebar.update(cx, |s, _| s.organize.menu = false);
                     if fold {
                         for p in this.store.projects.iter().filter(|p| !this.store.collapsed.contains(*p)) {
-                            this.sidebar.closing.start(Fold::Project(p.clone()));
+                            this.sidebar.update(cx, |s, _| s.closing.start(Fold::Project(p.clone())));
                         }
                     }
                     this.store.collapsed = if fold { this.store.projects.iter().cloned().collect() } else { Default::default() };
@@ -246,7 +246,7 @@ impl Desktop {
                 .flex_col()
                 .occlude()
                 .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                    this.sidebar.organize.menu = false;
+                    this.sidebar.update(cx, |s, _| s.organize.menu = false);
                     cx.notify();
                 }))
                 .child(new)
@@ -276,12 +276,12 @@ impl Desktop {
         let Some(name) = self.store.sections.group(group).map(|g| g.name.clone()) else { return };
         let (input, sub) = rename_field(name, window, cx, Self::save_group_rename);
         self.row_menu = None;
-        self.sidebar.organize.rename = Some(GroupRename { group, input, _sub: sub });
+        self.sidebar.update(cx, |s, _| s.organize.rename = Some(GroupRename { group, input, _sub: sub }));
         cx.notify();
     }
 
     fn save_group_rename(&mut self, cx: &mut Context<Self>) {
-        if let Some(r) = self.sidebar.organize.rename.take() {
+        if let Some(r) = self.sidebar.update(cx, |s, _| s.organize.rename.take()) {
             self.store.sections.rename_group(r.group, &r.input.read(cx).value());
             self.store.save();
         }
@@ -309,7 +309,7 @@ impl Desktop {
 
     /// Pinned rows, each group, then the ungrouped projects; while filtering, only what matches.
     pub(super) fn sections(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let query = self.sidebar.filter.query(cx);
+        let query = self.sidebar.read(cx).filter.query(cx);
         let filtering = !query.is_empty();
         let listed = self.listed(&query, cx);
         let sections = &self.store.sections;
@@ -324,12 +324,12 @@ impl Desktop {
                 ui::section_head("aside-pinned", icon("pin", 14., TEXT), "Pinned", open, None, false).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.store.sections.pins_folded = !this.store.sections.pins_folded;
                     if this.store.sections.pins_folded {
-                        this.sidebar.closing.start(Fold::Pinned);
+                        this.sidebar.update(cx, |s, _| s.closing.start(Fold::Pinned));
                     }
                     this.store.save();
                     cx.notify();
                 }));
-            let rows: Vec<(AnyElement, f32)> = if self.sidebar.closing.drawn(&Fold::Pinned, open) {
+            let rows: Vec<(AnyElement, f32)> = if self.sidebar.read(cx).closing.drawn(&Fold::Pinned, open) {
                 listed
                     .pinned
                     .iter()
@@ -356,7 +356,7 @@ impl Desktop {
             }
             let open = filtering || !group.folded;
             let id = *id;
-            let name = match self.sidebar.organize.rename.as_ref().filter(|r| r.group == id) {
+            let name = match self.sidebar.read(cx).organize.rename.as_ref().filter(|r| r.group == id) {
                 Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(14.)).into_any_element(),
                 None => group.name.clone().into_any_element(),
             };
@@ -371,13 +371,13 @@ impl Desktop {
                 self.row_menu.as_ref() == Some(&menu),
             )
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
-                if this.sidebar.organize.rename.as_ref().is_some_and(|r| r.group == id) {
+                if this.sidebar.read(cx).organize.rename.as_ref().is_some_and(|r| r.group == id) {
                     return;
                 }
                 // A double-click's second click undoes the fold its first made.
                 this.store.sections.toggle_group(id);
                 if this.store.sections.group(id).is_some_and(|g| g.folded) {
-                    this.sidebar.closing.start(Fold::Group(id));
+                    this.sidebar.update(cx, |s, _| s.closing.start(Fold::Group(id)));
                 }
                 this.store.save();
                 if ev.click_count() > 1 {
@@ -386,7 +386,7 @@ impl Desktop {
                 cx.notify();
             }))
             .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx));
-            let rows: Vec<(AnyElement, f32)> = match (self.sidebar.closing.drawn(&Fold::Group(id), open), blocks.is_empty()) {
+            let rows: Vec<(AnyElement, f32)> = match (self.sidebar.read(cx).closing.drawn(&Fold::Group(id), open), blocks.is_empty()) {
                 (false, _) => vec![],
                 (true, true) => vec![(
                     div()
@@ -416,7 +416,7 @@ impl Desktop {
                         .py(px(12.))
                         .text_size(px(12.5))
                         .text_color(TEXT_3)
-                        .child(format!("No projects or worktrees match “{}”.", self.sidebar.filter.input.read(cx).value().trim()))
+                        .child(format!("No projects or worktrees match “{}”.", self.sidebar.read(cx).filter.input.read(cx).value().trim()))
                         .into_any_element(),
                 );
             }

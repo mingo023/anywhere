@@ -352,7 +352,7 @@ impl Desktop {
     pub(crate) fn toggle_rail(&mut self, _: &ToggleRail, _: &mut Window, cx: &mut Context<Self>) {
         // The panel shows only on the Sessions screen; flipping it elsewhere would surprise on the way back.
         if self.layout != Layout::Focus && self.screen == Screen::Sessions {
-            self.sidebar.panel_open = !self.sidebar.panel_open;
+            self.sidebar.update(cx, |s, _| s.panel_open = !s.panel_open);
             cx.notify();
         }
     }
@@ -453,7 +453,7 @@ impl Desktop {
             icon_button_sized("focus-toggle", name, 28., TEXT_2)
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_focus(&crate::actions::ToggleFocus, window, cx)))
         };
-        let pad = bar_pad(self.layout, self.screen, self.lead_width(), pad, self.store.appearance.zoom_factor());
+        let pad = bar_pad(self.layout, self.screen, self.lead_width(cx), pad, self.store.appearance.zoom_factor());
         let toggle =
             (self.layout == Layout::Focus).then(|| toggle("sidebar-expand", cx).relative().when(has_changes(self.repo(cx)), |d| d.child(changes_dot())));
         (pad, toggle)

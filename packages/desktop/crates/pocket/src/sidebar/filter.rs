@@ -1,7 +1,8 @@
 use super::fold::Fold;
 use super::sections::{Block, Item, Listed};
 use crate::desktop::Desktop;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use crate::sidebar::Sidebar;
+use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::*;
 use theme::*;
 use ui::icon_button_sized;
@@ -21,23 +22,9 @@ pub(crate) struct Filter {
 }
 
 impl Filter {
-    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+    pub fn new(window: &mut Window, cx: &mut Context<Sidebar>) -> Self {
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("Filter projects & worktrees"));
-        let subs = vec![cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| {
-            match ev {
-                InputEvent::Change => {
-                    this.sidebar.filter.lit = this.filter_hits(cx).into_iter().next();
-                    if this.sidebar.filter.query(cx).is_empty() {
-                        this.shut_filtered_folds();
-                    }
-                }
-                // A typed query stays, so its rows can still be clicked.
-                InputEvent::Blur if this.sidebar.filter.query(cx).is_empty() => this.close_filter(window, cx),
-                _ => {}
-            }
-            cx.notify()
-        })];
-        (Self { input, open: false, lit: None }, subs)
+        Self { input, open: false, lit: None }
     }
 
     /// The filter's text, lowercased; empty while it's closed.
@@ -76,8 +63,8 @@ fn step(hits: &[Hit], lit: Option<&Hit>, down: bool) -> Option<Hit> {
 
 impl Desktop {
     /// Empty while the query is.
-    fn filter_hits(&self, cx: &App) -> Vec<Hit> {
-        let query = self.sidebar.filter.query(cx);
+    pub(super) fn filter_hits(&self, cx: &App) -> Vec<Hit> {
+        let query = self.sidebar.read(cx).filter.query(cx);
         if query.is_empty() { vec![] } else { hits(&self.listed(&query, cx)) }
     }
 
@@ -100,10 +87,10 @@ impl Desktop {
             .rounded(px(8.))
             .bg(FILL_2)
             // A click on the field's padding or icon would otherwise focus the window's root, blurring and so closing an empty filter.
-            .track_focus(&self.sidebar.filter.input.focus_handle(cx))
+            .track_focus(&self.sidebar.read(cx).filter.input.focus_handle(cx))
             .capture_key_down(cx.listener(Self::on_filter_key))
             .child(icon("search", 13., TEXT_3))
-            .child(Input::new(&self.sidebar.filter.input).appearance(false).p_0().text_size(px(13.)))
+            .child(Input::new(&self.sidebar.read(cx).filter.input).appearance(false).p_0().text_size(px(13.)))
             .child(close)
             .overflow_hidden()
             .with_animation("aside-filter-in", Animation::new(FILTER_IN).with_easing(|t: f32| 1. - (1. - t).powi(3)), |d, t| {
@@ -113,26 +100,25 @@ impl Desktop {
 
     pub(crate) fn open_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.close_menus(cx);
-        self.sidebar.filter.open = true;
-        self.sidebar.filter.input.update(cx, |s, cx| s.focus(window, cx));
+        self.sidebar.update(cx, |s, _| s.filter.open = true);
+        self.sidebar.read(cx).filter.input.clone().update(cx, |s, cx| s.focus(window, cx));
         cx.notify();
     }
 
     /// Starts shutting the folded folds a query held open.
-    fn shut_filtered_folds(&mut self) {
+    pub(super) fn shut_filtered_folds(&self, cx: &mut App) {
         let sections = &self.store.sections;
         let groups = sections.groups.iter().filter(|g| g.folded).map(|g| Fold::Group(g.id));
         let projects = self.store.collapsed.iter().map(|p| Fold::Project(p.clone()));
-        for fold in groups.chain(sections.pins_folded.then_some(Fold::Pinned)).chain(self.store.scratch_folded.then_some(Fold::Scratch)).chain(projects) {
-            self.sidebar.closing.start(fold);
-        }
+        let folds: Vec<Fold> =
+            groups.chain(sections.pins_folded.then_some(Fold::Pinned)).chain(self.store.scratch_folded.then_some(Fold::Scratch)).chain(projects).collect();
+        self.sidebar.update(cx, |s, _| folds.into_iter().for_each(|fold| s.closing.start(fold)));
     }
 
-    fn close_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.shut_filtered_folds();
-        self.sidebar.filter.open = false;
-        self.sidebar.filter.lit = None;
-        self.sidebar.filter.input.update(cx, |s, cx| s.set_value("", window, cx));
+    pub(super) fn close_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.shut_filtered_folds(cx);
+        self.sidebar.update(cx, |s, _| (s.filter.open, s.filter.lit) = (false, None));
+        self.sidebar.read(cx).filter.input.clone().update(cx, |s, cx| s.set_value("", window, cx));
         window.blur(cx);
         cx.notify();
     }
@@ -141,19 +127,19 @@ impl Desktop {
         match ev.keystroke.key.as_str() {
             key @ ("up" | "down") => {
                 let hits = self.filter_hits(cx);
-                self.sidebar.filter.lit = step(&hits, self.sidebar.filter.lit.as_ref(), key == "down");
+                self.sidebar.update(cx, |s, _| s.filter.lit = step(&hits, s.filter.lit.as_ref(), key == "down"));
             }
             "enter" => {
                 let hits = self.filter_hits(cx);
-                let lit = self.sidebar.filter.lit.as_ref();
-                if let Some(hit) = hits.iter().find(|h| Some(*h) == lit).or(hits.first()).cloned() {
+                let lit = self.sidebar.read(cx).filter.lit.clone();
+                if let Some(hit) = hits.iter().find(|h| Some(*h) == lit.as_ref()).or(hits.first()).cloned() {
                     self.pick_hit(hit, window, cx);
                 }
             }
-            "escape" if self.sidebar.filter.query(cx).is_empty() => self.close_filter(window, cx),
+            "escape" if self.sidebar.read(cx).filter.query(cx).is_empty() => self.close_filter(window, cx),
             "escape" => {
-                self.sidebar.filter.input.update(cx, |s, cx| s.set_value("", window, cx));
-                self.sidebar.filter.lit = None;
+                self.sidebar.read(cx).filter.input.clone().update(cx, |s, cx| s.set_value("", window, cx));
+                self.sidebar.update(cx, |s, _| s.filter.lit = None);
             }
             _ => return,
         }

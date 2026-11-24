@@ -25,7 +25,9 @@ use crate::region;
 use crate::renames::{self, Renames, Slot};
 use crate::sidebar::filter::Filter;
 use crate::sidebar::fold::{Closing, Fold};
+use crate::sidebar::panel::PanelRail;
 use crate::sidebar::project_picker::ProjectPicker;
+use crate::sidebar::rail::Rail;
 use crate::sidebar::rename::Rename;
 use crate::sidebar::sections::{Kind, Organize, Section, TreeRow};
 use crate::sidebar::tree_card::Hover;
@@ -166,7 +168,20 @@ struct DragTree {
     ix: usize,
 }
 
-pub struct SidebarState {
+/// What the sidebar asks `Desktop` for: its inputs hold what it can't answer alone.
+pub(crate) enum SidebarEvent {
+    /// The filter's text changed.
+    Filtered,
+    /// The filter lost focus.
+    FilterBlurred,
+    /// The sessions search changed.
+    Searched,
+}
+
+impl EventEmitter<SidebarEvent> for Sidebar {}
+
+/// The sidebar's state: folds, filter, rename, picker, menus, and how far the columns are open.
+pub struct Sidebar {
     pub(crate) search: Entity<InputState>,
     pub(crate) space_header: Entity<SpaceHeader>,
     /// The space buttons in the aside's foot and in the compact rail, which can be on screen together while the layout animates.
@@ -174,7 +189,10 @@ pub struct SidebarState {
     pub(crate) rail_spaces: Entity<Switcher>,
     /// Where a right-click opened the row menu; `None` drops it under its `···` button.
     pub(crate) menu_at: Option<Point<Pixels>>,
-    pub(crate) picker: ProjectPicker,
+    pub(crate) picker: Entity<ProjectPicker>,
+    /// The compact rail, and the rail at the window's right edge.
+    pub(crate) rail: Entity<Rail>,
+    pub(crate) panel_rail: Entity<PanelRail>,
     /// The Projects + menu shows.
     pub(crate) add_menu: bool,
     /// The right-hand panel shows; collapsed at launch.
@@ -192,45 +210,48 @@ pub struct SidebarState {
     pub(crate) lead: Glide,
     /// How far the right-hand panel is open.
     pub(crate) panel: Glide,
+    _subs: Vec<Subscription>,
 }
 
-impl SidebarState {
-    pub fn new(panel_open: bool, window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+impl Sidebar {
+    pub fn new(panel_open: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions…"));
-        let (picker, picker_subs) = ProjectPicker::new(window, cx);
-        let (filter, filter_subs) = Filter::new(window, cx);
+        let picker = cx.new(|cx| ProjectPicker::new(window, cx));
+        let rail = cx.new(|_| Rail::new(picker.clone()));
+        let panel_rail = cx.new(|_| PanelRail::default());
+        let filter = Filter::new(window, cx);
         let space_header = cx.new(|_| SpaceHeader::new());
         let aside_spaces = cx.new(|_| Switcher::new("aside", false));
         let rail_spaces = cx.new(|_| Switcher::new("nav", true));
-        let mut subs = vec![
-            cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify()),
-            cx.subscribe_in(&space_header, window, Desktop::on_space_header_event),
-            cx.subscribe_in(&aside_spaces, window, Desktop::on_switcher_event),
-            cx.subscribe_in(&rail_spaces, window, Desktop::on_switcher_event),
+        let _subs = vec![
+            cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.emit(SidebarEvent::Searched)),
+            cx.subscribe(&filter.input, |_, _, ev: &InputEvent, cx| match ev {
+                InputEvent::Change => cx.emit(SidebarEvent::Filtered),
+                InputEvent::Blur => cx.emit(SidebarEvent::FilterBlurred),
+                _ => {}
+            }),
         ];
-        subs.extend(picker_subs);
-        subs.extend(filter_subs);
-        (
-            Self {
-                search,
-                space_header,
-                aside_spaces,
-                rail_spaces,
-                menu_at: None,
-                picker,
-                add_menu: false,
-                panel_open,
-                rename: None,
-                hover: Hover::default(),
-                filter,
-                organize: Organize::default(),
-                closing: Closing::default(),
-                placement: RefCell::default(),
-                lead: Glide::default(),
-                panel: Glide::default(),
-            },
-            subs,
-        )
+        Self {
+            search,
+            space_header,
+            aside_spaces,
+            rail_spaces,
+            menu_at: None,
+            picker,
+            rail,
+            panel_rail,
+            add_menu: false,
+            panel_open,
+            rename: None,
+            hover: Hover::default(),
+            filter,
+            organize: Organize::default(),
+            closing: Closing::default(),
+            placement: RefCell::default(),
+            lead: Glide::default(),
+            panel: Glide::default(),
+            _subs,
+        }
     }
 
     /// Steps the lead column toward `layout` and the panel toward open or shut; true while either still moves.
@@ -244,18 +265,65 @@ impl SidebarState {
     pub(crate) fn unfocused(&self) -> f32 {
         self.lead.at().clamp(0., 1.)
     }
+
+    /// Whether a menu of the sidebar's own is open.
+    pub(crate) fn menu_open(&self, cx: &App) -> bool {
+        self.picker.read(cx).open || self.add_menu || self.organize.menu || self.space_header.read(cx).menu_open()
+    }
+
+    /// Shuts the sidebar's own menus.
+    pub(crate) fn shut_menus(&mut self, cx: &mut App) {
+        self.menu_at = None;
+        self.picker.update(cx, |p, cx| p.shut(cx));
+        self.add_menu = false;
+        self.organize.menu = false;
+        self.space_header.update(cx, |h, _| h.shut());
+    }
 }
 
 impl Desktop {
+    pub(crate) fn sidebar_subs(sidebar: &Entity<Sidebar>, window: &mut Window, cx: &mut Context<Self>) -> Vec<Subscription> {
+        let (space_header, aside, rail_spaces, picker, rail, panel_rail) = {
+            let s = sidebar.read(cx);
+            (s.space_header.clone(), s.aside_spaces.clone(), s.rail_spaces.clone(), s.picker.clone(), s.rail.clone(), s.panel_rail.clone())
+        };
+        vec![
+            cx.subscribe_in(sidebar, window, Self::on_sidebar_event),
+            cx.observe(sidebar, |_, _, cx| cx.notify()),
+            cx.subscribe_in(&picker, window, Self::on_picker_event),
+            cx.observe(&picker, |_, _, cx| cx.notify()),
+            cx.subscribe_in(&space_header, window, Self::on_space_header_event),
+            cx.subscribe_in(&aside, window, Self::on_switcher_event),
+            cx.subscribe_in(&rail_spaces, window, Self::on_switcher_event),
+            cx.subscribe_in(&rail, window, Self::on_rail_event),
+            cx.subscribe_in(&panel_rail, window, Self::on_panel_rail_event),
+        ]
+    }
+
+    fn on_sidebar_event(&mut self, _: &Entity<Sidebar>, ev: &SidebarEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            SidebarEvent::Filtered => {
+                let lit = self.filter_hits(cx).into_iter().next();
+                self.sidebar.update(cx, |s, _| s.filter.lit = lit);
+                if self.sidebar.read(cx).filter.query(cx).is_empty() {
+                    self.shut_filtered_folds(cx);
+                }
+            }
+            SidebarEvent::FilterBlurred if self.sidebar.read(cx).filter.query(cx).is_empty() => self.close_filter(window, cx),
+            _ => {}
+        }
+        cx.notify();
+    }
+
     /// The Projects add button and its menu: add a project, or clone one.
     fn add_menu(&self, cx: &mut Context<Self>) -> Div {
-        let open = self.sidebar.add_menu;
+        let open = self.sidebar.read(cx).add_menu;
         let button = ui::popover_trigger(
             icon_button_sized("aside-add", "folder-plus", 22., TEXT_3).rounded(px(6.)),
             open,
             cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 this.close_menus(cx);
-                this.sidebar.add_menu = true;
+                this.sidebar.update(cx, |s, _| s.add_menu = true);
                 cx.notify();
             }),
         );
@@ -272,7 +340,7 @@ impl Desktop {
                 .flex_col()
                 .occlude()
                 .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                    this.sidebar.add_menu = false;
+                    this.sidebar.update(cx, |s, _| s.add_menu = false);
                     cx.notify();
                 }))
                 .child(add)
@@ -287,15 +355,18 @@ impl Desktop {
     }
 
     /// How wide the lead column is now, as it moves between layouts.
-    pub(crate) fn lead_width(&self) -> f32 {
-        lead_width(self.sidebar.lead.at(), self.aside_width())
+    pub(crate) fn lead_width(&self, cx: &App) -> f32 {
+        lead_width(self.sidebar.read(cx).lead.at(), self.aside_width())
     }
 
     /// The lead column: the sidebar or the rail, one fading into the other as it widens, and nothing in Focus.
-    pub(crate) fn lead(&self) -> Div {
-        let (at, wide) = (self.sidebar.lead.at(), self.aside_width());
+    pub(crate) fn lead(&self, cx: &mut Context<Self>) -> Div {
+        let (at, wide) = (self.sidebar.read(cx).lead.at(), self.aside_width());
         let shown = aside_shown(at);
-        let rail = div().absolute().top_0().left_0().h_full().opacity(1. - shown).child(region::cached(&self.regions.nav, region::column(RAIL)));
+        if at > 0. && shown < 1. {
+            self.sync_rail(cx);
+        }
+        let rail = div().absolute().top_0().left_0().h_full().opacity(1. - shown).child(region::cached(&self.sidebar.read(cx).rail, region::column(RAIL)));
         let aside = div().flex_none().h_full().opacity(shown).child(region::cached(&self.regions.aside, region::column(wide)));
         div()
             .relative()
@@ -377,7 +448,7 @@ impl Desktop {
             .child(top)
             .child(search)
             .children(pages)
-            .child(self.sidebar.space_header.clone())
+            .child(self.sidebar.read(cx).space_header.clone())
             .children(self.scratch_section(cx))
             .child(header)
             .child(body)
@@ -427,21 +498,21 @@ impl Desktop {
             Some(project) if own => (project, Some(self.local_name(key))),
             sub => (self.local_name(key), sub),
         };
-        let label = match self.sidebar.rename.as_ref().filter(|r| r.tree == key) {
+        let label = match self.sidebar.read(cx).rename.as_ref().filter(|r| r.tree == key) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
             None => done_name(self.scrolling(key, name.clone(), row_name(&self.renames, key, name.clone(), state, selected, cx.reduce_motion()), cx), state),
         };
-        let label = with_sub(label, sub.clone(), self.sidebar.renaming(key));
+        let label = with_sub(label, sub.clone(), self.sidebar.read(cx).renaming(key));
         let trail = (pins || renames).then(|| {
-            ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(key))
+            ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.read(cx).hover.on(key))
         });
-        let lit = self.sidebar.filter.lit(p, Some(key));
+        let lit = self.sidebar.read(cx).filter.lit(p, Some(key));
         let (target, path) = (p.to_string(), key.to_string());
         let glyph = if hosts::split(p).0.is_some() { "globe" } else { LOCAL_ICON };
         let row = ui::worktree_row(id(format!("aside-tree:{key}")), glyph, label, selected, mark)
             .children(trail)
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
-                if this.sidebar.renaming(&path) {
+                if this.sidebar.read(cx).renaming(&path) {
                     return;
                 }
                 if ev.click_count() > 1 && renames {
@@ -459,13 +530,13 @@ impl Desktop {
 
     /// `label`, reading `text`, scrolling through its cut-off end while `tree`'s card shows.
     fn scrolling(&self, tree: &str, text: String, label: AnyElement, cx: &mut Context<Self>) -> AnyElement {
-        if cx.reduce_motion() || self.sidebar.hover.shows(tree).is_none() {
+        if cx.reduce_motion() || self.sidebar.read(cx).hover.shows(tree).is_none() {
             return label;
         }
         let (this, row) = (cx.weak_entity(), tree.to_string());
-        ui::marquee(id(format!("aside-marquee:{tree}")), text.into(), self.sidebar.hover.label(tree), label, move |width, overflow, cx| {
+        ui::marquee(id(format!("aside-marquee:{tree}")), text.into(), self.sidebar.read(cx).hover.label(tree), label, move |width, overflow, cx| {
             this.update(cx, |this, cx| {
-                if this.sidebar.hover.measured(&row, width, overflow) {
+                if this.sidebar.update(cx, |s, _| s.hover.measured(&row, width, overflow)) {
                     cx.notify();
                 }
             })
@@ -485,9 +556,9 @@ impl Desktop {
     /// `tree`'s card, naming it `title` on `branch`, while it shows. `shows_pr` shows its PR.
     fn card_for(&self, p: &str, tree: &str, title: &str, branch: &str, shows_pr: bool, cx: &App) -> Option<Div> {
         let reduce_motion = cx.reduce_motion();
-        self.sidebar.hover.shows(tree).map(|fades| {
+        self.sidebar.read(cx).hover.shows(tree).map(|fades| {
             let when = self.tree_cards(p, tree, cx).iter().map(|c| c.at).max().map(|at| ago_long(at, now_ms())).filter(|w| !w.is_empty());
-            let slide = self.sidebar.hover.slide().filter(|_| !reduce_motion);
+            let slide = self.sidebar.read(cx).hover.slide().filter(|_| !reduce_motion);
             tree_card::hung(title.to_string(), branch.to_string(), self.prs.get(tree).filter(|_| shows_pr), when, fades && !reduce_motion, slide)
         })
     }
@@ -498,7 +569,7 @@ impl Desktop {
         row.relative()
             .on_hover(cx.listener(move |this, over: &bool, window, cx| this.hover_tree(&key, *over, window.mouse_position().y.into(), cx)))
             .on_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                if this.sidebar.hover.press() {
+                if this.sidebar.update(cx, |s, _| s.hover.press()) {
                     cx.notify();
                 }
             }))
@@ -507,7 +578,7 @@ impl Desktop {
 
     /// Makes `row` draggable among `p`'s rows, except while renamed so its field's text stays selectable.
     fn reorders(&self, row: Stateful<Div>, p: &str, key: &str, ix: usize, cx: &mut Context<Self>) -> Stateful<Div> {
-        if self.sidebar.renaming(key) {
+        if self.sidebar.read(cx).renaming(key) {
             return row;
         }
         let (project, over, to) = (p.to_string(), p.to_string(), key.to_string());
@@ -529,17 +600,17 @@ impl Desktop {
         // Rows reserve their trail by `Hover::on`, so redraw even when no card shows or hides.
         cx.notify();
         if !over {
-            self.sidebar.hover.leave(tree, now);
+            self.sidebar.update(cx, |s, _| s.hover.leave(tree, now));
             return;
         }
-        if self.sidebar.hover.enter(tree, now, y) {
+        if self.sidebar.update(cx, |s, _| s.hover.enter(tree, now, y)) {
             return;
         }
         let tree = tree.to_string();
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(tree_card::WAIT).await;
             this.update(cx, |d, cx| {
-                if d.sidebar.hover.waited(&tree, Instant::now()) {
+                if d.sidebar.update(cx, |s, _| s.hover.waited(&tree, Instant::now())) {
                     cx.notify();
                 }
             })
@@ -576,7 +647,7 @@ impl Desktop {
         }
         buttons.push(self.row_menu_button(p, menu.clone(), cx));
         let setup = setting_up.then(|| ui::busy(id(format!("aside-setup:{p}")), "Setting up…").into_any_element());
-        let trail = ui::row_trail(setup, buttons, self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on_project(p));
+        let trail = ui::row_trail(setup, buttons, self.row_menu.as_ref() == Some(&menu) || self.sidebar.read(cx).hover.on_project(p));
         let (target, pointed) = (p.to_string(), p.to_string());
         let name = self.repo_name(p);
         let host = hosts::split(p).0;
@@ -584,17 +655,17 @@ impl Desktop {
         let row = ui::repo_row(("aside-repo", i), chevron, &name, &self.project_mark(p, ui::mark_letter(&name)), selected, state)
             .child(trail)
             .when(offline, |row| row.opacity(0.5))
-            .when(self.sidebar.filter.lit(p, None), |row| row.bg(FILL_3))
+            .when(self.sidebar.read(cx).filter.lit(p, None), |row| row.bg(FILL_3))
             .when(self.spaces.flashed(p, Instant::now()), |row| row.bg(ACCENT_BG))
             .on_hover(cx.listener(move |this, over: &bool, _, cx| {
-                this.sidebar.hover.point_project(&pointed, *over);
+                this.sidebar.update(cx, |s, _| s.hover.point_project(&pointed, *over));
                 cx.notify();
             }))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 if git {
                     this.store.toggle(&target);
                     if this.store.collapsed.contains(&target) {
-                        this.sidebar.closing.start(Fold::Project(target.clone()));
+                        this.sidebar.update(cx, |s, _| s.closing.start(Fold::Project(target.clone())));
                     }
                     this.store.save();
                     cx.notify();
@@ -605,7 +676,7 @@ impl Desktop {
             .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx))
             .on_drag(DragProject { path: p.to_string(), ix: i }, |_, _, _, cx| cx.new(|_| EmptyView));
         let mut out = Vec::new();
-        if self.sidebar.closing.drawn(&Fold::Project(p.to_string()), open) {
+        if self.sidebar.read(cx).closing.drawn(&Fold::Project(p.to_string()), open) {
             let rows = self.tree_rows(p, trees.as_deref().unwrap_or_default(), cx);
             for row in rows.iter().filter(|r| only.is_none_or(|o| o.contains(&r.key)) && !self.tree_pinned(p, &r.key)) {
                 out.push(self.place_row(p, row, current.as_deref(), &setups, None, cx));
@@ -667,23 +738,26 @@ impl Desktop {
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.pick_side(Side::Changes, cx)))
                 .into_any_element()
         });
-        let trail =
-            ui::row_trail(diff, vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(tree));
+        let trail = ui::row_trail(
+            diff,
+            vec![self.row_menu_button(tree, menu.clone(), cx)],
+            self.row_menu.as_ref() == Some(&menu) || self.sidebar.read(cx).hover.on(tree),
+        );
         let (target, path) = (p.to_string(), tree.clone());
-        let label = match self.sidebar.rename.as_ref().filter(|r| &r.tree == tree) {
+        let label = match self.sidebar.read(cx).rename.as_ref().filter(|r| &r.tree == tree) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
             None => {
                 done_name(self.scrolling(tree, title.clone(), row_name(&self.renames, tree, title.clone(), state, selected, cx.reduce_motion()), cx), state)
             }
         };
         let (pinned, ix) = (sub.is_some(), row.ix);
-        let row = ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, with_sub(label, sub, self.sidebar.renaming(tree)), selected, mark)
+        let row = ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, with_sub(label, sub, self.sidebar.read(cx).renaming(tree)), selected, mark)
             .child(trail)
             .when(pinned, |row| row.pl(px(6.)))
-            .when(self.sidebar.filter.lit(p, Some(tree)), |row| row.bg(FILL_3))
+            .when(self.sidebar.read(cx).filter.lit(p, Some(tree)), |row| row.bg(FILL_3))
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                 // The rename input sits inside the row; its clicks must not restart or leave it.
-                if this.sidebar.renaming(&path) {
+                if this.sidebar.read(cx).renaming(&path) {
                     return;
                 }
                 if ev.click_count() > 1 && this.agents.names_offered() {

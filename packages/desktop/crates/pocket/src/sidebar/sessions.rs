@@ -27,7 +27,7 @@ impl Desktop {
             .border_b(px(0.5))
             .border_color(SEPARATOR)
             .child(icon("search", 14., TEXT_3))
-            .child(div().flex_1().text_size(px(13.)).child(Input::new(&self.sidebar.search).appearance(false).p_0().text_size(px(13.))));
+            .child(div().flex_1().text_size(px(13.)).child(Input::new(&self.sidebar.read(cx).search).appearance(false).p_0().text_size(px(13.))));
         let list = div().id("cards").flex_1().min_h_0().overflow_y_scroll();
         let wrap = div().flex_1().min_h_0().flex().flex_col().child(search);
         if self.project.is_none() {

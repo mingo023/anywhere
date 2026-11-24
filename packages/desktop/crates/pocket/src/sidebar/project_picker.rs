@@ -8,41 +8,120 @@ use gpui_kit::*;
 use std::path::Path;
 use theme::*;
 
+/// What the picker asks `Desktop` for.
+pub(crate) enum PickerEvent {
+    /// The search text changed, so its rows are to be listed again.
+    Searched,
+    Pick(Entry),
+    NewProject,
+    OpenHostFolder,
+}
+
+impl EventEmitter<PickerEvent> for ProjectPicker {}
+
+/// The rail's project menu: a search over the projects and their trees, and the rows `Desktop` hands down for it.
 pub struct ProjectPicker {
     pub(crate) open: bool,
-    pub(crate) search: Entity<InputState>,
+    search: Entity<InputState>,
     highlight: usize,
+    rows: Vec<Row>,
+    _sub: Subscription,
+}
+
+/// What a row leads with: the check on what is on screen, a tree's icon, or a project's tile.
+#[derive(Clone, PartialEq)]
+pub(crate) enum Lead {
+    Check,
+    Tree(&'static str),
+    Project(ui::Mark),
+}
+
+/// A listed entry as the picker draws it.
+#[derive(Clone, PartialEq)]
+pub(crate) struct Row {
+    pub(crate) entry: Entry,
+    pub(crate) lead: Lead,
+    pub(crate) title: String,
+    /// The folder a project sits in; empty on a tree.
+    pub(crate) parent: String,
+    pub(crate) state: Option<ui::State>,
 }
 
 impl ProjectPicker {
-    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search projects…"));
-        let subs = vec![cx.subscribe(&search, |this, _, ev: &InputEvent, cx| {
+        let _sub = cx.subscribe(&search, |_, _, ev: &InputEvent, cx| {
             if let InputEvent::Change = ev {
-                this.sidebar.picker.highlight = first_hit(&this.picked_entries(cx));
+                cx.emit(PickerEvent::Searched);
             }
-            cx.notify()
-        })];
-        (Self { open: false, search, highlight: 0 }, subs)
+        });
+        Self { open: false, search, highlight: 0, rows: Vec::new(), _sub }
     }
 
-    fn highlighted_row(&self, total: usize) -> usize {
-        self.highlight.min(total.saturating_sub(1))
+    pub(crate) fn query(&self, cx: &App) -> String {
+        self.search.read(cx).value().to_string()
+    }
+
+    pub(crate) fn open_fresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open = true;
+        self.highlight = 0;
+        self.search.update(cx, |s, cx| {
+            s.set_value("", window, cx);
+            s.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn shut(&mut self, cx: &mut Context<Self>) {
+        if self.open {
+            self.open = false;
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn set_rows(&mut self, rows: Vec<Row>, cx: &mut Context<Self>) {
+        if self.rows != rows {
+            self.rows = rows;
+            cx.notify();
+        }
+    }
+
+    /// Lights the first row that matches the search itself.
+    pub(crate) fn highlight_first(&mut self) {
+        self.highlight = first_hit(self.rows.iter().map(|r| &r.entry));
+    }
+
+    fn highlighted_row(&self) -> usize {
+        self.highlight.min(self.rows.len().saturating_sub(1))
+    }
+
+    fn on_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let ix = self.highlighted_row();
+        let key = ev.keystroke.key.as_str();
+        if key == "enter" {
+            let Some(row) = self.rows.get(ix) else { return };
+            cx.emit(PickerEvent::Pick(row.entry.clone()));
+        } else {
+            let Some(ix) = step(key, ix, self.rows.len()) else { return };
+            self.highlight = ix;
+        }
+        cx.stop_propagation();
+        cx.notify();
     }
 }
 
 /// A picker row: a project, or one of its worktrees or added Locals.
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) struct Entry {
-    project: String,
-    tree: Option<String>,
+    pub(crate) project: String,
+    pub(crate) tree: Option<String>,
     /// False for a project listed only because some of its worktrees match.
     hit: bool,
 }
 
 impl Entry {
     /// Whether this row is what's on screen: `cwd` of project `current`, where `main` gives a project's main worktree.
-    fn shown(&self, current: Option<&str>, cwd: Option<&str>, main: impl FnOnce(&str) -> Option<String>) -> bool {
+    pub(super) fn shown(&self, current: Option<&str>, cwd: Option<&str>, main: impl FnOnce(&str) -> Option<String>) -> bool {
         current == Some(self.project.as_str()) && cwd.map(str::to_string) == self.tree.clone().or_else(|| main(&self.project))
     }
 }
@@ -73,8 +152,8 @@ pub(crate) fn listed(
 }
 
 /// The row the highlight starts on: the first that matches the search itself.
-fn first_hit(entries: &[Entry]) -> usize {
-    entries.iter().position(|e| e.hit).unwrap_or(0)
+fn first_hit<'a>(entries: impl IntoIterator<Item = &'a Entry>) -> usize {
+    entries.into_iter().position(|e| e.hit).unwrap_or(0)
 }
 
 fn step(key: &str, ix: usize, total: usize) -> Option<usize> {
@@ -112,60 +191,89 @@ impl Desktop {
             locals.chain(worktrees).map(|t| (t.clone(), tree_texts(&t, self.agents.given_name(&t)))).collect()
         };
         let search_texts = |p: &str| project_texts(&self.repo_name(p), self.tree_of(p, cx).as_deref().and_then(|t| self.agents.given_name(t)));
-        listed(self.store.projects.clone(), self.project.as_deref(), &self.sidebar.picker.search.read(cx).value(), search_texts, trees)
+        let query = self.sidebar.read(cx).picker.read(cx).query(cx);
+        listed(self.store.projects.clone(), self.project.as_deref(), &query, search_texts, trees)
+    }
+
+    /// The picker's rows as the rail shows them.
+    pub(crate) fn picked_rows(&self, cx: &App) -> Vec<Row> {
+        let (current, tree) = (self.project.as_deref().filter(|_| self.screen == Screen::Sessions), self.place(cx));
+        self.picked_entries(cx)
+            .into_iter()
+            .map(|entry| {
+                let lead = match &entry.tree {
+                    _ if entry.shown(current, tree.as_deref(), |p| self.tree_of(p, cx)) => Lead::Check,
+                    Some(tree) => Lead::Tree(tree_icon(tree)),
+                    None => Lead::Project(self.project_mark(&entry.project, ui::mark_letter(&self.repo_name(&entry.project)))),
+                };
+                match entry.tree.clone() {
+                    Some(tree) => Row { title: self.place_name(&tree), parent: String::new(), state: None, lead, entry },
+                    None => Row {
+                        title: self.repo_name(&entry.project),
+                        parent: parent(&entry.project),
+                        state: self.project_state(&entry.project, cx),
+                        lead,
+                        entry,
+                    },
+                }
+            })
+            .collect()
+    }
+
+    /// Hands the picker its rows while it is open.
+    pub(crate) fn sync_picker(&self, cx: &mut App) {
+        let picker = self.sidebar.read(cx).picker.clone();
+        if picker.read(cx).open {
+            let rows = self.picked_rows(cx);
+            picker.update(cx, |p, cx| p.set_rows(rows, cx));
+        }
     }
 
     pub(crate) fn toggle_project_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let open = !self.sidebar.picker.open;
+        let picker = self.sidebar.read(cx).picker.clone();
+        let open = !picker.read(cx).open;
         self.close_menus(cx);
-        self.sidebar.picker.open = open;
         if open {
-            self.sidebar.picker.highlight = 0;
-            self.sidebar.picker.search.update(cx, |s, cx| {
-                s.set_value("", window, cx);
-                s.focus(window, cx);
-            });
+            picker.update(cx, |p, cx| p.open_fresh(window, cx));
         }
         cx.notify();
     }
 
     fn pick(&mut self, e: Entry, cx: &mut Context<Self>) {
-        self.sidebar.picker.open = false;
+        self.sidebar.read(cx).picker.clone().update(cx, |p, cx| p.shut(cx));
         if let Some(tree) = &e.tree {
             self.creates.update(cx, |c, _| c.show_progress(tree));
         }
         self.select_tree(e.project, e.tree, cx);
     }
 
-    fn on_picker_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let entries = self.picked_entries(cx);
-        let ix = self.sidebar.picker.highlighted_row(entries.len());
-        let key = ev.keystroke.key.as_str();
-        if key == "enter" {
-            let Some(e) = entries.into_iter().nth(ix) else { return };
-            self.pick(e, cx);
-        } else {
-            let Some(ix) = step(key, ix, entries.len()) else { return };
-            self.sidebar.picker.highlight = ix;
+    pub(super) fn on_picker_event(&mut self, picker: &Entity<ProjectPicker>, ev: &PickerEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            PickerEvent::Searched => {
+                let rows = self.picked_rows(cx);
+                picker.update(cx, |p, cx| {
+                    p.set_rows(rows, cx);
+                    p.highlight_first();
+                });
+            }
+            PickerEvent::Pick(entry) => self.pick(entry.clone(), cx),
+            PickerEvent::NewProject => self.add_local_project(window, cx),
+            PickerEvent::OpenHostFolder => self.open_host_folder(window, cx),
         }
-        cx.stop_propagation();
         cx.notify();
     }
+}
 
-    pub(crate) fn project_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let entries = self.picked_entries(cx);
-        let ix = self.sidebar.picker.highlighted_row(entries.len());
-        let (current, tree) = (self.project.as_deref().filter(|_| self.screen == Screen::Sessions), self.place(cx));
-        let rows = entries.iter().enumerate().map(|(i, e)| {
-            let lead = match &e.tree {
-                _ if e.shown(current, tree.as_deref(), |p| self.tree_of(p, cx)) => icon("check", 14., TEXT).into_any_element(),
-                Some(tree) => icon(tree_icon(tree), 14., TEXT_3).into_any_element(),
-                None => {
-                    let mark = self.project_mark(&e.project, ui::mark_letter(&self.repo_name(&e.project)));
-                    ui::repo_mark(&mark, false, None).size(px(18.)).text_size(px((18. * mark.scale(0.56)).round())).into_any_element()
-                }
+impl Render for ProjectPicker {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let ix = self.highlighted_row();
+        let rows = self.rows.iter().enumerate().map(|(i, r)| {
+            let lead = match &r.lead {
+                Lead::Check => icon("check", 14., TEXT).into_any_element(),
+                Lead::Tree(name) => icon(name, 14., TEXT_3).into_any_element(),
+                Lead::Project(mark) => ui::repo_mark(mark, false, None).size(px(18.)).text_size(px((18. * mark.scale(0.56)).round())).into_any_element(),
             };
-            let target = e.clone();
+            let target = r.entry.clone();
             div()
                 .id(("projects-row", i))
                 .h(px(36.))
@@ -179,22 +287,22 @@ impl Desktop {
                 .text_size(px(13.))
                 .when(i == ix, |d| d.bg(FILL_3).text_color(TEXT))
                 .when(i != ix, |d| d.text_color(TEXT_2))
-                .when(e.tree.is_some(), |d| d.pl(px(28.)))
+                .when(r.entry.tree.is_some(), |d| d.pl(px(28.)))
                 .child(div().w(px(18.)).flex().flex_none().justify_center().child(lead))
-                .map(|d| match &e.tree {
-                    Some(tree) => d.child(div().flex_1().min_w_0().truncate().child(self.place_name(tree))),
+                .map(|d| match &r.entry.tree {
+                    Some(_) => d.child(div().flex_1().min_w_0().truncate().child(r.title.clone())),
                     None => d
-                        .child(div().flex_1().min_w_0().truncate().font_weight(FontWeight::MEDIUM).child(self.repo_name(&e.project)))
-                        .child(div().max_w(px(112.)).flex_none().truncate().font_family(MONO).text_size(px(11.)).text_color(TEXT_4).child(parent(&e.project)))
-                        .children(ui::indicator(id(format!("projects-state:{}", e.project)), self.project_state(&e.project, cx))),
+                        .child(div().flex_1().min_w_0().truncate().font_weight(FontWeight::MEDIUM).child(r.title.clone()))
+                        .child(div().max_w(px(112.)).flex_none().truncate().font_family(MONO).text_size(px(11.)).text_color(TEXT_4).child(r.parent.clone()))
+                        .children(ui::indicator(id(format!("projects-state:{}", r.entry.project)), r.state)),
                 })
                 .on_mouse_move(cx.listener(move |this, _: &MouseMoveEvent, _, cx| {
-                    if this.sidebar.picker.highlight != i {
-                        this.sidebar.picker.highlight = i;
+                    if this.highlight != i {
+                        this.highlight = i;
                         cx.notify();
                     }
                 }))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick(target.clone(), cx)))
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(PickerEvent::Pick(target.clone()))))
         });
         let search = div()
             .h(px(44.))
@@ -206,7 +314,7 @@ impl Desktop {
             .border_b(px(0.5))
             .border_color(SEPARATOR)
             .child(icon("search", 15., TEXT_3))
-            .child(div().flex_1().text_size(px(13.)).child(Input::new(&self.sidebar.picker.search).appearance(false).p_0().text_size(px(13.))));
+            .child(div().flex_1().text_size(px(13.)).child(Input::new(&self.search).appearance(false).p_0().text_size(px(13.))));
         let empty = div().h(px(36.)).px(px(10.)).flex().items_center().text_size(px(13.)).text_color(TEXT_3).child("No projects found");
         let list = div()
             .id("projects-list")
@@ -215,23 +323,19 @@ impl Desktop {
             .p(px(5.))
             .flex()
             .flex_col()
-            .when(entries.is_empty(), |d| d.child(empty))
+            .when(self.rows.is_empty(), |d| d.child(empty))
             .children(rows);
-        let new = ui::menu_row("projects-new", "plus", "New project", None)
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_local_project(window, cx)));
+        let new = ui::menu_row("projects-new", "plus", "New project", None).on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(PickerEvent::NewProject)));
         let host = ui::menu_row("projects-host-folder", "globe", "Open folder on a host…", None)
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_host_folder(window, cx)));
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(PickerEvent::OpenHostFolder)));
         ui::pop(div().id("projects-menu"))
             .w(px(286.))
             .overflow_hidden()
             .flex()
             .flex_col()
             .occlude()
-            .capture_key_down(cx.listener(Self::on_picker_key))
-            .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.sidebar.picker.open = false;
-                cx.notify();
-            }))
+            .capture_key_down(cx.listener(Self::on_key))
+            .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| this.shut(cx)))
             .child(search)
             .child(list)
             .child(div().p(px(5.)).border_t(px(0.5)).border_color(SEPARATOR).child(new).child(host))

@@ -75,7 +75,7 @@ fn by_project<'a>(placed: impl Iterator<Item = (&'a String, Card)>, by: SessionS
 
 impl Desktop {
     pub fn projects(&self, cx: &App) -> Vec<String> {
-        if let Some(placed) = self.sidebar.placement.borrow().as_ref() {
+        if let Some(placed) = self.sidebar.read(cx).placement.borrow().as_ref() {
             return placed.projects.clone();
         }
         let placeable = self.git_done > 0 || project::all_listed(&self.store.projects, &self.worktrees, readable);
@@ -179,7 +179,7 @@ impl Desktop {
     }
 
     pub fn cards(&self, project: &str, cx: &App) -> Vec<Card> {
-        if let Some(placed) = self.sidebar.placement.borrow().as_ref() {
+        if let Some(placed) = self.sidebar.read(cx).placement.borrow().as_ref() {
             return placed.cards.get(project).cloned().unwrap_or_default();
         }
         let projects = self.projects(cx);
@@ -201,9 +201,9 @@ impl Desktop {
     pub(crate) fn placed<R>(&self, cx: &mut Context<Self>, f: impl FnOnce(&mut Context<Self>) -> R) -> R {
         let projects = self.projects(cx);
         let cards = by_project(self.placed_cards(&projects, cx), self.store.sidebar.sort);
-        self.sidebar.placement.replace(Some(Placement { projects, cards }));
+        self.sidebar.read(cx).placement.replace(Some(Placement { projects, cards }));
         let out = f(cx);
-        self.sidebar.placement.take();
+        self.sidebar.read(cx).placement.take();
         out
     }
 
@@ -378,7 +378,7 @@ impl Desktop {
                 }
                 d.poll_prs(cx);
                 d.detect_gh_account(cx);
-                if d.side == Side::Changes && d.sidebar.panel_open {
+                if d.side == Side::Changes && d.sidebar.read(cx).panel_open {
                     d.load_compare(cx);
                 }
                 for (pane, file) in files {
