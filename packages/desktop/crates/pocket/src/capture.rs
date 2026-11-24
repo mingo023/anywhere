@@ -538,7 +538,7 @@ const STEPS: [(&str, Step); 308] = [
     ("chat-menu", |d, window, cx| {
         let side = d.chat_side(cx);
         d.chat.update(cx, |c, cx| {
-            c.hand(side);
+            c.hand(side, cx);
             c.open_menu(window, cx);
         });
     }),

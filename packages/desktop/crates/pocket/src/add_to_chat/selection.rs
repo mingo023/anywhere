@@ -43,18 +43,19 @@ impl Desktop {
         self.chat.update(cx, |c, cx| c.ask(at, quote, window, cx));
     }
 
-    pub(crate) fn chat_pill(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        self.chat.read(cx).pill.as_ref()?;
-        self.chat.update(cx, |c, cx| c.pill_view(cx))
+    /// The Add to chat pill and the question card over a selection, handed the sessions a quote can go to while the card is open.
+    pub(crate) fn chat_offers(&self, cx: &mut Context<Self>) -> Entity<ChatComposer> {
+        if self.chat.read(cx).file.is_some() {
+            let side = self.chat_side(cx);
+            self.chat.update(cx, |c, cx| c.hand(side, cx));
+        }
+        self.chat.clone()
     }
+}
 
-    pub(crate) fn chat_popover(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        self.chat.read(cx).file.as_ref()?;
-        let side = self.chat_side(cx);
-        self.chat.update(cx, |c, cx| {
-            c.hand(side);
-            c.popover(cx)
-        })
+impl Render for ChatComposer {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div().absolute().children(self.pill_view(cx)).children(self.popover(cx))
     }
 }
 

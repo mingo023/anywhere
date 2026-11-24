@@ -7,6 +7,7 @@ use crate::actions::AddToChat;
 use crate::chat::Route;
 use crate::desktop::Desktop;
 use crate::git_ui::diff::{DiffView, ordered, span};
+use crate::region::notify_after_draw;
 use crate::sidebar::in_tree;
 use crate::status::{Card, Kind, Status};
 use crate::syntax::language_for;
@@ -199,7 +200,7 @@ pub fn target_for(to: &str, picked: Option<&str>, focused: Option<&str>, recent:
 }
 
 /// What `Desktop` hands the composer whenever it builds a card: the sessions a quote can go to and the one it goes to.
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 pub(crate) struct Side {
     pub choices: Vec<Choice>,
     /// The session the quote goes to, which the menu's pick, the setting and the open one decide.
@@ -279,8 +280,11 @@ impl ChatComposer {
         }
     }
 
-    pub(crate) fn hand(&mut self, side: Side) {
-        self.side = side;
+    pub(crate) fn hand(&mut self, side: Side, cx: &mut Context<Self>) {
+        if self.side != side {
+            self.side = side;
+            notify_after_draw(cx);
+        }
     }
 
     pub(crate) fn question(&self, cx: &App) -> String {
@@ -404,7 +408,7 @@ impl Desktop {
     pub(crate) fn chat_card(&self, quote: &Quote, cx: &mut Context<Self>) -> Div {
         let side = self.chat_side(cx);
         self.chat.update(cx, |c, cx| {
-            c.hand(side);
+            c.hand(side, cx);
             c.card(quote, false, cx)
         })
     }
