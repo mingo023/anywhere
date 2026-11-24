@@ -711,6 +711,7 @@ impl Desktop {
         if self.screen != Screen::Settings {
             self.select_project(path, cx);
         } else {
+            self.sync_settings(cx);
             self.settings.update(cx, |s, cx| s.load_dev_urls(window, cx));
         }
         self.refresh_git(cx);
