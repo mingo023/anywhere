@@ -101,6 +101,8 @@ type Registry struct {
 	mu   sync.Mutex
 	st   state
 	file File
+	// Why the state file couldn't be read: changes are refused so it is never written over.
+	unread error
 }
 
 // Open reads home/state/registry.json. While that file is missing it is made from home/desktop.json, once:
@@ -118,6 +120,7 @@ func Open(home string) *Registry {
 		}
 	case err != nil:
 		log.Printf("registry: %s: %v", r.path, err)
+		r.unread = err
 	case json.Unmarshal(raw, &r.st) != nil:
 		// Kept aside rather than served empty, which a client would take as every project removed.
 		log.Printf("registry: %s unreadable, importing again", r.path)
@@ -252,6 +255,9 @@ func (r *Registry) SetSettings(settings proto.SharedSettings) error {
 func (r *Registry) update(change func(*state) error) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.unread != nil {
+		return r.unread
+	}
 	next := state{Projects: slices.Clone(r.st.Projects), Tracked: slices.Clone(r.st.Tracked), Settings: r.st.Settings}
 	if err := change(&next); err != nil {
 		return err

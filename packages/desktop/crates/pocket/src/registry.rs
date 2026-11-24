@@ -30,6 +30,11 @@ impl Registry {
         self.synced.insert(host.map(str::to_string), slice);
     }
 
+    /// Stops sending `host` anything: its projects leaving this Mac's list are not removed from its pocketd.
+    pub(crate) fn forget(&mut self, host: &str) {
+        self.synced.remove(&Some(host.to_string()));
+    }
+
     pub(crate) fn machines(&self) -> Vec<Option<String>> {
         self.synced.keys().cloned().collect()
     }
@@ -145,5 +150,17 @@ mod tests {
     fn a_change_for_an_outdated_host_names_it() {
         assert_eq!(outdated(Some("devbox")), "Update Anywhere on devbox");
         assert_eq!(outdated(None), agents::OUTDATED);
+    }
+
+    #[test]
+    fn a_forgotten_host_has_nothing_pending_when_it_comes_back() {
+        let (mut registry, mut store) = (Registry::default(), Store::default());
+        store.add("//devbox/home/me/app");
+        registry.listed(Some("devbox"), store.registry(Some("devbox")));
+        registry.forget("devbox");
+        store.remove("//devbox/home/me/app");
+        registry.listed(None, store.registry(None));
+        assert!(registry.pending(Some("devbox"), &store.registry(Some("devbox"))).is_empty());
+        assert_eq!(registry.machines(), [None]);
     }
 }

@@ -333,3 +333,24 @@ func TestAKeyOfDesktopJSONInAShapeItCantReadLosesOnlyItself(t *testing.T) {
 		t.Fatalf("%+v", f)
 	}
 }
+
+func TestAStateFileThatCantBeReadIsNeverWrittenOver(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root reads any file")
+	}
+	f := folders(t, "app", "other")
+	app, other := f[0], f[1]
+	dir := home(t, marshal(map[string]any{"projects": []string{app}}))
+	Open(dir)
+	path := filepath.Join(dir, "state", "registry.json")
+	want, _ := os.ReadFile(path)
+	os.Chmod(path, 0)
+	t.Cleanup(func() { os.Chmod(path, 0o600) })
+	if err := Open(dir).AddProject(other, nil); err == nil {
+		t.Fatal("a change was taken")
+	}
+	os.Chmod(path, 0o600)
+	if got, _ := os.ReadFile(path); string(got) != string(want) {
+		t.Fatalf("written over: %s", got)
+	}
+}

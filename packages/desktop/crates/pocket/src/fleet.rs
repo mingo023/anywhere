@@ -676,6 +676,7 @@ impl Desktop {
         self.fleet.remove(id);
         self.daemon.remove(id);
         self.close_host_agents(id);
+        self.registry.forget(id);
         hosts::remote::forget(id);
         let left = self.terminals.lists.forget(id);
         self.terminals.listed(left);
