@@ -195,6 +195,28 @@ func (d *Daemon) catchUp(pr *presence) {
 // ReportWait is how long a reporting claude has to report the end of a turn its Stop hook announced.
 var ReportWait = 2 * time.Second
 
+// endTurnIfQuiet ends the turn a Stop hook announced if pr still shows
+// working and no report came within ReportWait: its claude stopped reporting,
+// so hooks drive its status again until its next report.
+func (d *Daemon) endTurnIfQuiet(pr *presence, failed bool) {
+	pr.mu.Lock()
+	seen := pr.reports
+	pr.mu.Unlock()
+	time.AfterFunc(ReportWait, func() {
+		pr.report.Lock()
+		defer pr.report.Unlock()
+		pr.mu.Lock()
+		quiet := pr.ctx.Err() == nil && pr.reports == seen && pr.a.Turn() == "working"
+		if quiet {
+			pr.reported = false
+		}
+		pr.mu.Unlock()
+		if quiet {
+			d.turnEnded(pr, failed)
+		}
+	})
+}
+
 func (d *Daemon) apply(pr *presence, r terminal.Report) {
 	pr.report.Lock()
 	defer pr.report.Unlock()
@@ -207,6 +229,7 @@ func (d *Daemon) applyLocked(pr *presence, r terminal.Report) {
 	}
 	pr.mu.Lock()
 	pr.reported = true
+	pr.reports++
 	pr.mu.Unlock()
 	pr.a.SetAttached(true)
 	switch r.State {

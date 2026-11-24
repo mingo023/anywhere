@@ -291,7 +291,13 @@ func (d *Daemon) Hook(ctx context.Context, p peer.Principal, m ops.Msg) ([]byte,
 			d.OnPrompt(pr.a, in.Prompt, pr.env)
 		}
 	}
-	if reported || pr.stream != nil {
+	if pr.stream != nil {
+		return nil, nil
+	}
+	if reported {
+		if in.Event == "Stop" || in.Event == "StopFailure" {
+			d.endTurnIfQuiet(pr, in.Event == "StopFailure")
+		}
 		return nil, nil
 	}
 	switch in.Event {
