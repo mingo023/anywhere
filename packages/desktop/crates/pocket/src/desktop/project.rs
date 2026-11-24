@@ -10,6 +10,7 @@ use agents::Summary;
 use agents::locals::is_local;
 use git::Repo;
 use gpui_kit::*;
+use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
@@ -59,6 +60,8 @@ fn without_child_only(trees: Vec<git::Worktree>, terminals: &[Placed]) -> Vec<gi
 pub(crate) struct Placement {
     projects: Vec<String>,
     cards: HashMap<String, Vec<Card>>,
+    /// Where each folder a row asked about sits, as every row asks again for each card in its project.
+    trees: RefCell<HashMap<String, Option<String>>>,
 }
 
 /// Each project's cards, sorted as one project's are.
@@ -175,7 +178,16 @@ impl Desktop {
     }
 
     pub fn tree_of(&self, cwd: &str, cx: &App) -> Option<String> {
-        project::tree_of(cwd, &self.worktrees, |t| self.store.lists(t), || self.projects(cx))
+        let find = || project::tree_of(cwd, &self.worktrees, |t| self.store.lists(t), || self.projects(cx));
+        let sidebar = self.sidebar.read(cx);
+        let placement = sidebar.placement.borrow();
+        let Some(placed) = placement.as_ref() else { return find() };
+        if let Some(tree) = placed.trees.borrow().get(cwd) {
+            return tree.clone();
+        }
+        let tree = find();
+        placed.trees.borrow_mut().insert(cwd.to_string(), tree.clone());
+        tree
     }
 
     pub fn cards(&self, project: &str, cx: &App) -> Vec<Card> {
@@ -201,7 +213,7 @@ impl Desktop {
     pub(crate) fn placed<R>(&self, cx: &mut Context<Self>, f: impl FnOnce(&mut Context<Self>) -> R) -> R {
         let projects = self.projects(cx);
         let cards = by_project(self.placed_cards(&projects, cx), self.store.sidebar.sort);
-        self.sidebar.read(cx).placement.replace(Some(Placement { projects, cards }));
+        self.sidebar.read(cx).placement.replace(Some(Placement { projects, cards, trees: RefCell::default() }));
         let out = f(cx);
         self.sidebar.read(cx).placement.take();
         out
