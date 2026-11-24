@@ -251,7 +251,7 @@ impl Panels {
                     .cursor_pointer()
                     .when(selected, |d| d.bg(FILL_3).text_color(TEXT))
                     .when(!selected, |d| d.text_color(TEXT_3).hover(|s| s.bg(FILL_1).text_color(TEXT)))
-                    .child(lead.flex_1().min_w_0())
+                    .child(lead.view().flex_1().min_w_0())
                     .on_click(cx.listener(move |_, ev: &ClickEvent, _, cx| {
                         let pin = doc.clone().filter(|_| ev.click_count() > 1);
                         cx.emit(PanelsEvent::Select { pane: p, tab: i, pin });

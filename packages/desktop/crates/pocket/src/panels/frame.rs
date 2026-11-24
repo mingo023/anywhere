@@ -1,3 +1,4 @@
+use super::tab_face::Lead;
 use super::top_bar::Face;
 use super::{Head, Panels, PanelsEvent, head};
 use crate::desktop::Desktop;
@@ -15,7 +16,7 @@ pub(crate) struct Frame {
     pub(super) bar: BarFrame,
     pub(super) banner: Option<Div>,
     /// The held tab, drawn under the pointer while it is off its strip.
-    pub(super) ghost: Option<Div>,
+    pub(super) ghost: Option<Lead>,
     pub(super) draw: Drawing,
 }
 
@@ -65,7 +66,7 @@ pub(crate) enum Empty {
 }
 
 pub(crate) struct TabFace {
-    pub(super) lead: Div,
+    pub(super) lead: Lead,
     pub(super) closable: bool,
 }
 

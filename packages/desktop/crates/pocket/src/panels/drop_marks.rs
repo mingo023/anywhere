@@ -1,5 +1,6 @@
 use super::Panels;
 use super::drop::{self, Aim};
+use super::tab_face::Lead;
 use gpui_kit::*;
 use theme::*;
 use workspace::Tab;
@@ -7,7 +8,7 @@ use workspace::tree::{Target, Tree};
 
 impl Panels {
     /// The caret or lit pane where the held tab would drop, and the tab itself under the pointer.
-    pub(super) fn drop_marks(&self, tree: &str, tab: Option<Div>, cx: &App) -> Option<Deferred> {
+    pub(super) fn drop_marks(&self, tree: &str, tab: Option<Lead>, cx: &App) -> Option<Deferred> {
         let ((_, d), (x, y)) = (self.drag.as_ref()?, self.at?);
         if !d.away {
             return None;
@@ -34,7 +35,7 @@ impl Panels {
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(TEXT)
             .whitespace_nowrap()
-            .child(tab?);
+            .child(tab?.view());
         Some(deferred(div().absolute().inset_0().children(mark).child(ghost)))
     }
 
