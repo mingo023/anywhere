@@ -274,7 +274,7 @@ impl Desktop {
         self.prs.start(&tree, started);
         let (dir, gh) = (tree.clone(), self.gh_in(&tree));
         let task = cx.background_executor().spawn(async move {
-            let mut result = github::view_result(gh.run(github::VIEW, &dir, ""));
+            let mut result = github::view(|argv| gh.run(argv, &dir, ""));
             let mut lost = false;
             if let Ok(Some(pr)) = &mut result
                 && pr.state == PrState::Open
