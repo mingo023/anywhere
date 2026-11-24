@@ -7,7 +7,7 @@ pub(crate) mod panel;
 pub(crate) mod project_picker;
 pub(crate) mod rail;
 pub(crate) mod rename;
-mod row_menu;
+pub(crate) mod row_menu;
 mod scratch;
 pub(crate) mod sections;
 pub(crate) mod sessions;
@@ -31,6 +31,7 @@ use crate::sidebar::project_picker::ProjectPicker;
 use crate::sidebar::rail::Rail;
 use crate::sidebar::rename::Rename;
 use crate::sidebar::sections::{Kind, Organize, Section, TreeRow};
+use crate::sidebar::sessions::SessionList;
 use crate::sidebar::tree_card::Hover;
 use crate::spaces::SLIDE_MS;
 use crate::spaces::header::SpaceHeader;
@@ -172,6 +173,8 @@ struct DragTree {
 /// The sidebar's state: folds, filter, rename, picker, menus, and how far the columns are open.
 pub struct Sidebar {
     pub(crate) search: Entity<InputState>,
+    /// The panel's Sessions side.
+    pub(crate) sessions: Entity<SessionList>,
     pub(crate) space_header: Entity<SpaceHeader>,
     /// The space buttons in the aside's foot and in the compact rail, which can be on screen together while the layout animates.
     pub(crate) aside_spaces: Entity<Switcher>,
@@ -203,6 +206,7 @@ pub struct Sidebar {
 impl Sidebar {
     pub fn new(panel_open: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions…"));
+        let sessions = cx.new(|_| SessionList::new(search.clone()));
         let picker = cx.new(|cx| ProjectPicker::new(window, cx));
         let rail = cx.new(|_| Rail::new(picker.clone()));
         let panel_rail = cx.new(|_| PanelRail::default());
@@ -212,6 +216,7 @@ impl Sidebar {
         let rail_spaces = cx.new(|_| Switcher::new("nav", true));
         Self {
             search,
+            sessions,
             space_header,
             aside_spaces,
             rail_spaces,
@@ -269,10 +274,11 @@ impl Sidebar {
 
 impl Desktop {
     pub(crate) fn sidebar_subs(sidebar: &Entity<Sidebar>, window: &mut Window, cx: &mut Context<Self>) -> Vec<Subscription> {
-        let (search, space_header, aside, rail_spaces, picker, rail, panel_rail, header) = {
+        let (search, sessions, space_header, aside, rail_spaces, picker, rail, panel_rail, header) = {
             let s = sidebar.read(cx);
             (
                 s.search.clone(),
+                s.sessions.clone(),
                 s.space_header.clone(),
                 s.aside_spaces.clone(),
                 s.rail_spaces.clone(),
@@ -285,6 +291,7 @@ impl Desktop {
         vec![
             cx.observe(sidebar, |_, _, cx| cx.notify()),
             cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify()),
+            cx.subscribe_in(&sessions, window, Self::on_sessions_event),
             cx.subscribe_in(&header, window, Self::on_header_event),
             cx.observe(&header, |_, _, cx| cx.notify()),
             cx.subscribe_in(&picker, window, Self::on_picker_event),

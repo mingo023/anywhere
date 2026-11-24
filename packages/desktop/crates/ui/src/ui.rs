@@ -802,6 +802,7 @@ fn session_title(title: String) -> Div {
 }
 
 /// The line under a session card's title, led by an icon when it has one; `warn` turns it amber.
+#[derive(Clone, PartialEq)]
 pub struct Notice {
     pub icon: Option<&'static str>,
     pub text: SharedString,

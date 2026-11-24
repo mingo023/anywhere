@@ -9,7 +9,7 @@ use crate::spaces::space_of;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use store::sections::{Group, Pin, Sort};
+use store::sections::{Pin, Sort};
 use theme::*;
 
 /// The group being renamed.
@@ -104,8 +104,8 @@ fn section_body(id: impl Into<ElementId>, open: bool, rows: Vec<(AnyElement, f32
     fold::springing(id, open, height, body)
 }
 
-pub(crate) fn group_mark(g: &Group) -> Option<Div> {
-    g.icon.clone().map(|e| div().text_size(px(13.)).line_height(px(16.)).child(e))
+pub(crate) fn emoji_mark(e: String) -> Div {
+    div().text_size(px(13.)).line_height(px(16.)).child(e)
 }
 
 impl Desktop {
@@ -295,7 +295,7 @@ impl Desktop {
             let more = self.row_menu_button(&format!("group:{id}"), menu.clone(), cx);
             let head = ui::section_head(
                 ("aside-group", id as usize),
-                div().children(group_mark(group)),
+                div().children(group.icon.clone().map(emoji_mark)),
                 name,
                 open,
                 Some(more),
