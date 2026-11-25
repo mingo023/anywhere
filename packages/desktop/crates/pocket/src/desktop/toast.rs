@@ -18,11 +18,6 @@ pub(crate) struct Frame {
     pub tree: Option<Notice>,
 }
 
-struct Failure {
-    message: String,
-    copy: Option<String>,
-}
-
 pub(crate) enum ToastEvent {
     UndoTrash,
 }
@@ -30,7 +25,7 @@ pub(crate) enum ToastEvent {
 impl EventEmitter<ToastEvent> for Toasts {}
 
 pub(crate) struct Toasts {
-    error: Option<Failure>,
+    error: Option<String>,
     pr: Entity<PrSide>,
     frame: Frame,
     _subs: Vec<Subscription>,
@@ -43,12 +38,7 @@ impl Toasts {
     }
 
     pub(crate) fn fail(&mut self, message: String, cx: &mut Context<Self>) {
-        self.error = Some(Failure { message, copy: None });
-        cx.notify();
-    }
-
-    pub(crate) fn fail_with_copy(&mut self, message: String, copy: String, cx: &mut Context<Self>) {
-        self.error = Some(Failure { message, copy: Some(copy) });
+        self.error = Some(message);
         cx.notify();
     }
 
@@ -72,7 +62,7 @@ impl Toasts {
     }
 
     fn error_toast(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
-        let Failure { message, copy } = self.error.as_ref()?;
+        let message = self.error.as_ref()?;
         let mark =
             div().mt(px(1.)).size(px(18.)).flex().flex_none().items_center().justify_center().rounded(px(9.)).bg(FAILED).child(icon("x-bold", 9., WHITE));
         let dismiss = div()
@@ -87,12 +77,6 @@ impl Toasts {
             .hover(|s| s.bg(FILL_3))
             .child(icon("x", 12., TEXT_3))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.clear_error(cx)));
-        let copy = copy.clone().map(|text| {
-            ui::link("error-toast-copy", "Copy").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
-                this.clear_error(cx);
-            }))
-        });
         let toast = self
             .float(ui::pop(div()).id("error-toast"), if self.frame.deleting.is_some() { 56. } else { 16. })
             .w(px(300.))
@@ -105,9 +89,7 @@ impl Toasts {
             .rounded(px(14.))
             .occlude()
             .child(mark)
-            .child(
-                div().flex_1().min_w_0().flex().flex_col().items_start().gap(px(6.)).text_size(px(13.)).text_color(TEXT).child(message.clone()).children(copy),
-            )
+            .child(div().flex_1().min_w_0().flex().flex_col().items_start().gap(px(6.)).text_size(px(13.)).text_color(TEXT).child(message.clone()))
             .child(dismiss);
         Some(toast.with_animation("error-toast-in", Animation::new(MENU_IN).with_easing(ease_out_quint()), |d, t| d.opacity(t)))
     }

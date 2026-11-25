@@ -90,8 +90,4 @@ impl View {
     pub(crate) fn resume_queue(&mut self) {
         self.session.outgoing.resume(&self.session.transcript);
     }
-
-    pub(crate) fn drain_unsent(&mut self) -> Vec<String> {
-        self.session.outgoing.drain()
-    }
 }

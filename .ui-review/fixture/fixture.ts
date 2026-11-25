@@ -545,6 +545,16 @@ const ops = (c: Socket, first: Buffer) => {
         announce();
       }
       if (op.op === "input") reply({ ev: "output", id: op.id, data: op.data });
+      // As pocketd: closing an agent's terminal ends the agent.
+      if (op.op === "close") {
+        const agent = summaries.find((s) => s.terminalId === op.id);
+        if (agent && hostsWs) exit(hostsWs, agent.id);
+        const i = sessions.findIndex((s) => s.id === op.id);
+        if (i >= 0) {
+          sessions.splice(i, 1);
+          announce();
+        }
+      }
     }
   };
   read(first);
