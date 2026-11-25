@@ -101,6 +101,8 @@ type Session struct {
 	steers bool
 	// out counts the turn's prompts the agent has not answered yet.
 	out int
+	// prompts counts the prompts sent, so an answer knows whether it is to the newest, the only one a steer may be unconfirmed in.
+	prompts int
 	// steered holds the prompts steered into the turn and not yet known taken, so not yet shown.
 	steered  []string
 	running  bool
@@ -818,7 +820,8 @@ func (s *Session) steerable() bool {
 
 func (s *Session) prompt(text string, steer bool) {
 	s.out++
-	c, id, turn, before := s.c, s.id, s.turn, s.sent
+	s.prompts++
+	c, id, turn, before, n := s.c, s.id, s.turn, s.sent, s.prompts
 	sent := make(chan struct{})
 	s.sent = sent
 	go func() {
@@ -834,7 +837,7 @@ func (s *Session) prompt(text string, steer bool) {
 		defer s.mu.Unlock()
 		// A stop the agent was slow to answer has ended the turn already.
 		if s.running && s.turn == turn {
-			s.promptReplied(text, steer, res, err)
+			s.promptReplied(text, steer && n == s.prompts, res, err)
 		}
 	}()
 }
@@ -842,10 +845,10 @@ func (s *Session) prompt(text string, steer bool) {
 // promptReplied takes the answer to one of the turn's prompts. agy answers
 // the prompt a steer came after as it takes the steer, and the last prompt's
 // answer ends the turn.
-func (s *Session) promptReplied(text string, steer bool, res json.RawMessage, err error) {
+func (s *Session) promptReplied(text string, unconfirmed bool, res json.RawMessage, err error) {
 	s.out--
 	switch {
-	case steer && err != nil && s.out > 0:
+	case unconfirmed && err != nil && s.out > 0:
 		// Refused: it runs as a turn of its own once this one ends, ahead of what was sent after it.
 		s.steered = nil
 		if !s.stopping {

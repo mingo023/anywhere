@@ -3022,3 +3022,34 @@ func TestASteerWhileAnAntigravitySubAgentCardIsOpenLeavesTheCardToEnd(t *testing
 		"user:one", "working", "tool_start:sa1:task:task:Test Fixer: Fix the flaky test", "steer:two",
 		"tool_end:sa1:true", "assistant_draft:re: two", "assistant_text:re: two", "result:true:", "ended:false"})
 }
+
+func TestAnErrorOnASteerAntigravityTookIsNoRefusalAndItRunsOnce(t *testing.T) {
+	var sk *sink
+	tookTwo, threeSent := make(chan struct{}), make(chan struct{})
+	s, a, sk, _ := start(t, opts{provider: "antigravity", answer: agy(agyInit, func(a *agent, text string) string {
+		switch text {
+		case "one":
+			reply(a, text)
+			<-tookTwo
+			return endTurn
+		case "two":
+			close(tookTwo)
+			<-threeSent
+			return `!{"code":-32603,"message":"Internal error"}`
+		}
+		close(threeSent)
+		sk.wait(t, "steer:three")
+		reply(a, text)
+		return endTurn
+	})})
+	s.Prompt("one")
+	sk.wait(t, "assistant_draft:re: one")
+	s.Prompt("two")
+	sk.wait(t, "steer:two")
+	s.Prompt("three")
+	equal(t, after(sk.wait(t, "ended:false"), "user:one"), []string{
+		"user:one", "working", "assistant_draft:re: one", "assistant_text:re: one", "steer:two", "steer:three",
+		"assistant_draft:re: three", "assistant_text:re: three", "result:true:", "ended:false"})
+	time.Sleep(50 * time.Millisecond)
+	equal(t, promptsInOrder(a), []string{"one", "two", "three"})
+}
