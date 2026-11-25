@@ -174,7 +174,7 @@ impl Desktop {
         }
         // pocketd refuses a timeout outside 1..3600 seconds.
         let (trash, limit) = (self.store.worktree.trash, self.store.worktree.teardown_secs.clamp(1, 3600));
-        match self.outbox.worktree_delete(&removal.tree, removal.delete_branch, trash, limit, removal.teardown) {
+        match self.outbox.worktree_delete(&removal.tree, removal.branch.as_deref().filter(|_| removal.delete_branch), trash, limit, removal.teardown) {
             Some(request) => _ = self.removals.sent.insert(request, removal),
             None => {
                 self.removals.running.remove(&removal.tree);

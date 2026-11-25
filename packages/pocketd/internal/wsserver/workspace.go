@@ -19,6 +19,7 @@ import (
 	"pocketd/internal/launch"
 	"pocketd/internal/ops"
 	"pocketd/internal/orch"
+	"pocketd/internal/peer"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
 	"pocketd/internal/shellenv"
@@ -172,7 +173,7 @@ func (c *conn) worktreeDelete(m proto.ClientMessage) error {
 	if c.s.Registry == nil {
 		return errors.New("This pocketd can't remove worktrees")
 	}
-	d := hosts.Deletion{DeleteBranch: m.DeleteBranch, Force: m.Force, Trash: m.Trash, TeardownSecs: cmp.Or(m.TeardownSecs, defaultTeardownSecs), Teardown: m.Teardown == nil || *m.Teardown}
+	d := hosts.Deletion{DeleteBranch: m.DeleteBranch, Force: m.Force, Trash: m.Trash, TeardownSecs: cmp.Or(m.TeardownSecs, defaultTeardownSecs), Teardown: m.Teardown == nil || *m.Teardown, Branch: m.Branch}
 	go func() {
 		if err := c.removeWorktree(m.Path, m.Subagents, d); err != nil {
 			c.send(workspaceError(m.ID, err))
@@ -285,6 +286,9 @@ func (c *conn) removeWorktree(path string, subagents []string, d hosts.Deletion)
 	if err != nil {
 		return err
 	}
+	if d.Branch != "" && d.Branch != tree.Branch {
+		deleteBranch = false
+	}
 	if subagents != nil && c.othersIn(tree.Path, subagents) {
 		return worktree.ErrInUse
 	}
@@ -347,9 +351,14 @@ func isTeardownFailure(err error) bool {
 	return ok
 }
 
-// teardown runs the project's teardown script in t, as its settings or its repo name it.
+// teardown runs the project's teardown script in t, as its settings or its repo name it. A non-owner's comes from the
+// project's own checkout only, as its setup does: a branch or PR it picked could carry any script.
 func (c *conn) teardown(f registry.File, t linkedTree, secs int) error {
-	script := worktree.Teardown(f.Repos[t.project].Teardown, t.project, t.Path)
+	from := t.Path
+	if c.who.Kind != peer.Owner {
+		from = t.project
+	}
+	script := worktree.Teardown(f.Repos[t.project].Teardown, t.project, from)
 	env := os.Environ()
 	if c.s.Workspace.Env != nil {
 		env = c.s.Workspace.Env()

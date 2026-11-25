@@ -412,8 +412,8 @@ impl Outboxes {
         self.request(key, |o, path| o.worktree_inspect(path))
     }
 
-    pub fn worktree_delete(&self, key: &str, delete_branch: bool, trash: bool, teardown_secs: u32, teardown: bool) -> Option<String> {
-        self.request(key, |o, path| o.worktree_delete(path, delete_branch, trash, teardown_secs, teardown))
+    pub fn worktree_delete(&self, key: &str, branch: Option<&str>, trash: bool, teardown_secs: u32, teardown: bool) -> Option<String> {
+        self.request(key, |o, path| o.worktree_delete(path, branch, trash, teardown_secs, teardown))
     }
 
     /**

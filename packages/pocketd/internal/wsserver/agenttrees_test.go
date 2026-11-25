@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"pocketd/internal/orch"
+	"pocketd/internal/peer"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
 	"pocketd/internal/terminal"
@@ -231,7 +232,7 @@ func TestInspectSaysWhatADeleteWouldCloseAndLoseForTheWorktreeAndItsSubagents(t 
 func TestAFailedTeardownLeavesTheSubagentsWorktreesToo(t *testing.T) {
 	var b bench
 	tree := func(name string) string { return filepath.Join(b.root, "pocket", name) }
-	_, _, p := local(t, aPhone, withWorkspace(t, &b), func(s *Server) {
+	_, _, p := local(t, peer.OwnerOf(1), withWorkspace(t, &b), func(s *Server) {
 		s.Workspace.SubagentTrees = func(string, func(string, int64) string) (orch.Subtrees, error) {
 			return orch.Subtrees{Local: []string{tree("child")}}, nil
 		}
@@ -250,6 +251,43 @@ func TestAFailedTeardownLeavesTheSubagentsWorktreesToo(t *testing.T) {
 	}
 	if gone(t, tree("child")) || gitOut(t, b.project, "branch", "--list", "child") == "" {
 		t.Fatal("the subagent's worktree went though the delete failed")
+	}
+}
+
+func TestAPhonesDeleteRunsOnlyTheTeardownTheProjectsOwnCheckoutNames(t *testing.T) {
+	var b bench
+	_, _, p := local(t, aPhone, withWorkspace(t, &b))
+	c, err := worktree.Add(b.s.Registry.Load(), b.project, "picked", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(c.Path, filepath.Dir(worktree.ConfigFile)), 0o755)
+	os.WriteFile(filepath.Join(c.Path, worktree.ConfigFile), []byte(`{"teardown":["touch `+filepath.Join(b.root, "ran")+`"]}`), 0o644)
+	helloWith(p, proto.CapWorkspace)
+	p.send(`{"type":"worktree.delete","id":"wd","path":"` + c.Path + `","deleteBranch":true,"force":true}`)
+	if m := p.reply("wd"); m["type"] != "ack" {
+		t.Fatalf("%v", m)
+	}
+	if _, err := os.Stat(filepath.Join(b.root, "ran")); err == nil {
+		t.Fatal("a phone's delete ran the script the worktree itself names")
+	}
+}
+
+func TestADeleteKeepsABranchTheWorktreeSwitchedToAfterTheUserConfirmed(t *testing.T) {
+	var b bench
+	_, _, p := local(t, aPhone, withWorkspace(t, &b))
+	c, err := worktree.Add(b.s.Registry.Load(), b.project, "confirmed", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitOut(t, c.Path, "switch", "-c", "since")
+	helloWith(p, proto.CapWorkspace)
+	p.send(`{"type":"worktree.delete","id":"wd","path":"` + c.Path + `","deleteBranch":true,"force":true,"branch":"` + c.Branch + `"}`)
+	if m := p.reply("wd"); m["type"] != "ack" {
+		t.Fatalf("%v", m)
+	}
+	if !gone(t, c.Path) || gitOut(t, b.project, "branch", "--list", "since") == "" {
+		t.Fatal("the worktree stayed, or the branch it switched to went")
 	}
 }
 

@@ -240,9 +240,13 @@ impl Outbox {
 
     /// Deletes the worktree at `path` and its subagents', `trash` moving their folders to the Trash, each teardown bounded by
     /// `teardown_secs` or skipped; the commits the sheet showed go too. Returns the request id its reply carries.
-    pub fn worktree_delete(&self, path: &str, delete_branch: bool, trash: bool, teardown_secs: u32, teardown: bool) -> String {
+    /// Deletes the worktree at `path`, and `branch` with it while the worktree is still on it.
+    pub fn worktree_delete(&self, path: &str, branch: Option<&str>, trash: bool, teardown_secs: u32, teardown: bool) -> String {
         let id = delete_id();
-        let m = json!({"type": "worktree.delete", "id": id, "path": path, "deleteBranch": delete_branch, "force": true, "trash": trash, "teardownSecs": teardown_secs, "teardown": teardown});
+        let mut m = json!({"type": "worktree.delete", "id": id, "path": path, "deleteBranch": branch.is_some(), "force": true, "trash": trash, "teardownSecs": teardown_secs, "teardown": teardown});
+        if let Some(branch) = branch {
+            m["branch"] = branch.into();
+        }
         self.send(m);
         id
     }
@@ -505,7 +509,7 @@ mod tests {
     #[test]
     fn worktree_inspect_and_delete_send_the_golden_frames_but_their_ids() {
         assert_eq!(sent_but_id(|o| _ = o.worktree_inspect("/Users/me/.worktrees/pocket/calm-otter")), without_id(golden!("client/worktree_inspect.json")));
-        let delete = |o: &Outbox| _ = o.worktree_delete("/Users/me/.worktrees/pocket/calm-otter", true, true, 120, false);
+        let delete = |o: &Outbox| _ = o.worktree_delete("/Users/me/.worktrees/pocket/calm-otter", Some("calm-otter"), true, 120, false);
         assert_eq!(sent_but_id(delete), without_id(golden!("client/worktree_delete_trash.json")));
     }
 

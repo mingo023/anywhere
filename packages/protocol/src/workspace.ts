@@ -40,6 +40,7 @@ export const WorkspaceClient = [
     trash: Schema.optional(Schema.Boolean),
     teardownSecs: Schema.optional(Schema.Int.pipe(Schema.between(1, 3600))),
     teardown: Schema.optional(Schema.Boolean),
+    branch: Schema.optional(Schema.String),
   }),
   Schema.Struct({ type: Schema.Literal("worktree.inspect"), id: Schema.String, path: Schema.NonEmptyString }),
   Schema.Struct({ type: Schema.Literal("branch.list"), id: Schema.String, tree: Schema.NonEmptyString }),

@@ -6,7 +6,7 @@ import "pocketd/internal/providers"
 // agent.account and project.list pushes.
 const CapWorkspace = "workspace.v1"
 
-// CapWorktrees gates worktree.inspect and worktree.delete's trash, teardownSecs and teardown.
+// CapWorktrees gates worktree.inspect and worktree.delete's trash, teardownSecs, teardown and branch.
 const CapWorktrees = "worktrees.v1"
 
 // CodeTeardownFailed: a worktree's teardown script failed, so nothing was deleted; Path names the worktree, Detail
@@ -39,7 +39,8 @@ var workspaceVerbs = map[string]verbDecoder{
 	},
 	"worktree.delete": func(f fields, m *ClientMessage) bool {
 		return f.text("path", &m.Path) && f.optionalBool("deleteBranch", &m.DeleteBranch) && f.optionalBool("force", &m.Force) && f.optionalList("subagents", &m.Subagents) &&
-			f.optionalBool("trash", &m.Trash) && f.optionalInt("teardownSecs", &m.TeardownSecs, 1, 3600) && f.optionalFlag("teardown", &m.Teardown)
+			f.optionalBool("trash", &m.Trash) && f.optionalInt("teardownSecs", &m.TeardownSecs, 1, 3600) && f.optionalFlag("teardown", &m.Teardown) &&
+			f.optionalString("branch", &m.Branch)
 	},
 	"worktree.inspect": func(f fields, m *ClientMessage) bool { return f.text("path", &m.Path) },
 	"branch.list":      func(f fields, m *ClientMessage) bool { return f.text("tree", &m.Tree) },

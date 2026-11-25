@@ -93,11 +93,12 @@ Each attach has its own bounded queue (512 KiB) drained by a writer goroutine th
    //   here and on linked hosts (an offline host's are left out); dirty = uncommitted files, untracked included
    // lost = commits on no other branch, remote or tag once the branches go; lostAnyway = those on subagents' detached HEADs
    // main_worktree, unknown_worktree, git_failed; a host without worktrees.v1 is code "host_outdated"
-→ {type:"worktree.delete", id, path, deleteBranch?:bool, force?:bool, subagents?:[id], trash?:bool, teardownSecs?:1..3600, teardown?:bool}  ← ack
+→ {type:"worktree.delete", id, path, deleteBranch?:bool, force?:bool, subagents?:[id], trash?:bool, teardownSecs?:1..3600, teardown?:bool, branch?}  ← ack
    // runs the teardown script first (project settings', the repo's, or .anywhere/teardown.sh) for teardownSecs (default 120);
    //   a failure deletes nothing on this machine (subagents' worktrees on linked hosts go first):
    //   error{id, code:"teardown_failed", message, detail: the output's last 20 lines, path};
    //   teardown:false skips it
+   // branch = the one the user confirmed deleting; the branch stays if the worktree has left it since
    // trash:true moves the folder to the Trash before git forgets it
    // closes its terminals (not its Locals'), removes the folder and its display name, then `branch -D` when asked
    // the main worktree is refused before anything closes (code "main_worktree"); unknown_worktree; git_failed

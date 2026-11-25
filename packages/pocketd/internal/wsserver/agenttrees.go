@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"pocketd/internal/peer"
 	"pocketd/internal/terminal"
 	"pocketd/internal/worktree"
 )
@@ -54,7 +55,7 @@ func (s *Server) reap(tree, session, own string) {
 		log.Printf("worktree: cleaning up %s: %v", tree, err)
 		return
 	}
-	c := &conn{s: s}
+	c := &conn{s: s, who: peer.Principal{Kind: peer.Owner}}
 	if slices.ContainsFunc(c.openIn(tree), func(id string) bool { return id != session }) {
 		return
 	}

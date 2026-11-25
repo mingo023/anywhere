@@ -456,6 +456,8 @@ type Deletion struct {
 	DeleteBranch, Force, Trash bool
 	TeardownSecs               int
 	Teardown                   bool
+	// Branch is the one the client confirmed deleting; the branch stays if the worktree has left it since.
+	Branch string
 }
 
 // DeleteWorktree deletes the worktree at path on host id as a phone's worktree.delete does, which takes its

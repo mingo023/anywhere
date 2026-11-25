@@ -250,13 +250,16 @@ extension ClientMessage {
         public var teardownSecs: Int?
         /// False skips the teardown script, after a `teardown_failed` refusal.
         public var teardown: Bool?
-        public init(path: String, deleteBranch: Bool? = nil, force: Bool? = nil, trash: Bool? = nil, teardownSecs: Int? = nil, teardown: Bool? = nil) {
+        /// The branch the user confirmed deleting; it stays if the worktree has left it since.
+        public var branch: String?
+        public init(path: String, deleteBranch: Bool? = nil, force: Bool? = nil, trash: Bool? = nil, teardownSecs: Int? = nil, teardown: Bool? = nil, branch: String? = nil) {
             self.path = path
             self.deleteBranch = deleteBranch
             self.force = force
             self.trash = trash
             self.teardownSecs = teardownSecs
             self.teardown = teardown
+            self.branch = branch
         }
     }
 
