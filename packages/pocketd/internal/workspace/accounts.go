@@ -63,7 +63,7 @@ type AccountList struct {
 }
 
 // List is provider's accounts, or every one for "". Usage older than
-// UsageTTL is fetched first, bounded by ctx.
+// UsageTTL is fetched first, waiting on it no longer than ctx.
 func (a *AccountList) List(ctx context.Context, provider string) []proto.Account {
 	a.mu.Lock()
 	stale := time.Since(a.checked) > UsageTTL
@@ -72,7 +72,16 @@ func (a *AccountList) List(ctx context.Context, provider string) []proto.Account
 	}
 	a.mu.Unlock()
 	if stale {
-		a.Store.Refresh(ctx, "")
+		// The read outlives ctx, so what a slow one finds is there for the next list.
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			a.Store.Refresh(context.WithoutCancel(ctx), "")
+		}()
+		select {
+		case <-done:
+		case <-ctx.Done():
+		}
 	}
 	return Accounts(a.Store.List(a.Running), provider)
 }

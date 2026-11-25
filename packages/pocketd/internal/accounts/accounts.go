@@ -212,13 +212,21 @@ func (s *Store) Resolve(provider, id string) (string, error) {
 	return "", ErrUnknown
 }
 
-// List is every account, built-in first. running counts the sessions on one.
+// List is every account, built-in first, and Antigravity's only once its
+// probe found agy. running counts the sessions on one.
 func (s *Store) List(running func(provider, id string) int) []Account {
+	return s.list(running, s.agy.installed())
+}
+
+func (s *Store) list(running func(provider, id string) int, agy bool) []Account {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	x := s.load()
 	var out []Account
 	for _, p := range Providers {
+		if p == providers.Antigravity.ID && !agy {
+			continue
+		}
 		def := x.Defaults[p]
 		if !slices.ContainsFunc(x.Accounts, func(e entry) bool { return e.ID == def && e.Provider == p }) {
 			def = BuiltIn

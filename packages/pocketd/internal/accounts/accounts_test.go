@@ -107,7 +107,7 @@ func TestASignInIsKeptUnderItsEmailAndPlan(t *testing.T) {
 	if a, _ := find(list, codex); a.Email != "b@x.com" || a.Plan != "Plus" || !a.SignedIn {
 		t.Fatalf("%+v", a)
 	}
-	if len(list) != 5 || list[0].ID != BuiltIn || list[0].SignedIn || !list[0].Default {
+	if len(list) != 4 || list[0].ID != BuiltIn || list[0].SignedIn || !list[0].Default {
 		t.Fatalf("%+v", list)
 	}
 }
@@ -310,6 +310,8 @@ func TestClaudeCodexAndAntigravityAreListedButOnlyClaudeAndCodexKeepMoreAccounts
 
 func TestAntigravityRunsOnItsBuiltInLoginOnly(t *testing.T) {
 	s := store(t)
+	s.Agy = func() (string, []string, bool) { return "/bin/agy", nil, true }
+	s.runAgy = func(context.Context, string, []string, string, ...string) (agyRun, error) { return agyRun{}, nil }
 	if env := s.Env("antigravity", BuiltIn); env != nil {
 		t.Errorf("env %v", env)
 	}
@@ -322,6 +324,7 @@ func TestAntigravityRunsOnItsBuiltInLoginOnly(t *testing.T) {
 	if _, err := s.Add("antigravity"); err == nil {
 		t.Error("took a new account")
 	}
+	refresh(s)
 	var rows []Account
 	for _, a := range s.List(none) {
 		if a.Provider == "antigravity" {

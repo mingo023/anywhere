@@ -6,10 +6,22 @@ PR 1 of `docs/orchestrators/research/22-antigravity-parity.md` (§2.1, §2.6, §
 
 Antigravity (`agy acp`) asks the user questions in two ways, and Anywhere mishandles both:
 
-1. **Decisions** come as `session/request_permission` with a `toolCall.toolCallId` that starts with `interaction_`. Each choice is an option, and every option has kind `allow_once`. Under auto and full access, `auto()` (`flavor.go`) answers with the first option, so the agent's question is answered without the user ever seeing it. Under ask and edits access the user gets an Allow/Deny card, and Allow means the first choice.
+1. **Decisions** were guessed to come as `session/request_permission` with a `toolCall.toolCallId` that starts with `interaction_`, each choice an option of kind `allow_once`, which `auto()` (`flavor.go`) would answer with the first option under auto and full access. **Live agy 1.5.16 never sent one** in 9 attempts: its decisions came as `elicitation/create` too (research 23 §3). The `interaction_` branch stays only as a guard.
 2. **Form questions** use `elicitation/create`, but agy only sends it to a client that advertises `clientCapabilities.elicitation.form`. Ours doesn't, so agy writes the question into the chat as plain text, and the user has to type a reply.
 
 Both should open the question card that Claude's AskUserQuestion, Cursor's and Grok's questions already use.
+
+## Live check (agy 1.5.16)
+
+`docs/orchestrators/research/23-antigravity-live-checks.md` §2–3 ran these against a signed-in agy. Where it disagrees with the rest of this plan, it wins:
+
+- **Confirmed:** `elicitation/create` with the `elicitation.form` cap; `qN` / `qN_other` keys and `oneOf` choices; the reply uses the `const` (a title reads as no answer); multi-select takes an array of `const`s; `decline` and a `-32602` refusal both work, and a refusal makes agy ask in chat.
+- **Differs:**
+  - The form's `message` is `"The agent has a question."` (or `"…N questions."`), not the question; each `qN_other` is titled `"Other"` with a `description`; the request also carries a `toolCallId` param.
+  - Every question also comes as an `ask_question` `tool_call` (`kind:"other"`, `title:"Run ask_question"`) before the form. pocketd hides it (#388).
+  - `{"action":"cancel"}` reads as "no answer", the same as `decline`: it does not stop agy's turn.
+  - No `interaction_` decision was ever seen (see Why, item 1).
+- Answered questions are kept in the chat as Claude's `AskUserQuestion` call, so they survive a reload.
 
 ## Evidence and confidence
 
@@ -24,9 +36,9 @@ In code, comments, tests and commits, cite evidence by tier only and never name 
 | Request shape: `mode:"form"`, `requestedSchema.properties` keyed `q1`…`qN`, choices in `oneOf:[{const,title}]`, optional `qN_other` free-text companion | [CT] | medium |
 | Multi-select is `type:"array"` whose `items` hold `enum` or `anyOf` | [CT] | medium |
 | Accept reply sends the option's `const`, not its title: `{"action":"accept","content":{"q1":"2"}}`; free text is `{"q1_other":"Peach"}` with no `q1`; skip is `{"action":"decline"}` | [CT] | medium |
-| Multi-select reply is an array of `const`s: `{"q2":["r","b"]}` | none (assumed from the schema) | low, LIVE |
-| `{"action":"cancel"}` when the question is withdrawn | none (the elicitation action set) | low, LIVE |
-| Decisions arrive as `session/request_permission` with an `interaction_` id; question is `toolCall.title`; choices are options (`optionId`, `name`), all of kind `allow_once`; reply `selected`, skip `cancelled` | [C], [CT]; no [B] hit for the prefix | medium-low, LIVE |
+| Multi-select reply is an array of `const`s: `{"q2":["r","b"]}` | live | confirmed |
+| `{"action":"cancel"}` when the question is withdrawn | live | accepted, but read as no answer; the turn goes on |
+| Decisions arrive as `session/request_permission` with an `interaction_` id; question is `toolCall.title`; choices are options (`optionId`, `name`), all of kind `allow_once`; reply `selected`, skip `cancelled` | [C], [CT]; no [B] hit for the prefix | not seen live in 9 attempts |
 | Option names can repeat (the fixture has two named "Continue") | [CT] | medium |
 
 ## Design
@@ -206,7 +218,7 @@ These need a signed-in `agy acp` ≥ 1.5.15 with raw JSON-RPC logged (research �
 | Elicitation schema shape | An unreadable schema is refused, and per [B] agy then asks in chat, which is today's behaviour. If agy instead fails the step on refusal, the user loses the chat fallback. Check it live. |
 | Reply uses `const`, not title | If agy wants titles, a pick could be read as unknown. The code can't guard against this; it needs check 2. |
 | Multi-select reply as an array of `const`s; the `cancel` action | Low confidence, no fixture. Confirm with check 2. A mismatch affects only those replies. |
-| Whether agy also sends `tool_call` updates for `interaction_` ids | If it does, a generic "other" tool row may show beside the card. That is out of scope here; note it for the subagent/tool PR. |
+| Whether agy also sends `tool_call` updates for `interaction_` ids | No `interaction_` id was seen. Each form question comes with an `ask_question` call, which pocketd hides. |
 
 Live check, once agy is available:
 

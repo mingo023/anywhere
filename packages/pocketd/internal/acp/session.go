@@ -106,7 +106,8 @@ type Session struct {
 	stray    json.RawMessage // the end of a turn a pocketd before this one started, come before the session opened
 	held     []func()        // the agent's requests from before the session opened
 	asks     map[string]context.CancelFunc
-	msg      block // the message the agent is writing
+	waiting  map[string]unanswered // the questions in asks, by the same key
+	msg      block                 // the message the agent is writing
 	blocks   int
 	answered bool // the history's last prompt has an answer after it
 	tools    map[string]*tool
@@ -209,7 +210,7 @@ type todo struct {
 func NewSession(agentID, provider string, sink Sink, b *broker.Broker) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Session{agentID: agentID, provider: provider, name: providers.Get(provider).Name, f: flavors[provider], sink: sink, broker: b, ctx: ctx, cancel: cancel,
-		asks: map[string]context.CancelFunc{}, tools: map[string]*tool{}, children: map[string]string{}, models: map[string]string{},
+		asks: map[string]context.CancelFunc{}, waiting: map[string]unanswered{}, tools: map[string]*tool{}, children: map[string]string{}, models: map[string]string{},
 		ended: map[string]*timeline.Event{}, kids: map[string]*kid{}, calls: map[string]string{}}
 }
 
@@ -971,6 +972,10 @@ func (s *Session) Cancel() {
 	}
 	asks := s.asks
 	s.asks = map[string]context.CancelFunc{}
+	// Before the agent ends its turn on the stop, so the questions show ahead of that end.
+	for key := range s.waiting {
+		s.keepLocked(key, broker.Answer{})
+	}
 	s.mu.Unlock()
 	if busy {
 		if sent != nil {
