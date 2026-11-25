@@ -101,6 +101,8 @@ pub(crate) struct ChatState {
     pub(crate) diagrams: Entity<Diagrams>,
     /// The queued entry each agent's composer text was taken from, which its next send replaces.
     pub(crate) editing: HashMap<String, String>,
+    /// Agents whose worktree this desktop deleted: their chats close without the toast, as the delete sheet said it closes their terminals.
+    pub(crate) closed_by_delete: HashSet<String>,
 }
 
 impl ChatState {
@@ -134,6 +136,7 @@ impl ChatState {
                 dock,
                 diagrams,
                 editing: HashMap::new(),
+                closed_by_delete: HashSet::new(),
             },
             subs,
         )
@@ -179,7 +182,9 @@ impl Desktop {
     }
 
     /// Drops a closed agent's chat. What it never sent, and its draft, wait in the error toast to copy: no other chat's composer takes them.
+    /// Not when the user deleted its worktree.
     pub(crate) fn chat_closed(&mut self, agent: &str, who: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let deleted = self.chats.closed_by_delete.remove(agent);
         let (typed, _) = self.chat_draft(agent, cx);
         self.chats.composer.update(cx, |c, cx| c.close_draft(agent, window, cx));
         self.chats.transcripts.remove(agent);
@@ -187,7 +192,7 @@ impl Desktop {
         self.delegated_forget(agent);
         let unsent = self.chats.views.remove(agent).map(|v| v.update(cx, |v, _| v.drain_unsent())).unwrap_or_default();
         self.chat_prune_dock(cx);
-        if let Some((message, text)) = unsent_notice(who, unsent, typed) {
+        if let Some((message, text)) = unsent_notice(who, unsent, typed).filter(|_| !deleted) {
             self.toasts.update(cx, |t, cx| t.fail_with_copy(message, text, cx));
         }
     }

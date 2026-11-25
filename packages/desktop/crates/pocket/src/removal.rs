@@ -763,7 +763,7 @@ impl Desktop {
                     let mut subtrees = std::mem::take(&mut d.store.subtrees);
                     reparent(&mut subtrees, &r.tree, &removal.tree, |f| d.folder_tree(f, cx));
                     d.store.subtrees = subtrees;
-                    d.forget_tree(&r.tree, cx);
+                    d.forget_deleted(&r.tree, cx);
                 }
                 if failed.is_some() && !orphans.is_empty() {
                     d.store.host_leftovers.extend(orphans);
@@ -906,7 +906,7 @@ impl Desktop {
                     if let Some((branch, e)) = kept {
                         d.fail(format!("Deleted the worktree; kept branch {branch}: {e}"), cx);
                     }
-                    d.forget_tree(&r.tree, cx);
+                    d.forget_deleted(&r.tree, cx);
                 }
                 match failed {
                     None => {
@@ -937,6 +937,12 @@ impl Desktop {
         if let Some(Confirm::DeleteWorktree { removal, .. } | Confirm::TeardownFailed { removal, .. }) = &left {
             settle(&mut self.store.host_leftovers, &removal.tree);
         }
+    }
+
+    fn forget_deleted(&mut self, tree: &str, cx: &mut Context<Self>) {
+        let agents: Vec<String> = self.tree_terminals(tree, cx).iter().filter_map(|t| self.summary(t)).map(|a| a.id.clone()).collect();
+        self.chats.closed_by_delete.extend(agents);
+        self.forget_tree(tree, cx);
     }
 
     pub(crate) fn forget_tree(&mut self, tree: &str, cx: &mut Context<Self>) {
