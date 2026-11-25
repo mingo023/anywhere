@@ -1,11 +1,11 @@
 use super::card::{item_glyph, pill};
 use super::logic::{Col, Item};
-use super::recap::Recap;
 use super::side::{Drawer, Extra, FILES_SHOWN};
 use super::{Activity, ActivityEvent};
 use crate::git_ui::pull_request::glyph_slot;
 use crate::git_ui::pull_requests::{detail, glyph as pr_glyph, tone};
 use crate::util::{ago, first_line, now_ms};
+use agents::Recap;
 use git::github::{Check, Outcome, Pr};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::tooltip::Tooltip;

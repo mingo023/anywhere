@@ -1,4 +1,5 @@
 use super::shimmer::shimmer;
+use agents::PromptState;
 use gpui_kit::*;
 use theme::*;
 
@@ -12,17 +13,21 @@ pub(super) fn format_elapsed(secs: i64) -> String {
     }
 }
 
-/// "Sending…", light sweeping across it, until the send lands.
-pub(super) fn sending() -> Div {
-    div().py(px(4.)).text_size(px(14.)).line_height(px(20.)).child(shimmer("chat-sending", "Sending…", TEXT_3))
+/// "Sending…", light sweeping across it, until the send lands; what else is known of it reads still.
+pub(super) fn sending(state: PromptState) -> Div {
+    let row = div().py(px(4.)).text_size(px(14.)).line_height(px(20.));
+    match (state, chat::trail_text(state)) {
+        (PromptState::Sending, _) | (_, None) => row.child(shimmer("chat-sending", "Sending…", TEXT_3)),
+        (_, Some(text)) => row.text_color(TEXT_3).child(text),
+    }
 }
 
 pub(super) fn compacting() -> Div {
     div().py(px(4.)).text_size(px(14.)).line_height(px(20.)).child(shimmer("chat-compacting", "Compacting…", TEXT_3))
 }
 
-pub(super) fn not_delivered(id: impl Into<ElementId>) -> Stateful<Div> {
-    div().id(id).flex().items_center().gap(px(8.)).py(px(4.)).text_size(px(13.)).text_color(FAILED).cursor_pointer().child("Not delivered — click to retry")
+pub(super) fn not_delivered(id: impl Into<ElementId>, text: String) -> Stateful<Div> {
+    div().id(id).flex().items_center().gap(px(8.)).py(px(4.)).text_size(px(13.)).text_color(FAILED).cursor_pointer().child(text)
 }
 
 #[cfg(test)]

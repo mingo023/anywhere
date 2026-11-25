@@ -107,7 +107,7 @@ fn meta(text: String) -> AnyElement {
 
 impl Render for HandoffState {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(h) = self.open.as_ref() else { return div() };
+        let Some(h) = self.open.as_ref() else { return if self.awaiting.waiting() { self.loading_sheet(cx) } else { div() } };
         match (&h.stage, h.run.as_ref().map(|r| r.failed.is_some())) {
             (Stage::Pick, _) => self.pick_sheet(cx),
             (Stage::Summary, _) => self.summary_sheet(cx),
@@ -121,6 +121,22 @@ impl Render for HandoffState {
 impl HandoffState {
     fn close_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         x_button("handoff-close", "x").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(HandoffEvent::Close)))
+    }
+
+    fn loading_sheet(&mut self, cx: &mut Context<Self>) -> Div {
+        let title = header("Hand off to a host".into(), self.close_button(cx));
+        let reading = div()
+            .px(px(20.))
+            .py(px(28.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .gap(px(8.))
+            .text_size(px(13.))
+            .text_color(TEXT_3)
+            .child(spinner("handoff-loading", 14., TEXT_3))
+            .child("Reading the conversation…");
+        sheet([title, boxed(vec![reading.into_any_element()])])
     }
 
     fn pick_sheet(&mut self, cx: &mut Context<Self>) -> Div {

@@ -35,8 +35,8 @@ pub fn notes(agents: &Agents) -> Vec<Note> {
             let status = noted(a)?;
             let (title, subtitle) = match (status, agents.pending.iter().find(|p| p.agent_id == a.id)) {
                 (Status::NeedsYou, Some(p)) => (p.ask(), a.title.clone()),
-                (Status::Failed, _) => (format!("{} failed", a.title), first_line(agents.last_result(&a.id).map_or("", |r| r.error.as_str()))),
-                _ => (a.title.clone(), first_line(agents.last_text(&a.id).unwrap_or_default())),
+                (Status::Failed, _) => (format!("{} failed", a.title), first_line(&a.error)),
+                _ => (a.title.clone(), first_line(&a.recap.said)),
             };
             Some(Note { agent: a.id.clone(), terminal: a.terminal_id.clone(), status, title, subtitle, at: a.updated_at })
         })
@@ -256,6 +256,10 @@ mod tests {
         }
     }
 
+    fn said(agents: &mut Agents, id: &str, text: &str) {
+        agents.list.iter_mut().find(|a| a.id == id).unwrap().recap.said = text.into();
+    }
+
     #[test]
     fn selection_follows_the_focused_note_else_clamps_and_drops_focus() {
         let note = |t: &str| Note { agent: t.into(), terminal: t.into(), status: Status::NeedsYou, title: String::new(), subtitle: String::new(), at: 0 };
@@ -277,8 +281,8 @@ mod tests {
             pending: vec![Permission { agent_id: "ask".into(), tool_name: "Bash".into(), ..Default::default() }],
             ..Default::default()
         };
-        agents.timelines.insert("done".into(), vec![Item { kind: "assistant".into(), text: "\nTagged v2\nmore".into(), ..Default::default() }]);
-        agents.timelines.insert("fail".into(), vec![Item { kind: "result".into(), error: "exit 1".into(), ..Default::default() }]);
+        said(&mut agents, "done", "\nTagged v2\nmore");
+        agents.list[1].error = "exit 1".into();
         let got: Vec<(String, Status, String, String)> = notes(&agents).into_iter().map(|n| (n.terminal, n.status, n.title, n.subtitle)).collect();
         let want = [
             ("t-ask", Status::NeedsYou, "Wants to use Bash", "ASK"),
@@ -286,6 +290,18 @@ mod tests {
             ("t-done", Status::Done, "DONE", "Tagged v2"),
         ];
         assert_eq!(got, want.map(|(t, s, a, b)| (t.to_string(), s, a.to_string(), b.to_string())));
+    }
+
+    #[test]
+    fn a_note_reads_the_summary_and_not_a_timeline_that_may_be_unloaded_or_stale() {
+        let mut agents =
+            Agents { list: vec![Summary { failed: true, error: "exit 1".into(), ..agent("fail", "done", 1) }, agent("done", "done", 2)], ..Default::default() };
+        said(&mut agents, "done", "Tagged v2");
+        let stale = |kind: &str| vec![Item { kind: kind.into(), text: "old".into(), error: "old".into(), ..Default::default() }];
+        agents.timelines.insert("fail".into(), stale("result"));
+        agents.timelines.insert("done".into(), stale("assistant"));
+        let got: Vec<_> = notes(&agents).into_iter().map(|n| n.subtitle).collect();
+        assert_eq!(got, ["exit 1", "Tagged v2"]);
     }
 
     #[test]
@@ -321,7 +337,7 @@ mod tests {
     #[test]
     fn a_needs_you_agent_without_an_open_ask_reads_its_title_and_last_text() {
         let mut agents = Agents { list: vec![agent("ask", "needsYou", 0)], ..Default::default() };
-        agents.timelines.insert("ask".into(), vec![Item { kind: "assistant".into(), text: "Which branch?".into(), ..Default::default() }]);
+        said(&mut agents, "ask", "Which branch?");
         let n = &notes(&agents)[0];
         assert_eq!((n.title.as_str(), n.subtitle.as_str()), ("ASK", "Which branch?"));
     }

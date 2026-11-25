@@ -2,12 +2,13 @@ use crate::McpAction;
 use crate::automations::AutomationDraft;
 use crate::hosts;
 use crate::ids::{
-    BTW, COMMANDS, CREATE, DELEGATIONS, INTERRUPT, MCP, MCP_ACT, NEXT, PAIR, PROMPT, QUEUE, REMOTE_CONTROL, SETTINGS, auto_id, board_id, host_id, queue_id,
+    BTW, COMMANDS, CREATE, DELEGATIONS, INTERRUPT, MCP, MCP_ACT, NEXT, PAIR, QUEUE, REMOTE_CONTROL, SETTINGS, auto_id, board_id, host_id, prompt_id, queue_id,
     registry_id, request_id,
 };
 use crate::locals::Local;
 use crate::registry::Shared;
 use crate::tickets::{self, TicketDraft};
+use crate::timelines::{self, NEWEST, OLDER};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
@@ -39,20 +40,30 @@ impl Outbox {
         self.send(json!({"type": "agent.seen", "id": "seen", "agentIds": ids}));
     }
 
+    /// Asks for the newest page of the chat's timeline; asked once for each chat, however often it is wanted.
+    pub fn timeline(&self, agent_id: &str) {
+        self.send(timelines::request(NEWEST, agent_id));
+    }
+
+    /// Asks for the page above the oldest item held, when pocketd said there is one and none is on its way.
+    pub fn older(&self, agent_id: &str) {
+        self.send(timelines::request(OLDER, agent_id));
+    }
+
     pub fn pin(&self, agent_id: &str, pinned: bool) {
         self.send(json!({"type": "agent.pin", "id": "pin", "agentId": agent_id, "pinned": pinned}));
     }
 
     /// Types `text` into the agent's terminal and presses Enter; returns the request id a refusal names.
     pub fn prompt(&self, agent_id: &str, text: &str) -> String {
-        let id = format!("{PROMPT}{}", NEXT.fetch_add(1, Ordering::Relaxed));
+        let id = prompt_id();
         self.send(json!({"type": "agent.prompt", "id": id, "agentId": agent_id, "text": text}));
         id
     }
 
     /// Hands `text` to pocketd to run now when the agent is idle and to hold in its queue while it works; returns the request id a refusal names.
     pub fn prompt_queued(&self, agent_id: &str, text: &str) -> String {
-        let id = format!("{PROMPT}{}", NEXT.fetch_add(1, Ordering::Relaxed));
+        let id = prompt_id();
         self.send(json!({"type": "agent.prompt", "id": id, "agentId": agent_id, "text": text, "queue": true}));
         id
     }

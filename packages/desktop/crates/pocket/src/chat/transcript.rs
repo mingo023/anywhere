@@ -62,6 +62,7 @@ pub(crate) enum ViewEvent {
     ShowPr,
     SendFix(Vec<String>, Vec<String>),
     Scrolled(bool),
+    ReachedTop,
 }
 
 impl EventEmitter<ViewEvent> for View {}
@@ -110,6 +111,7 @@ pub(crate) struct View {
     pub(super) lit: Option<timeline::Lit>,
     /// Whether the chat has shown what it opened with; text after that streams in.
     primed: bool,
+    at_top: bool,
     /// Which deliveries arrived after it did.
     arrivals: crate::delegated::Arrivals,
     links_pr: bool,
@@ -126,8 +128,15 @@ impl View {
             let this = cx.weak_entity();
             move |e, _, cx| {
                 scrolled.set(Some(!e.is_scrolled));
-                let (this, away) = (this.clone(), e.is_scrolled);
-                cx.defer(move |cx| _ = this.update(cx, |_, cx| cx.emit(ViewEvent::Scrolled(away))));
+                let (this, away, top) = (this.clone(), e.is_scrolled, e.visible_range.start == 0);
+                cx.defer(move |cx| {
+                    _ = this.update(cx, |v, cx| {
+                        cx.emit(ViewEvent::Scrolled(away));
+                        if reaches_top(&mut v.at_top, top) {
+                            cx.emit(ViewEvent::ReachedTop);
+                        }
+                    })
+                });
             }
         });
         let tools = cx.new(|_| Tools::default());
@@ -170,6 +179,7 @@ impl View {
             pointer,
             lit: None,
             primed: false,
+            at_top: false,
             arrivals: Default::default(),
             links_pr: false,
             has_host_link: false,
@@ -367,6 +377,8 @@ impl View {
             self.has_host_link =
                 self.has_host_link || self.session.rows.get(changed.clone()).is_some_and(|rows| rows.iter().any(|r| matches!(r, Row::HostLink { .. })));
             self.pace(&before, Instant::now());
+            // Rows added above leave the list short of its top again.
+            self.at_top = false;
             self.list.remeasure_items(changed.clone());
             self.list.splice(range, count);
             // Rows kept above the change can show or hide as their reply settles; the list measured them as they were.
@@ -390,6 +402,10 @@ impl View {
         }
         stream_in(&mut self.reveals, before, &self.session.transcript, now);
     }
+}
+
+fn reaches_top(was: &mut bool, now: bool) -> bool {
+    !std::mem::replace(was, now) && now
 }
 
 /// Starts or extends a reveal for each latest message longer than it was `before`, and forgets finished ones.
@@ -1099,12 +1115,13 @@ impl View {
                 fold::live(&id, &provider, fold::live_label(who, &model, &live_state(t, chat::folded(t, *turn), ask, s.outgoing.stopping(), now_ms())))
             }
             Row::Working if s.outgoing.compacting() => working::compacting(),
-            Row::Working => working::sending(),
+            Row::Working => working::sending(s.outgoing.trail().unwrap_or(agents::PromptState::Sending)),
             Row::Pending(i) => match s.outgoing.echoed().nth(*i) {
                 Some((_, p)) => {
-                    let retry = (p.delivery == Delivery::Failed).then(|| {
+                    let retry = p.not_delivered().map(|text| {
                         let send = p.id;
-                        working::not_delivered(SharedString::from(format!("retry-{id}"))).on_click(cx.listener(move |this, _, _, cx| this.retry(send, cx)))
+                        working::not_delivered(SharedString::from(format!("retry-{id}")), text)
+                            .on_click(cx.listener(move |this, _, _, cx| this.retry(send, cx)))
                     });
                     // What waits for the agent's next step goes all at once, so only the last of it says so.
                     let waiting: Vec<u64> = s.outgoing.waiting().map(|w| w.id).collect();
@@ -1176,10 +1193,17 @@ impl View {
 
 #[cfg(test)]
 mod tests {
-    use super::{Live, answer, code_span, content_width, easing, in_fold, live_state, notice_label, phase_live, shown, stream_in, took};
+    use super::{Live, answer, code_span, content_width, easing, in_fold, live_state, notice_label, phase_live, reaches_top, shown, stream_in, took};
     use chat::{Block, End, Message, Row, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
     use std::collections::HashMap;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn the_top_is_reached_once_however_long_the_list_stays_there() {
+        let mut was = false;
+        let got: Vec<bool> = [false, true, true, false, true].into_iter().map(|top| reaches_top(&mut was, top)).collect();
+        assert_eq!(got, [false, true, false, false, true]);
+    }
 
     fn msg(text: &str, at: i64) -> Message {
         Message { id: text.into(), at, text: text.into() }

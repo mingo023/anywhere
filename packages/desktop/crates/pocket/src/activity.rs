@@ -5,20 +5,19 @@ mod logic;
 mod motion;
 mod page;
 mod panel;
-pub(crate) mod recap;
 mod side;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
 use crate::git_ui::pull_requests::glyph as pr_glyph;
 use crate::status::{self, Status};
-use crate::util::{drawn_cards, first_line};
-use agents::{Decision, Summary};
+use crate::util::drawn_cards;
+use agents::Decision;
 use git::github::PrState;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 pub(crate) use logic::Menu;
-use logic::{COLS, Escape, Filters, Grouped, Item, escape, marks_seen, opens_preview, values};
+use logic::{COLS, Escape, Filters, Grouped, Item, escape, marks_seen, note, opens_preview, retry_prompt, values};
 use motion::Motion;
 use side::{Drawer, Extra, Side};
 use std::cell::RefCell;
@@ -251,9 +250,9 @@ impl Desktop {
         cx.notify();
     }
 
-    /// The prompt that started the session's last turn.
+    /// The prompt that started the session's last turn, when it can be sent again.
     fn activity_last_prompt(&self, id: &str) -> Option<String> {
-        Some(recap::recap(self.agents.timelines.get(id)?).asked).filter(|p| !p.is_empty())
+        retry_prompt(&self.agents.get(id)?.recap).map(String::from)
     }
 
     /// Sends the failed turn's prompt again.
@@ -346,7 +345,7 @@ impl Desktop {
             })
             .collect();
         let drawer = a.previewed.as_deref().and_then(|id| a.item(id)).map(|item| Drawer {
-            recap: recap::recap(self.agents.timelines.get(&item.id).map_or(&[][..], Vec::as_slice)),
+            recap: self.agents.get(&item.id).map(|a| a.recap.clone()).unwrap_or_default(),
             files: self
                 .repos
                 .get(&item.tree)
@@ -379,25 +378,9 @@ impl Desktop {
                     branch: tree.map(|w| w.branch.clone()).unwrap_or_default(),
                     tree: tree.map(|w| w.path.clone()).unwrap_or_default(),
                     provider: a.provider.clone(),
-                    note: self.activity_note(a, status),
+                    note: note(a, status, self.agents.pending.iter().find(|p| p.agent_id == a.id).map(|p| p.ask())),
                 })
             })
             .collect()
-    }
-
-    fn activity_note(&self, a: &Summary, status: Option<Status>) -> String {
-        match status {
-            Some(Status::NeedsYou) => self
-                .agents
-                .pending
-                .iter()
-                .find(|p| p.agent_id == a.id)
-                .map(|p| p.ask())
-                .unwrap_or_else(|| first_line(self.agents.last_text(&a.id).unwrap_or_default())),
-            Some(Status::Failed) => first_line(self.agents.last_result(&a.id).map_or("", |r| r.error.as_str())),
-            Some(Status::Working) => a.activity.clone(),
-            Some(Status::Done) => first_line(self.agents.last_text(&a.id).unwrap_or_default()),
-            Some(Status::Idle) | None => String::new(),
-        }
     }
 }
