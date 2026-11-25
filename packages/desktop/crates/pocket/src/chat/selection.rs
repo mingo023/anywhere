@@ -125,7 +125,7 @@ impl Desktop {
     }
 
     fn offer_menu(&mut self, agent: String, at: Point<Pixels>, link: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         let text = TextSelection::selected_text(window, cx).trim().to_string();
         let shown = !items(!text.is_empty(), link.is_some(), !self.agents.observe_only()).is_empty();
         self.chats.select.offer = shown.then_some(Offer { agent, at, text, kind: Kind::Menu { link } });

@@ -10,7 +10,6 @@ mod row_menu;
 mod scratch;
 pub(crate) mod sections;
 pub(crate) mod sessions;
-mod star_card;
 mod tree_card;
 mod update;
 mod usage;
@@ -30,6 +29,7 @@ use crate::sidebar::project_picker::ProjectPicker;
 use crate::sidebar::rename::Rename;
 use crate::sidebar::sections::{Kind, Organize, Section, TreeRow};
 use crate::sidebar::tree_card::Hover;
+use crate::spaces::header::SpaceHeader;
 use crate::spaces::{SLIDE_MS, on_host};
 use crate::status::{self, Card};
 use crate::util::{LOCAL_ICON, WORKTREE_ICON, ago_long, basename, now_ms};
@@ -167,6 +167,7 @@ struct DragTree {
 
 pub struct SidebarState {
     pub(crate) search: Entity<InputState>,
+    pub(crate) space_header: Entity<SpaceHeader>,
     /// Where a right-click opened the row menu; `None` drops it under its `···` button.
     pub(crate) menu_at: Option<Point<Pixels>>,
     pub(crate) picker: ProjectPicker,
@@ -194,12 +195,15 @@ impl SidebarState {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions…"));
         let (picker, picker_subs) = ProjectPicker::new(window, cx);
         let (filter, filter_subs) = Filter::new(window, cx);
-        let mut subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
+        let space_header = cx.new(|_| SpaceHeader::new());
+        let mut subs =
+            vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify()), cx.subscribe_in(&space_header, window, Desktop::on_space_header_event)];
         subs.extend(picker_subs);
         subs.extend(filter_subs);
         (
             Self {
                 search,
+                space_header,
                 menu_at: None,
                 picker,
                 add_menu: false,
@@ -238,7 +242,7 @@ impl Desktop {
             icon_button_sized("aside-add", "folder-plus", 22., TEXT_3).rounded(px(6.)),
             open,
             cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.close_menus();
+                this.close_menus(cx);
                 this.sidebar.add_menu = true;
                 cx.notify();
             }),
@@ -347,7 +351,7 @@ impl Desktop {
             None => list.into_any_element(),
         };
         let body = div().id("aside-repos").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().child(list);
-        let space_header = self.space_header(&space, &order, cx);
+        self.space_header_set(&space, &order, cx);
         let switcher = self.space_switcher(&order, &space, cx);
         let aside = ui::side(div())
             .bg(nav_fill())
@@ -361,11 +365,11 @@ impl Desktop {
             .child(top)
             .child(search)
             .children(pages)
-            .child(space_header)
+            .child(self.sidebar.space_header.clone())
             .children(self.scratch_section(cx))
             .child(header)
             .child(body)
-            .children(self.update_card(cx).or_else(|| self.star_card(cx)))
+            .children(self.update_card(cx).or_else(|| self.star.read(cx).visible().then(|| self.star.clone().into_any_element())))
             .child(switcher)
             .on_scroll(cx.listener(|this, e: &ScrollEvent, window, cx| this.swipe_spaces(e, window, cx)));
         self.resizable(aside, Column::Projects, cx)
@@ -500,7 +504,7 @@ impl Desktop {
                 if d.project != project {
                     return;
                 }
-                let keys = this.tree_rows(&project, &this.trees_shown(&project).unwrap_or_default()).into_iter().map(|r| r.key).collect();
+                let keys = this.tree_rows(&project, &this.trees_shown(&project, cx).unwrap_or_default()).into_iter().map(|r| r.key).collect();
                 this.store.sections.move_tree(&project, keys, &d.key, &to);
                 this.store.save();
                 cx.notify();
@@ -536,8 +540,8 @@ impl Desktop {
     /// Returns its height once its fold settles, so a section around it can spring to it.
     fn project_block(&self, i: usize, p: &str, only: Option<&[String]>, section: Section, cx: &mut Context<Self>) -> (AnyElement, f32) {
         let current = self.place().filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
-        let trees = self.trees_shown(p);
-        let setups = self.creates.setups(&self.terminals.setups);
+        let trees = self.trees_shown(p, cx);
+        let setups = self.creates.read(cx).setups(&self.terminals.setups);
         let fold = ProjectRow::new(trees.as_deref(), only.is_none() && self.store.collapsed.contains(p), &setups);
         let selected = fold.selected(current.as_deref());
         let ProjectRow { git, open, setting_up } = fold;
@@ -633,7 +637,7 @@ impl Desktop {
         let (tree, title, tip) = (&row.key, &row.label, &row.tip);
         let menu = RowMenu::Tree { project: p.to_string(), tree: tree.clone() };
         let selected = current == Some(tree.as_str());
-        let (failed, setting) = (self.creates.failed(tree), self::setting_up(setups, tree));
+        let (failed, setting) = (self.creates.read(cx).failed(tree), self::setting_up(setups, tree));
         let state = self.calm(p, rolled_state(&self.tree_cards(p, tree)).filter(|_| !failed && !setting));
         let mark = if failed {
             ui::indicator(id(format!("aside-failed:{tree}")), Some(ui::State::Failed))
@@ -672,7 +676,7 @@ impl Desktop {
                 if ev.click_count() > 1 && this.agents.names_offered() {
                     return this.start_rename(path.clone(), window, cx);
                 }
-                this.creates.show_progress(&path);
+                this.creates.update(cx, |c, _| c.show_progress(&path));
                 this.select_tree(target.clone(), Some(path.clone()), cx);
             }))
             .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx));

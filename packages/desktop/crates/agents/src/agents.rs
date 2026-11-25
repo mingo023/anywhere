@@ -42,6 +42,7 @@ use locals::Local;
 use providers::ProviderInfo;
 use queue::Queues;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use tickets::Board;
 
 #[derive(Default)]
@@ -64,7 +65,7 @@ pub struct Agents {
     /// pocketd's build from `hello.ok`: the release tag, or a VCS stamp in dev.
     pub version: String,
     pub automations: Automations,
-    pub board: Board,
+    pub board: Arc<Board>,
     pub delegations: Delegations,
     pub queues: Queues,
     /// The pocketds that hold sessions' queues: this Mac's as "", a host's by its id.
@@ -188,7 +189,7 @@ impl Agents {
             Event::Locals(locals) => self.locals = locals,
             Event::Registry(_) | Event::RegistryFailed(_) => {}
             Event::Automations { automations, runs } => self.automations.apply(automations, runs),
-            Event::Board { tickets, limit } => self.board = Board { tickets, limit },
+            Event::Board { tickets, limit } => self.board = Arc::new(Board { tickets, limit }),
             Event::Delegations { agent, items } => self.delegations.replace(&agent, items),
             Event::Delegated { agent, delegation } => self.delegations.update(&agent, delegation),
             Event::Queue { agent, entries } => self.queues.replace(&agent, entries),

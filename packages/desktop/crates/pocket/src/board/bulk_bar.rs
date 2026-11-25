@@ -1,7 +1,6 @@
-use super::Menu;
 use super::logic::{Action, bulk_targets, change_reaches};
 use super::parts::{bar_button, label_dot};
-use crate::desktop::Desktop;
+use super::{Board, BoardEvent, Menu, Message};
 use agents::tickets::State;
 use gpui_kit::*;
 use theme::*;
@@ -22,10 +21,10 @@ fn bulk_button(id: impl Into<ElementId>, lead: impl IntoElement, label: &'static
     bar_button(id, Variant::Ghost, None, div().flex().items_center().gap(px(6.)).child(lead).child(label))
 }
 
-impl Desktop {
+impl Board {
     /// The picked tickets `action` reaches, in the order the page shows them.
     pub(super) fn bulk_ids(&self, action: Action) -> Vec<String> {
-        bulk_targets(&self.board.walk_slots(), &self.agents.board.tickets, &self.board.selection.picked, action).into_iter().map(|t| t.id.clone()).collect()
+        bulk_targets(&self.walk_slots(), &self.tickets.tickets, &self.selection.picked, action).into_iter().map(|t| t.id.clone()).collect()
     }
 
     pub(super) fn bulk_status_rows(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -37,9 +36,9 @@ impl Desktop {
                 ui::menu_row(("board-bulk-status", i), glyph, label, None)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         for id in this.bulk_ids(action) {
-                            this.outbox.local.board_move(&id, state, None);
+                            cx.emit(BoardEvent::Send(Message::Move { id, to: state, before: None }));
                         }
-                        this.close_menus();
+                        cx.emit(BoardEvent::CloseMenus);
                         cx.notify();
                     }))
                     .into_any_element()
@@ -49,42 +48,37 @@ impl Desktop {
 
     fn bulk_start(&mut self, cx: &mut Context<Self>) {
         for id in self.bulk_ids(Action::Start) {
-            self.outbox.local.board_start(&id);
+            cx.emit(BoardEvent::Send(Message::Start(id)));
         }
-        self.board.selection.picked.clear();
+        self.selection.picked.clear();
         cx.notify();
     }
 
     fn bulk_close(&mut self, cx: &mut Context<Self>) {
         let ids = self.bulk_ids(Action::Close);
-        self.close_tickets(ids, cx);
-        self.board.selection.picked.clear();
+        cx.emit(BoardEvent::Close(ids));
+        self.selection.picked.clear();
         cx.notify();
     }
 
     pub(super) fn bulk_bar(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let picked = &self.board.selection.picked;
+        let picked = &self.selection.picked;
         if picked.is_empty() {
             return None;
         }
-        let tickets = &self.agents.board.tickets;
-        let slots: Vec<_> = self.board.walk_slots().into_iter().filter(|s| tickets.get(s.index).is_some_and(|t| picked.contains(&t.id))).collect();
+        let tickets = &self.tickets.tickets;
+        let slots: Vec<_> = self.walk_slots().into_iter().filter(|s| tickets.get(s.index).is_some_and(|t| picked.contains(&t.id))).collect();
         let can = |a: Action| slots.iter().any(|s| change_reaches(s.col, a));
         let clear = ui::glyph_frame("board-bulk-clear", 20., 20., 7.).child(icon("x", 11., TEXT_3)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.board.selection.picked.clear();
+            this.selection.picked.clear();
             cx.notify();
         }));
         let fields: Vec<_> = BULK_FIELDS
             .into_iter()
             .filter(|(action, ..)| can(*action))
             .map(|(action, label)| {
-                bulk_button(SharedString::from(format!("board-bulk-{label}")), field_lead(action), label).on_click(cx.listener(
-                    move |this, e: &ClickEvent, _, cx| {
-                        this.close_menus();
-                        this.board.menu = Some(Menu::Bulk { action, at: e.position() });
-                        cx.notify();
-                    },
-                ))
+                bulk_button(SharedString::from(format!("board-bulk-{label}")), field_lead(action), label)
+                    .on_click(cx.listener(move |_, e: &ClickEvent, _, cx| cx.emit(BoardEvent::OpenMenu(Menu::Bulk { action, at: e.position() }))))
             })
             .collect();
         let start = can(Action::Start).then(|| {
@@ -112,7 +106,7 @@ impl Desktop {
             .children(fields)
             .children(start)
             .children(close);
-        let above_notice = self.board.hidden > 0;
+        let above_notice = self.hidden > 0;
         Some(div().absolute().left_0().right_0().bottom(px(if above_notice { 48. } else { 3. })).flex().justify_center().child(bar))
     }
 }

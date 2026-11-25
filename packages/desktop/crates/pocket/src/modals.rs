@@ -25,7 +25,7 @@ impl Desktop {
         if !may_open(o, &self.agents) {
             return;
         }
-        self.close_menus();
+        self.close_menus(cx);
         self.overlay = Some(o);
         match o {
             Overlay::Palette => self.open_palette(window, cx),
@@ -65,10 +65,10 @@ impl Desktop {
         let (body, alpha, entrance) = match o {
             Overlay::Palette => (self.palette_view(cx), 0x1f, None),
             Overlay::AddRepo => (self.repo_view(window, cx), 0x40, Some((200, 8.))),
-            Overlay::Clone => (self.clone_view(window, cx), 0x40, Some((200, 8.))),
+            Overlay::Clone => (self.clone_view(cx), 0x40, Some((200, 8.))),
             Overlay::More => (self.more_menu(cx), 0, Some((150, -4.))),
             Overlay::Confirm => (self.confirm_view(cx), 0x2e, Some((200, 8.))),
-            Overlay::PairPhone => (self.pair_view(cx), 0x2e, Some((200, 8.))),
+            Overlay::PairPhone => (self.pair_view(), 0x2e, Some((200, 8.))),
             Overlay::Handoff => (self.handoff_view(cx), 0x2e, Some((200, 8.))),
         };
         let backdrop = ui::backdrop("backdrop", alpha).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));

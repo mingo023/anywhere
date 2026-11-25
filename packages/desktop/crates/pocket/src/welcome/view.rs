@@ -1,4 +1,4 @@
-use super::{Pose, Wake, Welcome};
+use super::{Pose, Wake, Welcome, WelcomeEvent};
 use crate::desktop::Desktop;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -19,23 +19,88 @@ pub(crate) const LIGHT_ON: u32 = 0x8ee6cc;
 pub(crate) const LIGHT_OFF: u32 = 0x24302c;
 pub(crate) const GLOW_COLOR: u32 = 0x7a68bf;
 
+impl EventEmitter<WelcomeEvent> for Welcome {}
+
+impl Render for Welcome {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        match self.drawn {
+            Some(pose) => view(pose, cx),
+            None => div().into_any_element(),
+        }
+    }
+}
+
+impl Welcome {
+    pub(crate) fn entity<T: 'static>(cx: &mut Context<T>) -> Entity<Self> {
+        cx.new(|cx| Self { _keys: Some(Self::on_enter(cx)), ..Self::new() })
+    }
+
+    /// Ahead of the keymap and of focus: Return takes the way in while the welcome covers the app.
+    fn on_enter(cx: &mut Context<Self>) -> Subscription {
+        let this = cx.entity().downgrade();
+        cx.intercept_keystrokes(move |ev, _, cx| {
+            if this.update(cx, |w, cx| w.enter(&ev.keystroke, cx)).unwrap_or(false) {
+                cx.stop_propagation();
+            }
+        })
+    }
+
+    fn enter(&mut self, key: &Keystroke, cx: &mut Context<Self>) -> bool {
+        if !self.covers() || key.key != "enter" || key.modifiers.modified() {
+            return false;
+        }
+        self.leave(cx);
+        true
+    }
+
+    fn leave(&mut self, cx: &mut Context<Self>) {
+        self.go(Instant::now());
+        cx.emit(WelcomeEvent::Taken);
+        cx.notify();
+    }
+
+    /// Steps the motion to `now` and keeps the pose to draw; whether it needs a frame next. Between blinks nothing moves, so it sleeps instead of drawing every frame.
+    pub(crate) fn step(&mut self, now: Instant, still: bool, cx: &mut Context<Self>) -> bool {
+        let wake = self.tick(now, still);
+        self.drawn = Some(self.pose(now, still));
+        if let Wake::At(at) = wake
+            && self.wake.as_ref().is_none_or(|(t, _)| *t != at)
+        {
+            let task = cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(at.saturating_duration_since(Instant::now())).await;
+                this.update(cx, |_, cx| cx.notify()).ok();
+            });
+            self.wake = Some((at, task));
+        }
+        wake == Wake::Frame
+    }
+
+    fn act(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut Self)) {
+        f(self);
+        cx.notify();
+    }
+}
+
 impl Desktop {
+    pub(crate) fn greet(window: &mut Window, cx: &mut Context<Self>) -> (Entity<Welcome>, Subscription) {
+        let welcome = Welcome::entity(cx);
+        let sub = cx.subscribe_in(&welcome, window, Self::on_welcome_event);
+        (welcome, sub)
+    }
+
+    fn on_welcome_event(&mut self, _: &Entity<Welcome>, _: &WelcomeEvent, _: &mut Window, cx: &mut Context<Self>) {
+        self.save_soon(cx);
+        cx.notify();
+    }
+
     /// Steps the welcome and draws it over the app; drops it once it has faded onto the app.
     pub(crate) fn welcome_view(&mut self, now: Instant, still: bool, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let w = self.welcome.as_mut()?;
-        match w.tick(now, still) {
-            Wake::Frame => window.request_animation_frame(),
-            // Between blinks nothing moves, so it sleeps instead of drawing every frame.
-            Wake::At(at) if w.wake.as_ref().is_none_or(|(t, _)| *t != at) => {
-                let task = cx.spawn(async move |this, cx| {
-                    cx.background_executor().timer(at.saturating_duration_since(Instant::now())).await;
-                    this.update(cx, |_, cx| cx.notify()).ok();
-                });
-                w.wake = Some((at, task));
-            }
-            _ => {}
+        let welcome = self.welcome.clone()?;
+        let (frame, done, covers) = welcome.update(cx, |w, cx| (w.step(now, still, cx), w.done(), w.covers()));
+        if frame {
+            window.request_animation_frame();
         }
-        if w.done() {
+        if done {
             self.welcome = None;
             if self.new_form.shown {
                 self.focus_prompt(window, cx);
@@ -43,54 +108,18 @@ impl Desktop {
             return None;
         }
         // The composer under it would otherwise take what is typed.
-        if w.covers() && !self.root.is_focused(window) {
+        if covers && !self.root.is_focused(window) {
             window.focus(&self.root, cx);
         }
-        Some(view(w.pose(now, still), cx))
-    }
-
-    /// Ahead of the keymap and of focus: Return takes the way in while the welcome covers the app.
-    pub(crate) fn welcome_on_enter(cx: &mut Context<Self>) -> Subscription {
-        let desktop = cx.entity().downgrade();
-        cx.intercept_keystrokes(move |ev, _, cx| {
-            if desktop.update(cx, |d, cx| d.welcome_key(&ev.keystroke, cx)).unwrap_or(false) {
-                cx.stop_propagation();
-            }
-        })
-    }
-
-    fn welcome_key(&mut self, key: &Keystroke, cx: &mut Context<Self>) -> bool {
-        let Some(w) = self.welcome.as_mut().filter(|w| w.covers()) else { return false };
-        if key.key != "enter" || key.modifiers.modified() {
-            return false;
-        }
-        w.go(Instant::now());
-        self.welcome_taken(cx);
-        true
-    }
-
-    /// Saves the first launch the star recorded, so the welcome never shows again.
-    fn welcome_taken(&mut self, cx: &mut Context<Self>) {
-        self.save_soon(cx);
-        cx.notify();
-    }
-
-    fn with_welcome(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut Welcome)) {
-        if let Some(w) = &mut self.welcome {
-            f(w);
-            cx.notify();
-        }
+        Some(welcome.into_any_element())
     }
 }
 
-fn view(pose: Pose, cx: &mut Context<Desktop>) -> AnyElement {
+fn view(pose: Pose, cx: &mut Context<Welcome>) -> AnyElement {
     let copy = |i: usize, e: Div| e.relative().top(px((1. - pose.copy[i]) * 10.)).opacity(pose.copy[i]);
     let mut go = ui::large(ui::button("welcome-go", Variant::Primary, None, "Get started")).mt(px(26.));
     if pose.copy[2] > 0.5 {
-        go = go.on_click(cx.listener(|d, _, _, cx| {
-            d.with_welcome(cx, |w| w.go(Instant::now()));
-            d.welcome_taken(cx);
-        }));
+        go = go.on_click(cx.listener(|w, _, _, cx| w.leave(cx)));
     }
     div()
         .id("welcome")
@@ -103,13 +132,13 @@ fn view(pose: Pose, cx: &mut Context<Desktop>) -> AnyElement {
         .flex_col()
         .items_center()
         .justify_center()
-        .on_mouse_down(MouseButton::Left, cx.listener(|d, _, _, cx| d.with_welcome(cx, |w| w.skip(Instant::now()))))
-        .on_mouse_up(MouseButton::Left, cx.listener(|d, _, _, cx| d.with_welcome(cx, Welcome::release)))
-        .on_mouse_up_out(MouseButton::Left, cx.listener(|d, _, _, cx| d.with_welcome(cx, Welcome::release)))
-        .on_mouse_move(cx.listener(|d, ev: &MouseMoveEvent, _, cx| d.with_welcome(cx, |w| w.look_at(f32::from(ev.position.x), f32::from(ev.position.y)))))
-        .on_hover(cx.listener(|d, hovered: &bool, _, cx| {
+        .on_mouse_down(MouseButton::Left, cx.listener(|w, _, _, cx| w.act(cx, |w| w.skip(Instant::now()))))
+        .on_mouse_up(MouseButton::Left, cx.listener(|w, _, _, cx| w.act(cx, Welcome::release)))
+        .on_mouse_up_out(MouseButton::Left, cx.listener(|w, _, _, cx| w.act(cx, Welcome::release)))
+        .on_mouse_move(cx.listener(|w, ev: &MouseMoveEvent, _, cx| w.act(cx, |w| w.look_at(f32::from(ev.position.x), f32::from(ev.position.y)))))
+        .on_hover(cx.listener(|w, hovered: &bool, _, cx| {
             if !hovered {
-                d.with_welcome(cx, Welcome::look_ahead);
+                w.act(cx, Welcome::look_ahead);
             }
         }))
         .child(crate::desktop::chrome::drag_area(div().absolute().top_0().left_0().right_0().h(px(40.))))
@@ -134,7 +163,7 @@ fn view(pose: Pose, cx: &mut Context<Desktop>) -> AnyElement {
 }
 
 /// The mascot in layers, each one colour: its glow, shadow and halo, then body, sheen, light and eyes, all squashed from its feet.
-fn mascot(pose: Pose, cx: &mut Context<Desktop>) -> Stateful<Div> {
+fn mascot(pose: Pose, cx: &mut Context<Welcome>) -> Stateful<Div> {
     let feet = MASCOT * (FEET - 0.5) * (1. - pose.sy);
     let body = Transformation::scale(size(pose.sx, pose.sy)).with_rotation(radians(pose.lean)).with_translation(point(px(0.), px(pose.y + feet)));
     let eyes = Transformation::scale(size(pose.sx, pose.sy * pose.lid))
@@ -157,7 +186,7 @@ fn mascot(pose: Pose, cx: &mut Context<Desktop>) -> Stateful<Div> {
         move |b, _, cx| {
             // The eyes sit a little above the middle of its box.
             let center = (f32::from(b.center().x), f32::from(b.top()) + f32::from(b.size.height) * 0.45);
-            this.update(cx, |d, _| d.welcome.as_mut().map(|w| w.center = Some(center))).ok();
+            this.update(cx, |w, _| w.center = Some(center)).ok();
         },
         |_, _, _, _| {},
     )
@@ -169,7 +198,7 @@ fn mascot(pose: Pose, cx: &mut Context<Desktop>) -> Stateful<Div> {
         .w(px(BOX_W))
         .h(px(BOX_H))
         .cursor_pointer()
-        .on_mouse_down(MouseButton::Left, cx.listener(|d, _, _, cx| d.with_welcome(cx, |w| w.press(Instant::now()))))
+        .on_mouse_down(MouseButton::Left, cx.listener(|w, _, _, cx| w.act(cx, |w| w.press(Instant::now()))))
         .when(!pose.hidden, |d| {
             d.child(div().absolute().left(px((BOX_W - GLOW) / 2.)).top(px((BOX_H - GLOW) / 2.)).size(px(GLOW)).rounded_full().shadow(vec![BoxShadow {
                 color: shade(GLOW_COLOR, 0.45 * pose.glow),

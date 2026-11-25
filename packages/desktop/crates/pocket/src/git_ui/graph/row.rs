@@ -1,7 +1,5 @@
-use super::ROW_GROUP;
 use super::lanes::{self, Dot, H, MID, Mark, Step};
-use crate::desktop::Desktop;
-use crate::git_ui::diff::At;
+use super::{Graph, GraphEvent, ROW_GROUP};
 use git::Tip;
 use git::graph::LaneColor;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -101,9 +99,9 @@ fn status_letter(status: char) -> Div {
         .child(status.to_string())
 }
 
-impl Desktop {
+impl Graph {
     pub(super) fn commit_row(&self, i: usize, cx: &mut Context<Self>) -> Stateful<Div> {
-        let (commit, row, tips) = (&self.graph.commits[i], &self.graph.rows[i], &self.graph.tips);
+        let (commit, row, tips) = (&self.commits[i], &self.rows[i], &self.tips);
         let sha = commit.sha.clone();
         let head = commit.sha == tips.head;
         let dot = if head {
@@ -113,7 +111,7 @@ impl Desktop {
         } else {
             Dot::Commit
         };
-        let marks = lanes::marks(row, commit, dot, self.graph.expanded.contains(&commit.sha));
+        let marks = lanes::marks(row, commit, dot, self.expanded.contains(&commit.sha));
         let pills: Vec<Div> = tips.pointing_at(&commit.sha).enumerate().map(|(k, (c, tip))| pill(c, tip, k == 0)).collect();
         div()
             .id(("graph-commit", i))
@@ -160,9 +158,9 @@ impl Desktop {
             // Collapsed by width, not `hidden()`: gpui panics when a group hover flips `display` between prepaint and paint.
             .child(div().flex().flex_none().w_0().overflow_hidden().group_hover(ROW_GROUP, |s| s.w_auto()).child(
                 icon_button_sized(("graph-open", i), "diff-multiple", 20., TEXT_2).ml(px(4.)).flex_none().rounded(px(5.)).on_click(cx.listener(
-                    move |this, ev: &ClickEvent, _, cx| {
+                    move |_, ev: &ClickEvent, _, cx| {
                         cx.stop_propagation();
-                        this.open_doc(Doc::Commit(sha.clone()), ev.click_count() > 1, cx);
+                        cx.emit(GraphEvent::Open(Doc::Commit(sha.clone()), ev.click_count() > 1));
                     },
                 )),
             ))
@@ -170,10 +168,10 @@ impl Desktop {
     }
 
     pub(super) fn file_row(&self, ix: usize, i: usize, j: usize, cx: &mut Context<Self>) -> Stateful<Div> {
-        let (commit, row) = (&self.graph.commits[i], &self.graph.rows[i]);
-        let f = &self.graph.files[&commit.sha][j];
+        let (commit, row) = (&self.commits[i], &self.rows[i]);
+        let f = &self.files[&commit.sha][j];
         let (dir, name) = f.path.rsplit_once('/').unwrap_or(("", &f.path));
-        let selected = self.diff.view(self.focused_pane()).is_some_and(|v| v.shows(&f.path, &At::Commit(commit.sha.clone())));
+        let selected = self.viewing.as_ref().is_some_and(|(sha, path)| *sha == commit.sha && *path == f.path);
         div()
             .id(("graph-file", ix))
             .w_full()
@@ -203,15 +201,15 @@ impl Desktop {
             )
             .child(status_letter(f.status))
             .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
-                if let Some(doc) = this.graph.file_doc(i, j) {
-                    this.open_doc(doc, ev.click_count() > 1, cx);
+                if let Some(doc) = this.file_doc(i, j) {
+                    cx.emit(GraphEvent::Open(doc, ev.click_count() > 1));
                 }
             }))
     }
 
     /// The row under the last commit while more history may follow; drawing it loads the next page.
     pub(super) fn more_row(&self, cx: &mut Context<Self>) -> Div {
-        let (marks, width) = self.graph.rows.last().map(|r| (lanes::through(r, false), lanes::width(r))).unwrap_or_default();
+        let (marks, width) = self.rows.last().map(|r| (lanes::through(r, false), lanes::width(r))).unwrap_or_default();
         let bar = div().flex_1().h(px(14.)).mr(px(8.)).rounded(px(4.)).bg(FILL_2);
         let bar = if cx.reduce_motion() {
             bar.opacity(0.5).into_any_element()

@@ -9,7 +9,7 @@ use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
 use crate::explorer::menu::{Arrow, TreeMenu};
 use crate::explorer::toast::Notice;
 use crate::git_ui::diff::At;
-use crate::git_ui::graph::GraphState;
+use crate::git_ui::graph::Graph;
 use crate::git_ui::pull_request::PrTab;
 use crate::modals::new_session::picker::Picker;
 use crate::settings::Section;
@@ -24,6 +24,7 @@ use gpui_kit::component::Root;
 use gpui_kit::*;
 use serde_json::json;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use workspace::{Doc, Tab};
 
@@ -463,14 +464,14 @@ const STEPS: [(&str, Step); 302] = [
             d.open_compare_file(path, false, cx);
         }
     }),
-    ("graph-expand", |d, _, cx| d.toggle_commit(0, cx)),
+    ("graph-expand", |d, _, cx| d.graph.update(cx, |g, cx| g.toggle_commit(0, cx))),
     ("graph-file", |d, _, cx| {
-        if let Some(doc) = d.graph.file_doc(0, 0) {
+        if let Some(doc) = d.graph.read(cx).file_doc(0, 0) {
             d.open_doc(doc, false, cx);
         }
     }),
     ("graph-commit", |d, _, cx| {
-        if let Some(sha) = d.graph.commits.first().map(|c| c.sha.clone()) {
+        if let Some(sha) = d.graph.read(cx).commits.first().map(|c| c.sha.clone()) {
             d.open_doc(Doc::Commit(sha), false, cx);
         }
     }),
@@ -515,10 +516,10 @@ const STEPS: [(&str, Step); 302] = [
     }),
     ("activity-filtered", |d, _, cx| {
         if let Some(p) = d.project.clone() {
-            d.activity.filters.toggle(crate::activity::Menu::Project, &p);
+            d.activity.update(cx, |a, _| a.pick(crate::activity::Menu::Project, &p));
         }
-        d.activity.menu = Some(crate::activity::Menu::Project);
-        d.activity_changed();
+        d.activity.update(cx, |a, cx| a.show(crate::activity::Menu::Project, cx));
+        d.activity_changed(cx);
         cx.notify();
     }),
     ("chat-only-done", |d, _, _| {
@@ -528,11 +529,11 @@ const STEPS: [(&str, Step); 302] = [
     }),
     ("board", |d, window, cx| d.open_board(window, cx)),
     ("board-list", |d, _, cx| {
-        d.board.layout = crate::board::Layout::List;
+        d.board.update(cx, |b, _| b.set_layout(crate::board::Layout::List));
         cx.notify();
     }),
     ("board-search", |d, _, cx| {
-        d.board.searching = true;
+        d.board.update(cx, |b, _| b.searching = true);
         cx.notify();
     }),
     ("board-list-scrolled", |d, _, cx| {
@@ -540,45 +541,45 @@ const STEPS: [(&str, Step); 302] = [
             .flat_map(|n| d.agents.board.tickets.iter().map(move |t| (n, t.clone())))
             .map(|(n, t)| agents::tickets::Ticket { id: format!("{}-{n}", t.id), ..t })
             .collect();
-        d.agents.board.tickets.extend(more);
-        d.board_changed();
-        d.board.rows_list.scroll_to(ListOffset { item_ix: 2, offset_in_item: px(6.) });
+        Arc::make_mut(&mut d.agents.board).tickets.extend(more);
+        d.board_changed(cx);
+        d.board.update(cx, |b, _| b.rows_list.scroll_to(ListOffset { item_ix: 2, offset_in_item: px(6.) }));
         cx.notify();
     }),
     ("board-closed", |d, _, cx| {
-        d.board.show_closed = true;
-        d.board_changed();
+        d.board.update(cx, |b, _| b.show_closed = true);
+        d.board_changed(cx);
         cx.notify();
     }),
-    ("board-new", |d, window, cx| d.focus_board_composer(window, cx)),
+    ("board-new", |d, window, cx| d.board.update(cx, |b, cx| b.focus_composer(window, cx))),
     ("board-empty", |d, _, cx| {
-        d.agents.board.tickets.clear();
-        d.board_changed();
+        Arc::make_mut(&mut d.agents.board).tickets.clear();
+        d.board_changed(cx);
         cx.notify();
     }),
     ("board-ticket", |d, window, cx| d.edit_ticket("t1", window, cx)),
     ("board-nomatch", |d, _, cx| {
-        d.board.filters.query = "nothing is called this".into();
-        d.board_changed();
+        d.board.update(cx, |b, _| b.filters.query = "nothing is called this".into());
+        d.board_changed(cx);
         cx.notify();
     }),
     ("board-card-menu", |d, _, cx| {
         let tickets = &d.agents.board.tickets;
         let Some(id) = tickets.iter().find(|t| t.id == "t5").or(tickets.last()).map(|t| t.id.clone()) else { return };
-        d.board.menu = Some(crate::board::Menu::Card { id, at: point(px(700.), px(300.)), sub: None });
+        d.board.update(cx, |b, _| b.toggle_menu(crate::board::Menu::Card { id, at: point(px(700.), px(300.)), sub: None }, None));
         cx.notify();
     }),
     ("board-display", |d, _, cx| {
-        d.board.menu = Some(crate::board::Menu::Display);
+        d.board.update(cx, |b, _| b.toggle_menu(crate::board::Menu::Display, None));
         cx.notify();
     }),
     ("board-filter", |d, _, cx| {
-        d.board.menu = Some(crate::board::Menu::Filter);
+        d.board.update(cx, |b, _| b.toggle_menu(crate::board::Menu::Filter, None));
         cx.notify();
     }),
     ("board-filtered", |d, _, cx| {
-        d.board.filters.priority.toggle(1);
-        d.board_changed();
+        d.board.update(cx, |b, _| b.filters.priority.toggle(1));
+        d.board_changed(cx);
         cx.notify();
     }),
     ("automations", |d, window, cx| d.open_automations(window, cx)),
@@ -653,7 +654,7 @@ const STEPS: [(&str, Step); 302] = [
     ("space-devbox", |d, window, cx| d.switch_space(Space::Host("devbox".into()), window, cx)),
     ("space-menu", |d, window, cx| {
         d.switch_space(Space::Host("devbox".into()), window, cx);
-        d.spaces.menu = true;
+        d.sidebar.space_header.update(cx, |h, cx| h.open(cx));
     }),
     ("space-offline", |d, window, cx| d.switch_space(Space::Host("10-0-4-12".into()), window, cx)),
     ("space-empty", |d, window, cx| {
@@ -850,14 +851,14 @@ const STEPS: [(&str, Step); 302] = [
     ("add-repo", |d, window, cx| d.edit_project(d.projects().into_iter().next(), window, cx)),
     ("clone", |d, window, cx| {
         d.clone_project(window, cx);
-        d.clone_form.url.update(cx, |s, cx| s.set_value("https://github.com/zed-industries/zed", window, cx));
-        d.clone_url_changed(window, cx);
+        d.clone_form.read(cx).url.clone().update(cx, |s, cx| s.set_value("https://github.com/zed-industries/zed", window, cx));
+        d.clone_form.update(cx, |f, cx| f.url_changed(window, cx));
     }),
     // Clone from URL on the space on screen, then cloning (FIXTURE_HOST_FILES=1; devbox's git holds the clone until it is let go).
     ("clone-host", |d, window, cx| {
         d.clone_project(window, cx);
-        d.clone_form.url.update(cx, |s, cx| s.set_value("https://github.com/zed-industries/zed", window, cx));
-        d.clone_url_changed(window, cx);
+        d.clone_form.read(cx).url.clone().update(cx, |s, cx| s.set_value("https://github.com/zed-industries/zed", window, cx));
+        d.clone_form.update(cx, |f, cx| f.url_changed(window, cx));
     }),
     ("clone-host-progress", |d, window, cx| d.start_clone(window, cx)),
     ("finder-open-host", |d, window, cx| d.open_folder(crate::modals::host_finder::Opener::Sidebar, window, cx)),
@@ -942,7 +943,7 @@ const STEPS: [(&str, Step); 302] = [
         d.diff.relayout(true);
     }),
     ("code-font-menu", |d, _, _| d.settings.menu = Some("code-font")),
-    ("creating", |d, _, _| {
+    ("creating", |d, _, cx| {
         let Some(p) = d.project.clone() else { return };
         let now = Instant::now();
         let spec = serde_json::json!({"project": p, "checkout": {"new": {"name": "fix-flaky-snapshot", "base": "main", "copy": true, "setup": true}}, "prompt": "Fix the flaky snapshot"});
@@ -958,12 +959,14 @@ const STEPS: [(&str, Step); 302] = [
             c.reach(step, note, now - Duration::from_secs_f32(ago));
         }
         d.worktree = Some(c.path.clone());
-        d.creates.list.push(c);
+        d.creates.update(cx, |cs, _| cs.list.push(c));
     }),
-    ("fail", |d, _, _| {
-        if let Some(c) = d.creates.list.first_mut() {
-            c.fail("Setup exited 1".into(), "npm ERR! missing script: setup".into(), Instant::now());
-        }
+    ("fail", |d, _, cx| {
+        d.creates.update(cx, |cs, _| {
+            if let Some(c) = cs.list.first_mut() {
+                c.fail("Setup exited 1".into(), "npm ERR! missing script: setup".into(), Instant::now());
+            }
+        });
     }),
     ("deleting", |d, _, _| {
         let Some(tree) = d.project.as_ref().and_then(|p| d.listed_trees(p)).and_then(|w| w.into_iter().find(|w| !w.main)).map(|w| w.path) else { return };
@@ -979,10 +982,14 @@ const STEPS: [(&str, Step); 302] = [
     ("error", |d, _, _| d.error = Some("Couldn't save placeholder.tsx: Permission denied (os error 13)".into())),
     ("update-ready", |d, _, _| d.updates.update = Update::Ready { version: "0.2.0".into() }),
     ("whats-new", |d, _, _| d.updates.update = Update::WhatsNew { version: "0.2.0".into() }),
-    ("star", |d, _, _| d.star.shown = true),
-    ("star-thanked", |d, _, _| (d.star.shown, d.star.thanked) = (true, true)),
-    ("welcome", |d, _, _| d.welcome = Some(crate::welcome::Welcome::new())),
-    ("prs", |d, _, _| {
+    ("star", |d, _, cx| d.star.update(cx, |s, _| s.shown = true)),
+    ("star-thanked", |d, _, cx| d.star.update(cx, |s, _| (s.shown, s.thanked) = (true, true))),
+    ("welcome", |d, window, cx| {
+        let (welcome, sub) = Desktop::greet(window, cx);
+        d._subs.push(sub);
+        d.welcome = Some(welcome);
+    }),
+    ("prs", |d, _, cx| {
         let Some(trees) = d.project.as_ref().and_then(|p| d.listed_trees(p)) else { return };
         let trees: Vec<String> = trees.into_iter().filter(|w| !w.main).map(|w| w.path).collect();
         let now = Instant::now();
@@ -1006,7 +1013,7 @@ const STEPS: [(&str, Step); 302] = [
             d.prs.start(&tree, now);
             d.prs.apply(tree, now, Ok(Some(pr)), now);
         }
-        d.activity_changed();
+        d.activity_changed(cx);
     }),
     ("pr-loop", |d, _, _| {
         let Some(tree) = d.cwd() else { return };
@@ -1759,14 +1766,15 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
         c.sha = None;
     }
     d.workspaces.clear();
-    d.creates.list.clear();
-    d.graph = GraphState::default();
+    d.creates.update(cx, |c, _| c.list.clear());
+    d.graph.update(cx, |g, _| *g = Graph::default());
     d.pr.track.tab = PrTab::default();
     d.pr.track.all = false;
     d.agents.names.clear();
     d.agents.locals.clear();
     d.sidebar.rename = None;
     d.spaces.reset();
+    d.sidebar.space_header.update(cx, |h, _| h.reset());
     d.updates.update = Update::Idle;
     d.terminals.link.up();
     d.terminals.link.service = None;
@@ -1786,7 +1794,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
 async fn settle(cx: &mut AsyncApp, window: AnyWindowHandle, desktop: &Entity<Desktop>, ms: u64) {
     cx.background_executor().timer(Duration::from_millis(ms)).await;
     for _ in 0..50 {
-        if desktop.read_with(cx, |d, _| d.git_done == d.git_run && !d.graph.busy()) {
+        if desktop.read_with(cx, |d, cx| d.git_done == d.git_run && !d.graph.read(cx).busy()) {
             break;
         }
         cx.background_executor().timer(Duration::from_millis(100)).await;

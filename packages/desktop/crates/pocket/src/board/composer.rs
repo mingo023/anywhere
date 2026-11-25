@@ -1,7 +1,9 @@
 use super::logic::{Field, Surface, busy, split_draft, tab_for_new};
 use super::parts::{bar_button, flush_textarea, key_chip, start_kbd};
 use super::values::{Picks, Values, aim_filter, default_folder, needs_aim};
+use super::{Board, BoardEvent};
 use crate::desktop::Desktop;
+use agents::tickets::TicketDraft;
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -17,10 +19,10 @@ pub struct Composer {
 }
 
 impl Composer {
-    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+    pub fn new(window: &mut Window, cx: &mut Context<Board>) -> (Self, Vec<Subscription>) {
         let text = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 8).submit_on_enter(true));
-        let subs = vec![cx.subscribe_in(&text, window, |this: &mut Desktop, _, ev: &InputEvent, window, cx| match ev {
-            InputEvent::PressEnter { shift: false, secondary } => this.create_ticket(*secondary, window, cx),
+        let subs = vec![cx.subscribe_in(&text, window, |_, _, ev: &InputEvent, _, cx| match ev {
+            InputEvent::PressEnter { shift: false, secondary } => cx.emit(BoardEvent::Create { start: *secondary }),
             InputEvent::Change => cx.notify(),
             _ => {}
         })];
@@ -28,59 +30,43 @@ impl Composer {
     }
 }
 
-impl Desktop {
-    /// Points the composer at the filtered project, or another when its own was removed.
-    pub(super) fn aim_board_composer(&mut self, cx: &mut Context<Self>) {
-        let projects = self.board_projects();
-        let filter = aim_filter(self.board.filters.project.only().map(String::as_str), &projects);
-        if !needs_aim(&self.board.composer.picks.values.folder, filter, &projects) {
-            return;
+impl Board {
+    pub(super) fn aim(&mut self, projects: &[String], current: Option<&str>) -> Option<String> {
+        let filter = aim_filter(self.filters.project.only().map(String::as_str), projects);
+        if !needs_aim(&self.composer.picks.values.folder, filter, projects) {
+            return None;
         }
-        let folder = default_folder(filter, self.project.as_deref().filter(|p| !self.store.is_scratch(p)), projects.first().map(String::as_str));
-        if folder == self.board.composer.picks.values.folder {
-            return;
+        let folder = default_folder(filter, current, projects.first().map(String::as_str));
+        if folder == self.composer.picks.values.folder {
+            return None;
         }
-        self.board.composer.picks.values.set_folder(folder.clone());
-        self.load_ticket_branches(Surface::Composer, folder, cx);
+        self.composer.picks.values.set_folder(folder.clone());
+        Some(folder)
     }
 
-    /// After a refresh a project picked by hand stays, even off the filter; only one that's gone is replaced.
-    pub(crate) fn rescue_board_composer(&mut self, cx: &mut Context<Self>) {
-        if !self.board_projects().contains(&self.board.composer.picks.values.folder) {
-            self.aim_board_composer(cx);
-        }
-    }
-
-    pub(crate) fn focus_board_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.board.composer.text.update(cx, |s, cx| s.focus(window, cx));
+    pub(crate) fn focus_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.composer.text.update(cx, |s, cx| s.focus(window, cx));
         cx.notify();
     }
 
-    fn composer_ready(&self, cx: &App) -> bool {
-        let c = &self.board.composer;
+    pub(super) fn composer_draft(&self, is_repo: bool, cx: &App) -> Option<TicketDraft> {
+        let c = &self.composer;
         let (title, prompt) = split_draft(&c.text.read(cx).value());
-        c.picks.values.ready(&title, &prompt, self.folder_is_repo(&c.picks.values.folder))
+        c.picks.values.ready(&title, &prompt, is_repo).then(|| c.picks.values.draft(&title, &prompt))
     }
 
-    fn create_ticket(&mut self, start: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.composer_ready(cx) {
-            return self.focus_board_composer(window, cx);
-        }
-        let c = &mut self.board.composer;
-        let (title, prompt) = split_draft(&c.text.read(cx).value());
-        self.outbox.local.board_save(c.picks.values.draft(&title, &prompt), start);
+    pub(super) fn created(&mut self, start: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let c = &mut self.composer;
         (c.picks.values.priority, c.picks.values.labels) = (0, Vec::new());
         c.text.update(cx, |s, cx| s.set_value("", window, cx));
-        self.board.tab = tab_for_new(self.board.tab, start);
-        self.board.filters = Default::default();
-        self.board.search.update(cx, |s, cx| s.set_value("", window, cx));
-        self.board_changed();
-        cx.notify();
+        self.tab = tab_for_new(self.tab, start);
+        self.filters = Default::default();
+        self.search.update(cx, |s, cx| s.set_value("", window, cx));
     }
 
     fn board_composer(&self, hero: bool, cx: &mut Context<Self>) -> Div {
-        let c = &self.board.composer;
-        let ready = self.composer_ready(cx);
+        let c = &self.composer;
+        let ready = self.composer_draft(self.side.composer_repo, cx).is_some();
         let text_size = px(if hero { 14. } else { 13. });
         // The input draws its placeholder in the theme's muted colour, too bright for this field.
         let placeholder =
@@ -91,16 +77,16 @@ impl Desktop {
             .child(Textarea::new(&c.text).appearance(false).text_size(text_size))
             .children(placeholder);
         let chips = [Field::Project, Field::Agent, Field::Priority, Field::Labels, Field::Base].map(|f| self.field_chip(Surface::Composer, f, cx));
-        let hint = c.picks.values.hint(self.folder_is_repo(&c.picks.values.folder), busy(&self.agents.board.tickets), self.agents.board.limit);
+        let hint = c.picks.values.hint(self.side.composer_repo, busy(&self.tickets.tickets), self.tickets.limit);
         let spot = div().flex_1().min_w_0().px(px(8.)).truncate().text_right().text_size(px(12.)).text_color(TEXT_3).children(hint);
         let dim = |b: Stateful<Div>| b.when(!ready, |d| d.opacity(0.4).cursor_default());
         let add = dim(bar_button("board-add", Variant::Ghost, None, "Add to To do"))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create_ticket(false, window, cx)));
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(BoardEvent::Create { start: false })));
         // A whole-element opacity fades the label with its fill and washes it out.
         let start = bar_button("board-start", Variant::Primary, None, "Start")
             .child(start_kbd())
             .when(!ready, |d| d.bg(Hsla::from(PRIMARY).opacity(0.4)).shadow(Vec::new()).cursor_default())
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create_ticket(true, window, cx)));
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(BoardEvent::Create { start: true })));
         let foot = div().flex().items_center().gap(px(2.)).mt(px(if hero { 9. } else { 5. })).mx(px(-4.)).children(chips).child(spot).child(add).child(start);
         let (side, top, bottom) = if hero { (12., 12., 9.) } else { (10., 9., 6.) };
         div().px(px(side)).pt(px(top)).pb(px(bottom)).rounded(px(12.)).bg(FILL_1).border_1().border_color(SEPARATOR).child(field).child(foot)
@@ -134,5 +120,34 @@ impl Desktop {
 
     pub(super) fn board_dock(&self, cx: &mut Context<Self>) -> Div {
         div().flex_none().px(px(16.)).pt(px(8.)).pb(px(14.)).child(self.board_composer(false, cx))
+    }
+}
+
+impl Desktop {
+    /// Points the composer at the filtered project, or another when its own was removed.
+    pub(crate) fn aim_board_composer(&mut self, cx: &mut Context<Self>) {
+        let projects = self.board_projects();
+        let current = self.project.as_deref().filter(|p| !self.store.is_scratch(p)).map(str::to_string);
+        if let Some(folder) = self.board.update(cx, |b, _| b.aim(&projects, current.as_deref())) {
+            self.load_ticket_branches(Surface::Composer, folder, cx);
+        }
+    }
+
+    /// After a refresh a project picked by hand stays, even off the filter; only one that's gone is replaced.
+    pub(crate) fn rescue_board_composer(&mut self, cx: &mut Context<Self>) {
+        if !self.board_projects().iter().any(|p| p == self.board.read(cx).composer_folder()) {
+            self.aim_board_composer(cx);
+        }
+    }
+
+    pub(super) fn create_ticket(&mut self, start: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let is_repo = self.folder_is_repo(self.board.read(cx).composer_folder());
+        let Some(draft) = self.board.read(cx).composer_draft(is_repo, cx) else {
+            return self.board.update(cx, |b, cx| b.focus_composer(window, cx));
+        };
+        self.outbox.local.board_save(draft, start);
+        self.board.update(cx, |b, cx| b.created(start, window, cx));
+        self.board_changed(cx);
+        cx.notify();
     }
 }

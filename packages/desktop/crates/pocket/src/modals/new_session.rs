@@ -664,12 +664,12 @@ impl Desktop {
         self.store.save();
         let Some(request) = self.send_create(spec.clone()) else { return cx.notify() };
         if !worktree {
-            self.creates.sent_in_place(request.clone(), spec["prompt"].as_str().unwrap_or_default());
+            self.creates.update(cx, |c, _| c.sent_in_place(request.clone(), spec["prompt"].as_str().unwrap_or_default()));
             self.new_form.draft.reply.sent(request);
             return cx.notify();
         }
         let path = format!("{}/{folder}", self.store.worktrees_dir(&project, &self.host_agents.home_of(&project)));
-        self.creates.list.push(Create::new(request, path.clone(), spec, Instant::now()));
+        self.creates.update(cx, |c, _| c.list.push(Create::new(request, path.clone(), spec, Instant::now())));
         self.clear_new_form(window, cx);
         self.leave_new_session(window, cx);
         self.select_tree(project, Some(path), cx);
@@ -771,7 +771,7 @@ impl Desktop {
         self.store.save();
         self.select_tree(folder, None, cx);
         let Some(request) = self.send_create(spec.clone()) else { return cx.notify() };
-        self.creates.sent_in_place(request.clone(), spec["prompt"].as_str().unwrap_or_default());
+        self.creates.update(cx, |c, _| c.sent_in_place(request.clone(), spec["prompt"].as_str().unwrap_or_default()));
         self.new_form.draft.reply.sent(request);
         cx.notify();
     }
@@ -785,16 +785,16 @@ impl Desktop {
                     self.save_soon(cx);
                 }
                 self.terminals.created(&request, terminal.clone(), cwd.clone(), setup);
-                self.creates.made_terminal(&request, terminal.clone(), Instant::now());
+                self.creates.update(cx, |c, _| c.made_terminal(&request, terminal.clone(), Instant::now()));
                 self.daemon.send(json!({"op": "list"}));
-                if let Some(chat) = self.creates.get(&request).map(|c| c.chat()) {
+                if let Some(chat) = self.creates.update(cx, |c, _| c.get(&request).map(|c| c.chat())) {
                     self.store.track(&cwd);
                     if chat {
                         self.store.chats.insert(terminal.clone());
                     }
                     self.save_soon(cx);
                 }
-                if let Some(expected) = self.creates.started(&request, cwd.clone(), &mut self.worktrees) {
+                if let Some(expected) = self.creates.update(cx, |c, _| c.started(&request, cwd.clone(), &mut self.worktrees)) {
                     if self.worktree.as_ref() == Some(&expected) {
                         self.worktree = Some(cwd);
                     }
@@ -811,22 +811,25 @@ impl Desktop {
                 }
             }
             Event::Progress { request, step, note } => {
-                if let Some(c) = self.creates.get(&request) {
-                    c.reach(&step, &note, Instant::now());
-                }
+                self.creates.update(cx, |cs, _| {
+                    if let Some(c) = cs.get(&request) {
+                        c.reach(&step, &note, Instant::now());
+                    }
+                });
             }
             Event::Created { request, agent } => {
-                if let Some(c) = self.creates.get(&request) {
-                    c.finish(agent, Instant::now());
-                }
+                self.creates.update(cx, |cs, _| {
+                    if let Some(c) = cs.get(&request) {
+                        c.finish(agent, Instant::now());
+                    }
+                });
             }
             Event::CreateFailed { request, message, detail, .. } => {
                 self.terminals.tab_chats.remove(&request);
                 self.terminals.tab_terms.remove(&request);
-                self.creates.failed_in_place(&request);
-                if let Some(c) = self.creates.get(&request) {
-                    c.fail(message, detail, Instant::now());
-                } else if let Some(message) = self.new_form.draft.failed(&request, message, detail, self.new_form.shown) {
+                self.creates.update(cx, |c, _| c.failed_in_place(&request));
+                let made = self.creates.update(cx, |cs, _| cs.get(&request).map(|c| c.fail(message.clone(), detail.clone(), Instant::now())).is_some());
+                if !made && let Some(message) = self.new_form.draft.failed(&request, message, detail, self.new_form.shown) {
                     self.error = Some(message);
                 }
             }
@@ -843,7 +846,7 @@ impl Desktop {
         if !may_start(&self.agents) {
             return;
         }
-        self.close_menus();
+        self.close_menus(cx);
         (self.screen, self.new_form.shown) = (Screen::Sessions, true);
         self.reset_new_form(prompt, worktree, window, cx);
         cx.notify();

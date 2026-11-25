@@ -1,8 +1,6 @@
-use super::Menu;
 use super::logic::{COLS, Choice, FilterCat, Filters, LABELS, PRIORITIES, column, priority_name};
 use super::parts::{bar_button, label_dot, priority_glyph, status_glyph};
-use super::views::can_save_view;
-use crate::desktop::Desktop;
+use super::{Board, BoardEvent, Menu};
 use crate::models::listed_agents;
 use agents::tickets::{Status, Ticket};
 use gpui_kit::component::input::Input;
@@ -30,22 +28,21 @@ fn filter_pop(id: &'static str) -> Stateful<Div> {
     ui::pop(div().id(id)).w(px(240.)).p(px(5.)).flex().flex_col().occlude()
 }
 
-impl Desktop {
+impl Board {
     pub(super) fn toggle_board_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
-        let was = self.board.menu.clone();
-        self.close_menus();
-        self.board.menu = (was != Some(menu.clone())).then_some(menu);
-        cx.notify();
+        cx.emit(BoardEvent::ToggleMenu(menu));
     }
 
-    pub(super) fn open_filter_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus();
-        self.board.menu = Some(Menu::Filter);
+    pub(super) fn open_filter(&mut self, cat: Option<FilterCat>, window: &mut Window, cx: &mut Context<Self>) {
+        self.menu = Some(Menu::Filter);
         self.focus_filter_search(window, cx);
+        if let Some(cat) = cat {
+            self.menu = Some(Menu::FilterIn(cat));
+        }
     }
 
     fn focus_filter_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.board.filter_search.update(cx, |s, cx| {
+        self.filter_search.update(cx, |s, cx| {
             s.set_value("", window, cx);
             s.focus(window, cx);
         });
@@ -70,9 +67,9 @@ impl Desktop {
         ui::popover_trigger(
             toggle,
             open,
-            cx.listener(move |this, _: &MouseDownEvent, window, cx| {
+            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
                 if menu == Menu::Filter {
-                    this.open_filter_menu(window, cx);
+                    cx.emit(BoardEvent::OpenFilter(None));
                 } else {
                     this.toggle_board_menu(menu.clone(), cx);
                 }
@@ -89,17 +86,16 @@ impl Desktop {
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            field(&mut this.board.filters).toggle(value.clone());
-            this.board_changed();
-            this.aim_board_composer(cx);
+            field(&mut this.filters).toggle(value.clone());
+            cx.emit(BoardEvent::Filtered);
             cx.notify();
         }))
     }
 
     /// The values `cat` offers, each with the name a search matches.
     fn filter_values(&self, cat: FilterCat, cx: &mut Context<Self>) -> Vec<(String, Stateful<Div>)> {
-        let tickets = &self.agents.board.tickets;
-        let filters = &self.board.filters;
+        let tickets = &self.tickets.tickets;
+        let filters = &self.filters;
         let count = |has: &dyn Fn(&Ticket) -> bool| tickets.iter().filter(|t| has(t)).count();
         match cat {
             FilterCat::Status => COLS
@@ -117,7 +113,7 @@ impl Desktop {
                 })
                 .collect(),
             FilterCat::Agent => listed_agents(
-                &self.offered(),
+                &self.side.offered,
                 &tickets.iter().map(|t| t.provider.as_str()).chain(filters.agent.values.iter().map(String::as_str)).collect::<Vec<_>>(),
             )
             .into_iter()
@@ -135,8 +131,10 @@ impl Desktop {
             })
             .collect(),
             FilterCat::Project => self
-                .board_projects()
-                .into_iter()
+                .side
+                .pickable
+                .iter()
+                .cloned()
                 .enumerate()
                 .map(|(i, p)| {
                     let name = self.repo_name(&p);
@@ -182,7 +180,7 @@ impl Desktop {
     }
 
     fn filter_menu(&self, cx: &mut Context<Self>) -> Div {
-        let query = self.board.filter_search.read(cx).value().trim().to_lowercase();
+        let query = self.filter_search.read(cx).value().trim().to_lowercase();
         let field = div()
             .h(px(FIELD_H))
             .pl(px(7.))
@@ -195,7 +193,7 @@ impl Desktop {
             .border_b_1()
             .border_color(SEPARATOR)
             .text_size(px(12.5))
-            .child(div().flex_1().min_w_0().child(Input::new(&self.board.filter_search).appearance(false).p_0()))
+            .child(div().flex_1().min_w_0().child(Input::new(&self.filter_search).appearance(false).p_0()))
             .child(ui::kbd("F"));
         let rows: Vec<Stateful<Div>> = if query.is_empty() {
             self.filter_cats(cx)
@@ -209,7 +207,7 @@ impl Desktop {
         };
         let none = rows.is_empty().then(|| div().px(px(8.)).py(px(6.)).text_size(px(12.)).text_color(TEXT_3).child("No matching filters"));
         let main = filter_pop("board-filter-menu").max_h(px(380.)).overflow_y_scroll().child(field).children(rows).children(none);
-        let side = match self.board.menu {
+        let side = match self.menu {
             Some(Menu::FilterIn(cat)) if query.is_empty() => {
                 let at = FilterCat::ALL.iter().position(|c| *c == cat).unwrap_or_default();
                 Some(div().mt(px(FIELD_H + FIELD_GAP + at as f32 * ROW_H)).child(
@@ -219,15 +217,15 @@ impl Desktop {
             _ => None,
         };
         // The panes share one outside: a click on the other is not a click away.
-        let close = cx.listener(|this, _: &MouseDownEvent, _, cx| {
-            this.close_menus();
+        let close = cx.listener(|_, _: &MouseDownEvent, _, cx| {
+            cx.emit(BoardEvent::CloseMenus);
             cx.notify();
         });
         ui::dropdown_right(30., ui::menu_in("board-filter-in", div().flex().items_start().gap(px(4.)).children(side).child(main).on_mouse_down_out(close)))
     }
 
     fn filter_cats(&self, cx: &mut Context<Self>) -> Vec<Stateful<Div>> {
-        let open = if let Some(Menu::FilterIn(cat)) = self.board.menu { Some(cat) } else { None };
+        let open = if let Some(Menu::FilterIn(cat)) = self.menu { Some(cat) } else { None };
         FilterCat::ALL
             .into_iter()
             .enumerate()
@@ -238,13 +236,13 @@ impl Desktop {
                     .when(open == Some(cat), |d| d.bg(FILL_2))
                     .child(icon("chevron-right", 11., TEXT_4))
                     .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                        if *hovered && this.board.menu != Some(Menu::FilterIn(cat)) {
-                            this.board.menu = Some(Menu::FilterIn(cat));
+                        if *hovered && this.menu != Some(Menu::FilterIn(cat)) {
+                            this.menu = Some(Menu::FilterIn(cat));
                             cx.notify();
                         }
                     }))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.board.menu = Some(Menu::FilterIn(cat));
+                        this.menu = Some(Menu::FilterIn(cat));
                         cx.notify();
                     }))
             })
@@ -252,11 +250,11 @@ impl Desktop {
     }
 
     pub(super) fn board_tools(&self, cx: &mut Context<Self>) -> Div {
-        let open = matches!(self.board.menu, Some(Menu::Filter | Menu::FilterIn(_)));
+        let open = matches!(self.menu, Some(Menu::Filter | Menu::FilterIn(_)));
         let menu = open.then(|| self.filter_menu(cx));
-        let mark = self.board.filters.any().then(|| div().absolute().top(px(2.)).right(px(2.)).size(px(6.)).rounded(px(3.)).bg(INDIGO));
+        let mark = self.filters.any().then(|| div().absolute().top(px(2.)).right(px(2.)).size(px(6.)).rounded(px(3.)).bg(INDIGO));
         let filter = div().relative().child(self.bar_toggle("board-add-filter", "filter", "Filter", Menu::Filter, open, cx)).children(mark).children(menu);
-        let open = self.board.menu == Some(Menu::Display);
+        let open = self.menu == Some(Menu::Display);
         let menu = open.then(|| self.display_menu(cx));
         let display = div().relative().child(self.bar_toggle("board-display", "sliders", "Display", Menu::Display, open, cx)).children(menu);
         div().flex().items_center().gap(px(6.)).child(filter).child(display)
@@ -264,7 +262,7 @@ impl Desktop {
 
     /// A field's token's value: the one chosen, or how many.
     fn filter_token_value(&self, cat: FilterCat) -> Div {
-        let f = &self.board.filters;
+        let f = &self.filters;
         let one: Option<(AnyElement, String)> = match cat {
             FilterCat::Status => {
                 f.status.values.first().filter(|_| f.count(cat) == 1).map(|c| (status_glyph(*c, Status::None).into_any_element(), c.name().to_string()))
@@ -288,7 +286,7 @@ impl Desktop {
     }
 
     fn filter_token(&self, cat: FilterCat, i: usize, cx: &mut Context<Self>) -> Div {
-        let f = &self.board.filters;
+        let f = &self.filters;
         let cell = |id: &'static str| {
             div()
                 .id((id, i))
@@ -310,22 +308,19 @@ impl Desktop {
             "is"
         };
         let flip = cell("board-token-verb").child(verb).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            let not = this.board.filters.is_not(cat);
-            this.board.filters.set_not(cat, !not);
-            this.board_changed();
+            let not = this.filters.is_not(cat);
+            this.filters.set_not(cat, !not);
+            cx.emit(BoardEvent::Changed);
             cx.notify();
         }));
         let value = ui::popover_trigger(
             cell("board-token-value").text_color(TEXT).font_weight(FontWeight::MEDIUM).child(self.filter_token_value(cat)),
-            self.board.menu == Some(Menu::FilterIn(cat)),
-            cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-                this.open_filter_menu(window, cx);
-                this.board.menu = Some(Menu::FilterIn(cat));
-            }),
+            self.menu == Some(Menu::FilterIn(cat)),
+            cx.listener(move |_, _: &MouseDownEvent, _, cx| cx.emit(BoardEvent::OpenFilter(Some(cat)))),
         );
         let remove = cell("board-token-x").child(icon("x", 11., TEXT_3)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.board.filters.clear(cat);
-            this.board_changed();
+            this.filters.clear(cat);
+            cx.emit(BoardEvent::Changed);
             cx.notify();
         }));
         div()
@@ -351,21 +346,21 @@ impl Desktop {
 
     /// The filters in force, on their own row only while there are any.
     pub(super) fn active_filters(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let f = &self.board.filters;
+        let f = &self.filters;
         let tokens: Vec<Div> =
             FilterCat::ALL.into_iter().enumerate().filter(|(_, cat)| f.count(*cat) > 0).map(|(i, cat)| self.filter_token(cat, i, cx)).collect();
         (!tokens.is_empty()).then(|| {
-            let open = matches!(self.board.menu, Some(Menu::Filter | Menu::FilterIn(_)));
+            let open = matches!(self.menu, Some(Menu::Filter | Menu::FilterIn(_)));
             let add = ui::popover_trigger(
                 ui::icon_button_sized("board-token-add", "plus", 22., TEXT_3),
                 open,
-                cx.listener(|this, _: &MouseDownEvent, window, cx| this.open_filter_menu(window, cx)),
+                cx.listener(|_, _: &MouseDownEvent, _, cx| cx.emit(BoardEvent::OpenFilter(None))),
             );
             let clear = bar_button("board-filters-clear", Variant::Ghost, None, "Clear")
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clear_board_filters(window, cx)));
-            let save = can_save_view(&self.store.board_views, f).then(|| {
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clear_filters(window, cx)));
+            let save = self.side.can_save_view.then(|| {
                 bar_button("board-view-save", Variant::Secondary, None, "Save view")
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.save_board_view(cx)))
+                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(BoardEvent::SaveView)))
             });
             div()
                 .mx(px(8.))
@@ -388,10 +383,10 @@ impl Desktop {
         })
     }
 
-    pub(super) fn clear_board_filters(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.board.filters = Filters::default();
-        self.board.search.update(cx, |s, cx| s.set_value("", window, cx));
-        self.board_changed();
+    pub(super) fn clear_filters(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.filters = Filters::default();
+        self.search.update(cx, |s, cx| s.set_value("", window, cx));
+        cx.emit(BoardEvent::Changed);
         cx.notify();
     }
 }

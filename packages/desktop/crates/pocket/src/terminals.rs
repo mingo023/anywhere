@@ -273,7 +273,7 @@ impl Desktop {
                     self.removals.host_terminals_listed(h);
                     self.sweep_host_leftovers(cx);
                 }
-                self.activity_changed();
+                self.activity_changed(cx);
                 let restoring = !self.panels.restored;
                 match host {
                     None => self.restore_layouts(),

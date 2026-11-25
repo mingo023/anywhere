@@ -599,7 +599,7 @@ impl Desktop {
         let mut meta = Vec::new();
         if let At::Commit(sha) = &at {
             meta.push(ui::meta_item().child(ui::meta_value(git::short_sha(sha).to_string())).into_any_element());
-            if let Some(c) = self.graph.commit(sha) {
+            if let Some(c) = self.graph.read(cx).commit(sha) {
                 meta.push(ui::meta_item().child(div().max_w(px(320.)).truncate().child(c.subject.clone())).into_any_element());
             }
         }

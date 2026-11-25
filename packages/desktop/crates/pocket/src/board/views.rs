@@ -55,7 +55,7 @@ pub(super) fn can_save_view(views: &[BoardView], filters: &Filters) -> bool {
 
 impl Desktop {
     pub(super) fn save_board_view(&mut self, cx: &mut Context<Self>) {
-        let f = &self.board.filters;
+        let f = &self.board.read(cx).filters;
         let parts = [
             name_part(&f.status, FilterCat::Status, |c| c.name().to_string()),
             name_part(&f.agent, FilterCat::Agent, |a| self.agent_name(a)),
@@ -70,10 +70,9 @@ impl Desktop {
     }
 
     pub(super) fn apply_board_view(&mut self, index: usize, cx: &mut Context<Self>) {
-        let Some(view) = self.store.board_views.get(index) else { return };
-        self.board.filters = filters_of(view, std::mem::take(&mut self.board.filters.query));
-        self.board.tab = Tab::All;
-        self.board_changed();
+        let Some(view) = self.store.board_views.get(index).cloned() else { return };
+        self.board.update(cx, |b, _| b.apply_filters(|query| filters_of(&view, query)));
+        self.board_changed(cx);
         self.aim_board_composer(cx);
         cx.notify();
     }

@@ -90,7 +90,7 @@ impl Desktop {
         if !self.agents.automations_offered() {
             return;
         }
-        self.close_menus();
+        self.close_menus(cx);
         if self.overlay.is_some() {
             self.close_overlay(window, cx);
         }
@@ -113,7 +113,7 @@ impl Desktop {
     pub(super) fn set_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
         self.automations.tab = tab;
         self.automations.form.open &= tab == Tab::Automations;
-        self.close_menus();
+        self.close_menus(cx);
         cx.notify();
     }
 
@@ -131,7 +131,7 @@ impl Desktop {
     }
 
     pub(super) fn select_automation(&mut self, id: String, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         self.automations.selected = Some(id);
         self.automations.tab = Tab::Automations;
         self.automations.form.open = false;
@@ -145,7 +145,7 @@ impl Desktop {
 
     pub(super) fn toggle_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
         let was = self.automations.menu;
-        self.close_menus();
+        self.close_menus(cx);
         self.automations.form.composer.draft.menu = None;
         self.automations.menu = (was != Some(menu)).then_some(menu);
         cx.notify();

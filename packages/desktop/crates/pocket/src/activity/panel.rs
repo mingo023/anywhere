@@ -1,18 +1,17 @@
 use super::card::{item_glyph, pill};
 use super::logic::{Col, Item};
-use super::recap::recap;
-use crate::desktop::Desktop;
+use super::recap::Recap;
+use super::side::{Drawer, Extra, FILES_SHOWN};
+use super::{Activity, ActivityEvent};
 use crate::git_ui::pull_request::glyph_slot;
 use crate::git_ui::pull_requests::{detail, glyph as pr_glyph, tone};
 use crate::util::{ago, first_line, now_ms};
-use git::github::{Check, Outcome};
+use git::github::{Check, Outcome, Pr};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::*;
 use theme::*;
 
-/// The files the Changes box lists; the rest are a click away in the session.
-const FILES_SHOWN: usize = 5;
 const PANEL_WIDTH: f32 = 440.;
 const PANEL_INSET: f32 = 12.;
 
@@ -61,9 +60,9 @@ fn titled_box(head: Div) -> Div {
     )
 }
 
-impl Desktop {
+impl Activity {
     /// The drawer's head: status, title, where it runs, and the way into it.
-    fn activity_panel_head(&self, item: &Item, cx: &mut Context<Self>) -> Div {
+    fn activity_panel_head(&self, item: &Item, extra: &Extra, cx: &mut Context<Self>) -> Div {
         let chip = div()
             .h(px(20.))
             .pl(px(6.))
@@ -87,7 +86,7 @@ impl Desktop {
             .gap(px(8.))
             .text_size(px(11.5))
             .text_color(TEXT_3)
-            .child(self.activity_badge(item))
+            .child(self.activity_badge(&extra.mark))
             .child(item.project_name.clone())
             .child(self.activity_agent(&item.provider))
             .child(ago(item.at, now_ms()));
@@ -122,9 +121,9 @@ impl Desktop {
             .hover(|s| s.opacity(0.9))
             .child("Open session")
             .child(div().text_size(px(11.)).font_weight(FontWeight::MEDIUM).opacity(0.55).child("↵"))
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_previewed(&go, window, cx)));
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(ActivityEvent::Open(go.clone()))));
         let close = ui::icon_button_sized("activity-panel-close", "x", 26., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.activity.previewed = None;
+            this.previewed = None;
             cx.notify();
         }));
         div()
@@ -144,8 +143,7 @@ impl Desktop {
     }
 
     /// The last turn: the prompt, what it read and edited, and the last thing it said.
-    fn activity_log(&self, item: &Item) -> Div {
-        let r = recap(self.agents.timelines.get(&item.id).map_or(&[][..], Vec::as_slice));
+    fn activity_log(&self, item: &Item, r: &Recap, diff: Option<(usize, usize)>) -> Div {
         let asked = (!r.asked.is_empty()).then(|| {
             div()
                 .flex()
@@ -153,7 +151,7 @@ impl Desktop {
                 .child(div().max_w(relative(0.85)).px(px(11.)).py(px(7.)).rounded(px(12.)).bg(FILL_3).line_height(px(20.15)).child(first_line(&r.asked)))
         });
         let read = (r.read > 0).then(|| tool_line("file", "Read", files(r.read)));
-        let diff = self.repos.get(&item.tree).map(|repo| repo.totals()).filter(|&(a, d)| a + d > 0);
+        let diff = diff.filter(|&(a, d)| a + d > 0);
         let edited = (r.edited > 0).then(|| tool_line("pencil", "Edited", files(r.edited)).children(diff.map(|(a, d)| ui::meta_diff(a, d, 12.))));
         let last = if item.col() == Col::Working && !item.note.is_empty() {
             Some(
@@ -174,11 +172,11 @@ impl Desktop {
     }
 
     /// The worktree's uncommitted files, a few of them.
-    fn activity_files(&self, item: &Item) -> Option<Div> {
-        let repo = self.repos.get(&item.tree).filter(|r| !r.files.is_empty())?;
-        let (added, removed) = repo.totals();
+    fn activity_files(&self, files: Option<&Vec<(String, usize, usize)>>, diff: Option<(usize, usize)>) -> Option<Div> {
+        let files = files?;
+        let (added, removed) = diff?;
         let total = pill().font_family(MONO).child(ui::meta_diff(added, removed, 11.));
-        let rows = repo.files.iter().take(FILES_SHOWN).enumerate().map(|(i, f)| {
+        let rows = files.iter().take(FILES_SHOWN).enumerate().map(|(i, (path, added, removed))| {
             let row = div()
                 .h(px(28.))
                 .px(px(12.))
@@ -188,23 +186,23 @@ impl Desktop {
                 .font_family(MONO)
                 .text_size(px(11.5))
                 .text_color(TEXT_2)
-                .child(div().flex_1().min_w_0().truncate().child(f.path.clone()))
-                .child(ui::meta_diff(f.added, f.removed, 11.5));
+                .child(div().flex_1().min_w_0().truncate().child(path.clone()))
+                .child(ui::meta_diff(*added, *removed, 11.5));
             if i > 0 { row.border_t(px(0.5)).border_color(SEPARATOR) } else { row }
         });
         Some(titled_box(div().child("Changes").child(div().flex_1()).child(total)).children(rows))
     }
 
     /// The PR with each of its checks, as GitHub lists them; a check opens its log.
-    fn activity_pr(&self, item: &Item, cx: &mut Context<Self>) -> Option<Div> {
-        let pr = self.prs.get(&item.tree)?;
+    fn activity_pr(&self, item: &Item, pr: Option<&Pr>, cx: &mut Context<Self>) -> Option<Div> {
+        let pr = pr?;
         let (name, color) = pr_glyph(pr);
         let (id, url) = (item.id.clone(), pr.url.clone());
         let open = ui::icon_button_sized("activity-pr-open", "external", 22., TEXT_3)
             .tooltip(|window, cx| Tooltip::new("Open on GitHub").build(window, cx))
             .my(px(-4.))
             .mr(px(-6.))
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_pr_link(&id, url.clone(), window, cx)));
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(ActivityEvent::OpenPr { id: id.clone(), url: url.clone() })));
         let summary = div().ml_auto().flex_none().font_weight(FontWeight::NORMAL).text_color(tone(pr)).child(detail(pr));
         let head =
             div().child(icon(name, 13., color)).child(div().min_w_0().truncate().child(format!("Pull request #{}", pr.number))).child(summary).child(open);
@@ -235,14 +233,16 @@ impl Desktop {
             row.cursor_pointer()
                 .hover(|s| s.bg(FILL_2))
                 .child(div().flex_none().text_size(px(11.5)).text_color(TEXT_4).child("Details"))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_pr_link(&id, log.clone(), window, cx)))
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(ActivityEvent::OpenPr { id: id.clone(), url: log.clone() })))
         });
         Some(titled_box(head).children(rows))
     }
 
     pub(super) fn activity_panel(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let id = self.activity.previewed.clone()?;
-        let item = self.activity.grouped.item(&id)?;
+        let id = self.previewed.clone()?;
+        let item = self.grouped.item(&id)?;
+        let extra = self.side.extras.get(&id)?;
+        let Drawer { recap, files, pr } = self.side.drawer.as_ref()?;
         let body = div()
             .id("activity-panel-body")
             .flex_1()
@@ -253,10 +253,10 @@ impl Desktop {
             .flex()
             .flex_col()
             .gap(px(14.))
-            .children(self.activity_ask_box(item, 12.5, cx).map(|b| b.px(px(12.)).py(px(10.)).gap(px(8.))))
-            .child(self.activity_log(item))
-            .children(self.activity_files(item))
-            .children(self.activity_pr(item, cx));
+            .children(self.activity_ask_box(item, extra, 12.5, cx).map(|b| b.px(px(12.)).py(px(10.)).gap(px(8.))))
+            .child(self.activity_log(item, recap, extra.diff))
+            .children(self.activity_files(files.as_ref(), extra.diff))
+            .children(self.activity_pr(item, pr.as_ref(), cx));
         let reply = div()
             .h(px(40.))
             .pl(px(14.))
@@ -267,7 +267,7 @@ impl Desktop {
             .rounded(px(12.))
             .bg(SURFACE_SOLID)
             .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
-            .child(div().flex_1().min_w_0().text_size(px(13.)).child(Input::new(&self.activity.reply).appearance(false).p_0()))
+            .child(div().flex_1().min_w_0().text_size(px(13.)).child(Input::new(&self.reply).appearance(false).p_0()))
             .child(div().pr(px(6.)).text_size(px(11.)).text_color(TEXT_4).child("↵"));
         let panel = div()
             .id("activity-panel")
@@ -275,14 +275,14 @@ impl Desktop {
             .rounded(px(R_POPOVER))
             .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(rgba(0x00000080), 12., 32.)])
             .absolute()
-            .top(px(52.))
+            .top(px(8.))
             .right(px(PANEL_INSET))
             .bottom(px(12.))
             .w(px(PANEL_WIDTH))
             .flex()
             .flex_col()
             .occlude()
-            .child(self.activity_panel_head(item, cx))
+            .child(self.activity_panel_head(item, extra, cx))
             .child(body)
             .child(div().flex_none().px(px(12.)).pb(px(12.)).child(reply));
         // Slides in from past the window's right edge; switching cards keeps it mounted, so only opening plays this.

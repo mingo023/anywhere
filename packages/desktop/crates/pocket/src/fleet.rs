@@ -468,7 +468,7 @@ impl Desktop {
                 d.finder_host_back(&id, window, cx);
                 d.handoff_host_back(&id, cx);
                 d.sweep_host_leftovers(cx);
-                d.fetch_clone_home(window, cx);
+                d.clone_form.update(cx, |f, cx| f.fetch_home(window, cx));
                 d.open_host_agents(&id, &endpoint, info.user_home, window, cx);
                 d.check_accounts(Some(id.clone()), true, cx);
                 if !d.daemon.has(&id) {
@@ -688,7 +688,7 @@ impl Desktop {
         hosts::remote::forget(id);
         let left = self.terminals.lists.forget(id);
         self.terminals.listed(left);
-        self.activity_changed();
+        self.activity_changed(cx);
         cx.notify();
     }
 }

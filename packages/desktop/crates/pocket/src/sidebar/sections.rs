@@ -111,8 +111,8 @@ pub(crate) fn group_mark(g: &Group) -> Option<Div> {
 
 impl Desktop {
     /// `p`'s trees, less those being deleted, plus those being made; `None` until git lists them.
-    pub(super) fn trees_shown(&self, p: &str) -> Option<Vec<git::Worktree>> {
-        self.listed_trees(p).map(|w| self.removals.hide(self.creates.trees(p, &w)))
+    pub(super) fn trees_shown(&self, p: &str, cx: &App) -> Option<Vec<git::Worktree>> {
+        self.listed_trees(p).map(|w| self.removals.hide(self.creates.read(cx).trees(p, &w)))
     }
 
     /// The rows under `p`: its own Local while in use, the Locals added to it, then its worktrees, in the order they were dragged to.
@@ -140,7 +140,7 @@ impl Desktop {
     }
 
     /// The projects in their sections, sorted, with what `query` leaves of them.
-    pub(super) fn listed(&self, query: &str) -> Listed {
+    pub(super) fn listed(&self, query: &str, cx: &App) -> Listed {
         let space = self.space();
         let mut projects = self.space_projects(&space);
         let sections = &self.store.sections;
@@ -152,7 +152,7 @@ impl Desktop {
                 None
             } else {
                 let trees: Vec<(String, String)> = self
-                    .tree_rows(p, &self.trees_shown(p).unwrap_or_default())
+                    .tree_rows(p, &self.trees_shown(p, cx).unwrap_or_default())
                     .into_iter()
                     .filter(|r| !self.tree_pinned(p, &r.key))
                     .map(|r| (r.key, r.label))
@@ -171,7 +171,7 @@ impl Desktop {
                         return None;
                     }
                     // Kept shut until its project's trees are listed, so it springs open then.
-                    let Some(trees) = self.trees_shown(project) else {
+                    let Some(trees) = self.trees_shown(project, cx) else {
                         return query.is_empty().then(|| Item::Tree { project: project.clone(), key: tree.clone() });
                     };
                     let row = self.tree_rows(project, &trees).into_iter().find(|r| &r.key == tree)?;
@@ -205,7 +205,7 @@ impl Desktop {
             icon_button_sized("aside-organize", "arrow-down-wide-narrow", 22., TEXT_3).rounded(px(6.)),
             open,
             cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.close_menus();
+                this.close_menus(cx);
                 this.sidebar.organize.menu = true;
                 cx.notify();
             }),
@@ -311,7 +311,7 @@ impl Desktop {
     pub(super) fn sections(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let query = self.sidebar.filter.query(cx);
         let filtering = !query.is_empty();
-        let listed = self.listed(&query);
+        let listed = self.listed(&query, cx);
         let sections = &self.store.sections;
         let nothing = listed.pinned.is_empty() && listed.other.is_empty() && listed.groups.iter().all(|(_, blocks)| blocks.is_empty());
         if !filtering && nothing {
@@ -448,10 +448,10 @@ impl Desktop {
 
     /// A pinned tree's row, naming its project; `None` once the tree is gone.
     fn pinned_tree(&self, p: &str, key: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let trees = self.trees_shown(p)?;
+        let trees = self.trees_shown(p, cx)?;
         let row = self.tree_rows(p, &trees).into_iter().find(|r| r.key == key)?;
         let current = self.place().filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
-        Some(self.place_row(p, &row, current.as_deref(), &self.creates.setups(&self.terminals.setups), Some(self.repo_name(p)), cx))
+        Some(self.place_row(p, &row, current.as_deref(), &self.creates.read(cx).setups(&self.terminals.setups), Some(self.repo_name(p)), cx))
     }
 }
 

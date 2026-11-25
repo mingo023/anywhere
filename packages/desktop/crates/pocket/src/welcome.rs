@@ -1,7 +1,7 @@
 pub(crate) mod view;
 
 use crate::glide::spring;
-use gpui_kit::{SpringConfig, SpringState};
+use gpui_kit::{SpringConfig, SpringState, Subscription};
 use std::time::{Duration, Instant};
 
 /// Pixels per second², pulling the mascot to its floor.
@@ -118,6 +118,10 @@ pub(crate) struct Pose {
     pub hidden: bool,
 }
 
+pub(crate) enum WelcomeEvent {
+    Taken,
+}
+
 /// The first-launch screen: the mascot drops in, watches the pointer until dismissed, hops out, then fades onto the app.
 pub(crate) struct Welcome {
     phase: Phase,
@@ -139,6 +143,8 @@ pub(crate) struct Welcome {
     /// Where the mascot stands on screen, from its last layout: what the eyes look from.
     pub(crate) center: Option<(f32, f32)>,
     wake: Option<(Instant, gpui_kit::Task<()>)>,
+    drawn: Option<Pose>,
+    _keys: Option<Subscription>,
 }
 
 impl Welcome {
@@ -162,6 +168,8 @@ impl Welcome {
             stepped: None,
             center: None,
             wake: None,
+            drawn: None,
+            _keys: None,
         }
     }
 

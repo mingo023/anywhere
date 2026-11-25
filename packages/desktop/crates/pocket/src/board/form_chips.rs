@@ -1,25 +1,24 @@
-use super::Menu;
 use super::logic::{Field, LABELS, PRIORITIES, Surface, priority_name};
 use super::parts::{label_dot, priority_glyph, prop_chip};
 use super::values::Picks;
-use crate::desktop::Desktop;
+use super::{Board, BoardEvent, Menu};
 use crate::models::listed_agents;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 
-impl Desktop {
+impl Board {
     pub(super) fn picks(&self, surface: Surface) -> &Picks {
         match surface {
-            Surface::Composer => &self.board.composer.picks,
-            Surface::Page => &self.board.form.picks,
+            Surface::Composer => &self.composer.picks,
+            Surface::Page => &self.form.picks,
         }
     }
 
     fn picks_mut(&mut self, surface: Surface) -> &mut Picks {
         match surface {
-            Surface::Composer => &mut self.board.composer.picks,
-            Surface::Page => &mut self.board.form.picks,
+            Surface::Composer => &mut self.composer.picks,
+            Surface::Page => &mut self.form.picks,
         }
     }
 
@@ -49,21 +48,23 @@ impl Desktop {
 
     fn pick_project(&mut self, surface: Surface, project: String, cx: &mut Context<Self>) {
         self.picks_mut(surface).values.set_folder(project.clone());
-        self.close_menus();
-        self.load_ticket_branches(surface, project, cx);
+        cx.emit(BoardEvent::CloseMenus);
+        cx.emit(BoardEvent::LoadBranches { surface, folder: project });
         self.picked(surface, cx);
     }
 
     fn field_rows(&self, surface: Surface, field: Field, cx: &mut Context<Self>) -> Vec<Stateful<Div>> {
         let p = self.picks(surface);
         let pick = move |this: &mut Self, cx: &mut Context<Self>| {
-            this.close_menus();
+            cx.emit(BoardEvent::CloseMenus);
             this.picked(surface, cx);
         };
         match field {
             Field::Project => self
-                .board_projects()
-                .into_iter()
+                .side
+                .pickable
+                .iter()
+                .cloned()
                 .enumerate()
                 .map(|(i, folder)| {
                     let chosen = folder == p.values.folder;
@@ -71,7 +72,7 @@ impl Desktop {
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_project(surface, folder.clone(), cx)))
                 })
                 .collect(),
-            Field::Agent => listed_agents(&self.offered(), &[&p.values.provider])
+            Field::Agent => listed_agents(&self.side.offered, &[&p.values.provider])
                 .into_iter()
                 .enumerate()
                 .map(|(i, id)| {
@@ -129,7 +130,7 @@ impl Desktop {
 
     fn picked(&mut self, surface: Surface, cx: &mut Context<Self>) {
         if surface == Surface::Page {
-            self.save_ticket_page_soon(cx);
+            self.save_page_soon(cx);
         }
         cx.notify();
     }
@@ -137,7 +138,7 @@ impl Desktop {
     /// The chip that picks `field`, with its menu while open. The page's chip is outlined, the composer's plain.
     pub(super) fn field_chip(&self, surface: Surface, field: Field, cx: &mut Context<Self>) -> Div {
         let menu = Menu::Pick(surface, field);
-        let open = self.board.menu.as_ref() == Some(&menu);
+        let open = self.menu.as_ref() == Some(&menu);
         let (lead, value) = self.field_face(surface, field);
         let id = SharedString::from(format!("ticket-chip-{surface:?}-{field:?}"));
         let chip = match surface {

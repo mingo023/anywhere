@@ -46,13 +46,13 @@ impl Desktop {
         let (added, removed) = self.repos.get(&c.cwd).map(|r| r.totals()).unwrap_or_default();
         let id = c.id.clone();
         let pill = match c.kind {
-            _ if matches!(self.handoff_mark(&c.id), Some(crate::handoff::Mark::Moving(_))) => State::Moving,
+            _ if matches!(self.handoff_mark(&c.id, cx), Some(crate::handoff::Mark::Moving(_))) => State::Moving,
             Kind::NotAttached => State::NotAttached,
             _ => state(c.status, added, removed),
         };
         let details = self.store.sidebar.details;
         let branch = self.repos.get(&c.cwd).map(|r| r.branch.clone()).filter(|_| details.branch);
-        let notice = self.handoff_notice(&c.id).or(c.notice.map(ui::Notice::from));
+        let notice = self.handoff_notice(&c.id, cx).or(c.notice.map(ui::Notice::from));
         let menu = RowMenu::Session(c.id.clone());
         let open = self.row_menu.as_ref() == Some(&menu);
         let when = if open {

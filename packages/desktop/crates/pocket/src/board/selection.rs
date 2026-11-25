@@ -1,6 +1,5 @@
-use super::Menu;
 use super::logic::{Action, Col, Columns, Row, Slot, action_field, change_reaches, column};
-use crate::desktop::Desktop;
+use super::{Board, BoardEvent, Menu};
 use gpui_kit::*;
 use std::cell::Cell;
 use std::collections::HashSet;
@@ -46,51 +45,38 @@ pub(super) fn walk(list: bool, rows: &[Row], shown: &[Col], columns: &Columns) -
     shown.iter().flat_map(|&col| columns[col as usize].iter().enumerate().map(move |(pos, &index)| Slot { col, pos, index })).collect()
 }
 
-impl Desktop {
-    pub(super) fn step_board(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
-        if self.board.page.is_some() {
-            return self.step_ticket_page(delta, window, cx);
-        }
-        let slots = self.board.walk_slots();
-        let tickets = &self.agents.board.tickets;
+impl Board {
+    pub(super) fn step(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let slots = self.walk_slots();
+        let tickets = &self.tickets.tickets;
         let ids: Vec<&str> = slots.iter().map(|s| tickets.get(s.index).map_or("", |t| t.id.as_str())).collect();
-        if let Some(at) = self.board.selection.step(&ids, delta) {
-            self.board.reveal(slots[at]);
+        if let Some(at) = self.selection.step(&ids, delta) {
+            self.reveal(slots[at]);
             cx.notify();
         }
     }
 
-    pub(super) fn open_cursor_ticket(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(id) = self.board.selection.cursor.clone() {
-            self.open_ticket(&id, window, cx);
-        }
-    }
-
-    pub(super) fn pick_cursor_ticket(&mut self, cx: &mut Context<Self>) {
-        let Some(id) = self.board.selection.cursor.clone() else { return };
+    pub(super) fn pick_cursor(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.selection.cursor.clone() else { return };
         if self.ticket(&id).is_some_and(|t| !column(t).finished()) {
-            self.board.selection.toggle(&id);
+            self.selection.toggle(&id);
             cx.notify();
         }
     }
 
-    pub(super) fn open_cursor_menu(&mut self, action: Action, cx: &mut Context<Self>) {
-        let Some(id) = self.board.selection.cursor.clone().filter(|id| self.ticket(id).is_some_and(|t| change_reaches(column(t), action))) else { return };
-        let at = self.board.selection.cursor_at.get();
+    pub(super) fn cursor_menu(&mut self, action: Action, cx: &mut Context<Self>) {
+        let Some(id) = self.selection.cursor.clone().filter(|id| self.ticket(id).is_some_and(|t| change_reaches(column(t), action))) else { return };
+        let at = self.selection.cursor_at.get();
         match action_field(action) {
             Some(field) => self.open_card_menu(&id, at, Some(field), cx),
-            None => {
-                self.close_menus();
-                self.board.menu = Some(Menu::Status { id, at });
-                cx.notify();
-            }
+            None => cx.emit(BoardEvent::OpenMenu(Menu::Status { id, at })),
         }
     }
 
-    pub(super) fn pick_all_tickets(&mut self, cx: &mut Context<Self>) {
-        let tickets = &self.agents.board.tickets;
-        let ids = self.board.walk_slots().into_iter().filter(|s| !s.col.finished()).filter_map(|s| tickets.get(s.index)).map(|t| t.id.clone());
-        self.board.selection.picked.extend(ids);
+    pub(super) fn pick_all(&mut self, cx: &mut Context<Self>) {
+        let tickets = &self.tickets.tickets;
+        let ids = self.walk_slots().into_iter().filter(|s| !s.col.finished()).filter_map(|s| tickets.get(s.index)).map(|t| t.id.clone());
+        self.selection.picked.extend(ids);
         cx.notify();
     }
 }

@@ -191,7 +191,7 @@ impl Desktop {
             return empty("No commit.");
         };
         let meta = vec![ui::meta_item().child(ui::meta_value(format!("{n} file{}", if n == 1 { "" } else { "s" }))).into_any_element()];
-        let crumbs = std::iter::once(git::short_sha(&sha).to_string()).chain(self.graph.commit(&sha).map(|c| c.subject.clone())).collect();
+        let crumbs = std::iter::once(git::short_sha(&sha).to_string()).chain(self.graph.read(cx).commit(&sha).map(|c| c.subject.clone())).collect();
         let rows = list(state, cx.processor(move |this, ix, _, cx| this.commit_diff_row(pane, ix, cx))).pb(px(8.));
         div().flex_1().min_h_0().flex().flex_col().child(doc_bar(crumbs, meta, div())).child(
             code_text(div(), self.store.appearance.code_size())

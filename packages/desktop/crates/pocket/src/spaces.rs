@@ -226,15 +226,11 @@ struct Slide {
 pub(crate) struct Spaces {
     /// As saved; may name a host that is gone, see `resolve`.
     shown: Space,
-    /// The space menu is open.
-    pub(crate) menu: bool,
     pub(crate) swipe: Swipe,
     slide: Option<Slide>,
     switches: u64,
     /// What a change just made, a project's key or a space's `flash_key`, and when.
     flash: Option<(String, Instant)>,
-    /// The host whose name the space header is editing.
-    pub(crate) rename: Option<header::HostRename>,
     /// The session each space showed when the sidebar left it.
     left: HashMap<Space, Spot>,
 }
@@ -244,7 +240,7 @@ pub(crate) type Spot = (String, Option<String>);
 
 impl Spaces {
     pub(crate) fn new(saved: Option<&str>) -> Self {
-        Self { shown: Space::on(saved), menu: false, swipe: Swipe::default(), slide: None, switches: 0, flash: None, rename: None, left: HashMap::new() }
+        Self { shown: Space::on(saved), swipe: Swipe::default(), slide: None, switches: 0, flash: None, left: HashMap::new() }
     }
 
     pub(crate) fn current(&self, order: &[Space]) -> Space {
@@ -254,7 +250,6 @@ impl Spaces {
     /// Shows `to`, sliding in from the side it lies on; false when it is already shown. Keeps `leaving` for its space; none forgets the space's.
     pub(crate) fn go(&mut self, to: Space, order: &[Space], now: Instant, leaving: Option<Spot>) -> bool {
         let from = self.current(order);
-        self.menu = false;
         if from == to {
             return false;
         }
@@ -361,11 +356,10 @@ impl Desktop {
     }
 
     fn enter_space(&mut self, to: Space, back_to_session: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let order = self.space_order();
         if self.screen == Screen::Settings {
             self.screen = Screen::Sessions;
         }
-        if !self.spaces.go(to.clone(), &order, Instant::now(), self.spot()) {
+        if !self.go_space(&to, cx) {
             return cx.notify();
         }
         self.remember_space(&to, cx);
@@ -387,10 +381,16 @@ impl Desktop {
 
     /// Keeps the sidebar in the space of the project now shown, as a palette pick or a notification can show one anywhere.
     pub(crate) fn follow_space(&mut self, project: &str, cx: &mut Context<Self>) {
-        let (order, to) = (self.space_order(), space_of(project));
-        if self.spaces.go(to.clone(), &order, Instant::now(), self.spot()) {
+        let to = space_of(project);
+        if self.go_space(&to, cx) {
             self.remember_space(&to, cx);
         }
+    }
+
+    fn go_space(&mut self, to: &Space, cx: &mut Context<Self>) -> bool {
+        let order = self.space_order();
+        self.sidebar.space_header.update(cx, |h, _| h.shut());
+        self.spaces.go(to.clone(), &order, Instant::now(), self.spot())
     }
 
     /// The session on screen; none while the new-session page is up.
@@ -609,9 +609,7 @@ mod tests {
     fn going_to_a_space_slides_once_and_going_where_it_is_does_not() {
         let (order, now) = (spaces(), Instant::now());
         let mut s = Spaces::new(None);
-        s.menu = true;
         assert!(s.go(host("devbox"), &order, now, None));
-        assert!(!s.menu);
         assert_eq!(s.sliding(now), Some((1, Heading::Forward)));
         assert_eq!(s.sliding(now + SLIDE), None);
         assert!(!s.go(host("devbox"), &order, now, None));

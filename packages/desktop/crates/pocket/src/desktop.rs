@@ -12,10 +12,10 @@ pub(crate) mod sounds;
 pub(crate) mod toast;
 
 use crate::accounts::Accounts;
-use crate::activity::ActivityState;
+use crate::activity::Activity;
 use crate::add_to_chat::ChatComposer;
 use crate::automations::AutomationsState;
-use crate::board::BoardState;
+use crate::board::Board;
 use crate::browser::Browsers;
 use crate::chat::ChatState;
 use crate::creating::Creates;
@@ -33,11 +33,11 @@ use crate::git_ui::commit::Commits;
 use crate::git_ui::compare::CompareState;
 use crate::git_ui::diff::{At, DiffState};
 use crate::git_ui::gh_accounts::GhAccounts;
-use crate::git_ui::graph::GraphState;
+use crate::git_ui::graph::Graph;
 use crate::git_ui::pull_request::PullRequest;
 use crate::git_ui::pull_requests::PullRequests;
 use crate::host_agents::HostAgents;
-use crate::inbox::InboxState;
+use crate::inbox::Inbox;
 use crate::modals::pair_phone::PairPhone;
 use crate::modals::{add_project, clone_project, new_session};
 use crate::models::Models;
@@ -81,7 +81,7 @@ pub struct Desktop {
     pub(crate) chime: Chime,
     pub(crate) badge: Badge,
     pub(crate) terminals: Terminals,
-    pub(crate) creates: Creates,
+    pub(crate) creates: Entity<Creates>,
     pub(crate) removals: Removals,
     pub(crate) renames: Renames,
     pub(crate) agents: Agents,
@@ -104,20 +104,20 @@ pub struct Desktop {
     pub(crate) prs: PullRequests,
     pub(crate) gh_accounts: GhAccounts,
     pub(crate) pr: PullRequest,
-    pub(crate) graph: GraphState,
+    pub(crate) graph: Entity<Graph>,
     pub(crate) commit: Commits,
     pub(crate) terminal: TerminalViewState,
     pub(crate) panels: Panels,
-    pub(crate) open_in: OpenIn,
+    pub(crate) open_in: Entity<OpenIn>,
     pub(crate) browsers: Browsers,
     pub(crate) explorer: ExplorerState,
     pub(crate) git_run: u64,
     pub(crate) git_done: u64,
-    pub(crate) inbox: InboxState,
-    pub(crate) activity: ActivityState,
-    pub(crate) handoff: crate::handoff::HandoffState,
+    pub(crate) inbox: Entity<Inbox>,
+    pub(crate) activity: Entity<Activity>,
+    pub(crate) handoff: Entity<crate::handoff::HandoffState>,
     pub(crate) automations: AutomationsState,
-    pub(crate) board: BoardState,
+    pub(crate) board: Entity<Board>,
     pub(crate) error: Option<String>,
     pub(crate) root: FocusHandle,
     pub(crate) palette: Entity<Palette>,
@@ -130,8 +130,8 @@ pub struct Desktop {
     pub(crate) registry: crate::registry::Registry,
     pub(crate) accounts: Accounts,
     pub(crate) updates: Updates,
-    pub(crate) star: Star,
-    pub(crate) welcome: Option<Welcome>,
+    pub(crate) star: Entity<Star>,
+    pub(crate) welcome: Option<Entity<Welcome>>,
     pub(crate) chips: Chips,
     pub(crate) delegated: crate::delegated::DelegatedState,
     pub(crate) overlay: Option<Overlay>,
@@ -144,8 +144,8 @@ pub struct Desktop {
     pub(crate) new_form: new_session::NewForm,
     pub(crate) repo_form: add_project::RepoForm,
     pub(crate) host_finder: crate::modals::host_finder::HostFinder,
-    pub(crate) clone_form: clone_project::CloneForm,
-    pub(crate) pair: PairPhone,
+    pub(crate) clone_form: Entity<clone_project::CloneForm>,
+    pub(crate) pair: Entity<PairPhone>,
     pub(crate) capturing: bool,
     pub(crate) geometry: Geometry,
     pub(crate) _subs: Vec<Subscription>,
@@ -155,6 +155,8 @@ impl Desktop {
     pub(crate) fn new(daemon: Daemons, outbox: Outboxes, mut store: Store, themes: Themes, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let palette = cx.new(|cx| Palette::new(window, cx));
         let palette_subs = cx.subscribe_in(&palette, window, Self::on_palette_event);
+        let graph = cx.new(|_| Graph::new(store.graph_share, &store.diff));
+        let graph_subs = cx.subscribe_in(&graph, window, Self::on_graph_event);
         let (sidebar, sidebar_subs) = SidebarState::new(store.general.panel_open, window, cx);
         let spaces = Spaces::new(store.sidebar.space.as_deref());
         let (settings, settings_subs) = SettingsState::new(&store, window, cx);
@@ -169,19 +171,36 @@ impl Desktop {
         let (new_form, new_subs) = new_session::NewForm::new(window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
         let host_finder = crate::modals::host_finder::HostFinder::new(cx);
-        let (clone_form, clone_subs) = clone_project::CloneForm::new(window, cx);
+        let clone_form = cx.new(|cx| clone_project::CloneForm::new(window, cx));
+        let clone_subs = cx.subscribe_in(&clone_form, window, Self::on_clone_event);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
         let (automations, automations_subs) = AutomationsState::new(window, cx);
-        let (board, board_subs) = BoardState::new(window, cx);
-        let (activity, activity_subs) = ActivityState::new(window, cx);
-        let (handoff, handoff_subs) = crate::handoff::HandoffState::new(window, cx);
+        let board_start = Self::board_start_hook(cx);
+        let board = cx.new(|cx| Board::new(window, cx));
+        let board_subs = cx.subscribe_in(&board, window, Self::on_board_event);
+        let activity = cx.new(|cx| Activity::new(window, cx));
+        let activity_subs = cx.subscribe_in(&activity, window, Self::on_activity_event);
+        let handoff = cx.new(|cx| crate::handoff::HandoffState::new(window, cx));
+        let handoff_subs = cx.subscribe_in(&handoff, window, Self::on_handoff_event);
+        let pair = cx.new(|_| PairPhone::default());
+        let pair_subs = cx.subscribe_in(&pair, window, Self::on_pair_event);
         let notch = Notch::new(window, cx);
         let browsers = Browsers::new(window, cx);
         // Read before updates and the star record this launch.
-        let welcome = crate::welcome::greets(&store).then(Welcome::new);
+        let (welcome, welcome_subs) = match crate::welcome::greets(&store).then(|| Self::greet(window, cx)) {
+            Some((welcome, subs)) => (Some(welcome), Some(subs)),
+            None => (None, None),
+        };
         let updates = Updates::new(&mut store, cx);
-        let star = Star::new(&mut store, &updates.update, crate::star::unix_now());
-        let open_in = OpenIn::new(store.home(), cx);
+        let star = cx.new(|_| Star::new(&mut store, &updates.update, crate::star::unix_now()));
+        let star_subs = cx.subscribe_in(&star, window, Self::on_star_event);
+        let home = store.home().to_path_buf();
+        let open_in = cx.new(|cx| OpenIn::new(&home, cx));
+        let open_in_subs = cx.subscribe_in(&open_in, window, Self::on_open_in_event);
+        let creates = cx.new(|_| Creates::default());
+        let creates_subs = cx.subscribe_in(&creates, window, Self::on_creates_event);
+        let inbox = cx.new(Inbox::new);
+        let inbox_subs = cx.subscribe_in(&inbox, window, Self::on_inbox_event);
         let terminals = Terminals::new(crate::terminals::sessions::config(&store.terminal));
         let root = cx.focus_handle();
         window.focus(&root, cx);
@@ -208,8 +227,13 @@ impl Desktop {
             cx.on_focus_lost(window, |this, window, cx| window.focus(&this.root, cx)),
         ];
         _subs.push(Self::confirm_on_enter(cx));
-        _subs.push(Self::welcome_on_enter(cx));
+        _subs.extend(welcome_subs);
         _subs.push(palette_subs);
+        _subs.push(graph_subs);
+        _subs.push(star_subs);
+        _subs.push(open_in_subs);
+        _subs.push(inbox_subs);
+        _subs.push(creates_subs);
         _subs.extend(sidebar_subs);
         _subs.extend(settings_subs);
         _subs.extend(fleet_subs);
@@ -221,14 +245,15 @@ impl Desktop {
         _subs.extend(pr_subs);
         _subs.extend(new_subs);
         _subs.extend(repo_subs);
-        _subs.extend(clone_subs);
+        _subs.push(clone_subs);
         _subs.extend(geometry_subs);
         _subs.extend(automations_subs);
-        _subs.extend(board_subs);
-        _subs.extend(activity_subs);
-        _subs.extend(handoff_subs);
+        _subs.push(board_start);
+        _subs.push(board_subs);
+        _subs.push(activity_subs);
+        _subs.push(handoff_subs);
+        _subs.push(pair_subs);
         let (layout, widths) = (store.general.launch_layout.unwrap_or(store.layout), [store.widths.projects, store.widths.sessions]);
-        let graph = GraphState::new(store.graph_share, &store.diff);
         let diff = DiffState::new(&store.diff);
         let registry = crate::registry::Registry::new(&store);
         Self {
@@ -240,7 +265,7 @@ impl Desktop {
             badge: Badge::default(),
             terminals,
             themes,
-            creates: Creates::default(),
+            creates,
             removals: Removals::default(),
             renames: Renames::default(),
             agents: Agents::default(),
@@ -273,7 +298,7 @@ impl Desktop {
             panels: Panels::default(),
             open_in,
             browsers,
-            inbox: InboxState::new(cx),
+            inbox,
             activity,
             handoff,
             automations,
@@ -302,7 +327,7 @@ impl Desktop {
             repo_form,
             host_finder,
             clone_form,
-            pair: PairPhone::default(),
+            pair,
             capturing: false,
             geometry,
             _subs,
@@ -506,8 +531,8 @@ impl Desktop {
         }
     }
 
-    pub(crate) fn menu_open(&self) -> bool {
-        self.board.menu.is_some()
+    pub(crate) fn menu_open(&self, cx: &App) -> bool {
+        self.board.read(cx).menu_open()
             || self.panels.menu.is_some()
             || self.panels.actions.is_some()
             || self.panels.top_actions.is_some()
@@ -521,21 +546,21 @@ impl Desktop {
             || self.sidebar.picker.open
             || self.sidebar.add_menu
             || self.sidebar.organize.menu
-            || self.spaces.menu
+            || self.sidebar.space_header.read(cx).menu_open()
             || self.automations.menu.is_some()
             || self.explorer.menu.is_some()
             || self.terminal.menu.is_some()
             || self.accounts.menu.is_some()
-            || self.clone_form.machine_menu
+            || self.clone_form.read(cx).machine_menu
             || self.chats.files.is_some()
             || self.chats.select.menu_open()
-            || self.open_in.menu.is_some()
-            || self.activity.menu.is_some()
+            || self.open_in.read(cx).menu.is_some()
+            || self.activity.read(cx).menu.is_some()
     }
 
     /// Returns whether a menu was open.
-    pub(crate) fn close_menus(&mut self) -> bool {
-        let open = self.menu_open();
+    pub(crate) fn close_menus(&mut self, cx: &mut App) -> bool {
+        let open = self.menu_open(cx);
         (self.panels.menu, self.panels.actions, self.panels.top_actions, self.row_menu, self.changes.commit_menu, self.changes.menu) =
             (None, None, None, None, false, false);
         self.compare.menu = false;
@@ -544,23 +569,23 @@ impl Desktop {
         self.sidebar.picker.open = false;
         self.sidebar.add_menu = false;
         self.sidebar.organize.menu = false;
-        self.spaces.menu = false;
+        self.sidebar.space_header.update(cx, |h, _| h.shut());
         self.automations.menu = None;
-        self.board.menu = None;
-        self.activity.menu = None;
+        self.board.update(cx, |b, _| b.close_menu());
+        self.activity.update(cx, |a, _| a.menu = None);
         self.accounts.menu = None;
-        self.clone_form.machine_menu = false;
+        self.clone_form.update(cx, |f, _| f.close_menus());
         self.explorer.close_menu();
         self.terminal.menu = None;
         self.chats.files = None;
         self.chats.select.close_menu();
-        self.open_in.menu = None;
+        self.open_in.update(cx, |o, _| o.menu = None);
         open
     }
 
     /// Whether the main view shows panes with no overlay, menu or creating page over them.
-    pub(crate) fn panes_on_screen(&self) -> bool {
-        self.session_tree().is_some() && self.shown_create().is_none() && self.overlay.is_none() && !self.menu_open()
+    pub(crate) fn panes_on_screen(&self, cx: &App) -> bool {
+        self.session_tree().is_some() && self.shown_create(cx).is_none() && self.overlay.is_none() && !self.menu_open(cx)
     }
 
     /// The worktree whose panes the main view shows.
@@ -594,7 +619,7 @@ impl Desktop {
             window.request_animation_frame();
         }
         let body = match self.session_tree() {
-            _ if self.shown_create().is_some() => self.creating_page(window, cx),
+            _ if self.shown_create(cx).is_some() => self.creating_page(window, cx),
             Some(_) if self.idle_main() => {
                 // Every way onto the main checkout ends here, and opening the page needs the window; re-checked since the frame may be stale by then.
                 cx.defer_in(window, |this, window, cx| {
@@ -740,13 +765,13 @@ fn replaced_on_disk(cx: &App) -> Task<bool> {
 
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.sync_panels();
+        self.sync_panels(cx);
         // A capture draws one frame a step, which would catch a glide midway.
-        let (now, reduce_motion) = (Instant::now(), cx.reduce_motion() || self.capturing);
+        let (now, capturing, reduce_motion) = (Instant::now(), self.capturing, cx.reduce_motion() || self.capturing);
         // Not `||`: each steps every frame.
         if self.sidebar.tick(self.layout, now, reduce_motion)
             | self.panels.tick(now, reduce_motion)
-            | self.star.tick(now, self.capturing)
+            | self.star.update(cx, |s, _| s.tick(now, capturing))
             | self.chats.dock.tick(now, reduce_motion)
         {
             window.request_animation_frame();
@@ -754,10 +779,10 @@ impl Render for Desktop {
         self.sync_code(window, cx);
         self.sync_view(window, cx);
         self.sync_cursor(window, cx);
-        self.sync_browser(window);
+        self.sync_browser(window, cx);
         let welcome = self.welcome_view(now, reduce_motion, window, cx);
         // The welcome hides the app until it fades, so the app isn't built, and what animates in it asks for no frames.
-        let shown = !self.welcome.as_ref().is_some_and(crate::welcome::Welcome::covers);
+        let shown = !self.welcome.as_ref().is_some_and(|w| w.read(cx).covers());
         let settings = self.screen == Screen::Settings;
         let lead = (shown && !settings).then(|| self.lead());
         let column = if !shown {
@@ -799,10 +824,10 @@ impl Render for Desktop {
                     || this.cancel_drag()
                     || this.explorer.cancel_edit()
                     || this.sidebar.cancel_rename()
-                    || this.spaces.rename.take().is_some()
+                    || this.sidebar.space_header.update(cx, |h, _| h.cancel_rename())
                     || this.close_picker()
                     || this.escape_composer_menu()
-                    || this.close_menus()
+                    || this.close_menus(cx)
                     || this.chat_escape_dock(window, cx)
                     || this.delegated_escape(window, cx)
                 {

@@ -301,13 +301,46 @@ pub fn pill(id: impl Into<ElementId>, v: ui::Variant, icon_name: Option<&str>, l
     ui::button(id, v, icon_name, label.to_string()).h(px(28.)).px(px(12.)).rounded(px(14.)).font_weight(FontWeight::MEDIUM)
 }
 
+pub(crate) fn popup_closing(id: &'static str, width: f32, on_out: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static) -> Stateful<Div> {
+    ui::pop(div().id(id)).w(px(width)).p(px(5.)).flex().flex_col().occlude().on_mouse_down_out(on_out)
+}
+
+/// A `SEAM`-thick handle for the caller to place across an edge between cells laid out along `axis`, its line lit on
+/// hover; double-clicking it calls `reset`.
+pub(crate) fn seam_handle<T: 'static>(
+    id: impl Into<ElementId>,
+    axis: Axis,
+    reset: impl Fn(&mut T, &mut Context<T>) + 'static,
+    cx: &mut Context<T>,
+) -> Stateful<Div> {
+    let line = div().absolute().group_hover("seam", |s| s.bg(SEPARATOR_STRONG));
+    // Occludes so the press starts a resize, not the drag area's window move.
+    let handle = div().id(id).group("seam").absolute().occlude();
+    let (line, handle) = match axis {
+        Axis::Row => (line.top_0().bottom_0().left(px(SEAM / 2.)).w(px(1.)), handle.top_0().bottom_0().w(px(SEAM)).cursor_col_resize()),
+        Axis::Column => (line.left_0().right_0().top(px(SEAM / 2.)).h(px(1.)), handle.left_0().right_0().h(px(SEAM)).cursor_row_resize()),
+    };
+    handle.child(line).on_mouse_down(
+        MouseButton::Left,
+        cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+            if e.click_count == 2 {
+                reset(this, cx);
+            }
+        }),
+    )
+}
+
 impl Desktop {
     /// A floating menu of `width` that a click outside closes.
     pub(crate) fn popup(&self, id: &'static str, width: f32, cx: &mut Context<Self>) -> Stateful<Div> {
-        ui::pop(div().id(id)).w(px(width)).p(px(5.)).flex().flex_col().occlude().on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-            this.close_menus();
-            cx.notify();
-        }))
+        popup_closing(
+            id,
+            width,
+            cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                this.close_menus(cx);
+                cx.notify();
+            }),
+        )
     }
 
     pub(crate) fn detail_bar(&self, crumb: Div, right: impl IntoElement, cx: &mut Context<Self>) -> Div {
@@ -337,7 +370,7 @@ impl Desktop {
     }
 
     pub(crate) fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         self.layout = sidebar_toggled(self.layout);
         self.save_soon(cx);
         cx.notify();
@@ -363,7 +396,7 @@ impl Desktop {
     }
 
     pub(crate) fn toggle_focus(&mut self, _: &ToggleFocus, _: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         self.layout = match self.layout {
             Layout::Sidebars => Layout::Compact,
             Layout::Compact => Layout::Focus,
@@ -379,8 +412,6 @@ impl Desktop {
         self.widths[col as usize].map_or(fallback, |w| w.clamp(min, max))
     }
 
-    /// A `SEAM`-thick handle for the caller to place across an edge between cells laid out along `axis`, its line lit on
-    /// hover; double-clicking it calls `reset`. `None` while an overlay is open.
     pub(crate) fn seam(
         &self,
         id: impl Into<ElementId>,
@@ -392,21 +423,7 @@ impl Desktop {
         if self.overlay.is_some() {
             return None;
         }
-        let line = div().absolute().group_hover("seam", |s| s.bg(SEPARATOR_STRONG));
-        // Occludes so the press starts a resize, not the drag area's window move.
-        let handle = div().id(id).group("seam").absolute().occlude();
-        let (line, handle) = match axis {
-            Axis::Row => (line.top_0().bottom_0().left(px(SEAM / 2.)).w(px(1.)), handle.top_0().bottom_0().w(px(SEAM)).cursor_col_resize()),
-            Axis::Column => (line.left_0().right_0().top(px(SEAM / 2.)).h(px(1.)), handle.left_0().right_0().h(px(SEAM)).cursor_row_resize()),
-        };
-        Some(handle.child(line).on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |this, e: &MouseDownEvent, _, cx| {
-                if e.click_count == 2 {
-                    reset(this, cx);
-                }
-            }),
-        ))
+        Some(seam_handle(id, axis, reset, cx))
     }
 
     /// Lets the user drag `d`'s right edge to resize `col`, or double-click it to reset.

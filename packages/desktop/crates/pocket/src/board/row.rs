@@ -1,6 +1,6 @@
 use super::logic::{Action, Col, Row, Slot, action_field, activity, change_reaches, column, opens, stuck_head};
 use super::parts::{col_heading, prop_chip};
-use crate::desktop::Desktop;
+use super::{Board, BoardEvent};
 use crate::util::{ago_long, now_ms};
 use agents::tickets::Ticket;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -8,14 +8,14 @@ use gpui_kit::*;
 use theme::*;
 use ui::agent_avatar;
 
-impl Desktop {
+impl Board {
     fn section_bar(&self, col: Col, cx: &mut Context<Self>) -> Div {
-        let n = self.board.columns[col as usize].len();
+        let n = self.columns[col as usize].len();
         let add = (col == Col::Todo).then(|| self.add_ticket_button("board-list-add", cx));
-        let glyph = if self.board.folded[col as usize] { "chevron-right" } else { "chevron-down" };
+        let glyph = if self.folded[col as usize] { "chevron-right" } else { "chevron-down" };
         let fold = ui::icon_button_sized(("board-fold", col as usize), glyph, 18., TEXT_4).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.board.folded[col as usize] = !this.board.folded[col as usize];
-            this.board_changed();
+            this.folded[col as usize] = !this.folded[col as usize];
+            cx.emit(BoardEvent::Changed);
             cx.notify();
         }));
         div()
@@ -80,15 +80,18 @@ impl Desktop {
             .when(!picked, |d| d.border_1().border_color(SEPARATOR_STRONG))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 cx.stop_propagation();
-                this.board.selection.toggle(&id);
+                this.selection.toggle(&id);
                 cx.notify();
             }))
     }
 
-    fn ticket_row(&self, slot: Slot, cx: &mut Context<Self>) -> AnyElement {
+    fn ticket_row(&self, slot: Slot, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let Some(t) = self.shown_ticket(slot.col, slot.index) else { return div().into_any_element() };
+        if !self.has_extra(t, window) {
+            return div().into_any_element();
+        }
         let col = slot.col;
-        let props = self.board.props;
+        let props = self.props;
         let title = div()
             .min_w_0()
             .flex_1()
@@ -103,7 +106,7 @@ impl Desktop {
         let quick = self.ticket_quick(t, slot, cx);
         let labels = self.ticket_labels(t);
         let labels = (!labels.is_empty()).then(|| self.row_prop(t, Action::Labels, div().flex().items_center().gap(px(8.)).children(labels), cx));
-        let (picked, at_cursor) = (self.board.selection.picked.contains(&t.id), self.board.selection.cursor.as_ref() == Some(&t.id));
+        let (picked, at_cursor) = (self.selection.picked.contains(&t.id), self.selection.cursor.as_ref() == Some(&t.id));
         let quick = quick.map(|q| if at_cursor { q } else { q.opacity(0.).group_hover("ticket-row", |s| s.opacity(1.)) });
         let project = props.project.then(|| {
             self.row_prop(
@@ -132,12 +135,12 @@ impl Desktop {
             .items_center()
             .gap(px(8.))
             .rounded(px(7.))
-            .when(opens(t, self.ticket_reach(t)).is_some(), |d| d.hover(|s| s.bg(FILL_1)))
+            .when(opens(t, self.extra(t).reach).is_some(), |d| d.hover(|s| s.bg(FILL_1)))
             .when(at_cursor, |d| d.bg(FILL_1))
             .when(picked, |d| d.bg(Hsla::from(INDIGO).opacity(0.12)))
             .children((!col.finished()).then(|| self.ticket_check(t, picked, at_cursor, cx)))
             .children(props.priority.then(|| self.ticket_priority(t, cx)))
-            .children(self.ticket_key(t).filter(|_| props.id).map(|k| div().flex_none().min_w(px(46.)).text_size(px(12.)).text_color(TEXT_3).child(k)))
+            .children(self.extra(t).key.clone().filter(|_| props.id).map(|k| div().flex_none().min_w(px(46.)).text_size(px(12.)).text_color(TEXT_3).child(k)))
             .child(self.ticket_status(t, slot, cx))
             .child(title)
             .children(note)
@@ -154,16 +157,16 @@ impl Desktop {
 
     pub(super) fn board_list(&mut self, cx: &mut Context<Self>) -> Div {
         let rows = list(
-            self.board.rows_list.clone(),
-            cx.processor(|this, ix, _, cx| match this.board.rows.get(ix).copied() {
+            self.rows_list.clone(),
+            cx.processor(|this, ix, window, cx| match this.rows.get(ix).copied() {
                 Some(Row::Head(col)) => this.section_head(col, ix == 0, cx),
-                Some(Row::Ticket(slot)) => this.ticket_row(slot, cx),
+                Some(Row::Ticket(slot)) => this.ticket_row(slot, window, cx),
                 None => div().into_any_element(),
             }),
         )
         .size_full();
-        let top = self.board.rows_list.logical_scroll_top();
-        let stuck = stuck_head(&self.board.rows, top.item_ix, top.offset_in_item > px(0.)).map(|col| self.stuck_section(col, cx));
+        let top = self.rows_list.logical_scroll_top();
+        let stuck = stuck_head(&self.rows, top.item_ix, top.offset_in_item > px(0.)).map(|col| self.stuck_section(col, cx));
         div().relative().flex_1().min_h_0().child(rows).children(stuck)
     }
 }

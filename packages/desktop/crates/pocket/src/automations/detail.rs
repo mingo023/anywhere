@@ -104,7 +104,7 @@ impl Desktop {
     }
 
     pub(super) fn ask_delete_automation(&mut self, id: String, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         self.confirm = Some(Confirm::DeleteAutomation(id));
         self.overlay = Some(Overlay::Confirm);
         cx.notify();

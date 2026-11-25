@@ -2,7 +2,6 @@ use crate::desktop::Desktop;
 use crate::modals::form::home;
 use agents::providers;
 use agents::{ListedModel, ModelSetting};
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::*;
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -218,15 +217,6 @@ impl Desktop {
     /// Whether pocketd found `provider`'s CLI.
     pub(crate) fn installed(&self, provider: &str) -> bool {
         self.agents.provider_info(provider).available
-    }
-
-    /// `row` for picking `provider`; one pocketd didn't find is dimmed and says how to install it.
-    pub(crate) fn agent_row(&self, provider: &str, row: Stateful<Div>) -> Stateful<Div> {
-        if self.installed(provider) {
-            return row;
-        }
-        let why = not_found(provider);
-        row.opacity(0.4).tooltip(move |window, cx| Tooltip::new(why.clone()).build(window, cx))
     }
 
     /// Every offered agent's models for the pickers, each read once off the UI thread.

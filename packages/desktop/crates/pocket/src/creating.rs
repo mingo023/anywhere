@@ -256,9 +256,17 @@ struct Arrival {
     prompt: String,
 }
 
+pub(crate) enum CreatesEvent {
+    Retry(String),
+    Edit(String),
+    Dismiss(String),
+}
+
 #[derive(Default)]
 pub(crate) struct Creates {
     pub(crate) list: Vec<Create>,
+    shown: Option<String>,
+    has_terminal: bool,
     /// A timer redraws the clock while a running create is on screen.
     ticking: bool,
     /// The chats finished creates handed off to, by agent.
@@ -269,9 +277,15 @@ pub(crate) struct Creates {
     opening: HashMap<String, Arrival>,
 }
 
+impl EventEmitter<CreatesEvent> for Creates {}
+
 impl Creates {
     pub(crate) fn get(&mut self, request: &str) -> Option<&mut Create> {
         self.list.iter_mut().find(|c| c.request == request)
+    }
+
+    pub(crate) fn show(&mut self, request: String, has_terminal: bool) {
+        (self.shown, self.has_terminal) = (Some(request), has_terminal);
     }
 
     pub(crate) fn remove(&mut self, request: &str) -> Option<Create> {
@@ -372,77 +386,9 @@ impl Creates {
     }
 }
 
-impl Desktop {
-    /// The create on screen, unless its worktree's terminal is.
-    pub(crate) fn shown_create(&self) -> Option<&Create> {
-        if self.terminals.link.is_down() || self.screen != Screen::Sessions {
-            return None;
-        }
-        self.creates.shown(&self.place()?)
-    }
-
-    /// Hands finished creates to their chats; says whether any went.
-    pub(crate) fn hand_off_creates(&mut self) -> bool {
-        let agents = &self.agents;
-        self.creates.hand_off(|a| agents.get(a).is_some(), Instant::now())
-    }
-
-    /// `el`, rising into `agent`'s chat just opened from its create.
-    pub(crate) fn arriving(&self, agent: &str, part: Part, el: Div, window: &mut Window, cx: &App) -> Div {
-        match self.creates.arriving(agent, part, Instant::now(), cx.reduce_motion()) {
-            Some(r) => {
-                window.request_animation_frame();
-                r.on(el)
-            }
-            None => el,
-        }
-    }
-
-    fn tick_create(&mut self, cx: &mut Context<Self>) {
-        if self.creates.ticking || !self.shown_create().is_some_and(|c| c.failed.is_none()) {
-            return;
-        }
-        self.creates.ticking = true;
-        cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor().timer(Duration::from_secs(1)).await;
-                let going = this.update(cx, |d, cx| {
-                    let handed = d.hand_off_creates();
-                    d.creates.ticking = d.shown_create().is_some_and(|c| c.failed.is_none());
-                    if d.creates.ticking || handed {
-                        cx.notify();
-                    }
-                    d.creates.ticking
-                });
-                if !going.unwrap_or(false) {
-                    break;
-                }
-            }
-        })
-        .detach();
-    }
-
-    pub(crate) fn retry_create(&mut self, request: &str, cx: &mut Context<Self>) {
-        let Some(spec) = self.creates.get(request).map(|c| c.again()) else { return };
-        let sent = self.send_create(spec.clone());
-        if let (Some(sent), Some(c)) = (sent, self.creates.get(request)) {
-            *c = Create::new(sent, c.path.clone(), spec, Instant::now());
-        }
-        cx.notify();
-    }
-
-    pub(crate) fn edit_create(&mut self, request: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(c) = self.creates.drop(request, &mut self.worktree) {
-            self.reopen_new_worktree(&c, window, cx);
-        }
-    }
-
-    pub(crate) fn creating_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        if self.hand_off_creates() {
-            window.request_animation_frame();
-        }
-        self.tick_create(cx);
-        let Some(c) = self.shown_create() else { return div() };
+impl Render for Creates {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let Some(c) = self.shown.as_deref().and_then(|r| self.list.iter().find(|c| c.request == r)) else { return div() };
         let now = Instant::now();
         let reduce = cx.reduce_motion();
         let mut moving = false;
@@ -453,8 +399,6 @@ impl Desktop {
             }
             None => el,
         };
-        let host = self.project_host_name(c.project());
-        let bar = self.page_bar(crate::spaces::crumbs(host, [self.repo_name(c.project()), c.name()]), Vec::new(), div(), cx);
         let mono = |s: String| div().font_family(MONO).text_color(TEXT_2).child(s);
         let title = div()
             .flex()
@@ -529,10 +473,10 @@ impl Desktop {
                 .when(!detail.is_empty(), |d| d.child(div().font_family(MONO).text_size(px(12.)).text_color(TEXT_2).child(detail)))
         });
         let r = c.request.clone();
-        let output = self.workspaces.get(&c.path).is_some_and(|w| w.tree.panes().iter().any(|p| !p.tabs.is_empty())).then(|| {
+        let output = self.has_terminal.then(|| {
             let r = r.clone();
             ui::link("create-output", "View output").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if let Some(c) = this.creates.get(&r) {
+                if let Some(c) = this.get(&r) {
                     c.output = true;
                 }
                 cx.notify();
@@ -544,19 +488,19 @@ impl Desktop {
                 .ml_auto()
                 .flex()
                 .gap(px(8.))
-                .child(ui::button("create-dismiss", ui::Variant::Ghost, None, "Dismiss").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.creates.drop(&dismiss, &mut this.worktree);
-                    cx.notify();
-                })))
+                .child(
+                    ui::button("create-dismiss", ui::Variant::Ghost, None, "Dismiss")
+                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(CreatesEvent::Dismiss(dismiss.clone())))),
+                )
                 .when(!c.made(), |d| {
                     d.child(
                         ui::button("create-edit", ui::Variant::Secondary, None, "Edit")
-                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.edit_create(&edit, window, cx))),
+                            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(CreatesEvent::Edit(edit.clone())))),
                     )
                 })
                 .child(
                     ui::button("create-retry", ui::Variant::Primary, None, "Try again")
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.retry_create(&retry, cx))),
+                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(CreatesEvent::Retry(retry.clone())))),
                 )
         });
         let footer = div().flex().items_center().min_h(px(32.)).children(output).children(actions);
@@ -569,7 +513,102 @@ impl Desktop {
             Some(t) => Rise { opacity: 1. - t, offset: -6. * t }.on(page),
             None => page,
         };
-        div().flex_1().flex().flex_col().child(bar).child(div().flex_1().flex().flex_col().items_center().justify_center().child(page))
+        div().flex_1().flex().flex_col().items_center().justify_center().child(page)
+    }
+}
+
+impl Desktop {
+    /// The create on screen, unless its worktree's terminal is.
+    pub(crate) fn shown_create<'a>(&self, cx: &'a App) -> Option<&'a Create> {
+        if self.terminals.link.is_down() || self.screen != Screen::Sessions {
+            return None;
+        }
+        self.creates.read(cx).shown(&self.place()?)
+    }
+
+    /// Hands finished creates to their chats; says whether any went.
+    pub(crate) fn hand_off_creates(&mut self, cx: &mut Context<Self>) -> bool {
+        let agents = &self.agents;
+        self.creates.update(cx, |c, _| c.hand_off(|a| agents.get(a).is_some(), Instant::now()))
+    }
+
+    /// `el`, rising into `agent`'s chat just opened from its create.
+    pub(crate) fn arriving(&self, agent: &str, part: Part, el: Div, window: &mut Window, cx: &App) -> Div {
+        match self.creates.read(cx).arriving(agent, part, Instant::now(), cx.reduce_motion()) {
+            Some(r) => {
+                window.request_animation_frame();
+                r.on(el)
+            }
+            None => el,
+        }
+    }
+
+    fn tick_create(&mut self, cx: &mut Context<Self>) {
+        if self.creates.read(cx).ticking || !self.shown_create(cx).is_some_and(|c| c.failed.is_none()) {
+            return;
+        }
+        self.creates.update(cx, |c, _| c.ticking = true);
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+                let going = this.update(cx, |d, cx| {
+                    let handed = d.hand_off_creates(cx);
+                    let ticking = d.shown_create(cx).is_some_and(|c| c.failed.is_none());
+                    d.creates.update(cx, |c, _| c.ticking = ticking);
+                    if ticking || handed {
+                        cx.notify();
+                    }
+                    ticking
+                });
+                if !going.unwrap_or(false) {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    pub(crate) fn on_creates_event(&mut self, _: &Entity<Creates>, ev: &CreatesEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            CreatesEvent::Retry(request) => self.retry_create(request, cx),
+            CreatesEvent::Edit(request) => self.edit_create(request, window, cx),
+            CreatesEvent::Dismiss(request) => {
+                self.creates.update(cx, |c, _| c.drop(request, &mut self.worktree));
+                cx.notify();
+            }
+        }
+    }
+
+    fn retry_create(&mut self, request: &str, cx: &mut Context<Self>) {
+        let Some(spec) = self.creates.read(cx).list.iter().find(|c| c.request == request).map(|c| c.again()) else { return };
+        if let Some(sent) = self.send_create(spec.clone()) {
+            self.creates.update(cx, |cs, _| {
+                if let Some(c) = cs.get(request) {
+                    *c = Create::new(sent, c.path.clone(), spec, Instant::now());
+                }
+            });
+        }
+        cx.notify();
+    }
+
+    fn edit_create(&mut self, request: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(c) = self.creates.update(cx, |cs, _| cs.drop(request, &mut self.worktree)) {
+            self.reopen_new_worktree(&c, window, cx);
+        }
+    }
+
+    pub(crate) fn creating_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        if self.hand_off_creates(cx) {
+            window.request_animation_frame();
+        }
+        self.tick_create(cx);
+        let Some(c) = self.shown_create(cx) else { return div() };
+        let (request, tree, project, name) = (c.request.clone(), c.path.clone(), c.project().to_string(), c.name());
+        let host = self.project_host_name(&project);
+        let bar = self.page_bar(crate::spaces::crumbs(host, [self.repo_name(&project), name]), Vec::new(), div(), cx);
+        let has_terminal = self.workspaces.get(&tree).is_some_and(|w| w.tree.panes().iter().any(|p| !p.tabs.is_empty()));
+        self.creates.update(cx, |c, _| c.show(request, has_terminal));
+        div().flex_1().flex().flex_col().child(bar).child(self.creates.clone())
     }
 }
 

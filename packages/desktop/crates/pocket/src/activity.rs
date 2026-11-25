@@ -6,25 +6,46 @@ mod motion;
 mod page;
 mod panel;
 pub(crate) mod recap;
+mod side;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
+use crate::git_ui::pull_requests::glyph as pr_glyph;
 use crate::status::{self, Status};
-use crate::util::first_line;
-use agents::Summary;
+use crate::util::{drawn_cards, first_line};
+use agents::{Decision, Summary};
 use git::github::PrState;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 pub(crate) use logic::Menu;
-use logic::{COLS, Escape, Filters, Grouped, Item, escape, marks_seen, opens_preview};
+use logic::{COLS, Escape, Filters, Grouped, Item, escape, marks_seen, opens_preview, values};
 use motion::Motion;
+use side::{Drawer, Extra, Side};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
 
-pub struct ActivityState {
+const OVERDRAW: f32 = 400.;
+const MIN_CARD_HEIGHT: f32 = 56.;
+
+pub(crate) enum ActivityEvent {
+    Changed,
+    OpenMenu(Menu),
+    CloseMenus,
+    Preview(String),
+    Open(String),
+    Reply { id: String, text: String },
+    Answer { request: String, decision: Decision },
+    AnswerQuestion { request: String, question: String, label: String },
+    Retry(String),
+    Seen(String),
+    CreatePr(String),
+    OpenPr { id: String, url: String },
+}
+
+pub struct Activity {
     pub(crate) previewed: Option<String>,
-    pub(crate) filters: Filters,
+    filters: Filters,
     pub(crate) menu: Option<Menu>,
     grouped: Grouped,
     lists: Vec<ListState>,
@@ -32,35 +53,112 @@ pub struct ActivityState {
     motion: Rc<RefCell<Motion>>,
     search: Entity<InputState>,
     reply: Entity<InputState>,
+    side: Side,
+    _subs: Vec<Subscription>,
 }
 
-impl ActivityState {
-    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+impl EventEmitter<ActivityEvent> for Activity {}
+
+impl Activity {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions"));
         let reply = cx.new(|cx| InputState::new(window, cx));
         let subs = vec![
-            cx.subscribe(&search, |this: &mut Desktop, s, _: &InputEvent, cx| {
-                this.activity.filters.query = s.read(cx).value().to_string();
-                this.activity_changed();
+            cx.subscribe(&search, |this, s, _: &InputEvent, cx| {
+                this.filters.query = s.read(cx).value().to_string();
+                cx.emit(ActivityEvent::Changed);
                 cx.notify();
             }),
-            cx.subscribe_in(&reply, window, |this: &mut Desktop, _, e: &InputEvent, window, cx| {
+            cx.subscribe_in(&reply, window, |this, _, e: &InputEvent, window, cx| {
                 if let InputEvent::PressEnter { .. } = e {
-                    this.reply_to_previewed(window, cx);
+                    this.send_reply(window, cx);
                 }
             }),
         ];
-        let state = Self {
+        Self {
             previewed: None,
             filters: Filters::default(),
             menu: None,
             grouped: Grouped::default(),
-            lists: COLS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(400.))).collect(),
+            lists: COLS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(OVERDRAW))).collect(),
             motion: Rc::default(),
             search,
             reply,
-        };
-        (state, subs)
+            side: Side::default(),
+            _subs: subs,
+        }
+    }
+
+    pub(crate) fn item(&self, id: &str) -> Option<&Item> {
+        self.grouped.item(id)
+    }
+
+    pub(crate) fn values(&self, menu: Menu) -> Vec<(String, usize)> {
+        values(&self.grouped.items, menu)
+    }
+
+    pub(crate) fn wanted(&self) -> Vec<&Item> {
+        let drawn = COLS.iter().flat_map(|&col| {
+            let list = &self.lists[col as usize];
+            let line = &self.grouped.columns[col as usize];
+            let range = drawn_cards(list.logical_scroll_top().item_ix, f32::from(list.viewport_bounds().size.height), OVERDRAW, MIN_CARD_HEIGHT, line.len());
+            line[range].iter().filter_map(|&i| self.grouped.items.get(i))
+        });
+        drawn.chain(self.previewed.as_deref().and_then(|id| self.grouped.item(id))).collect()
+    }
+
+    pub(crate) fn set(&mut self, side: Side) {
+        self.side = side;
+    }
+
+    pub(crate) fn open(&mut self) {
+        self.previewed = None;
+        self.motion.borrow_mut().clear();
+    }
+
+    pub(crate) fn leave(&mut self) {
+        self.previewed = None;
+    }
+
+    /// Picks `value` in `menu`, or lets go of it when it was picked.
+    pub(crate) fn pick(&mut self, menu: Menu, value: &str) {
+        self.filters.toggle(menu, value);
+    }
+
+    pub(crate) fn show(&mut self, menu: Menu, cx: &mut Context<Self>) {
+        self.menu = Some(menu);
+        cx.notify();
+    }
+
+    pub(crate) fn escape(&mut self, window: &Window, cx: &App) -> Escape {
+        let typing = self.search.focus_handle(cx).is_focused(window) || self.reply.focus_handle(cx).is_focused(window);
+        let esc = escape(typing, self.previewed.is_some());
+        if esc == Escape::ClosePreview {
+            self.previewed = None;
+        }
+        esc
+    }
+
+    pub(crate) fn preview(&mut self, id: &str, to: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.reply.update(cx, |s, cx| {
+            s.set_value("", window, cx);
+            s.set_placeholder(format!("Reply to {to}…"), window, cx);
+        });
+        self.previewed = Some(id.to_string());
+        cx.notify();
+    }
+
+    /// Sends what the drawer's reply field holds to the previewed session.
+    fn send_reply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.reply.read(cx).value().trim().to_string();
+        let Some(id) = self.previewed.clone().filter(|_| !text.is_empty()) else { return };
+        cx.emit(ActivityEvent::Reply { id, text });
+        self.reply.update(cx, |s, cx| s.set_value("", window, cx));
+    }
+
+    pub(crate) fn gather(&mut self, items: Vec<Item>) -> Option<String> {
+        self.regroup(items);
+        self.grouped.ended_in_view(self.previewed.as_deref())
     }
 
     fn regroup(&mut self, items: Vec<Item>) {
@@ -81,58 +179,70 @@ impl ActivityState {
 
 impl Desktop {
     pub(crate) fn open_activity(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         if self.overlay.is_some() {
             self.close_overlay(window, cx);
         }
-        self.activity.previewed = None;
-        // Where cards were drawn last time the page showed is no place to fly from.
-        self.activity.motion.borrow_mut().clear();
+        self.activity.update(cx, |a, _| a.open());
         self.screen = Screen::Activity;
-        self.activity_changed();
+        self.activity_changed(cx);
         window.focus(&self.root, cx);
         cx.notify();
     }
 
     pub(crate) fn leave_activity(&mut self, cx: &mut Context<Self>) {
-        self.activity.previewed = None;
+        self.activity.update(cx, |a, _| a.leave());
         self.screen = Screen::Sessions;
         cx.notify();
     }
 
-    /// Esc lets go of a focused search field first, then closes the preview, then leaves the page.
     pub(crate) fn escape_activity(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let typing = self.activity.search.focus_handle(cx).is_focused(window) || self.activity.reply.focus_handle(cx).is_focused(window);
-        match escape(typing, self.activity.previewed.is_some()) {
+        match self.activity.update(cx, |a, cx| a.escape(window, cx)) {
             Escape::LeaveSearch => window.focus(&self.root, cx),
-            Escape::ClosePreview => self.activity.previewed = None,
+            Escape::ClosePreview => {}
             Escape::LeavePage => self.leave_activity(cx),
         }
         cx.notify();
     }
 
+    pub(crate) fn on_activity_event(&mut self, _: &Entity<Activity>, ev: &ActivityEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            ActivityEvent::Changed => {
+                self.activity_changed(cx);
+                cx.notify();
+            }
+            ActivityEvent::OpenMenu(menu) => {
+                self.close_menus(cx);
+                self.activity.update(cx, |a, cx| a.show(*menu, cx));
+            }
+            ActivityEvent::CloseMenus => {
+                self.close_menus(cx);
+                cx.notify();
+            }
+            ActivityEvent::Preview(id) => self.preview_session(id, window, cx),
+            ActivityEvent::Open(id) => self.open_previewed(id, window, cx),
+            ActivityEvent::Reply { id, text } => {
+                self.outbox.prompt(id, text);
+                cx.notify();
+            }
+            ActivityEvent::Answer { request, decision } => self.answer_pending(request, *decision, cx),
+            ActivityEvent::AnswerQuestion { request, question, label } => self.answer_question(request, question, label, cx),
+            ActivityEvent::Retry(id) => self.retry_turn(id, cx),
+            ActivityEvent::Seen(id) => self.mark_seen(id, cx),
+            ActivityEvent::CreatePr(id) => self.create_pr_for(id, window, cx),
+            ActivityEvent::OpenPr { id, url } => self.open_pr_link(id, url.clone(), window, cx),
+        }
+    }
+
     pub(crate) fn preview_session(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if self.activity.previewed.as_deref() == Some(id) {
+        if self.activity.read(cx).previewed.as_deref() == Some(id) {
             return;
         }
         if marks_seen(self.agents.get(id).and_then(Status::of)) {
             self.outbox.seen(&[id.to_string()]);
         }
         let to = self.agents.get(id).map(|a| a.provider.clone()).unwrap_or_default();
-        self.activity.reply.update(cx, |s, cx| {
-            s.set_value("", window, cx);
-            s.set_placeholder(format!("Reply to {to}…"), window, cx);
-        });
-        self.activity.previewed = Some(id.to_string());
-        cx.notify();
-    }
-
-    /// Sends what the drawer's reply field holds to the previewed session.
-    fn reply_to_previewed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.activity.reply.read(cx).value().trim().to_string();
-        let Some(id) = self.activity.previewed.clone().filter(|_| !text.is_empty()) else { return };
-        self.outbox.prompt(&id, &text);
-        self.activity.reply.update(cx, |s, cx| s.set_value("", window, cx));
+        self.activity.update(cx, |a, cx| a.preview(id, &to, window, cx));
         cx.notify();
     }
 
@@ -179,30 +289,72 @@ impl Desktop {
     fn open_previewed(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.focus_agent(id, window, cx);
         if self.screen != Screen::Activity {
-            self.activity.previewed = None;
+            self.activity.update(cx, |a, _| a.leave());
         }
     }
 
     /// ↵ or ⌘↵ opens the previewed session, unless a field has the keyboard.
     pub(crate) fn activity_key(&mut self, key: &Keystroke, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let opens = opens_preview(&key.key, !key.modifiers.modified(), key.modifiers == Modifiers::command());
-        if self.screen != Screen::Activity || self.overlay.is_some() || self.activity.menu.is_some() || !self.root.is_focused(window) || !opens {
+        if self.screen != Screen::Activity || self.overlay.is_some() || self.activity.read(cx).menu.is_some() || !self.root.is_focused(window) || !opens {
             return false;
         }
-        let Some(id) = self.activity.previewed.clone() else { return false };
+        let Some(id) = self.activity.read(cx).previewed.clone() else { return false };
         self.open_previewed(&id, window, cx);
         true
     }
 
     /// Off the screen nothing reads the columns; opening it regroups.
-    pub(crate) fn activity_changed(&mut self) {
+    pub(crate) fn activity_changed(&mut self, cx: &mut Context<Self>) {
         if self.screen == Screen::Activity {
             let items = self.activity_items();
-            self.activity.regroup(items);
-            if let Some(id) = self.activity.grouped.ended_in_view(self.activity.previewed.as_deref()) {
+            if let Some(id) = self.activity.update(cx, |a, _| a.gather(items)) {
                 self.outbox.seen(&[id]);
             }
         }
+    }
+
+    pub(crate) fn activity_side(&self, cx: &App) -> Side {
+        let a = self.activity.read(cx);
+        let extras = a
+            .wanted()
+            .into_iter()
+            .map(|item| {
+                let tree = self.prs.get(&item.tree);
+                let repo = self.repos.get(&item.tree).filter(|r| !r.files.is_empty());
+                let ask = (item.col() == logic::Col::NeedsYou && !item.failed()).then(|| self.agents.pending.iter().find(|p| p.agent_id == item.id).cloned());
+                let extra = Extra {
+                    mark: self.project_mark(&item.project, item.project_name.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default()),
+                    pr: tree.map(|pr| (pr_glyph(pr), pr.number)),
+                    diff: repo.map(|r| r.totals()),
+                    ask: ask.flatten(),
+                    retry: item.failed() && self.activity_last_prompt(&item.id).is_some(),
+                };
+                (item.id.clone(), extra)
+            })
+            .collect();
+        let names = a
+            .menu
+            .into_iter()
+            .flat_map(|menu| a.values(menu).into_iter().map(move |(value, _)| (menu, value)))
+            .map(|(menu, value)| {
+                let name = match menu {
+                    Menu::Project => self.repo_name(&value),
+                    Menu::Agent => self.agent_name(&value),
+                };
+                (value, name)
+            })
+            .collect();
+        let drawer = a.previewed.as_deref().and_then(|id| a.item(id)).map(|item| Drawer {
+            recap: recap::recap(self.agents.timelines.get(&item.id).map_or(&[][..], Vec::as_slice)),
+            files: self
+                .repos
+                .get(&item.tree)
+                .filter(|r| !r.files.is_empty())
+                .map(|r| r.files.iter().take(side::FILES_SHOWN).map(|f| (f.path.clone(), f.added, f.removed)).collect()),
+            pr: self.prs.get(&item.tree).cloned(),
+        });
+        Side { extras, observe_only: self.agents.observe_only(), names, drawer }
     }
 
     /// Every session with a terminal, as the page shows it.

@@ -100,7 +100,7 @@ pub struct TicketDraft {
     pub labels: Vec<String>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Board {
     pub tickets: Vec<Ticket>,
     pub limit: usize,

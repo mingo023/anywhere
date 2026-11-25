@@ -15,6 +15,17 @@ pub const ALLOW: &str = "allow";
 pub const DENY: &str = "deny";
 const LINE_MAX: usize = 240;
 
+pub(crate) fn answer_row(scope: &str, id: &str) -> [(Stateful<Div>, Decision); 2] {
+    let button = |name: &str| SharedString::from(format!("{scope}-{name}-{id}"));
+    [
+        (ui::quick_button(button("deny"), None, "Deny"), Decision::Deny),
+        (
+            ui::quick_button(button("allow"), None, "Allow once").bg(theme::PRIMARY).text_color(theme::ON_PRIMARY).hover(|s| s.bg(theme::PRIMARY).opacity(0.9)),
+            Decision::Allow,
+        ),
+    ]
+}
+
 /// Whether `n` lets a banner show for an agent entering `status`.
 pub fn wants_banner(n: Notifications, status: Status) -> bool {
     n.banners
@@ -152,7 +163,7 @@ impl Desktop {
                 .detach();
             }
             cx.notify();
-            self.pair.lost();
+            self.pair.update(cx, |p, _| p.lost());
             self.outbox.local.providers();
         }
         if let (Event::Connected { .. }, Some(ids)) = (&ev, &self.alerts.viewing) {
@@ -182,7 +193,7 @@ impl Desktop {
             self.sweep_host_leftovers(cx);
         }
         if let Some(parent) = delegating {
-            self.delegated_changed(&parent, cx);
+            self.delegated_changed(&parent, window, cx);
             // A host's child may be listed before its delegation names its parent.
             self.remember_subtrees(cx);
         }
@@ -198,7 +209,7 @@ impl Desktop {
         for (agent, who) in listed.map(|before| gone(&before, &self.agents.list)).unwrap_or_default() {
             self.chat_closed(&agent, &who, window, cx);
         }
-        self.hand_off_creates();
+        self.hand_off_creates(cx);
         self.focus_arrived_chat(window, cx);
         self.refresh_chats();
         if let Some(term) = exited.filter(|t| self.workspaces.values().any(|w| w.holds_term(t))) {
@@ -215,15 +226,17 @@ impl Desktop {
         let agents = &self.agents;
         self.terminals.setups.retain(|term, _| !agents.list.iter().any(|a| &a.terminal_id == term));
         if self.screen == Screen::Inbox {
-            (self.inbox.selected, self.terminal.focused) = inbox::reselect(&self.shown_notes(), self.terminal.focused.as_deref(), self.inbox.selected);
+            let (selected, focused) = inbox::reselect(&self.shown_notes(cx), self.terminal.focused.as_deref(), self.inbox.read(cx).selected);
+            self.inbox.update(cx, |i, cx| i.select(selected, cx));
+            self.terminal.focused = focused;
         }
         if automations {
             self.automations_changed();
         }
         if board {
-            self.board_changed();
+            self.board_changed(cx);
         }
-        self.activity_changed();
+        self.activity_changed(cx);
         self.sync_alerts(cx);
         if !self.capturing {
             self.badge.show(&self.agents.list, self.store.notifications.badge);
@@ -341,31 +354,8 @@ impl Desktop {
         self.agents.pending.iter().find(|p| p.agent_id == agent).filter(|p| p.questions().is_empty() && !self.agents.observe_only())
     }
 
-    /// Deny and Allow once for a card's permission ask, with ids `{scope}-deny-{id}` and `{scope}-allow-{id}`.
-    pub(crate) fn answer_buttons(&self, scope: &str, id: &str, request: &str, cx: &mut Context<Self>) -> Vec<Stateful<Div>> {
-        let button = |name: &str| SharedString::from(format!("{scope}-{name}-{id}"));
-        let answer = |row: Stateful<Div>, decision: Decision, cx: &mut Context<Self>| {
-            let request = request.to_string();
-            row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                cx.stop_propagation();
-                this.answer_pending(&request, decision, cx);
-            }))
-        };
-        vec![
-            answer(ui::quick_button(button("deny"), None, "Deny"), Decision::Deny, cx),
-            answer(
-                ui::quick_button(button("allow"), None, "Allow once")
-                    .bg(theme::PRIMARY)
-                    .text_color(theme::ON_PRIMARY)
-                    .hover(|s| s.bg(theme::PRIMARY).opacity(0.9)),
-                Decision::Allow,
-                cx,
-            ),
-        ]
-    }
-
     /// Answers the ask the button was drawn for, never one that has replaced it since.
-    fn answer_pending(&mut self, request: &str, decision: Decision, cx: &mut Context<Self>) {
+    pub(crate) fn answer_pending(&mut self, request: &str, decision: Decision, cx: &mut Context<Self>) {
         if self.agents.pending.iter().any(|p| p.request_id == request) {
             self.outbox.resolve(request, decision);
         }

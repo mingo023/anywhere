@@ -1,8 +1,7 @@
-use super::Menu;
-use super::logic::{Action, Col, Field, Quick, Slot, Tone, column, note, opens, quick, ticket_key};
+use super::logic::{Action, Col, Field, Landing, Quick, Slot, Tone, action_field, column, landing, note, opens, quick, reorders_nothing};
 use super::parts::{label_dot, priority_glyph, prop_chip, status_glyph};
-use crate::desktop::Desktop;
-use crate::git_ui::pull_requests::glyph as pr_glyph;
+use super::{Board, BoardEvent, Menu, Message};
+use crate::desktop::alerts::answer_row;
 use agents::tickets::{ClosedWhy, Ticket};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -39,18 +38,10 @@ fn closed_label(why: ClosedWhy) -> &'static str {
     }
 }
 
-impl Desktop {
-    pub(super) fn ticket_key(&self, t: &Ticket) -> Option<String> {
-        ticket_key(&self.repo_name(&t.folder), t.number)
-    }
-
-    fn pending_ask(&self, t: &Ticket) -> Option<&agents::Permission> {
-        self.agents.pending.iter().find(|p| p.agent_id == t.agent_id)
-    }
-
+impl Board {
     pub(super) fn ticket_note(&self, t: &Ticket, slot: Slot) -> Option<(String, Token)> {
-        let activity = self.agents.get(&t.agent_id).map(|a| a.activity.as_str());
-        let (text, tone) = note(t, slot, activity, self.pending_ask(t).map(|p| p.ask()))?;
+        let extra = self.extra(t);
+        let (text, tone) = note(t, slot, extra.activity.as_deref(), extra.asking.clone())?;
         Some((
             text,
             match tone {
@@ -62,22 +53,41 @@ impl Desktop {
         ))
     }
 
+    pub(super) fn act(&mut self, action: Action, id: &str, cx: &mut Context<Self>) {
+        if let (Some(field), Some(Menu::Card { sub, .. })) = (action_field(action), self.menu.as_mut()) {
+            *sub = Some(field);
+            cx.notify();
+            return;
+        }
+        cx.emit(BoardEvent::Action { action, id: id.to_string() });
+    }
+
+    pub(super) fn drop_ticket(&mut self, id: &str, from: Col, to: Col, before: Option<&str>, cx: &mut Context<Self>) {
+        if reorders_nothing(from, to, self.order) {
+            return;
+        }
+        match landing(id, from, to, before) {
+            Some(Landing::Start) => cx.emit(BoardEvent::Send(Message::Start(id.to_string()))),
+            Some(Landing::Move { column, before }) => cx.emit(BoardEvent::Send(Message::Move { id: id.to_string(), to: column, before })),
+            None => {}
+        }
+        cx.notify();
+    }
+
     pub(super) fn ticket_labels(&self, t: &Ticket) -> Vec<Div> {
-        t.labels.iter().filter(|_| self.board.props.labels).map(|l| prop_chip().child(label_dot(l)).child(l.clone())).collect()
+        t.labels.iter().filter(|_| self.props.labels).map(|l| prop_chip().child(label_dot(l)).child(l.clone())).collect()
     }
 
     pub(super) fn open_card_menu(&mut self, id: &str, at: Point<Pixels>, sub: Option<Field>, cx: &mut Context<Self>) {
-        self.close_menus();
-        self.board.menu = Some(Menu::Card { id: id.to_string(), at, sub });
-        cx.notify();
+        cx.emit(BoardEvent::OpenMenu(Menu::Card { id: id.to_string(), at, sub }));
     }
 
     /// `row`, running `action` on ticket `id` without opening the ticket.
     fn quick_click(&self, row: Stateful<Div>, action: Action, id: &str, cx: &mut Context<Self>) -> Stateful<Div> {
         let id = id.to_string();
-        row.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+        row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             cx.stop_propagation();
-            this.run_action(action, &id, window, cx);
+            this.act(action, &id, cx);
         }))
     }
 
@@ -85,30 +95,35 @@ impl Desktop {
     pub(super) fn ticket_quick(&self, t: &Ticket, slot: Slot, cx: &mut Context<Self>) -> Option<Div> {
         let id = &t.id;
         let button = |name: &str| SharedString::from(format!("ticket-{name}-{id}"));
-        let has_pr = self.prs.get(&t.worktree).is_some();
-        let ask = self.card_ask(&t.agent_id);
-        let found = quick(t, slot.col, ask.is_some(), self.ticket_reach(t), has_pr)?;
-        let request = ask.map_or("", |p| p.request_id.as_str());
+        let extra = self.extra(t);
+        let found = quick(t, slot.col, extra.answer.is_some(), extra.reach, extra.pr.is_some())?;
+        let request = extra.answer.as_deref().unwrap_or_default();
         let buttons = match found {
             Quick::Start => vec![self.quick_click(quick_button(button("start"), Some("play"), "Start"), Action::Start, id, cx)],
             Quick::StartAgain => vec![self.quick_click(quick_button(button("again"), Some("reload"), "Start again"), Action::StartAgain, id, cx)],
             Quick::CreatePr => vec![self.quick_click(quick_button(button("pr"), Some("pull-request"), "Create PR"), Action::CreatePr, id, cx)],
-            Quick::Answer => self.answer_buttons("ticket", id, request, cx),
+            Quick::Answer => answer_row("ticket", id)
+                .into_iter()
+                .map(|(row, decision)| {
+                    let request = request.to_string();
+                    row.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        cx.emit(BoardEvent::Answer { request: request.clone(), decision });
+                    }))
+                })
+                .collect(),
         };
         Some(div().flex().flex_none().items_center().gap(px(4.)).children(buttons))
     }
 
     /// The pills for what the ticket has: its PR, its diff, how it closed.
     pub(super) fn ticket_pills(&self, t: &Ticket, slot: Slot) -> Vec<Div> {
-        let pr = self.prs.get(&t.worktree).map(|pr| {
-            let (name, color) = pr_glyph(pr);
-            let green = pr.checks.failed == 0 && pr.checks.pending == 0 && pr.checks.passed > 0;
-            pill().child(icon(name, 12., color)).child(format!("#{}", pr.number)).when(green, |d| d.child(icon("check", 11., SUCCESS)))
+        let extra = self.extra(t);
+        let pr = extra.pr.as_ref().map(|pr| {
+            let (name, color) = pr.glyph;
+            pill().child(icon(name, 12., color)).child(format!("#{}", pr.number)).when(pr.green, |d| d.child(icon("check", 11., SUCCESS)))
         });
-        let diff = self.repos.get(&t.worktree).filter(|r| !r.files.is_empty()).map(|r| {
-            let (added, removed) = r.totals();
-            pill().font_family(MONO).child(ui::meta_diff(added, removed, 11.))
-        });
+        let diff = extra.diff.map(|(added, removed)| pill().font_family(MONO).child(ui::meta_diff(added, removed, 11.)));
         let closed = (slot.col == Col::Closed).then(|| pill().child(closed_label(t.closed_why)));
         [pr, diff, closed].into_iter().flatten().collect()
     }
@@ -126,11 +141,9 @@ impl Desktop {
             .cursor_pointer()
             .hover(|s| s.bg(FILL_3))
             .child(status_glyph(slot.col, t.status))
-            .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
+            .on_click(cx.listener(move |_, e: &ClickEvent, _, cx| {
                 cx.stop_propagation();
-                this.close_menus();
-                this.board.menu = Some(Menu::Status { id: id.clone(), at: e.position() });
-                cx.notify();
+                cx.emit(BoardEvent::OpenMenu(Menu::Status { id: id.clone(), at: e.position() }));
             }))
             .into_any_element()
     }
@@ -156,7 +169,7 @@ impl Desktop {
     }
 
     fn ticket_body(&self, t: &Ticket, slot: Slot, cx: &mut Context<Self>) -> Div {
-        let props = self.board.props;
+        let props = self.props;
         let title = div()
             .min_w_0()
             .flex_1()
@@ -172,7 +185,7 @@ impl Desktop {
             .min_h(px(20.))
             .text_size(px(12.))
             .text_color(TEXT_3)
-            .children(self.ticket_key(t).filter(|_| props.id))
+            .children(self.extra(t).key.clone().filter(|_| props.id))
             .child(div().flex_1())
             .children(props.agent.then(|| agent_avatar(SharedString::from(format!("ticket-agent-{}", t.id)), &t.provider, self.agent_name(&t.provider))));
         let head = div()
@@ -202,26 +215,29 @@ impl Desktop {
     /// `row` as a ticket: opens it on click and offers its menu on right click.
     pub(super) fn ticket_shell(&self, row: Stateful<Div>, t: &Ticket, cx: &mut Context<Self>) -> Stateful<Div> {
         let (id, menu_id, hover_id) = (t.id.clone(), t.id.clone(), t.id.clone());
-        let cursor_at = self.board.selection.cursor_at.clone();
-        let marks_cursor = self.board.selection.cursor.as_ref() == Some(&t.id);
+        let cursor_at = self.selection.cursor_at.clone();
+        let marks_cursor = self.selection.cursor.as_ref() == Some(&t.id);
         let mark = marks_cursor.then(|| canvas(move |b, _, _| cursor_at.set(b.bottom_left()), |_, _, _, _| {}).absolute().inset_0());
         let row = row.relative().children(mark).on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-            if *hovered && this.board.selection.cursor.as_ref() != Some(&hover_id) {
-                this.board.selection.cursor = Some(hover_id.clone());
+            if *hovered && this.selection.cursor.as_ref() != Some(&hover_id) {
+                this.selection.cursor = Some(hover_id.clone());
                 cx.notify();
             }
         }));
-        row.when(opens(t, self.ticket_reach(t)).is_some(), |d| {
-            d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_ticket(&id, window, cx)))
+        row.when(opens(t, self.extra(t).reach).is_some(), |d| {
+            d.cursor_pointer().on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(BoardEvent::Open(id.clone()))))
         })
         .on_mouse_down(MouseButton::Right, cx.listener(move |this, e: &MouseDownEvent, _, cx| this.open_card_menu(&menu_id, e.position, None, cx)))
     }
 
-    pub(super) fn ticket_card(&self, slot: Slot, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn ticket_card(&self, slot: Slot, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let Some(t) = self.shown_ticket(slot.col, slot.index) else { return div().into_any_element() };
+        if !self.has_extra(t, window) {
+            return div().into_any_element();
+        }
         let col = slot.col;
-        let (picked, at_cursor) = (self.board.selection.picked.contains(&t.id), self.board.selection.cursor.as_ref() == Some(&t.id));
-        let hoverable = opens(t, self.ticket_reach(t)).is_some() && !picked;
+        let (picked, at_cursor) = (self.selection.picked.contains(&t.id), self.selection.cursor.as_ref() == Some(&t.id));
+        let hoverable = opens(t, self.extra(t).reach).is_some() && !picked;
         let card = ui::card(SharedString::from(format!("ticket-{}", t.id)))
             .when(col.finished(), |d| d.opacity(0.6))
             .when(at_cursor, |d| d.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)]))

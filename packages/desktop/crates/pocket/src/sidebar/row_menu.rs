@@ -83,7 +83,7 @@ fn fork_spec(s: &Summary, project: &str, prefs: &Agents, live: &agents::Agents, 
 impl Desktop {
     pub(super) fn open_row_menu(menu: RowMenu, cx: &mut Context<Self>) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static {
         cx.listener(move |this, e: &MouseDownEvent, _, cx| {
-            this.close_menus();
+            this.close_menus(cx);
             this.row_menu = Some(menu.clone());
             this.sidebar.menu_at = Some(e.position);
             cx.notify();
@@ -376,7 +376,7 @@ impl Desktop {
             RowMenu::Session(id) => {
                 let Some(s) = self.agents.get(&id) else { return vec![] };
                 let mut rows = vec![];
-                let handoff = self.can_hand_off(s).then(|| self.handoff.moving(&id));
+                let handoff = self.can_hand_off(s).then(|| self.handoff.read(cx).moving(&id));
                 for item in session_items(s, self.agents.observe_only(), &self.store.agents, self.agents.fork_offered(), handoff) {
                     let row = match item {
                         SessionItem::Pin(pin) => {

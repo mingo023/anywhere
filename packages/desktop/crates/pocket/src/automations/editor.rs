@@ -106,7 +106,7 @@ impl Form {
 impl Desktop {
     /// Opens the editor on automation `id`, or on a new one.
     pub(crate) fn edit_automation(&mut self, id: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         let existing = id.and_then(|id| self.agents.automations.items.iter().find(|a| a.id == id));
         let folder = self
             .project
@@ -157,7 +157,7 @@ impl Desktop {
         let pick = f.pick();
         (f.v.folder, f.v.base) = (folder.clone(), String::new());
         f.composer.draft.choose(project_key(&folder), pick);
-        self.close_menus();
+        self.close_menus(cx);
         self.load_branches(folder, cx);
         cx.notify();
     }
@@ -173,7 +173,7 @@ impl Desktop {
     }
 
     fn close_editor(&mut self, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         self.automations.form.open = false;
         cx.notify();
     }
@@ -336,7 +336,7 @@ impl Desktop {
                 access_row(("editor-checkout-row", i), on == worktree, Some(glyph), label, hint, TEXT).on_click(cx.listener(
                     move |this, _: &ClickEvent, _, cx| {
                         this.automations.form.v.new_worktree = on;
-                        this.close_menus();
+                        this.close_menus(cx);
                         cx.notify();
                     },
                 ))
@@ -396,7 +396,7 @@ impl Desktop {
                 )
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.automations.form.v.base = branch.clone();
-                    this.close_menus();
+                    this.close_menus(cx);
                     cx.notify();
                 }));
                 rows.push(row.into_any_element());

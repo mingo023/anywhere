@@ -88,7 +88,6 @@ impl Desktop {
         }
         self.store.layout = self.layout;
         self.store.widths = ColumnWidths { projects: self.widths[0], sessions: self.widths[1] };
-        self.store.graph_share = self.graph.share;
         self.remember_layouts();
         self.store.encode()
     }

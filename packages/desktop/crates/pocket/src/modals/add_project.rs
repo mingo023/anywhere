@@ -277,7 +277,7 @@ impl Desktop {
     }
 
     pub(crate) fn edit_project(&mut self, project: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         self.overlay = Some(Overlay::AddRepo);
         self.reset_repo_form(project, window, cx);
         cx.notify();
@@ -285,7 +285,7 @@ impl Desktop {
 
     /// Adds the folder picked in Finder as a project, with the settings it had if it was one before.
     pub(crate) fn add_local_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         self.pick_path(true, window, cx, |d, paths, window, cx| {
             let Some(path) = paths.into_iter().next().map(|p| p.to_string_lossy().into_owned()) else { return };
             let cfg = d.new_repo_config(&path);

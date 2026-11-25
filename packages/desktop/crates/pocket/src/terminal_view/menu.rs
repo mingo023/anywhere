@@ -53,7 +53,7 @@ fn group(item: Item) -> u8 {
 
 impl Desktop {
     pub(crate) fn open_term_menu(&mut self, pane: &str, at: Point<Pixels>, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         self.terminal.menu = Some((pane.to_string(), at));
         cx.notify();
     }

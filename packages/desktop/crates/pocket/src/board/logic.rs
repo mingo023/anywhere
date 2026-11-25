@@ -1,6 +1,7 @@
 use agents::tickets::{ClosedWhy, State, Status, Ticket};
 use std::cmp::Reverse;
 use std::collections::HashSet;
+use std::ops::Range;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Col {
@@ -536,6 +537,11 @@ pub(crate) fn rows(columns: &Columns, tab: Tab, show_closed: bool, folded: &[boo
     out
 }
 
+/// The tickets, by index into the snapshot, that `range` of the list's rows shows.
+pub(crate) fn drawn_rows(rows: &[Row], range: Range<usize>) -> Vec<usize> {
+    rows[range].iter().filter_map(|r| if let Row::Ticket(slot) = r { Some(slot.index) } else { None }).collect()
+}
+
 /// A queued ticket's place in line, from 0.
 pub(crate) fn in_line(pos: usize) -> String {
     let n = pos + 1;
@@ -927,6 +933,15 @@ mod tests {
         assert_eq!(stuck_head(&rows, 1, false), Some(Col::Todo));
         assert_eq!(stuck_head(&rows, 2, false), None);
         assert_eq!(stuck_head(&rows, 3, false), Some(Col::Done));
+    }
+
+    #[test]
+    fn a_list_builds_the_tickets_of_the_rows_near_it_and_skips_the_heads() {
+        let at = |col, index| Row::Ticket(Slot { col, pos: index, index: index + 10 });
+        let rows = [Row::Head(Col::Todo), at(Col::Todo, 0), at(Col::Todo, 1), Row::Head(Col::Done), at(Col::Done, 2)];
+        assert_eq!(drawn_rows(&rows, 0..5), [10, 11, 12]);
+        assert_eq!(drawn_rows(&rows, 2..4), [11]);
+        assert_eq!(drawn_rows(&rows, 5..5), Vec::<usize>::new());
     }
 
     #[test]

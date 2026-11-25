@@ -240,7 +240,7 @@ impl Desktop {
     }
 
     fn star_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let thanked = self.star.thanked;
+        let thanked = self.star.read(cx).thanked;
         let label = div()
             .flex()
             .items_center()

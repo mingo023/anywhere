@@ -131,7 +131,7 @@ pub(crate) fn head(t: &Tree<Tab>, pane: PaneId) -> Head {
 
 impl Desktop {
     /// Points keys at the focused pane's terminal, and forgets what closed panes held.
-    pub(crate) fn sync_panels(&mut self) {
+    pub(crate) fn sync_panels(&mut self, cx: &App) {
         let Some(tree) = self.session_tree() else {
             self.panels.drag = None;
             return;
@@ -160,7 +160,7 @@ impl Desktop {
             self.panels.menu = None;
         }
         // Only the held tab's strip ends a hold, so one whose strip isn't drawn would never end.
-        if self.shown_create().is_some() || self.panels.drag.as_ref().is_some_and(|(p, _)| !drawn.contains(p)) {
+        if self.shown_create(cx).is_some() || self.panels.drag.as_ref().is_some_and(|(p, _)| !drawn.contains(p)) {
             self.panels.drag = None;
         }
         if self.panels.drag.is_none() {

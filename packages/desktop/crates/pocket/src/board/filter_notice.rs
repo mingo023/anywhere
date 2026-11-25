@@ -1,13 +1,13 @@
+use super::Board;
 use super::parts::bar_button;
-use crate::desktop::Desktop;
 use crate::util::plural;
 use gpui_kit::*;
 use theme::*;
 use ui::Variant;
 
-impl Desktop {
+impl Board {
     pub(super) fn filter_notice(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let n = self.board.hidden;
+        let n = self.hidden;
         (n > 0).then(|| {
             let clear = div()
                 .id("board-clear-filters")
@@ -19,7 +19,7 @@ impl Desktop {
                 .text_color(TEXT)
                 .child("Clear filters")
                 .child(icon("x", 11., TEXT_3))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clear_board_filters(window, cx)));
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clear_filters(window, cx)));
             let bar = ui::pop(div())
                 .h(px(32.))
                 .px(px(12.))
@@ -39,10 +39,10 @@ impl Desktop {
     pub(super) fn filtered_out(&self, cx: &mut Context<Self>) -> Div {
         let clear = bar_button("board-filtered-clear", Variant::Ghost, None, "Clear filters")
             .child(icon("x", 11., TEXT_3))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clear_board_filters(window, cx)));
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clear_filters(window, cx)));
         let drawing = svg().path("icons/stacked-tickets.svg").w(px(88.)).h(px(72.)).text_color(TEXT_4);
         let heading = div().mt(px(18.)).text_size(px(15.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).child("No tickets match these filters");
-        let count = div().child(format!("{} hidden by filters", plural(self.board.hidden, "ticket", "tickets")));
+        let count = div().child(format!("{} hidden by filters", plural(self.hidden, "ticket", "tickets")));
         let hidden = div()
             .mt(px(16.))
             .h(px(40.))

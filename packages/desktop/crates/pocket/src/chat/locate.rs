@@ -64,7 +64,7 @@ impl Desktop {
                 [] => d.open_doc(Doc::File(path), false, cx),
                 [one] => d.open_doc(Doc::File(one.clone()), false, cx),
                 _ => {
-                    d.close_menus();
+                    d.close_menus(cx);
                     d.chats.files = Some((agent, at, found));
                     cx.notify();
                 }

@@ -47,12 +47,16 @@ pub(super) const ROWS: &[Setting] = &[
         |s, i| s.diff.all_branches = i == 1,
     )
     .effect(|d, cx| {
-        d.graph.all_branches = d.store.diff.all_branches;
+        let all = d.store.diff.all_branches;
+        d.graph.update(cx, |g, _| g.all_branches = all);
         d.refresh_graph(cx);
     }),
-    Setting::stepper("graph-page", "Graph", "Commits per page", (20, 500, 10), "", |s| s.diff.page as i32, |s, n| s.diff.page = n as usize)
-        .advanced()
-        .effect(|d, _| d.graph.page = d.store.diff.page),
+    Setting::stepper("graph-page", "Graph", "Commits per page", (20, 500, 10), "", |s| s.diff.page as i32, |s, n| s.diff.page = n as usize).advanced().effect(
+        |d, cx| {
+            let page = d.store.diff.page;
+            d.graph.update(cx, |g, _| g.page = page);
+        },
+    ),
 ];
 
 /// The sample diff as the settings show it; a header that hides no lines is left out.

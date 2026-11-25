@@ -107,7 +107,8 @@ impl Desktop {
     fn picked_entries(&self, cx: &App) -> Vec<Entry> {
         let trees = |p: &str| {
             let locals = self.agents.locals_in(p).map(|l| l.id.clone());
-            let worktrees = self.listed_trees(p).map(|w| self.creates.trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main).map(|w| w.path);
+            let worktrees =
+                self.listed_trees(p).map(|w| self.creates.read(cx).trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main).map(|w| w.path);
             locals.chain(worktrees).map(|t| (t.clone(), tree_texts(&t, self.agents.given_name(&t)))).collect()
         };
         let search_texts = |p: &str| project_texts(&self.repo_name(p), self.tree_of(p).as_deref().and_then(|t| self.agents.given_name(t)));
@@ -116,7 +117,7 @@ impl Desktop {
 
     pub(crate) fn toggle_project_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let open = !self.sidebar.picker.open;
-        self.close_menus();
+        self.close_menus(cx);
         self.sidebar.picker.open = open;
         if open {
             self.sidebar.picker.highlight = 0;
@@ -131,7 +132,7 @@ impl Desktop {
     fn pick(&mut self, e: Entry, cx: &mut Context<Self>) {
         self.sidebar.picker.open = false;
         if let Some(tree) = &e.tree {
-            self.creates.show_progress(tree);
+            self.creates.update(cx, |c, _| c.show_progress(tree));
         }
         self.select_tree(e.project, e.tree, cx);
     }

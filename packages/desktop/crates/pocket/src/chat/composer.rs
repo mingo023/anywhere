@@ -446,9 +446,9 @@ impl Desktop {
         }
     }
 
-    fn chat_mode(&self, terminal: &str) -> Mode {
+    fn chat_mode(&self, terminal: &str, cx: &App) -> Mode {
         // A prompt sent once a handoff began would miss the code and conversation the host gets.
-        if self.summary(terminal).is_some_and(|a| self.handoff_mark(&a.id).is_some()) {
+        if self.summary(terminal).is_some_and(|a| self.handoff_mark(&a.id, cx).is_some()) {
             return Mode::ViewOnly;
         }
         composer_mode(self.agents.observe_only(), self.chat_ask(terminal).as_ref().map(|(a, _)| a))
@@ -457,10 +457,10 @@ impl Desktop {
     /// Text typed while nothing holds the keys goes to the focused pane's chat, as in Discord. Returns whether it did.
     pub(crate) fn type_into_chat(&mut self, key: &Keystroke, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(text) = typed_text(key) else { return false };
-        if !self.keys_free(window) || !self.panes_on_screen() {
+        if !self.keys_free(window) || !self.panes_on_screen(cx) {
             return false;
         }
-        let Some(t) = self.focused_chat().filter(|t| self.chat_mode(t) == Mode::Prompt) else { return false };
+        let Some(t) = self.focused_chat().filter(|t| self.chat_mode(t, cx) == Mode::Prompt) else { return false };
         let Some(agent) = self.summary(&t).map(|a| a.id.clone()) else { return false };
         self.chat_focus_input(&agent, window, cx);
         self.chats.input.update(cx, |s, cx| s.replace_text_in_range(None, &text, window, cx));
@@ -478,8 +478,8 @@ impl Desktop {
         if self.chats.input.read(cx).focus_handle(cx).is_focused(window) {
             return;
         }
-        let mode = self.chat_mode(&t);
-        if self.keys_free(window) && self.panes_on_screen() && mode == Mode::Prompt {
+        let mode = self.chat_mode(&t, cx);
+        if self.keys_free(window) && self.panes_on_screen(cx) && mode == Mode::Prompt {
             return;
         }
         let c = &self.chats.composer;
@@ -490,7 +490,7 @@ impl Desktop {
             ("answer", c.answer.read(cx).focus_handle(cx)),
             ("map", self.chats.map.focus.clone()),
             ("browser", self.browsers.focus.clone()),
-            ("inbox", self.inbox.focus.clone()),
+            ("inbox", self.inbox.read(cx).focus.clone()),
             ("sidebar-filter", self.sidebar.filter.input.read(cx).focus_handle(cx)),
         ];
         let focus = match window.focused(cx) {
@@ -524,7 +524,7 @@ impl Desktop {
             window.is_window_active(),
             self.screen,
             self.session_tree().is_some(),
-            self.shown_create().is_some(),
+            self.shown_create(cx).is_some(),
             self.overlay.is_some(),
             c.replying.is_some(),
         );
@@ -537,7 +537,7 @@ impl Desktop {
     /// While the agent works a send goes into the running turn, as the CLI's does; behind a stop, or to `queue`, it waits for the turn to end.
     fn chat_send(&mut self, terminal: &str, queue: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(a) = self.summary(terminal) else { return };
-        if self.chat_mode(terminal) != Mode::Prompt {
+        if self.chat_mode(terminal, cx) != Mode::Prompt {
             return;
         }
         let (busy, caps) = (self.chat_busy(a), self.chat_caps(&a.provider));
@@ -754,8 +754,8 @@ impl Desktop {
         let Some(agent) = self.summary(terminal) else { return div() };
         let dock = div().flex_none().flex().justify_center().px(px(32.)).pb(px(16.));
         let ask = self.chat_ask(terminal);
-        let mark = self.handoff_mark(&agent.id);
-        let mode = self.chat_mode(terminal);
+        let mark = self.handoff_mark(&agent.id, cx);
+        let mode = self.chat_mode(terminal, cx);
         let c = &self.chats.composer;
         let input = self.chats.input.read(cx).focus_handle(cx);
         let handoff = match mode {

@@ -45,7 +45,7 @@ fn menu_frame(id: &'static str, width: f32, cx: &mut Context<Desktop>) -> Statef
 }
 
 /// A machine's menu row: its link's dot, and why it can't be picked while it can't be reached.
-fn machine_row(id: impl Into<ElementId>, space: &Space, glyph: &str, name: &str, link: Option<&Link>, reach: Reach, chosen: bool) -> Stateful<Div> {
+pub(crate) fn machine_row(id: impl Into<ElementId>, space: &Space, glyph: &str, name: &str, link: Option<&Link>, reach: Reach, chosen: bool) -> Stateful<Div> {
     let unusable = reach != Reach::Online;
     let note = match reach {
         Reach::Online => "",

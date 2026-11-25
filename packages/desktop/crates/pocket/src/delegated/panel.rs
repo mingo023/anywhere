@@ -1,9 +1,7 @@
-use super::DelegatedState;
-use super::shown;
+use super::{Slot, shown};
 use crate::chat::sub_agent::{self, Mark};
 use crate::chat::user_bubble::text_lines;
 use crate::desktop::{Desktop, ReduceTransparency};
-use crate::fleet::Hosts;
 use crate::glide::Glide;
 use crate::util::now_ms;
 use agents::delegations::{Counts, Delegation, Headline, Phase};
@@ -117,6 +115,18 @@ impl Panel {
 
     fn leave(&mut self) {
         (self.leaving, self.collapse) = (true, None);
+    }
+
+    /// Returns whether to start the timer that shuts it.
+    fn changed(&mut self, c: Counts) -> bool {
+        match self.watch.observe(c) {
+            Act::Open => {
+                (self.open, self.leaving, self.collapse) = (true, false, None);
+                false
+            }
+            Act::CollapseSoon => true,
+            Act::Nothing => false,
+        }
     }
 
     fn gone(&self, moving: bool) -> bool {
@@ -238,127 +248,175 @@ fn glyph(id: &str, p: Phase) -> AnyElement {
     }
 }
 
-impl DelegatedState {
-    /// Takes what a chat's delegations are now: opens its panel for news, or has it shut soon after the last ends.
-    /// Returns whether to start the timer that shuts it.
-    fn changed(&mut self, parent: &str, c: Counts) -> bool {
-        let panel = self.panels.entry(parent.to_string()).or_insert_with(Panel::new);
-        match panel.watch.observe(c) {
-            Act::Open => {
-                (panel.open, panel.leaving, panel.collapse) = (true, false, None);
-                false
-            }
-            Act::CollapseSoon => true,
-            Act::Nothing => false,
-        }
-    }
+pub(super) struct Entry {
+    delegation: Delegation,
+    down: Option<String>,
 }
 
-impl Desktop {
-    pub(crate) fn delegated_changed(&mut self, parent: &str, cx: &mut Context<Self>) {
-        let counts = Counts::of(shown(self.agents.delegations.of(parent), &self.delegated.cleared));
-        if !self.delegated.changed(parent, counts) {
-            return cx.notify();
+pub(crate) enum PanelEvent {
+    Open(String),
+    Gone,
+}
+
+pub(crate) struct PanelView {
+    panel: Panel,
+    entries: Vec<Entry>,
+    capturing: bool,
+}
+
+impl EventEmitter<PanelEvent> for PanelView {}
+
+impl PanelView {
+    pub(super) fn new() -> Self {
+        Self { panel: Panel::new(), entries: Vec::new(), capturing: false }
+    }
+
+    pub(super) fn set<'a>(&mut self, list: impl Iterator<Item = (&'a Delegation, Option<String>)> + Clone, capturing: bool) {
+        self.capturing = capturing;
+        let same =
+            self.entries.len() == list.clone().count() && self.entries.iter().zip(list.clone()).all(|(e, (d, down))| e.delegation == *d && e.down == down);
+        if !same {
+            self.entries = list.map(|(d, down)| Entry { delegation: d.clone(), down }).collect();
         }
-        let id = parent.to_string();
-        let timer = cx.spawn(async move |this, cx| {
+    }
+
+    pub(super) fn changed(&mut self, c: Counts, cx: &mut Context<Self>) {
+        if !self.panel.changed(c) {
+            return;
+        }
+        self.panel.collapse = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(COLLAPSE_AFTER).await;
-            this.update(cx, |d, cx| {
-                if let Some(p) = d.delegated.panels.get_mut(&id) {
-                    p.open = false;
-                }
+            this.update(cx, |v, cx| {
+                v.panel.open = false;
                 cx.notify();
             })
             .ok();
-        });
-        if let Some(p) = self.delegated.panels.get_mut(parent) {
-            p.collapse = Some(timer);
-        }
-        cx.notify();
+        }));
     }
 
-    pub(crate) fn delegated_scrolled(&mut self, parent: &str, away: bool, cx: &mut Context<Self>) {
-        if self.delegated.panels.get_mut(parent).is_some_and(|p| p.scrolled(away)) {
+    pub(super) fn scrolled(&mut self, away: bool, cx: &mut Context<Self>) {
+        if self.panel.scrolled(away) {
             cx.notify();
         }
     }
 
-    fn delegated_pressed_outside(&mut self, parent: &str, cx: &mut Context<Self>) {
-        if self.delegated.panels.get_mut(parent).is_some_and(Panel::pressed_outside) {
+    pub(super) fn set_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        (self.panel.open, self.panel.collapse) = (open, None);
+        cx.notify();
+    }
+
+    fn pressed_outside(&mut self, cx: &mut Context<Self>) {
+        if self.panel.pressed_outside() {
             cx.notify();
         }
     }
 
-    pub(crate) fn delegated_set_open(&mut self, parent: &str, open: bool, cx: &mut Context<Self>) {
-        if let Some(p) = self.delegated.panels.get_mut(parent) {
-            (p.open, p.collapse) = (open, None);
-        }
+    fn clear(&mut self, cx: &mut Context<Self>) {
+        self.panel.leave();
         cx.notify();
     }
+}
 
-    fn delegated_clear(&mut self, parent: &str, cx: &mut Context<Self>) {
-        if let Some(p) = self.delegated.panels.get_mut(parent) {
-            p.leave();
-        }
-        cx.notify();
-    }
-
-    pub(crate) fn delegated_panel(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<Div> {
-        shown(self.agents.delegations.of(agent), &self.delegated.cleared).next()?;
+impl Render for PanelView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let reduce_transparency = cx.try_global::<ReduceTransparency>().is_some_and(|r| r.0);
         let still = still(cx.reduce_motion(), self.capturing);
-        let panel = self.delegated.panels.entry(agent.to_string()).or_insert_with(Panel::new);
-        let moving = panel.step(Instant::now(), still);
-        if panel.gone(moving) {
-            self.delegated.clear_settled(self.agents.delegations.of(agent));
-            self.delegated.panels.remove(agent);
-            return None;
+        let moving = self.panel.step(Instant::now(), still);
+        if self.panel.gone(moving) {
+            cx.emit(PanelEvent::Gone);
+            return div().absolute();
         }
         if moving {
             window.request_animation_frame();
         }
-        let list = shown(self.agents.delegations.of(agent), &self.delegated.cleared);
+        let list = self.entries.iter().map(|e| &e.delegation);
         let counts = Counts::of(list.clone());
         let settled = counts.settled();
-        let panel = &self.delegated.panels[agent];
-        let (spread, appeared) = (panel.spread.at().clamp(0., 1.), panel.shown.at().clamp(0., 1.));
+        let (spread, appeared) = (self.panel.spread.at().clamp(0., 1.), self.panel.shown.at().clamp(0., 1.));
         let summary = headline(&counts);
         let logos = logos(list.clone());
         let cap_w = capsule_width(logos.len(), &summary);
         let full_h = if spread > 0. { full_height(list.clone(), |d| text_lines(&d.question, QUESTION_SIZE, QUESTION_W, window)) } else { 0. };
         let scale = lerp(ENTER_SCALE, 1., appeared);
-        let parent = agent.to_string();
-        let capsule =
-            (capsule_opacity(spread) > 0.).then(|| capsule(&parent, list.clone(), &counts, logos, summary, spread < 0.5, cx).opacity(capsule_opacity(spread)));
-        let full =
-            (list_opacity(spread) > 0.).then(|| full(&parent, list, counts.total, settled, spread >= 0.5, &self.fleet.hosts, cx).opacity(list_opacity(spread)));
+        let capsule = (capsule_opacity(spread) > 0.).then(|| capsule(list, &counts, logos, summary, spread < 0.5, cx).opacity(capsule_opacity(spread)));
+        let full = (list_opacity(spread) > 0.).then(|| full(&self.entries, counts.total, settled, spread >= 0.5, cx).opacity(list_opacity(spread)));
         let material = material(reduce_transparency, cfg!(target_os = "macos"));
-        let open = self.delegated.panels[agent].open;
-        Some(
-            div().absolute().top(px(TOP)).right(px(16.)).child(
-                shell(material)
-                    .relative()
-                    .overflow_hidden()
-                    .opacity(appeared)
-                    .w(px(lerp(cap_w, FULL_W, spread) * scale))
-                    .h(px(lerp(CAPSULE_H, full_h, spread) * scale))
-                    .rounded(px(lerp(CAPSULE_H / 2., 15., spread) * scale))
-                    .when(open, |d| d.on_mouse_down_out(cx.listener(move |this, _: &MouseDownEvent, _, cx| this.delegated_pressed_outside(&parent, cx))))
-                    .children(capsule)
-                    .children(full),
-            ),
+        div().absolute().top(px(TOP)).right(px(16.)).child(
+            shell(material)
+                .relative()
+                .overflow_hidden()
+                .opacity(appeared)
+                .w(px(lerp(cap_w, FULL_W, spread) * scale))
+                .h(px(lerp(CAPSULE_H, full_h, spread) * scale))
+                .rounded(px(lerp(CAPSULE_H / 2., 15., spread) * scale))
+                .when(self.panel.open, |d| d.on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| this.pressed_outside(cx))))
+                .children(capsule)
+                .children(full),
         )
     }
 }
 
+impl Desktop {
+    fn delegated_view(&mut self, parent: &str, window: &mut Window, cx: &mut Context<Self>) -> Entity<PanelView> {
+        if let Some(slot) = self.delegated.panels.get(parent) {
+            return slot.view.clone();
+        }
+        let view = cx.new(|_| PanelView::new());
+        let id = parent.to_string();
+        let sub = cx.subscribe_in(&view, window, move |this, _, ev, window, cx| this.on_delegated_panel(&id, ev, window, cx));
+        self.delegated.panels.insert(parent.to_string(), Slot { view: view.clone(), _sub: sub });
+        view
+    }
+
+    fn on_delegated_panel(&mut self, parent: &str, ev: &PanelEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            PanelEvent::Open(agent) => self.delegated_open(agent, window, cx),
+            PanelEvent::Gone => {
+                self.delegated.clear_settled(self.agents.delegations.of(parent));
+                self.delegated.panels.remove(parent);
+                cx.notify();
+            }
+        }
+    }
+
+    pub(crate) fn delegated_changed(&mut self, parent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let counts = Counts::of(shown(self.agents.delegations.of(parent), &self.delegated.cleared));
+        let view = self.delegated_view(parent, window, cx);
+        view.update(cx, |v, cx| v.changed(counts, cx));
+        cx.notify();
+    }
+
+    pub(crate) fn delegated_scrolled(&mut self, parent: &str, away: bool, cx: &mut Context<Self>) {
+        if let Some(slot) = self.delegated.panels.get(parent) {
+            slot.view.update(cx, |v, cx| v.scrolled(away, cx));
+        }
+    }
+
+    pub(crate) fn delegated_set_open(&mut self, parent: &str, open: bool, cx: &mut Context<Self>) {
+        if let Some(slot) = self.delegated.panels.get(parent) {
+            slot.view.update(cx, |v, cx| v.set_open(open, cx));
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn delegated_panel(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<Entity<PanelView>> {
+        shown(self.agents.delegations.of(agent), &self.delegated.cleared).next()?;
+        let view = self.delegated_view(agent, window, cx);
+        let hosts = &self.fleet.hosts;
+        let list = shown(self.agents.delegations.of(agent), &self.delegated.cleared).map(|d| (d, super::unreachable_host(d, &hosts.list, &hosts.links)));
+        let capturing = self.capturing;
+        view.update(cx, |v, _| v.set(list, capturing));
+        Some(view)
+    }
+}
+
 fn capsule<'a>(
-    parent: &str,
     list: impl Iterator<Item = &'a Delegation> + Clone,
     counts: &Counts,
     logos: Vec<&str>,
     summary: String,
     live: bool,
-    cx: &mut Context<Desktop>,
+    cx: &mut Context<PanelView>,
 ) -> Stateful<Div> {
     let shown = list
         .clone()
@@ -367,7 +425,6 @@ fn capsule<'a>(
         .or(list.last())
         .map_or(Phase::Working, Delegation::phase);
     let colour = if counts.asking > 0 { WAITING_TEXT } else { TEXT_2 };
-    let to = parent.to_string();
     let capsule = div()
         .id("delegated-capsule")
         .absolute()
@@ -397,20 +454,11 @@ fn capsule<'a>(
                 .child(provider_icon(agent, 10., TEXT))
         })))
         .child(div().flex().items_center().gap(px(6.)).text_color(colour).child(glyph("delegated-capsule", shown)).child(summary));
-    if live { capsule.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.delegated_set_open(&to, true, cx))) } else { capsule }
+    if live { capsule.cursor_pointer().on_click(cx.listener(|this, _, _, cx| this.set_open(true, cx))) } else { capsule }
 }
 
-fn full<'a>(
-    parent: &str,
-    list: impl Iterator<Item = &'a Delegation>,
-    total: usize,
-    settled: bool,
-    live: bool,
-    hosts: &Hosts,
-    cx: &mut Context<Desktop>,
-) -> Div {
+fn full(entries: &[Entry], total: usize, settled: bool, live: bool, cx: &mut Context<PanelView>) -> Div {
     let now = now_ms();
-    let (clear, shut) = (parent.to_string(), parent.to_string());
     let button = |id: &'static str| {
         div().id(id).h(px(24.)).px(px(8.)).rounded(px(7.)).flex().items_center().text_size(px(12.)).text_color(TEXT_3).hover(|s| s.bg(FILL_3).text_color(TEXT))
     };
@@ -424,24 +472,23 @@ fn full<'a>(
         .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_2).child("Delegated"))
         .child(div().text_size(px(12.)).text_color(TEXT_4).child(total.to_string()))
         .child(div().flex_1())
-        .when(settled && live, |d| {
-            d.child(button("delegated-clear").cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.delegated_clear(&clear, cx))).child("Clear"))
-        })
+        .when(settled && live, |d| d.child(button("delegated-clear").cursor_pointer().on_click(cx.listener(|this, _, _, cx| this.clear(cx))).child("Clear")))
         .child(
             button("delegated-collapse")
                 .w(px(24.))
                 .px_0()
                 .justify_center()
-                .when(live, |d| d.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.delegated_set_open(&shut, false, cx))))
+                .when(live, |d| d.cursor_pointer().on_click(cx.listener(|this, _, _, cx| this.set_open(false, cx))))
                 .child(icon("chevron-up", 12., TEXT_3)),
         );
-    let rows = div().px(px(6.)).pb(px(6.)).flex().flex_col().children(list.map(|d| row(d, now, live, hosts, cx)));
+    let rows = div().px(px(6.)).pb(px(6.)).flex().flex_col().children(entries.iter().map(|e| row(e, now, live, cx)));
     div().absolute().top_0().right_0().w(px(FULL_W)).flex().flex_col().child(head).child(rows)
 }
 
-fn row(d: &Delegation, now: i64, live: bool, hosts: &Hosts, cx: &mut Context<Desktop>) -> Stateful<Div> {
+fn row(entry: &Entry, now: i64, live: bool, cx: &mut Context<PanelView>) -> Stateful<Div> {
+    let d = &entry.delegation;
     let phase = d.phase();
-    let down = super::unreachable_host(d, &hosts.list, &hosts.links);
+    let down = entry.down.clone();
     let colour = match phase {
         Phase::Asking => WAITING_TEXT,
         Phase::Failed => FAILED_TEXT,
@@ -514,10 +561,7 @@ fn row(d: &Delegation, now: i64, live: bool, hosts: &Hosts, cx: &mut Context<Des
         .child(top)
         .children(asks);
     if opens {
-        row.cursor_pointer()
-            .hover(|s| s.bg(FILL_2))
-            .active(|s| s.bg(FILL_3))
-            .on_click(cx.listener(move |this, _, window, cx| this.delegated_open(&open, window, cx)))
+        row.cursor_pointer().hover(|s| s.bg(FILL_2)).active(|s| s.bg(FILL_3)).on_click(cx.listener(move |_, _, _, cx| cx.emit(PanelEvent::Open(open.clone()))))
     } else {
         row
     }
@@ -640,11 +684,10 @@ mod tests {
 
     #[test]
     fn a_new_delegation_brings_back_a_cleared_panel_before_it_is_gone() {
-        let mut state = super::DelegatedState::new();
-        state.changed("p", counts(0, 0, 0, 1, 0));
-        state.panels.get_mut("p").unwrap().leave();
-        state.changed("p", counts(1, 0, 0, 1, 0));
-        let panel = &state.panels["p"];
+        let mut panel = Panel::new();
+        panel.changed(counts(0, 0, 0, 1, 0));
+        panel.leave();
+        panel.changed(counts(1, 0, 0, 1, 0));
         assert_eq!((panel.leaving, panel.open), (false, true));
     }
 
