@@ -10,6 +10,7 @@
 //	                more lines go on: "mcp <tool> <json>" again, or "await <name>" until $HOME/.acp-fake/<name> exists
 //	delegate <task> run a sub-agent on task in a session of its own, as OpenCode 2 does, which reports "did <task>";
 //	                as hermes, in the background, telling its work only in a transcript;
+//	                as agy, in an invoke_subagent call that ends as it launches, telling nothing;
 //	                "delegate await <name>" runs its first call until $HOME/.acp-fake/<name> exists
 //	[Anywhere internal background handoff] …
 //	                as hermes, reply "echo: took back <summary>" of each transcript tail it holds
@@ -471,8 +472,12 @@ func (a *agent) end() {
 // session, names that session only as the call ends, and its history tells
 // that work only to a load of that session.
 func (a *agent) delegate(task string) {
-	if a.name == "hermes" {
+	switch a.name {
+	case "hermes":
 		a.background(task)
+		return
+	case "agy":
+		a.launch(task)
 		return
 	}
 	call := "call_" + hex(4)
@@ -490,6 +495,16 @@ func (a *agent) delegate(task string) {
 	out := "<subagent sessionID=\"" + kid.ID + "\" state=\"completed\">\ndid " + task + "\n</subagent>"
 	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed", "content": []map[string]any{{"type": "content", "content": textBlock(out)}},
 		"rawOutput": map[string]any{"metadata": map[string]any{"sessionID": kid.ID, "status": "completed", "truncated": false}}})
+	a.say("delegated " + task)
+}
+
+// launch runs a sub-agent on task as agy 1.5.16's invoke_subagent does: a call
+// whose input is the one sub-agent, and which ends as it launches with no output.
+func (a *agent) launch(task string) {
+	call := "call_" + hex(4)
+	a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": call, "name": "invoke_subagent", "status": "in_progress", "kind": "other", "title": "Run invoke_subagent",
+		"rawInput": map[string]string{"Model": "inherit", "Prompt": task, "Role": "Runner", "TypeName": "self"}})
+	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "name": "invoke_subagent", "status": "completed"})
 	a.say("delegated " + task)
 }
 

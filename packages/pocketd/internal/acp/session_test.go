@@ -377,6 +377,12 @@ func TestACallShowsByItsKind(t *testing.T) {
 		"anything else by title":  {toolCall{Kind: "fetch", Title: "Fetch example.com", RawInput: json.RawMessage(`{"url":"https://example.com"}`)}, `Fetch example.com:other:`},
 		"grok's by its meta":      {grokMeta("execute", "Run", `{"command":"pwd"}`), "shell:shell:pwd"},
 		"a sub-agent by its meta": {grokMeta("task", "Subagent", `{"description":"List the files","prompt":"ls"}`), "task:task:List the files"},
+		"an Antigravity sub-agent by its role and prompt": {toolCall{Name: "invoke_subagent", Kind: "other", Title: "Run invoke_subagent",
+			RawInput: json.RawMessage(`{"Model":"inherit","Prompt":"Fix the flaky test","Role":"Test Fixer","TypeName":"self"}`)}, "task:task:Test Fixer: Fix the flaky test"},
+		"an Antigravity sub-agent with no role by its type":          {toolCall{Name: "invoke_subagent", RawInput: json.RawMessage(`{"Prompt":"Look around","TypeName":"self"}`)}, "task:task:self: Look around"},
+		"an Antigravity sub-agent told in lower case":                {toolCall{Name: "start_subagent", RawInput: json.RawMessage(`{"prompt":"Look around"}`)}, "task:task:Look around"},
+		"an Antigravity sub-agent with a kind of task by its role":   {toolCall{Name: "invoke_subagent", Kind: "task", RawInput: json.RawMessage(`{"Prompt":"Fix the flaky test","Role":"Test Fixer"}`)}, "task:task:Test Fixer: Fix the flaky test"},
+		"an Antigravity sub-agent before its input not by its title": {toolCall{Name: "invoke_subagent", Title: "Run invoke_subagent"}, "task:task:"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var merged toolCall
@@ -1152,6 +1158,24 @@ func TestAnInteractionRequestThatIsNoDecisionIsAnsweredByAccessAsBefore(t *testi
 		if open := b.Open(); len(open) != 0 {
 			t.Errorf("%s asked %v", provider, open)
 		}
+	}
+}
+
+func TestAnAntigravitySubAgentShowsAsATaskThatEndsAsItLaunchesWithNoReport(t *testing.T) {
+	s, a, sk, _ := start(t, opts{provider: "antigravity", answer: script(`{"sessionId":"s1"}`, says(
+		`{"sessionUpdate":"tool_call","toolCallId":"sa1","name":"invoke_subagent","status":"in_progress","kind":"other","title":"Run invoke_subagent","rawInput":{"Model":"inherit","Prompt":"Fix the flaky test","Role":"Test Fixer","TypeName":"self"}}`,
+		`{"sessionUpdate":"tool_call_update","toolCallId":"sa1","name":"invoke_subagent","status":"completed"}`,
+	))})
+	s.Prompt("go")
+	equal(t, after(sk.wait(t, "ended:false"), "working"), []string{
+		"working",
+		"tool_start:sa1:task:task:Test Fixer: Fix the flaky test",
+		"tool_end:sa1:true",
+		"result:true:",
+		"ended:false",
+	})
+	if got := a.called("session/load", 0); got != nil {
+		t.Fatalf("loaded %v", got)
 	}
 }
 
