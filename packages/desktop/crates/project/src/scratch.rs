@@ -53,6 +53,11 @@ pub fn holds(root: &str, path: &str) -> bool {
         .is_some_and(|name| !name.is_empty() && !name.contains(['/', '\\', ':']) && name != "." && name != "..")
 }
 
+/// Whether `key` names a folder `create` made, on whichever machine holds it: one directly in a `.anywhere/sessions` folder.
+pub fn made(key: &str) -> bool {
+    key.rsplit_once('/').is_some_and(|(parent, _)| parent.ends_with(&format!("/{DIR}")) && holds(parent, key))
+}
+
 /// The folder's uncommitted files and the commits made since `create`'s own; `None` when git can't read it.
 pub fn work(run: &Runner, path: &str) -> Option<(usize, usize)> {
     Some((git::dirty_files(run, path)?, git::commit_count(run, path)?.saturating_sub(1)))

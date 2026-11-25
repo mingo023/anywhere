@@ -7217,6 +7217,7 @@ version = "0.0.0"
 dependencies = [
  "agents",
  "hosts",
+ "project",
  "serde",
  "serde_json",
  "workspace",

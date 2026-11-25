@@ -95,6 +95,10 @@ impl Store {
         }
         for p in &list.projects {
             self.add(&p.path);
+            // Only the desktop that made a thread's folder keeps it in `scratch`; another knows it by where it is.
+            if project::scratch::made(&p.path) {
+                self.scratch.insert(p.path.clone());
+            }
             // One this build can't read keeps what was cached.
             match serde_json::from_value(p.repo.clone()) {
                 Ok(repo) => _ = self.repos.insert(p.path.clone(), repo),
