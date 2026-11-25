@@ -1100,11 +1100,52 @@ func agyAsks(a *agent, _ string) string {
 	return endTurn
 }
 
-func TestAntigravitysQuestionShowsOnlyOnTheCardNotAlsoAsACall(t *testing.T) {
+func TestAntigravitysQuestionShowsAsItsAnswerNeverAsItsAskQuestionCall(t *testing.T) {
 	s, _, sk, b := start(t, opts{provider: "antigravity", answer: script(`{"sessionId":"s1"}`, agyAsks)})
 	s.Prompt("ask")
 	b.Resolve(asked(t, b).RequestID, broker.Answer{Decision: "allow", Answers: map[string]string{"Which fruit?": "Pear"}})
-	equal(t, after(sk.wait(t, "ended:false"), "working"), []string{"working", "needsYou", "working", "result:true:", "ended:false"})
+	equal(t, after(sk.wait(t, "ended:false"), "working"), []string{"working", "needsYou", "working",
+		"tool_start:question-call_9:AskUserQuestion:" + fruitAsked,
+		`tool_end:question-call_9:true:User has answered your questions: "Which fruit?"="Pear". You can now continue with the user's answers in mind.`,
+		"result:true:", "ended:false"})
+}
+
+const fruitAsked = `{"questions":[{"question":"Which fruit?","options":[{"description":"","label":"Apple"},{"description":"","label":"Pear"}],"multiSelect":false}]}`
+
+func TestAnAnsweredQuestionStaysInTheChatAsClaudesAskUserQuestion(t *testing.T) {
+	for provider, c := range map[string]struct{ method, params, call string }{
+		"antigravity": {"elicitation/create", agyAsked, "question-call_9"},
+		"cursor":      {"cursor/ask_question", `{"toolCallId":"t1","questions":[{"id":"q1","prompt":"Which fruit?","options":[{"id":"a","label":"Apple"},{"id":"p","label":"Pear"}]}]}`, "question-t1"},
+		"grok":        {"x.ai/ask_user_question", `{"questions":[{"question":"Which fruit?","options":[{"label":"Apple"},{"label":"Pear"}],"multiSelect":false}]}`, "question-8-"},
+	} {
+		for answer, want := range map[string]string{
+			"Pear":         `true:User has answered your questions: "Which fruit?"="Pear". You can now continue with the user's answers in mind.`,
+			`A "ripe" one`: `true:User has answered your questions: "Which fruit?"="A "ripe" one". You can now continue with the user's answers in mind.`,
+			"":             "false:The user doesn't want to proceed with this tool use.",
+		} {
+			_, a, sk, b := start(t, opts{provider: provider, answer: script(`{"sessionId":"s1"}`, says())})
+			a.ask("8", c.method, c.params)
+			decided := broker.Answer{Decision: "deny"}
+			if answer != "" {
+				decided = broker.Answer{Decision: "allow", Answers: map[string]string{"Which fruit?": answer}}
+			}
+			b.Resolve(asked(t, b).RequestID, decided)
+			a.replied("8")
+			var kept []string
+			for _, line := range sk.lines() {
+				if strings.HasPrefix(line, "tool_") {
+					kept = append(kept, line)
+				}
+			}
+			if len(kept) != 2 {
+				t.Fatalf("%s %q: kept %q", provider, answer, kept)
+			}
+			id := strings.Split(kept[0], ":")[1]
+			if !strings.HasPrefix(id, c.call) || kept[0] != "tool_start:"+id+":AskUserQuestion:"+fruitAsked || kept[1] != "tool_end:"+id+":"+want {
+				t.Errorf("%s %q: kept %q", provider, answer, kept)
+			}
+		}
+	}
 }
 
 func TestAntigravitysWordsBeforeAndAfterItsQuestionStayTwoReplies(t *testing.T) {
@@ -1135,7 +1176,9 @@ func TestAStopWhileAntigravityAsksCancelsTheTurnAndAnswersTheFormCancel(t *testi
 	if got := a.replied("8"); got != `{"action":"cancel"}` {
 		t.Fatalf("answered %s", got)
 	}
-	equal(t, after(sk.wait(t, "stopped"), "working"), []string{"working", "needsYou", "result:false:interrupted", "stopped"})
+	equal(t, after(sk.wait(t, "stopped"), "working"), []string{"working", "needsYou",
+		"tool_start:question-call_9:AskUserQuestion:" + fruitAsked, "tool_end:question-call_9:false:The user doesn't want to proceed with this tool use.",
+		"result:false:interrupted", "stopped"})
 }
 
 // Antigravity's decision as guessed: no live run has shown an interaction_ request.

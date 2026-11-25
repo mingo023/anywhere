@@ -765,8 +765,43 @@ func TestAChatAntigravityAsksItsQuestionsOnTheQuestionCard(t *testing.T) {
 		resolve(phone, req, c.answer)
 		phone.WaitAll(c.prompt, streamOf(id, "assistant", c.reply), statusOf(id, "done"))
 	}
-	if got := withSubAgents(phone, id); slices.ContainsFunc(got, func(line string) bool { return strings.HasPrefix(strings.TrimPrefix(line, "> "), "tool") }) {
-		t.Fatalf("showed a question as a call too: %q", got)
+	if calls := callsOf(phone, id); len(calls) != 5 || slices.ContainsFunc(calls, func(name string) bool { return name != "AskUserQuestion" }) {
+		t.Fatalf("showed the questions as %q", calls)
+	}
+}
+
+// callsOf is the name of each of id's tool calls, sub-agents' too.
+func callsOf(p *Phone, id string) []string {
+	p.Send(map[string]any{"type": "agent.timeline", "id": "c-" + id, "agentId": id})
+	var page struct {
+		Items []acpItem `json:"items"`
+	}
+	json.Unmarshal([]byte(p.WaitFor("the timeline", func(m Message) bool { return m.Type == "agent.timeline" && m.ID == "c-"+id }).Raw), &page)
+	var got []string
+	for _, it := range page.Items {
+		if it.Kind == "tool" {
+			got = append(got, it.Call.Name)
+		}
+	}
+	return got
+}
+
+func TestAChatAntigravitysAnsweredQuestionStaysInItsHistoryAfterARestart(t *testing.T) {
+	h, phone, term, id := chatACP(t, "antigravity", nil, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "ask Which fruit?")
+	resolve(phone, phone.WaitFor("the question", asked), map[string]any{"decision": "allow", "answers": map[string]string{"Which fruit?": "Pear"}})
+	phone.WaitStatus(id, "done")
+	const kept = `tool other ok User has answered your questions: "Which fruit?"="Pear". You can now continue with the user's answers in mind.`
+	if got := withSubAgents(phone, id); !slices.Contains(got, kept) {
+		t.Fatalf("got %q", got)
+	}
+
+	h.Restart()
+
+	again := resumedChat(h, id)
+	h.WaitScreen(term, "load: ")
+	if got := withSubAgents(again, id); !slices.Contains(got, kept) {
+		t.Fatalf("after the restart got %q", got)
 	}
 }
 
