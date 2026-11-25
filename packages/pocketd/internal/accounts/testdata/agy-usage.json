@@ -1,0 +1,7 @@
+{"status":"SUCCESS","num_turns":0,"command":{"name":"usage","data":{"groups":[
+  {"name":"Gemini Models","buckets":[
+    {"id":"gemini-5h","window":"5h","remaining_fraction":0,"reset_time":"2026-11-23T18:00:00Z"},
+    {"id":"gemini-weekly","window":"weekly","remaining_fraction":0.75}]},
+  {"name":"Claude and GPT models","buckets":[
+    {"id":"3p-weekly","window":"weekly","remaining_fraction":1},
+    {"id":"3p-5h","window":"5h","disabled":true}]}]}}}

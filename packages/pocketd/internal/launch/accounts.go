@@ -60,7 +60,7 @@ func (l *Launcher) ConfigDir(provider, account, project string) (string, error) 
 	if !slices.Contains(f.Projects, project) {
 		return "", errors.New("This project isn't on your Mac anymore")
 	}
-	if !slices.Contains(accounts.Providers, provider) {
+	if !accounts.Managed(provider) {
 		return "", nil
 	}
 	if l.d.Accounts == nil {
@@ -89,7 +89,7 @@ func (l *Launcher) signIn(provider, id string) ops.Msg {
 	}
 	var err error
 	// A provider pocketd keeps no accounts of has only its own login to sign in.
-	if id == "" && !slices.Contains(accounts.Providers, provider) {
+	if id == "" && !accounts.Managed(provider) {
 		id = accounts.BuiltIn
 	}
 	if id == "" {
