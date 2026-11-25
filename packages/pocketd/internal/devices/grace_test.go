@@ -8,8 +8,8 @@ import (
 
 func legacyStore(t *testing.T) (*Store, string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "devices.json")
-	s, err := Open(path, "")
+	path := filepath.Join(t.TempDir(), "pocketd.db")
+	s, err := openAt(t, path, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func TestTheGraceStartsOnceAndLastsSevenDays(t *testing.T) {
 	if err != nil || !end.Equal(first.Add(7*24*time.Hour)) {
 		t.Fatalf("%v %v", end, err)
 	}
-	again, _ := Open(path, "")
+	again, _ := openAt(t, path, "")
 	if later, _ := again.StartGrace(first.Add(48 * time.Hour)); !later.Equal(end) {
 		t.Fatalf("a restart moved the grace to %v", later)
 	}
@@ -42,7 +42,7 @@ func TestTheLegacyDeviceIsGoneOnceItsGraceEnds(t *testing.T) {
 	if ended, err := s.EndGrace(end); !ended || err != nil {
 		t.Fatalf("%v %v", ended, err)
 	}
-	again, _ := Open(path, "")
+	again, _ := openAt(t, path, "")
 	if _, ok := again.Lookup("old-token"); ok {
 		t.Fatal("the old token still works")
 	}
@@ -59,7 +59,7 @@ func TestTheOldTokenIsRefusedOnceTheGraceIsOverEvenBeforeItIsForgotten(t *testin
 }
 
 func TestAStoreWithoutALegacyDeviceHasNoGrace(t *testing.T) {
-	s, err := Open(filepath.Join(t.TempDir(), "devices.json"), "")
+	s, err := openAt(t, filepath.Join(t.TempDir(), "pocketd.db"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestAnEndedGraceStaysEndedWhenTheOldTokenTurnsUpAgain(t *testing.T) {
 	if err := s.EnsureLegacy("old-token"); err != nil {
 		t.Fatal(err)
 	}
-	again, err := Open(path, "old-token")
+	again, err := openAt(t, path, "old-token")
 	if err != nil {
 		t.Fatal(err)
 	}

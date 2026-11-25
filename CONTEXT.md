@@ -9,7 +9,7 @@ One PTY that pocketd owns. A terminal the desktop opens runs the user's login sh
 _Avoid_: pane, PTY session, pocketd session
 
 **Project**:
-A git repository, or any other folder, added to Pocket, listed on the sidebar in the user's order, by name or by recent activity, under Pinned, a Group or Other. Selecting it selects its main worktree, the repository's own checkout; with nothing open there, the new session page shows instead. A terminal launched on this Mac outside every project adds its folder as a project while the folder has terminals, unless the user keeps it; a folder that isn't a repository is its own only worktree. Removing a project closes its terminals and leaves its folder on disk.
+A git repository, or any other folder, added to Pocket, listed on the sidebar in the user's order, by name or by recent activity, under Pinned, a Group or Other. Selecting it selects its main worktree, the repository's own checkout; with nothing open there, the new session page shows instead. A terminal launched on this Mac outside every project adds its folder as a project while the folder has terminals, unless the user keeps it; a folder that isn't a repository is its own only worktree. Removing a project closes its terminals, deletes its Tickets, Automations and Locals, and leaves its folder on disk.
 _Avoid_: repository, repo, folder
 
 **Space**:

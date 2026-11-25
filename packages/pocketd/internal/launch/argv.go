@@ -84,7 +84,7 @@ func Chat(s proto.LaunchSpec) bool {
 	return c != nil && c.chat(s)
 }
 
-// command is what runs provider before config.json or the user's PATH place it.
+// command is what runs provider before the config or the user's PATH place it.
 func command(provider string) string {
 	if p := providers.Get(provider); p != nil {
 		return p.Cmd()

@@ -23,10 +23,13 @@ func worktreeMain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, worktreeUsage)
 		return 2
 	}
-	f := registry.Open(config.Home()).Load()
+	f, err := loadRegistry(config.Home())
+	if err != nil {
+		fmt.Fprintln(stderr, "pocketd worktree:", err)
+		return 1
+	}
 	flags := flag.NewFlagSet("pocketd worktree "+args[0], flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	var err error
 	switch args[0] {
 	case "list":
 		asJSON := flags.Bool("json", false, "print []proto.Project")
@@ -56,6 +59,20 @@ func worktreeMain(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// loadRegistry is the registry as the daemon last saved it, read without writing; empty before a daemon made pocketd.db.
+func loadRegistry(home string) (registry.File, error) {
+	db, err := openReadOnly(home)
+	if err != nil || db == nil {
+		return registry.File{}, err
+	}
+	defer db.Close()
+	r, err := registry.Open(db)
+	if err != nil {
+		return registry.File{}, err
+	}
+	return r.Load(), nil
 }
 
 // projectFor is arg as a registered Project, or the one holding the cwd when

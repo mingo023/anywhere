@@ -17,9 +17,8 @@ func (s *Store) EnsureLegacy(token string) error {
 	if s.graceEnded || s.index(LegacyID) >= 0 {
 		return nil
 	}
-	s.devices = slices.Insert(s.devices, 0, Device{
+	return s.save(slices.Insert(slices.Clone(s.devices), 0, Device{
 		ID: LegacyID, Name: "Shared token (legacy)", Scopes: LegacyScopes,
 		TokenHash: hash(token), CreatedAt: time.Now().UnixMilli(), Legacy: true,
-	})
-	return s.save()
+	}), s.graceEnded)
 }

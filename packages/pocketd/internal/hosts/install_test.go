@@ -209,7 +209,7 @@ func TestAHostKeepsUsingTheLegacyFolderUntilItsPocketdMovesIt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "ssh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	m, err := Open(Paths{Home: t.TempDir(), RemoteDir: ".anywhere", LegacyDir: ".coding-pocket"}, func() []string { return []string{"PATH=" + bin + ":/bin:/usr/bin"} }, "1.2.0", "Mac")
+	m, err := openManager(t, Paths{Home: t.TempDir(), RemoteDir: ".anywhere", LegacyDir: ".coding-pocket"}, func() []string { return []string{"PATH=" + bin + ":/bin:/usr/bin"} }, "1.2.0", "Mac")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +497,7 @@ func TestPocketdInstallsOnARealLinuxHostThenIsFoundRunning(t *testing.T) {
 		t.Skip("ANYWHERE_TEST_HOST names no host")
 	}
 	const dir = ".coding-pocket-e2e2"
-	m, err := Open(Paths{Home: t.TempDir(), RemoteDir: dir}, os.Environ, "dev", "Mac")
+	m, err := openManager(t, Paths{Home: t.TempDir(), RemoteDir: dir}, os.Environ, "dev", "Mac")
 	if err != nil {
 		t.Fatal(err)
 	}

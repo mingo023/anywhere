@@ -10,6 +10,7 @@ import (
 	"pocketd/internal/devices"
 	"pocketd/internal/pairing"
 	"pocketd/internal/peer"
+	"pocketd/internal/statedb/dbtest"
 )
 
 func pairMsg(code string) string {
@@ -81,7 +82,9 @@ func TestThreeBadCodesLockTheAddressOut(t *testing.T) {
 func TestAFailedSaveDoesntLockThePhoneOut(t *testing.T) {
 	var s *Server
 	_, _, p := setup(t, func(srv *Server) {
-		srv.Devices, _ = devices.Open(filepath.Join(t.TempDir(), "missing", "devices.json"), "tok")
+		db := dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db"))
+		srv.Devices, _ = devices.Open(db, "tok")
+		db.Close()
 		s = srv
 	})
 	for range 3 {

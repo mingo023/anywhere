@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"pocketd/internal/proto"
+	"pocketd/internal/sqlmigrate"
 )
 
 func TestPruneDropsEventsOlderThanADayButKeepsEachSessionsNewest(t *testing.T) {
@@ -145,7 +146,7 @@ func TestAStoreFromBeforeFindsARewrittenItemOnce(t *testing.T) {
 		`INSERT INTO items (session_id, item_id, seq, epoch, kind, text, body, ts) VALUES ('a', 'i1', 1, 1, 'user', 'first draft', '{}', 1), ('a', 'i2', 2, 1, 'user', 'other words', '{}', 2)`,
 		`INSERT INTO items_fts (rowid, session_id, item_id, text) VALUES (2, 'a', 'i1', 'first draft'), (1, 'a', 'i2', 'other words')`,
 	)
-	if err := s.migrate(); err != nil {
+	if err := sqlmigrate.Run(s.db, migrations); err != nil {
 		t.Fatal(err)
 	}
 	k := NewSink(s)
@@ -203,7 +204,7 @@ func TestAStoreFromBeforeKeepsTheNewestSearchRowOfAnItemWrittenTwice(t *testing.
 		`INSERT INTO items (session_id, item_id, seq, epoch, kind, text, body, ts) VALUES ('a', 'i1', 1, 1, 'user', 'newer', '{}', 1)`,
 		`INSERT INTO items_fts (rowid, session_id, item_id, text) VALUES (1, 'a', 'i1', 'older'), (2, 'a', 'i1', 'newer')`,
 	)
-	if err := s.migrate(); err != nil {
+	if err := sqlmigrate.Run(s.db, migrations); err != nil {
 		t.Fatal(err)
 	}
 	if n := countRows(s, `SELECT COUNT(*) FROM items_fts WHERE items_fts MATCH 'newer'`); n != 1 {

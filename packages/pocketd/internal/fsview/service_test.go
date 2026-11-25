@@ -12,6 +12,7 @@ import (
 
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
+	"pocketd/internal/statedb"
 )
 
 func gitEnv() []string {
@@ -58,7 +59,7 @@ func repo(t *testing.T) (*Service, string) {
 	desktop := filepath.Join(base, "desktop.json")
 	raw, _ := json.Marshal(registry.File{Projects: []string{root}})
 	os.WriteFile(desktop, raw, 0o644)
-	return &Service{Registry: registry.Open(filepath.Dir(desktop)), Env: gitEnv, Attachments: filepath.Join(base, "home", "attachments")}, root
+	return &Service{Registry: openRegistry(t, filepath.Dir(desktop)), Env: gitEnv, Attachments: filepath.Join(base, "home", "attachments")}, root
 }
 
 func names(entries []proto.FsEntry) []string {
@@ -168,7 +169,7 @@ func TestAFolderOutsideARepositoryListsWithoutLetters(t *testing.T) {
 	desktop := filepath.Join(base, "desktop.json")
 	raw, _ := json.Marshal(registry.File{Projects: []string{root}})
 	os.WriteFile(desktop, raw, 0o644)
-	s := &Service{Registry: registry.Open(filepath.Dir(desktop)), Env: gitEnv}
+	s := &Service{Registry: openRegistry(t, filepath.Dir(desktop)), Env: gitEnv}
 	entries, err := s.List(context.Background(), root, "")
 	if err != nil || len(entries) != 1 || entries[0].Git != "" || entries[0].Ignored {
 		t.Fatal(entries, err)
@@ -176,4 +177,19 @@ func TestAFolderOutsideARepositoryListsWithoutLetters(t *testing.T) {
 	if got, err := s.Search(context.Background(), root, "a", 5); err != nil || len(got) != 0 {
 		t.Fatal(got, err)
 	}
+}
+
+// openRegistry is the registry pocketd serves from home, once it has imported home's files into pocketd.db.
+func openRegistry(t *testing.T, home string) *registry.Registry {
+	t.Helper()
+	db, err := statedb.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	r, err := registry.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
 }

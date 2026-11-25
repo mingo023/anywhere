@@ -13,7 +13,7 @@ const (
 	PiRPC      = "pi"
 )
 
-// Spec is one agent CLI pocketd runs. ID is its config.json section.
+// Spec is one agent CLI pocketd runs. ID is its config section.
 type Spec struct {
 	ID        string
 	Name      string    // as its maker writes it

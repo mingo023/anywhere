@@ -23,14 +23,40 @@ import (
 	"pocketd/internal/ops"
 	"pocketd/internal/registry"
 	"pocketd/internal/shellenv"
+	"pocketd/internal/statedb/dbtest"
 	"pocketd/internal/terminal"
 	"pocketd/internal/timeline"
 )
 
+// registryFrom is the registry the import into pocketd.db makes of home's desktop.json.
+func registryFrom(t *testing.T, home string) *registry.Registry {
+	t.Helper()
+	db := dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db"))
+	s, err := registry.ReadLegacy(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Insert(tx, s); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	r, err := registry.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
 func newDaemon(t *testing.T) *Daemon {
 	h := hub.New()
 	d := &Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(h), Broker: broker.New(h), Home: t.TempDir(), Exe: "/bin/true",
-		Registry: registry.Open(t.TempDir())}
+		Registry: registryFrom(t, t.TempDir())}
 	d.Terminals.OnInput = d.Input
 	d.Terminals.OnReport = d.Report
 	return d

@@ -11,7 +11,7 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/broker"
-	"pocketd/internal/config"
+	"pocketd/internal/config/configtest"
 	"pocketd/internal/daemon"
 	"pocketd/internal/hub"
 	"pocketd/internal/locals"
@@ -20,15 +20,67 @@ import (
 	"pocketd/internal/registry"
 	"pocketd/internal/shellenv"
 	"pocketd/internal/state"
+	"pocketd/internal/statedb/dbtest"
 	"pocketd/internal/terminal"
 	"pocketd/internal/worktree"
 )
+
+// registryFrom is the registry the import into pocketd.db makes of home's desktop.json.
+func registryFrom(t *testing.T, home string) *registry.Registry {
+	t.Helper()
+	db := dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db"))
+	s, err := registry.ReadLegacy(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Insert(tx, s); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	r, err := registry.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
 
 func launcher(t *testing.T, projects string) *Launcher {
 	home := t.TempDir()
 	path := filepath.Join(home, "desktop.json")
 	os.WriteFile(path, []byte(`{"projects":`+projects+`,"repos":{}}`), 0o600)
-	return New(&daemon.Daemon{}, registry.Open(filepath.Dir(path)), config.NewSettings(home), nil)
+	return New(&daemon.Daemon{}, registryFrom(t, filepath.Dir(path)), configtest.Settings(t), nil)
+}
+
+// openLocals is the Locals over a database that holds l's projects.
+func openLocals(t *testing.T, l *Launcher) *locals.Locals {
+	t.Helper()
+	db := dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db"))
+	f := l.reg.Load()
+	var s registry.State
+	for _, p := range f.Projects {
+		s.Projects = append(s.Projects, proto.RegistryProject{ID: f.Repos[p].ID, Path: p})
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Insert(tx, s); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	ls, err := locals.Open(db, l.reg.Load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ls
 }
 
 func quiet(step, note string) {}
@@ -170,14 +222,14 @@ func TestAnUntrustedClaudeFolderIsRefusedForThePhone(t *testing.T) {
 func TestAnAgentExitFailsItsRestore(t *testing.T) {
 	h := hub.New()
 	d := &daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(h), Broker: broker.New(h), Home: t.TempDir(), Exe: "/bin/true",
-		Registry: registry.Open(t.TempDir())}
+		Registry: registryFrom(t, t.TempDir())}
 	reasons := make(chan string, 1)
 	d.Resume = func(state.Terminal) (string, []string, string) { return "/bin/sh", []string{"-c", "sleep 30"}, "" }
 	d.OnRestore = func(_ string, _ bool, _ int64, _, reason string) { reasons <- reason }
 	d.Restore(state.File{Version: state.Version, Terminals: []state.Terminal{{TerminalID: "t-1", LaunchDir: t.TempDir(), Cols: 80, Rows: 24,
 		Provider: "claude", ConversationID: "c1", Launch: &state.Launch{Access: "ask"}, AgentID: "a-1"}}}, "/bin/sh")
 	t.Cleanup(d.Terminals.Get("t-1").Close)
-	New(d, d.Registry, config.NewSettings(t.TempDir()), nil).Exited("t-1", "agent", 1)
+	New(d, d.Registry, configtest.Settings(t), nil).Exited("t-1", "agent", 1)
 	select {
 	case r := <-reasons:
 		if r != "agent_exited" {
@@ -288,7 +340,7 @@ func TestACreateInALocalRunsInTheProjectAndCarriesTheLocal(t *testing.T) {
 	l := launcher(t, `["`+project+`"]`)
 	l.d = &daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}
 	t.Cleanup(func() { l.d.Terminals.CloseAll(0) })
-	l.Locals = locals.Open(t.TempDir())
+	l.Locals = openLocals(t, l)
 	l.Locals.Create("l1", project, "Local 2")
 	s := spec("claude", "ask", false)
 	s.Project, s.Checkout = project, proto.Checkout{Local: "l1"}
@@ -305,7 +357,7 @@ func TestACreateInALocalRunsInTheProjectAndCarriesTheLocal(t *testing.T) {
 func TestACreateInADeletedOrForeignLocalFails(t *testing.T) {
 	onPath(t, "claude")
 	l := launcher(t, `["/p","/q"]`)
-	l.Locals = locals.Open(t.TempDir())
+	l.Locals = openLocals(t, l)
 	l.Locals.Create("l1", "/q", "Local 2")
 	for _, id := range []string{"gone", "l1"} {
 		s := spec("claude", "ask", false)
@@ -326,7 +378,7 @@ func newWorktree(t *testing.T, setup string) (*Launcher, proto.LaunchSpec) {
 	git(t, project, "commit", "-q", "--allow-empty", "-m", "init")
 	path := filepath.Join(root, "desktop.json")
 	os.WriteFile(path, []byte(`{"projects":["`+project+`"],"repos":{"`+project+`":{"name":"wt","setup":"`+setup+`"}},"worktree":{"root":"`+root+`"}}`), 0o600)
-	l := New(&daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}, registry.Open(filepath.Dir(path)), config.NewSettings(root), nil)
+	l := New(&daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}, registryFrom(t, filepath.Dir(path)), configtest.Settings(t), nil)
 	s := spec("claude", "ask", false)
 	s.Project, s.Checkout = project, proto.Checkout{New: &proto.NewWorktree{Name: "calm-otter"}}
 	return l, s
@@ -517,7 +569,7 @@ func TestTwoCreatesHoldingTheSamePlaceholderGetNamesOfTheirOwnUntilOneIsMade(t *
 }
 
 func TestANewWorktreeTheOwnerMakesForAnAgentIsRecordedAsTheAgents(t *testing.T) {
-	reg := registry.Open(t.TempDir())
+	reg := registryFrom(t, t.TempDir())
 	l := &Launcher{reg: reg}
 	off := false
 	quiet := func(string, string) {}

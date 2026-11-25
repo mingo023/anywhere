@@ -3,6 +3,7 @@ package hosts
 import (
 	"cmp"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -32,6 +33,7 @@ type Entry struct {
 }
 
 type Manager struct {
+	db    *sql.DB
 	paths Paths
 	// env is what ssh runs with: the login shell's, so the user's agent, config and PATH apply.
 	env     func() []string
@@ -58,12 +60,12 @@ type Manager struct {
 	summaries map[string]proto.AgentSummary
 }
 
-func Open(paths Paths, env func() []string, version, name string) (*Manager, error) {
-	saved, err := Load(paths.Home)
+func Open(db *sql.DB, paths Paths, env func() []string, version, name string) (*Manager, error) {
+	saved, err := Load(db)
 	if err != nil {
 		return nil, err
 	}
-	m := &Manager{paths: paths, env: env, version: version, name: name, hosts: saved,
+	m := &Manager{db: db, paths: paths, env: env, version: version, name: name, hosts: saved,
 		links: map[string]Link{}, sups: map[string]*supervisor{}, installs: map[string]bool{}, work: map[string]*work{}, changed: make(chan struct{}),
 		remotes: map[string]*remote{}, last: map[string]*remote{}, summaries: map[string]proto.AgentSummary{}}
 	for _, h := range saved {
@@ -154,7 +156,7 @@ func (m *Manager) Add(t Target, name string) (Entry, error) {
 	}
 	h.Name = cmp.Or(name, h.Name)
 	list := append(slices.Clone(m.hosts), h)
-	if err := Save(m.paths.Home, list); err != nil {
+	if err := Save(m.db, m.hosts, list); err != nil {
 		return Entry{}, err
 	}
 	m.hosts = list
@@ -183,7 +185,7 @@ func (m *Manager) Remove(id string, uninstall bool) error {
 		return ErrUnknown
 	}
 	list := slices.Delete(slices.Clone(m.hosts), i, i+1)
-	if err := Save(m.paths.Home, list); err != nil {
+	if err := Save(m.db, m.hosts, list); err != nil {
 		m.mu.Unlock()
 		return err
 	}
@@ -323,11 +325,13 @@ func (m *Manager) setWindows(id string, windows bool) {
 	if i < 0 || m.hosts[i].Windows == windows {
 		return
 	}
-	m.hosts = slices.Clone(m.hosts)
-	m.hosts[i].Windows = windows
-	if err := Save(m.paths.Home, m.hosts); err != nil {
+	next := slices.Clone(m.hosts)
+	next[i].Windows = windows
+	if err := Save(m.db, m.hosts, next); err != nil {
 		log.Printf("hosts: %v", err)
+		return
 	}
+	m.hosts = next
 	m.notify()
 }
 

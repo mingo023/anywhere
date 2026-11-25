@@ -5,14 +5,13 @@ package orch
 import (
 	"database/sql"
 	"embed"
-	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"pocketd/internal/sqlmigrate"
 
 	_ "modernc.org/sqlite"
 )
@@ -55,7 +54,7 @@ func OpenPath(path string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 	s := &Store{db}
-	if err := s.migrate(); err != nil {
+	if err := sqlmigrate.Run(db, migrations); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -63,45 +62,6 @@ func OpenPath(path string) (*Store, error) {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
-
-func (s *Store) migrate() error {
-	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)`); err != nil {
-		return err
-	}
-	var have int
-	if err := s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&have); err != nil {
-		return err
-	}
-	names, err := fs.Glob(migrations, "migrations/*.sql")
-	if err != nil {
-		return err
-	}
-	slices.Sort(names)
-	for _, name := range names {
-		n, err := strconv.Atoi(strings.SplitN(filepath.Base(name), "_", 2)[0])
-		if err != nil {
-			return fmt.Errorf("migration %s: %w", name, err)
-		}
-		if n <= have {
-			continue
-		}
-		body, err := migrations.ReadFile(name)
-		if err != nil {
-			return err
-		}
-		err = s.Tx(func(tx *Tx) error {
-			if _, err := tx.Exec(string(body)); err != nil {
-				return fmt.Errorf("migration %s: %w", name, err)
-			}
-			_, err := tx.Exec(`INSERT INTO schema_version (version) VALUES (?)`, n)
-			return err
-		})
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 type Tx struct{ *sql.Tx }
 

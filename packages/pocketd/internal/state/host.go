@@ -2,31 +2,24 @@ package state
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"io/fs"
-	"os"
-	"path/filepath"
 )
 
-// HostID is this host's id, made on first call and kept in <home>/state/host.json,
+// HostID is this host's id, made on first call and kept in the meta table of pocketd.db,
 // so a desktop knows the host again under a new address.
-func HostID(home string) (string, error) {
-	path := filepath.Join(home, "state", "host.json")
-	var f struct {
-		ID string `json:"id"`
-	}
-	raw, err := os.ReadFile(path)
-	if err == nil && json.Unmarshal(raw, &f) == nil && f.ID != "" {
-		return f.ID, nil
-	}
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+func HostID(db *sql.DB) (string, error) {
+	var id string
+	if err := db.QueryRow(`SELECT value FROM meta WHERE key = 'host_id'`).Scan(&id); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return "", err
+	}
+	if id != "" {
+		return id, nil
 	}
 	b := make([]byte, 16)
 	rand.Read(b)
-	f.ID = hex.EncodeToString(b)
-	raw, _ = json.Marshal(f)
-	return f.ID, write(path, raw)
+	id = hex.EncodeToString(b)
+	_, err := db.Exec(`INSERT INTO meta (key, value) VALUES ('host_id', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, id)
+	return id, err
 }

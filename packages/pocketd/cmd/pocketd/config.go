@@ -99,7 +99,7 @@ func networkSetter(phones *atomic.Pointer[reach.Listener], settings *config.Sett
 				phones.Store(next)
 			}
 			if err := settings.SetPort(n); err != nil {
-				// Unsaved, the new port would last only until pocketd restarts, so go back to the one config.json names.
+				// Unsaved, the new port would last only until pocketd restarts, so go back to the one the config names.
 				if back, moveErr := phones.Load().Move(old); moveErr == nil {
 					phones.Store(back)
 				}

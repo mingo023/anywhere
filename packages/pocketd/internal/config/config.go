@@ -2,6 +2,7 @@ package config
 
 import (
 	"cmp"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,8 +13,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-
-	"pocketd/internal/atomicfile"
 )
 
 // channel is "release" in builds made by scripts/release-mac.sh
@@ -54,7 +53,7 @@ func HostLabel() string {
 	return "dev.mingo.anywhere.dev.host.pocketd"
 }
 
-// DefaultPort is the phone port a new config.json gets. Release and Dev differ so both can run.
+// DefaultPort is the phone port a first run gets. Release and Dev differ so both can run.
 func DefaultPort() int {
 	if Release() {
 		return 4517
@@ -105,56 +104,65 @@ func Sock() string {
 }
 
 type Config struct {
-	Port int `json:"port"`
+	Port int
 	// Listen is "auto" (loopback and the tailnet) or "loopback".
-	Listen string `json:"listen,omitempty"`
+	Listen string
 	// OwnerListen is "off" or the loopback ip:port where a peer that sends an
 	// owner token is the owner. It is on by default only on Windows, whose
 	// sockets can't prove a peer is the owner.
-	OwnerListen string `json:"ownerListen,omitempty"`
+	OwnerListen string
 }
 
-// Load reads config.json, creating it on first run. A token left there by an
-// older pocketd goes to adopt, then leaves the file. Fields left by the
+// Load reads the config table, filling it with the defaults on first run. A token left there by an
+// older pocketd goes to adopt, then leaves the table. Keys left by the
 // TypeScript daemon (profiles) are kept but ignored.
-func Load(adopt func(token string) error) (Config, error) {
-	path := filepath.Join(Home(), "config.json")
-	raw, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return create(path)
-	}
+func Load(db *sql.DB, adopt func(token string) error) (Config, error) {
+	rows, err := readRows(db)
 	if err != nil {
 		return Config{}, err
 	}
-	var c Config
-	if err := json.Unmarshal(raw, &c); err != nil || c.Port == 0 {
-		return Config{}, fmt.Errorf("invalid config %s: need port", path)
+	if len(rows) == 0 {
+		return create(db)
 	}
+	var c Config
+	if err := json.Unmarshal([]byte(rows["port"]), &c.Port); err != nil || c.Port == 0 {
+		return Config{}, errors.New("invalid config: need port")
+	}
+	json.Unmarshal([]byte(rows["listen"]), &c.Listen)
 	c.Listen = cmp.Or(c.Listen, "auto")
 	if c.Listen != "auto" && c.Listen != "loopback" {
-		return Config{}, fmt.Errorf("invalid config %s: listen must be auto or loopback", path)
+		return Config{}, errors.New("invalid config: listen must be auto or loopback")
 	}
-	if c.OwnerListen, err = ownerListen(c.OwnerListen); err != nil {
-		return Config{}, fmt.Errorf("invalid config %s: %w", path, err)
+	if c.OwnerListen, err = ownerListenRow(rows); err != nil {
+		return Config{}, fmt.Errorf("invalid config: %w", err)
 	}
-	var fields map[string]json.RawMessage
-	json.Unmarshal(raw, &fields)
 	var token string
-	if json.Unmarshal(fields["token"], &token) != nil || token == "" {
+	if json.Unmarshal([]byte(rows["token"]), &token) != nil || token == "" {
 		return c, nil
 	}
 	if err := adopt(token); err != nil {
 		return Config{}, err
 	}
-	delete(fields, "token")
-	out, _ := json.MarshalIndent(fields, "", "  ")
-	return c, atomicfile.Write(path, append(out, '\n'), 0o600)
+	_, err = db.Exec(`DELETE FROM config WHERE key = 'token'`)
+	return c, err
 }
 
-// OwnerListen is config.json's ownerListen, read without Load's migration.
-func OwnerListen() (string, error) {
-	var c Config
-	raw, err := os.ReadFile(filepath.Join(Home(), "config.json"))
+// OwnerListen is the config table's ownerListen, read without Load's migration.
+func OwnerListen(db *sql.DB) (string, error) {
+	rows, err := readRows(db)
+	if err != nil {
+		return "", err
+	}
+	return ownerListenRow(rows)
+}
+
+// LegacyOwnerListen is the ownerListen that config.json in home holds, for a home no daemon has imported yet: the
+// import will take its value into the table as it is. It only reads the file.
+func LegacyOwnerListen(home string) (string, error) {
+	var c struct {
+		OwnerListen string `json:"ownerListen"`
+	}
+	raw, err := os.ReadFile(filepath.Join(home, "config.json"))
 	if err == nil {
 		err = json.Unmarshal(raw, &c)
 	}
@@ -162,6 +170,12 @@ func OwnerListen() (string, error) {
 		return "", err
 	}
 	return ownerListen(c.OwnerListen)
+}
+
+func ownerListenRow(rows map[string]string) (string, error) {
+	var v string
+	json.Unmarshal([]byte(rows["ownerListen"]), &v)
+	return ownerListen(v)
 }
 
 func ownerListen(v string) (string, error) {
@@ -178,12 +192,36 @@ func ownerListen(v string) (string, error) {
 	return v, nil
 }
 
-func create(path string) (Config, error) {
+func readRows(db *sql.DB) (map[string]string, error) {
+	rows, err := db.Query(`SELECT key, value FROM config`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, err
+		}
+		out[key] = value
+	}
+	return out, rows.Err()
+}
+
+func create(db *sql.DB) (Config, error) {
 	c := Config{Port: DefaultPort(), Listen: "auto"}
-	raw, _ := json.MarshalIndent(c, "", "  ")
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	c.OwnerListen, _ = ownerListen("")
+	tx, err := db.Begin()
+	if err != nil {
 		return Config{}, err
 	}
-	c.OwnerListen, _ = ownerListen("")
-	return c, atomicfile.Write(path, append(raw, '\n'), 0o600)
+	defer tx.Rollback()
+	for key, value := range map[string]any{"port": c.Port, "listen": c.Listen} {
+		raw, _ := json.Marshal(value)
+		if _, err := tx.Exec(`INSERT INTO config (key, value) VALUES (?, ?)`, key, string(raw)); err != nil {
+			return Config{}, err
+		}
+	}
+	return c, tx.Commit()
 }

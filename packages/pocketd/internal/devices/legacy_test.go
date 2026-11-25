@@ -1,15 +1,14 @@
 package devices
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestTheLegacyTokenIsStoredHashedOnceAndListedFirst(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "devices.json")
-	s, err := Open(path, "")
+	path := filepath.Join(t.TempDir(), "pocketd.db")
+	s, err := openAt(t, path, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,11 +18,10 @@ func TestTheLegacyTokenIsStoredHashedOnceAndListedFirst(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	raw, _ := os.ReadFile(path)
-	if strings.Contains(string(raw), "old-token") || strings.Count(string(raw), `"id": "legacy"`) != 1 {
-		t.Fatalf("devices.json = %s", raw)
+	if rows := deviceRows(t, path); strings.Contains(rows, "old-token") || strings.Count(rows, "legacy|") != 1 {
+		t.Fatalf("devices = %s", rows)
 	}
-	again, _ := Open(path, "")
+	again, _ := openAt(t, path, "")
 	d, ok := again.Lookup("old-token")
 	if !ok || d.ID != LegacyID || !d.Legacy || len(d.Scopes) != len(LegacyScopes) {
 		t.Fatalf("lookup = %+v %v", d, ok)

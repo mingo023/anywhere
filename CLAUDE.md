@@ -2,7 +2,7 @@
 
 ## Where state lives
 
-pocketd is the backend. Anything another device sees (projects and their settings, tracked worktrees, sessions and which project each is in) is stored by pocketd and changed only through messages to it. Clients render what it sends and never write its files, nor another host's.
+pocketd is the backend. Anything another device sees (projects and their settings, tracked worktrees, sessions and which project each is in) is stored by pocketd in `state/pocketd.db` and changed only through messages to it. Clients render what it sends and never write its files, nor another host's.
 
 `desktop.json` holds this desktop's own view: window, layout, panels, appearance, project order on the sidebar. Shared fields it still writes are a cache of what pocketd last sent, never the source. The iOS app keeps its own the same way. See `docs/plans/2026-11-24-pocketd-owns-shared-state.md`.
 

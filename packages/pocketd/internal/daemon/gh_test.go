@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"testing"
 
-	"pocketd/internal/registry"
 	"pocketd/internal/shellenv"
 )
 
@@ -18,7 +17,7 @@ func TestATerminalInAProjectGetsTheTokenOfTheAccountItPicked(t *testing.T) {
 	d.env = &shellenv.Result{Env: []string{"PATH=" + bin + ":/usr/bin:/bin", "GH_TOKEN=leaked"}}
 	path := filepath.Join(t.TempDir(), "desktop.json")
 	os.WriteFile(path, []byte(`{"projects":["`+project+`"],"repos":{"`+project+`":{"gh_account":"work"}}}`), 0o600)
-	d.Registry = registry.Open(filepath.Dir(path))
+	d.Registry = registryFrom(t, filepath.Dir(path))
 
 	got := d.GhEnv([]string{"A=1", "GH_TOKEN=old"}, filepath.Join(project, "src"))
 	if want := []string{"A=1", "GH_TOKEN=tok-work"}; !reflect.DeepEqual(got, want) {

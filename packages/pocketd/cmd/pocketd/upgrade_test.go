@@ -71,3 +71,19 @@ func TestABinaryThatIsntPocketdHasNoVersion(t *testing.T) {
 		t.Fatalf("version = %q", v)
 	}
 }
+
+func TestTheChecksANewBinaryRunsBesideTheOldPocketdLeaveTheStateAlone(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("POCKET_HOME", home)
+	path := handoff.Path(home)
+	if err := handoff.Write(path, handoff.File{Format: handoff.Format}); err != nil {
+		t.Fatal(err)
+	}
+	if err := handoffCheck(path); err != nil {
+		t.Fatal(err)
+	}
+	versionString()
+	if _, err := os.Stat(filepath.Join(home, "state", "pocketd.db")); !os.IsNotExist(err) {
+		t.Fatalf("pocketd.db: %v", err)
+	}
+}

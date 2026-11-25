@@ -3,13 +3,13 @@ package host
 import (
 	"testing"
 
-	"pocketd/internal/config"
+	"pocketd/internal/config/configtest"
 	"pocketd/internal/proto"
 )
 
 func TestTheStateFollowsWhetherPhonesMayUseTerminals(t *testing.T) {
 	m := NewMonitor()
-	s := config.NewSettings(t.TempDir())
+	s := configtest.Settings(t)
 	FollowTerminals(m, s)
 	if !m.State().Terminals {
 		t.Fatal("terminals start off")

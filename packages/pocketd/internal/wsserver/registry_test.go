@@ -1,18 +1,21 @@
 package wsserver
 
 import (
+	"database/sql"
 	"reflect"
 	"testing"
 
+	"pocketd/internal/names"
 	"pocketd/internal/peer"
 	"pocketd/internal/registry"
+	"pocketd/internal/statedb"
 )
 
 const helloWithRegistry = `{"type":"hello","id":"h","token":"tok","clientId":"c","protocolVersion":3,"caps":["registry.v2"]}`
 
 func withRegistry(t *testing.T) (func(*Server), string) {
 	dir, folder := t.TempDir(), t.TempDir()
-	return func(s *Server) { s.Registry = registry.Open(dir) }, folder
+	return func(s *Server) { s.Registry = openRegistry(t, dir) }, folder
 }
 
 func (p *phone) helloAndList(hello string) map[string]any {
@@ -138,4 +141,35 @@ func TestTheDesktopNeedsTheRegistryCapButAPhoneWithoutItIsServed(t *testing.T) {
 	}
 	_, _, current := local(t, peer.OwnerOf(1), opt)
 	current.helloAndList(`{"type":"hello","id":"h","clientId":"desktop","protocolVersion":3,"caps":["registry.v2"]}`)
+}
+
+// openRegistry is the registry pocketd serves from home, once it has imported home's files into pocketd.db.
+func openRegistry(t *testing.T, home string) *registry.Registry {
+	t.Helper()
+	_, r := openStore(t, home)
+	return r
+}
+
+func openStore(t *testing.T, home string) (*sql.DB, *registry.Registry) {
+	t.Helper()
+	db, err := statedb.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	r, err := registry.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db, r
+}
+
+func openNames(t *testing.T) *names.Names {
+	t.Helper()
+	db, _ := openStore(t, t.TempDir())
+	n, err := names.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
 }

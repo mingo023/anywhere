@@ -63,7 +63,7 @@ func invalidResume(detail string) *Failure {
 
 // resumeCmd is how Daemon.Resume runs saved's resume argv in a login shell,
 // or the reason it can't. find is where the provider's command is, which
-// config.json may point away from the bare name the argv starts with.
+// The config may point away from the bare name the argv starts with.
 // account is the env of the managed account saved ran on.
 func resumeCmd(saved state.Terminal, args config.AgentArgs, shell, exe string, account, mcp []string, find func(provider string) (string, bool)) (string, []string, string) {
 	argv, f := Resume(saved, args)

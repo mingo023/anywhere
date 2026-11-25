@@ -1,30 +1,42 @@
 package state
 
 import (
-	"os"
+	"database/sql"
 	"path/filepath"
 	"testing"
+
+	"pocketd/internal/statedb/dbtest"
 )
 
+func newDB(t *testing.T) *sql.DB {
+	t.Helper()
+	return dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db"))
+}
+
 func TestHostIDIsMadeOnceAndKept(t *testing.T) {
-	home := t.TempDir()
-	id, err := HostID(home)
+	path := filepath.Join(t.TempDir(), "pocketd.db")
+	id, err := HostID(dbtest.Open(t, path))
 	if err != nil || len(id) != 32 {
 		t.Fatalf("%q %v", id, err)
 	}
-	again, err := HostID(home)
+	again, err := HostID(dbtest.Open(t, path))
 	if err != nil || again != id {
-		t.Fatalf("second read %q %v, want %q", again, err, id)
-	}
-	if st, err := os.Stat(filepath.Join(home, "state", "host.json")); err != nil || st.Mode().Perm() != 0o600 {
-		t.Fatalf("%v %v", st, err)
+		t.Fatalf("after a restart %q %v, want %q", again, err, id)
 	}
 }
 
-func TestHostIDsDifferBetweenHomes(t *testing.T) {
-	a, _ := HostID(t.TempDir())
-	b, _ := HostID(t.TempDir())
-	if a == b {
+func TestHostIDKeepsTheOneAnImportPlaced(t *testing.T) {
+	db := newDB(t)
+	db.Exec(`INSERT INTO meta (key, value) VALUES ('host_id', 'imported')`)
+	if id, err := HostID(db); err != nil || id != "imported" {
+		t.Fatalf("%q %v", id, err)
+	}
+}
+
+func TestHostIDsDifferBetweenDatabases(t *testing.T) {
+	a, _ := HostID(newDB(t))
+	b, _ := HostID(newDB(t))
+	if a == "" || a == b {
 		t.Fatalf("both %q", a)
 	}
 }

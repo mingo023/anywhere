@@ -1,14 +1,12 @@
-// Package names keeps each Worktree's display name, by path, in state/names.json.
+// Package names keeps each Worktree's display name, by path, in pocketd.db.
 package names
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
+	"database/sql"
+	"fmt"
 	"strings"
 	"sync"
 
-	"pocketd/internal/atomicfile"
 	"pocketd/internal/hub"
 	"pocketd/internal/proto"
 )
@@ -23,20 +21,32 @@ type Entry struct {
 }
 
 type Names struct {
-	path string
-	hub  *hub.Hub
+	db  *sql.DB
+	hub *hub.Hub
 
 	mu      sync.Mutex
 	entries map[string]Entry
 }
 
-// Open reads home/state/names.json; a missing or broken file is empty.
-func Open(home string) *Names {
-	n := &Names{path: filepath.Join(home, "state", "names.json"), hub: hub.New(), entries: map[string]Entry{}}
-	if raw, err := os.ReadFile(n.path); err == nil && json.Unmarshal(raw, &n.entries) != nil {
-		n.entries = map[string]Entry{}
+func Open(db *sql.DB) (*Names, error) {
+	n := &Names{db: db, hub: hub.New(), entries: map[string]Entry{}}
+	rows, err := db.Query(`SELECT path, title, auto FROM names`)
+	if err != nil {
+		return nil, fmt.Errorf("names: %w", err)
 	}
-	return n
+	defer rows.Close()
+	for rows.Next() {
+		var path string
+		var e Entry
+		if err := rows.Scan(&path, &e.Title, &e.Auto); err != nil {
+			return nil, fmt.Errorf("names: %w", err)
+		}
+		n.entries[path] = e
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("names: %w", err)
+	}
+	return n, nil
 }
 
 func (n *Names) Subscribe() (<-chan []byte, func()) { return n.hub.Subscribe() }
@@ -87,26 +97,21 @@ func (n *Names) Forget(path string) {
 	}
 }
 
-// set stores e for path, or drops path when e is nil.
+// set stores e for path, or drops path when e is nil, and takes it only once it is written.
 func (n *Names) set(path string, e *Entry) error {
-	prev, had := n.entries[path]
+	var err error
+	if e == nil {
+		_, err = n.db.Exec(`DELETE FROM names WHERE path = ?`, path)
+	} else {
+		_, err = n.db.Exec(`INSERT INTO names (path, title, auto) VALUES (?, ?, ?) ON CONFLICT (path) DO UPDATE SET title = excluded.title, auto = excluded.auto`, path, e.Title, e.Auto)
+	}
+	if err != nil {
+		return err
+	}
 	if e == nil {
 		delete(n.entries, path)
 	} else {
 		n.entries[path] = *e
-	}
-	raw, _ := json.Marshal(n.entries)
-	err := os.MkdirAll(filepath.Dir(n.path), 0o700)
-	if err == nil {
-		err = atomicfile.Write(n.path, raw, 0o600)
-	}
-	if err != nil {
-		if had {
-			n.entries[path] = prev
-		} else {
-			delete(n.entries, path)
-		}
-		return err
 	}
 	n.hub.Publish(proto.NewWorktreeNames(n.titles()))
 	return nil

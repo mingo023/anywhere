@@ -121,7 +121,7 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 }
 
 func TestALaunchedTicketRecordsItsSessionAndWorktree(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	dir := t.TempDir()
 	w := &world{result: launch.Result{AgentID: "a", TerminalID: "tm", Cwd: dir}, seen: map[string]Seen{"a": {Status: "working"}}}
 	x := saved(t, s, "a", true)
@@ -133,7 +133,7 @@ func TestALaunchedTicketRecordsItsSessionAndWorktree(t *testing.T) {
 }
 
 func TestALaunchThatFailsSaysWhyAndFreesTheSlot(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	s.SetLimit(1)
 	w := &world{result: launch.Result{Err: &launch.Failure{Message: "no   such\nbranch"}}}
 	a := saved(t, s, "a", true)
@@ -148,7 +148,7 @@ func TestALaunchThatFailsSaysWhyAndFreesTheSlot(t *testing.T) {
 }
 
 func TestALaunchThatDiesKeepsTheWorktreeItMade(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	dir := t.TempDir()
 	w := &world{cwd: dir, result: launch.Result{Err: &launch.Failure{Message: "boom"}}}
 	x := saved(t, s, "a", true)
@@ -160,7 +160,7 @@ func TestALaunchThatDiesKeepsTheWorktreeItMade(t *testing.T) {
 }
 
 func TestAMissingAgentRightAfterARestartIsGivenTimeToComeBack(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	x := saved(t, s, "a", true)
 	s.Claim(at)
 	s.Update(x.ID, func(t *proto.Ticket) { t.AgentID, t.Status = "gone", proto.TicketWorking })
@@ -172,7 +172,7 @@ func TestAMissingAgentRightAfterARestartIsGivenTimeToComeBack(t *testing.T) {
 }
 
 func TestAMergedPullRequestClosesTheTicket(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	dir := t.TempDir()
 	x := saved(t, s, "a", true)
 	s.Claim(at)
@@ -186,7 +186,7 @@ func TestAMergedPullRequestClosesTheTicket(t *testing.T) {
 }
 
 func TestADeletedWorktreeClosesAnEndedTicket(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	x := saved(t, s, "a", true)
 	s.Claim(at)
 	s.Update(x.ID, func(t *proto.Ticket) { t.AgentID, t.Status, t.Worktree = "a", proto.TicketStopped, "/nowhere/at/all" })
@@ -197,7 +197,7 @@ func TestADeletedWorktreeClosesAnEndedTicket(t *testing.T) {
 }
 
 func TestDeletingTheWorktreeOfAMergedTicketKeepsItMerged(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	x := saved(t, s, "a", true)
 	s.Claim(at)
 	s.Update(x.ID, func(t *proto.Ticket) {
@@ -210,7 +210,7 @@ func TestDeletingTheWorktreeOfAMergedTicketKeepsItMerged(t *testing.T) {
 }
 
 func TestAWorktreeThatStillExistsIsLeftAlone(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	dir := t.TempDir()
 	x := saved(t, s, "a", true)
 	s.Claim(at)

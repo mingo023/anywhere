@@ -45,7 +45,7 @@ func withGitProject(t *testing.T) (string, func(*Server)) {
 	raw, _ := json.Marshal(map[string]any{"projects": []string{repo}, "repos": map[string]any{}})
 	os.WriteFile(reg, raw, 0o600)
 	return repo, func(s *Server) {
-		s.Registry = registry.Open(filepath.Dir(reg))
+		s.Registry = openRegistry(t, filepath.Dir(reg))
 		s.Git = &gitview.Service{Env: gitEnv, Every: 20 * time.Millisecond}
 	}
 }

@@ -31,12 +31,12 @@ func ownerPair(home string, args []string, w io.Writer) error {
 	case len(args) != 1 || args[0] != "--json":
 		return errors.New(usage)
 	}
-	addr, err := config.OwnerListen()
+	addr, err := ownerListen(home)
 	if err != nil {
 		return err
 	}
 	if addr == "off" {
-		return errors.New("ownerListen is off; set it in config.json")
+		return errors.New("ownerListen is off; turn it on with pocketd config set ownerListen <ip:port>, then restart pocketd")
 	}
 	_, p, _ := net.SplitHostPort(addr)
 	port, _ := strconv.Atoi(p)
@@ -45,6 +45,20 @@ func ownerPair(home string, args []string, w io.Writer) error {
 		return err
 	}
 	return json.NewEncoder(w).Encode(ownerToken{token, o.ID, port})
+}
+
+// ownerListen is where the daemon of home takes owners over TCP. Before a daemon made pocketd.db, config.json
+// still holds it, as it will once the first serve has imported it.
+func ownerListen(home string) (string, error) {
+	db, err := openReadOnly(home)
+	if err != nil {
+		return "", err
+	}
+	if db == nil {
+		return config.LegacyOwnerListen(home)
+	}
+	defer db.Close()
+	return config.OwnerListen(db)
 }
 
 func ownerCmd(home string, args []string, w io.Writer) error {

@@ -17,6 +17,7 @@ import (
 
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
+	"pocketd/internal/statedb"
 )
 
 // fake is a gh on PATH that answers from the files in dir (testdata/fakegh/gh).
@@ -95,7 +96,7 @@ func repo(t *testing.T, remote bool) (project, tree string, reg *registry.Regist
 	git(t, tree, "commit", "-q", "--allow-empty", "-m", "Fix it")
 	path := filepath.Join(root, "desktop.json")
 	os.WriteFile(path, []byte(fmt.Sprintf(`{"projects":[%q]}`, project)), 0o600)
-	return project, tree, registry.Open(filepath.Dir(path))
+	return project, tree, openRegistry(t, filepath.Dir(path))
 }
 
 func ctx(t *testing.T) context.Context {
@@ -574,4 +575,19 @@ func TestATreeThatIsNoFolderHereIsNotAskedOfGh(t *testing.T) {
 	if pr := s.Cached(ctx(t), tree); pr == nil {
 		t.Fatalf("a tree here after one that is not: %v", f.calls())
 	}
+}
+
+// openRegistry is the registry pocketd serves from home, once it has imported home's files into pocketd.db.
+func openRegistry(t *testing.T, home string) *registry.Registry {
+	t.Helper()
+	db, err := statedb.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	r, err := registry.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
 }

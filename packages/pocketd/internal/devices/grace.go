@@ -23,9 +23,9 @@ func (s *Store) StartGrace(now time.Time) (time.Time, error) {
 		return time.Time{}, nil
 	}
 	if s.devices[n].GraceEndsAt == 0 {
-		s.devices[n].GraceEndsAt = now.Add(Grace).UnixMilli()
-		if err := s.save(); err != nil {
-			s.devices[n].GraceEndsAt = 0
+		next := slices.Clone(s.devices)
+		next[n].GraceEndsAt = now.Add(Grace).UnixMilli()
+		if err := s.save(next, s.graceEnded); err != nil {
 			return time.Time{}, err
 		}
 	}
@@ -41,11 +41,5 @@ func (s *Store) EndGrace(now time.Time) (bool, error) {
 	if n < 0 || !s.devices[n].graceOver(now) {
 		return false, nil
 	}
-	before := s.devices
-	s.devices, s.graceEnded = slices.Delete(slices.Clone(before), n, n+1), true
-	if err := s.save(); err != nil {
-		s.devices, s.graceEnded = before, false
-		return true, err
-	}
-	return true, nil
+	return true, s.save(slices.Delete(slices.Clone(s.devices), n, n+1), true)
 }

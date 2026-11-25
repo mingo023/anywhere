@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"pocketd/internal/accounts"
-	"pocketd/internal/config"
+	"pocketd/internal/config/configtest"
 	"pocketd/internal/daemon"
 	"pocketd/internal/devices"
 	"pocketd/internal/hosts"
@@ -73,16 +73,24 @@ func withWorkspace(t *testing.T, b *bench) func(*Server) {
 	raw, _ := json.Marshal(registry.File{Projects: []string{b.project}, Repos: map[string]registry.Repo{}, Worktree: registry.Worktree{Root: b.root}})
 	path := filepath.Join(home, "desktop.json")
 	os.WriteFile(path, raw, 0o600)
-	reg := registry.Open(filepath.Dir(path))
+	db, reg := openStore(t, filepath.Dir(path))
+	named, err := names.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ls, err := locals.Open(db, reg.Load)
+	if err != nil {
+		t.Fatal(err)
+	}
 	b.terms = terminal.NewManager()
 	t.Cleanup(func() { b.terms.CloseAll(0) })
 	d := &daemon.Daemon{Terminals: b.terms}
-	l := launch.New(d, reg, config.NewSettings(home), nil)
+	l := launch.New(d, reg, configtest.Settings(t), nil)
 	projects := workspace.NewProjects(reg)
 	projects.Scan()
 	return func(s *Server) {
 		b.s = s
-		s.Registry, s.Terminals, s.Launch, s.Names, s.Locals = reg, b.terms, l, names.Open(home), locals.Open(home)
+		s.Registry, s.Terminals, s.Launch, s.Names, s.Locals = reg, b.terms, l, named, ls
 		s.Workspace = WorkspaceService{Projects: projects, Accounts: &workspace.AccountList{Store: &accounts.Store{Root: t.TempDir(), Home: t.TempDir()},
 			Running: func(string, string) int { return 0 }}, Switch: d.Switch}
 	}

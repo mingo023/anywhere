@@ -39,7 +39,7 @@ func pocketProject(t *testing.T, d *Daemon) string {
 	raw, _ := json.Marshal(registry.File{Projects: []string{p}, Repos: map[string]registry.Repo{p: {Name: "Pocket"}}})
 	path := filepath.Join(dir, "desktop.json")
 	os.WriteFile(path, raw, 0o600)
-	d.Registry = registry.Open(filepath.Dir(path))
+	d.Registry = registryFrom(t, filepath.Dir(path))
 	return linked
 }
 

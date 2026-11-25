@@ -1,17 +1,17 @@
 package main
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"pocketd/internal/devices"
+	"pocketd/internal/statedb/dbtest"
 )
 
 func legacyStore(t *testing.T) *devices.Store {
 	t.Helper()
-	s, err := devices.Open(filepath.Join(t.TempDir(), "devices.json"), "old-token")
+	s, err := devices.Open(dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db")), "old-token")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,14 +44,13 @@ func TestServeAfterTheGraceForgetsTheLegacyDeviceAndClosesItsSockets(t *testing.
 }
 
 func TestServeClosesTheLegacySocketsEvenWhenForgettingTheDeviceFailsToSave(t *testing.T) {
-	dir := t.TempDir()
-	s, err := devices.Open(filepath.Join(dir, "devices.json"), "old-token")
+	db := dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db"))
+	s, err := devices.Open(db, "old-token")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s.StartGrace(time.Now().Add(-devices.Grace))
-	os.Chmod(dir, 0o500)
-	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	db.Close()
 	var closed []string
 	if err := endGrace(s, func(id, reason string) { closed = append(closed, id+" "+reason) }); err != nil {
 		t.Fatal(err)

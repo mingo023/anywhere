@@ -1,21 +1,47 @@
 package config
 
 import (
-	"encoding/json"
+	"database/sql"
 	"errors"
-	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
-	"strings"
 	"testing"
 	"time"
+
+	"pocketd/internal/statedb/dbtest"
 )
 
+// newDB is a new database whose config table holds rows, each key's JSON value by its dotted name.
+func newDB(t *testing.T, rows map[string]string) *sql.DB {
+	db := dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db"))
+	for k, v := range rows {
+		if _, err := db.Exec(`INSERT INTO config (key, value) VALUES (?, ?)`, k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return db
+}
+
+func newSettings(t *testing.T, rows map[string]string) *Settings {
+	s, err := NewSettings(newDB(t, rows))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func configRows(t *testing.T, db *sql.DB) map[string]string {
+	rows, err := readRows(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows
+}
+
 func TestSettingPhoneAccessKeepsOtherKeys(t *testing.T) {
-	home := t.TempDir()
-	path := filepath.Join(home, "config.json")
-	os.WriteFile(path, []byte(`{"token":"t","port":4517,"phone":{"nickname":"x"}}`), 0o600)
-	s := NewSettings(home)
+	db := newDB(t, map[string]string{"token": `"t"`, "port": "4517", "phone.nickname": `"x"`})
+	s, _ := NewSettings(db)
 	if got := s.PhoneMaxAccess(); got != "ask" {
 		t.Fatalf("default: got %q", got)
 	}
@@ -25,40 +51,28 @@ func TestSettingPhoneAccessKeepsOtherKeys(t *testing.T) {
 	if got := s.PhoneMaxAccess(); got != "auto" {
 		t.Fatalf("got %q", got)
 	}
-	raw, _ := os.ReadFile(path)
-	var f struct {
-		Token string
-		Port  int
-		Phone map[string]string
-	}
-	json.Unmarshal(raw, &f)
-	if f.Token != "t" || f.Port != 4517 || f.Phone["nickname"] != "x" || f.Phone["maxAccess"] != "auto" {
-		t.Fatalf("got %s", raw)
-	}
-	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o600 {
-		t.Fatalf("mode %v", fi.Mode())
+	want := map[string]string{"token": `"t"`, "port": "4517", "phone.nickname": `"x"`, "phone.maxAccess": `"auto"`}
+	if got := configRows(t, db); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v", got)
 	}
 }
 
 func TestResumeAgentsDefaultsOnAndPersists(t *testing.T) {
-	home := t.TempDir()
-	path := filepath.Join(home, "config.json")
-	os.WriteFile(path, []byte(`{"token":"t","port":1}`), 0o600)
-	s := NewSettings(home)
+	db := newDB(t, map[string]string{"token": `"t"`, "port": "1"})
+	s, _ := NewSettings(db)
 	if !s.ResumeAgents() {
 		t.Fatal("resumeAgents is off by default")
 	}
 	if err := s.SetResumeAgents(false); err != nil {
 		t.Fatal(err)
 	}
-	if raw, _ := os.ReadFile(path); !strings.Contains(string(raw), `"resumeAgents": false`) || !strings.Contains(string(raw), `"token"`) {
-		t.Fatalf("config = %s", raw)
+	if rows := configRows(t, db); rows["restore.resumeAgents"] != "false" || rows["token"] != `"t"` {
+		t.Fatalf("config = %v", rows)
 	}
 }
 
 func TestThePhoneCeilingTakesOnlyAPhoneAccess(t *testing.T) {
-	home := t.TempDir()
-	s := NewSettings(home)
+	s := newSettings(t, nil)
 	for _, v := range []string{"settings", "", "Auto"} {
 		if err := s.SetPhoneMaxAccess(v); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%q: got %v", v, err)
@@ -67,23 +81,21 @@ func TestThePhoneCeilingTakesOnlyAPhoneAccess(t *testing.T) {
 	if err := s.SetPhoneMaxAccess("full"); err != nil || s.PhoneMaxAccess() != "full" {
 		t.Fatalf("full: %v, reads %q", err, s.PhoneMaxAccess())
 	}
-	os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"phone":{"maxAccess":"settings"}}`), 0o600)
-	if got := s.PhoneMaxAccess(); got != "ask" {
+	if got := newSettings(t, map[string]string{"phone.maxAccess": `"settings"`}).PhoneMaxAccess(); got != "ask" {
 		t.Fatalf("a hand-edited settings reads as %q", got)
 	}
 }
 
 func TestNewSettingsKeepTodaysBehaviourUntilSet(t *testing.T) {
-	s := NewSettings(t.TempDir())
+	s := newSettings(t, nil)
 	if !s.KeepAwake() || s.AwakeLinger() != 2*time.Minute || s.AutomationGrace() != 12*time.Hour || s.AutomationHistory() != 50 {
 		t.Fatalf("defaults: %v", s.Values())
 	}
 }
 
 func TestSettingsReadBackWhatConfigSetWrote(t *testing.T) {
-	home := t.TempDir()
-	os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"token":"t","port":4517}`), 0o600)
-	s := NewSettings(home)
+	db := newDB(t, map[string]string{"token": `"t"`, "port": "4517"})
+	s, _ := NewSettings(db)
 	for key, value := range map[string]string{"awake.enabled": "false", "awake.lingerMinutes": "0", "automations.graceHours": "24", "automations.history": "200", "restore.resumeAgents": "false"} {
 		if err := s.Set(key, value); err != nil {
 			t.Fatalf("%s: %v", key, err)
@@ -92,13 +104,17 @@ func TestSettingsReadBackWhatConfigSetWrote(t *testing.T) {
 	if s.KeepAwake() || s.AwakeLinger() != 0 || s.AutomationGrace() != 24*time.Hour || s.AutomationHistory() != 200 || s.ResumeAgents() {
 		t.Fatalf("got %v", s.Values())
 	}
-	if raw, _ := os.ReadFile(filepath.Join(home, "config.json")); !strings.Contains(string(raw), `"token": "t"`) {
-		t.Fatalf("lost other keys: %s", raw)
+	if rows := configRows(t, db); rows["token"] != `"t"` || rows["automations.history"] != "200" {
+		t.Fatalf("rows: %v", rows)
+	}
+	again, _ := NewSettings(db)
+	if again.KeepAwake() || again.AutomationHistory() != 200 || again.ResumeAgents() {
+		t.Fatalf("after a reopen: %v", again.Values())
 	}
 }
 
 func TestSettingsRefuseValuesOutsideTheirRange(t *testing.T) {
-	s := NewSettings(t.TempDir())
+	s := newSettings(t, nil)
 	for key, value := range map[string]string{"automations.history": "5", "automations.graceHours": "48", "awake.lingerMinutes": "x", "awake.enabled": "maybe", "port": "1"} {
 		if err := s.Set(key, value); err == nil {
 			t.Errorf("%s=%s accepted", key, value)
@@ -110,18 +126,16 @@ func TestSettingsRefuseValuesOutsideTheirRange(t *testing.T) {
 }
 
 func TestNeverRunLateStillStartsARunThatIsOnTime(t *testing.T) {
-	s := NewSettings(t.TempDir())
+	s := newSettings(t, nil)
 	s.Set("automations.graceHours", "0")
 	if g := s.AutomationGrace(); g <= 10*time.Second || g > time.Minute {
 		t.Fatalf("grace %v", g)
 	}
 }
 
-func TestListenAndPortSitAtTheTopOfConfigJSONWhereLoadReadsThem(t *testing.T) {
-	home := t.TempDir()
-	path := filepath.Join(home, "config.json")
-	os.WriteFile(path, []byte(`{"port":4517,"phone":{"maxAccess":"edits"}}`), 0o600)
-	s := NewSettings(home)
+func TestListenAndPortSitAtTheTopOfTheConfigWhereLoadReadsThem(t *testing.T) {
+	db := newDB(t, map[string]string{"port": "4517", "phone.maxAccess": `"edits"`})
+	s, _ := NewSettings(db)
 	if s.Listen() != "auto" || s.Port() != 4517 {
 		t.Fatalf("defaults: %v", s.Values())
 	}
@@ -131,8 +145,7 @@ func TestListenAndPortSitAtTheTopOfConfigJSONWhereLoadReadsThem(t *testing.T) {
 	if err := s.SetPort(4600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("POCKET_HOME", home)
-	c, err := Load(func(string) error { return nil })
+	c, err := Load(db, func(string) error { return nil })
 	if err != nil || c.Listen != "loopback" || c.Port != 4600 || s.PhoneMaxAccess() != "edits" {
 		t.Fatalf("%+v %v %v", c, err, s.Values())
 	}
@@ -153,7 +166,7 @@ func TestOnlyUnprivilegedPortsAndKnownListenModesAreAccepted(t *testing.T) {
 }
 
 func TestAProviderCommandIsANameOnPathOrAFullPath(t *testing.T) {
-	s := NewSettings(t.TempDir())
+	s := newSettings(t, nil)
 	if s.AgentCommand("claude") != "claude" || s.Values()["codex.command"] != "" {
 		t.Fatalf("defaults: %v", s.Values())
 	}
@@ -174,7 +187,7 @@ func TestAProviderCommandIsANameOnPathOrAFullPath(t *testing.T) {
 }
 
 func TestAProviderStartsAsItsOwnCommandUnlessConfigNamesAnother(t *testing.T) {
-	s := NewSettings(t.TempDir())
+	s := newSettings(t, nil)
 	for provider, want := range map[string]string{"cursor": "cursor-agent", "antigravity": "agy", "pi": "pi"} {
 		if got := s.AgentCommand(provider); got != want {
 			t.Errorf("%s: got %q", provider, got)
@@ -189,7 +202,7 @@ func TestAProviderStartsAsItsOwnCommandUnlessConfigNamesAnother(t *testing.T) {
 }
 
 func TestAgentArgsSplitLikeAShellAndFallBackToTheirDefaults(t *testing.T) {
-	s := NewSettings(t.TempDir())
+	s := newSettings(t, nil)
 	if got := s.AgentArgs("claude"); !slices.Equal(got.Fork, []string{"--resume", SessionID, "--fork-session"}) || !slices.Equal(got.Prompt, []string{"--"}) {
 		t.Fatalf("defaults: %q", got)
 	}
@@ -208,7 +221,7 @@ func TestAgentArgsSplitLikeAShellAndFallBackToTheirDefaults(t *testing.T) {
 }
 
 func TestBadAgentArgsAreRefused(t *testing.T) {
-	s := NewSettings(t.TempDir())
+	s := newSettings(t, nil)
 	for key, bad := range map[string]string{
 		"claude.forkArgs":   "--fork-session",
 		"claude.promptArgs": `"--prompt`,
@@ -226,7 +239,7 @@ func TestBadAgentArgsAreRefused(t *testing.T) {
 }
 
 func TestPhoneTerminalsAreOnUntilTheOwnerTurnsThemOff(t *testing.T) {
-	s := NewSettings(t.TempDir())
+	s := newSettings(t, nil)
 	if !s.PhoneTerminals() || s.Values()["phone.terminals"] != "on" {
 		t.Fatalf("default: %v", s.Values()["phone.terminals"])
 	}
@@ -242,8 +255,7 @@ func TestPhoneTerminalsAreOnUntilTheOwnerTurnsThemOff(t *testing.T) {
 }
 
 func TestPushRelayIsTheDefaultUntilSetToAnHttpsURL(t *testing.T) {
-	home := t.TempDir()
-	s := NewSettings(home)
+	s := newSettings(t, nil)
 	if s.PushRelay() != DefaultPushRelay || s.Values()["push.relay"] != DefaultPushRelay {
 		t.Fatalf("default: %q", s.PushRelay())
 	}
@@ -257,16 +269,29 @@ func TestPushRelayIsTheDefaultUntilSetToAnHttpsURL(t *testing.T) {
 			t.Errorf("%q: %v, got %q", good, err, s.PushRelay())
 		}
 	}
-	os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"push":{"relay":"http://evil.example.com"}}`), 0o600)
-	if s.PushRelay() != DefaultPushRelay {
-		t.Fatalf("a hand-edited plain http relay reads as %q", s.PushRelay())
+	if got := newSettings(t, map[string]string{"push.relay": `"http://evil.example.com"`}).PushRelay(); got != DefaultPushRelay {
+		t.Fatalf("a hand-edited plain http relay reads as %q", got)
 	}
 }
 
 func TestAMissingSectionDoesNotReadTheTopLevelKey(t *testing.T) {
-	home := t.TempDir()
-	os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"port":4242}`), 0o600)
-	if got := NewSettings(home).MCPPort(); got != 0 {
+	if got := newSettings(t, map[string]string{"port": "4242"}).MCPPort(); got != 0 {
 		t.Fatalf("MCPPort = %d, want 0", got)
+	}
+}
+
+func TestOwnerListenIsSetByConfigSetAndRefusesAPublicAddress(t *testing.T) {
+	db := newDB(t, map[string]string{"port": "4517"})
+	s, _ := NewSettings(db)
+	for _, bad := range []string{"0.0.0.0:4519", "localhost:4519", "4519"} {
+		if err := s.Set("ownerListen", bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	if err := s.Set("ownerListen", "127.0.0.1:4519"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := OwnerListen(db); err != nil || got != "127.0.0.1:4519" {
+		t.Fatalf("%q %v", got, err)
 	}
 }

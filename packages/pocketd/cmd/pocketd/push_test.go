@@ -9,11 +9,17 @@ import (
 
 	"pocketd/internal/proto"
 	"pocketd/internal/push"
+	"pocketd/internal/statedb"
 )
 
 func TestPushStatusListsPhonesAndLastSendsWithoutSecrets(t *testing.T) {
 	home := t.TempDir()
-	store, _ := push.Open(push.Path(home))
+	db, err := statedb.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store, _ := push.Open(db)
 	now := time.Unix(1761300000, 0)
 	store.Register("dev-1234567890", push.Registration{Key: bytes.Repeat([]byte{7}, 32), Env: "production",
 		Alert: &proto.PushHandle{Handle: "h", Secret: "the-secret", ExpiresAt: now.Add(30 * 24 * time.Hour).Unix()},

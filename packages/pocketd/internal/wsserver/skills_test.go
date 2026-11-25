@@ -7,10 +7,9 @@ import (
 	"testing"
 
 	"pocketd/internal/accounts"
-	"pocketd/internal/config"
+	"pocketd/internal/config/configtest"
 	"pocketd/internal/daemon"
 	"pocketd/internal/launch"
-	"pocketd/internal/registry"
 	"pocketd/internal/skills"
 )
 
@@ -27,7 +26,7 @@ func withSkills(t *testing.T, project string) (home string, opt func(*Server)) {
 	t.Cleanup(func() { store.Close() })
 	d := &daemon.Daemon{Accounts: &accounts.Store{Root: filepath.Join(home, ".anywhere", "accounts"), Home: home}}
 	return home, func(s *Server) {
-		s.Launch, s.Skills = launch.New(d, registry.Open(filepath.Dir(path)), config.NewSettings(dir), nil), store
+		s.Launch, s.Skills = launch.New(d, openRegistry(t, filepath.Dir(path)), configtest.Settings(t), nil), store
 	}
 }
 
