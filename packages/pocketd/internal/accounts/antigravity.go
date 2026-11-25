@@ -78,6 +78,8 @@ type agyProbe struct {
 	// gate holds, by binary, whether it passed the version gate. One that
 	// didn't, or answered with something other than its report, isn't run again.
 	gate map[string]bool
+	// forgot is when a sign-in last ended.
+	forgot time.Time
 }
 
 func (p *agyProbe) signedIn() bool {
@@ -99,7 +101,7 @@ func (p *agyProbe) note() string {
 func (p *agyProbe) forget() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.at = time.Time{}
+	p.at, p.forgot = time.Time{}, time.Now()
 	if p.outcome == agySignedOut {
 		p.outcome = agyUnknown
 	}
@@ -191,7 +193,7 @@ func (p *agyProbe) cached(now time.Time) (Usage, error, bool) {
 func (p *agyProbe) cancelled(start time.Time) (Usage, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.at = start
+	p.startFloor(start)
 	if !p.done {
 		return Usage{}, errAgyUnread
 	}
@@ -209,7 +211,7 @@ func (p *agyProbe) settle(o agyOutcome, u Usage, start time.Time) (Usage, error)
 		// These wait on the binary changing, not on the floor.
 		p.at = time.Time{}
 	default:
-		p.at = start
+		p.startFloor(start)
 	}
 	switch o {
 	case agyMissing, agySignedOut:
@@ -226,6 +228,15 @@ func (p *agyProbe) settle(o agyOutcome, u Usage, start time.Time) (Usage, error)
 	}
 	p.last, p.err = u, nil
 	return u, nil
+}
+
+// startFloor starts the floor at start, unless a sign-in ended since: a
+// probe that began before it is already out of date.
+func (p *agyProbe) startFloor(start time.Time) {
+	p.at = time.Time{}
+	if p.forgot.Before(start) {
+		p.at = start
+	}
 }
 
 func (p *agyProbe) setGate(key string, passed bool) {

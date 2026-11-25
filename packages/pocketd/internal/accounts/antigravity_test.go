@@ -396,3 +396,30 @@ func TestTheRealRunnerKeepsAtMostAMebibyteOfStdout(t *testing.T) {
 		t.Fatalf("kept %d bytes, %v", len(r.out), err)
 	}
 }
+
+func TestASignInEndingDuringAProbeStillLetsTheNextRefreshProbe(t *testing.T) {
+	release := make(chan struct{})
+	f := &fakeAgy{version: "1.5.16", usage: agyRun{signIn: true}}
+	s, _ := agyStore(t, f)
+	s.runAgy = func(ctx context.Context, exe string, env []string, dir string, args ...string) (agyRun, error) {
+		if args[0] == "--print" && f.count("--print") == 0 {
+			<-release
+		}
+		return f.run(ctx, exe, env, dir, args...)
+	}
+	done := make(chan struct{})
+	go func() { refresh(s); close(done) }()
+	// Until the probe holds the lock.
+	for s.agy.run.TryLock() {
+		s.agy.run.Unlock()
+		time.Sleep(time.Millisecond)
+	}
+	s.Finish("antigravity", BuiltIn, func() {})
+	close(release)
+	<-done
+	f.set(agyRun{out: report(t)}, nil)
+	refresh(s)
+	if a := agyRow(t, s); !a.SignedIn || f.count("--print") != 2 {
+		t.Fatalf("%+v, ran %q", a, f.runs)
+	}
+}
