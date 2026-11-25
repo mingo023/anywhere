@@ -3034,7 +3034,7 @@ func TestASteerWhileAnAntigravitySubAgentCardIsOpenLeavesTheCardToEnd(t *testing
 	s.Prompt("two")
 	equal(t, after(sk.wait(t, "ended:false"), "user:one"), []string{
 		"user:one", "working", "tool_start:sa1:task:task:Test Fixer: Fix the flaky test", "steer:two",
-		"tool_end:sa1:true", "assistant_draft:re: two", "assistant_text:re: two", "result:true:", "ended:false"})
+		"assistant_draft:re: two", "assistant_text:re: two", "tool_end:sa1:true", "result:true:", "ended:false"})
 }
 
 func TestAnErrorOnASteerAntigravityTookIsNoRefusalAndItRunsOnce(t *testing.T) {
