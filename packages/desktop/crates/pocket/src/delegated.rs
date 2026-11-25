@@ -30,8 +30,8 @@ pub(crate) struct DelegatedState {
     crumbs: HashMap<String, Slot<child_view::Crumb>>,
     /// The chats whose delegations were asked for on this connection.
     asked: HashSet<String>,
-    /// Tasks the user cleared from a panel: pocketd lists them again after a reconnect, and they stay hidden.
-    cleared: HashSet<String>,
+    /// When each task the user cleared from a panel had settled: pocketd lists them again after a reconnect.
+    cleared: HashMap<String, i64>,
     /// The delegated session each chat's tab shows in place of the chat itself, by the chat's agent id.
     viewing: HashMap<String, String>,
     /// The session arriving from the one the user just left, while it moves.
@@ -46,7 +46,7 @@ impl DelegatedState {
             panels: HashMap::new(),
             crumbs: HashMap::new(),
             asked: HashSet::new(),
-            cleared: HashSet::new(),
+            cleared: HashMap::new(),
             viewing: HashMap::new(),
             push: None,
             clock: None,
@@ -54,7 +54,7 @@ impl DelegatedState {
     }
 
     fn clear_settled(&mut self, list: &[Delegation]) {
-        self.cleared.extend(list.iter().filter(|d| d.phase().settled()).map(|d| d.task_id.clone()));
+        self.cleared.extend(list.iter().filter(|d| d.phase().settled()).map(|d| (d.task_id.clone(), d.settled_at)));
     }
 
     /// A new pocketd connection has told nothing yet.
@@ -93,8 +93,8 @@ impl DelegatedState {
     }
 }
 
-fn shown<'a>(list: &'a [Delegation], cleared: &'a HashSet<String>) -> impl Iterator<Item = &'a Delegation> + Clone {
-    list.iter().filter(|d| !cleared.contains(&d.task_id))
+fn shown<'a>(list: &'a [Delegation], cleared: &'a HashMap<String, i64>) -> impl Iterator<Item = &'a Delegation> + Clone {
+    list.iter().filter(|d| !(d.phase().settled() && cleared.get(&d.task_id) == Some(&d.settled_at)))
 }
 
 /// The session `link` opens, for `anywhere://session/<id>`.
@@ -318,6 +318,14 @@ mod tests {
         assert_eq!(ids(&state, &list), ["b"]);
         let later = [task("a", "completed"), task("b", "completed"), task("c", "completed")];
         assert_eq!(ids(&state, &later), ["b", "c"], "only what was cleared stays cleared");
+    }
+
+    #[test]
+    fn a_cleared_task_shows_again_once_its_session_works_on_it_again() {
+        let mut state = DelegatedState::new();
+        state.clear_settled(&[Delegation { settled_at: 5, ..task("a", "completed") }]);
+        assert_eq!(ids(&state, &[task("a", "working")]), ["a"]);
+        assert_eq!(ids(&state, &[Delegation { settled_at: 9, ..task("a", "completed") }]), ["a"], "it settled again");
     }
 
     fn chat(id: &str, parent: &str, relationship: &str) -> Summary {

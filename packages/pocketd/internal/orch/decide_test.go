@@ -169,3 +169,32 @@ func TestMessageSendRefusesAModeItDoesNotKnow(t *testing.T) {
 		t.Fatalf("err = %v, want invalid_request", err)
 	}
 }
+
+func TestASettleForAChildWhoseNextTurnBeganIsDropped(t *testing.T) {
+	task := Delegation{TaskID: "t1", ParentID: "p", ChildID: "c", Status: TaskWorking}
+	st := State{Task: &task, Other: &Session{ID: "c", Status: "working"}}
+	d, err := decide(st, NewCommand("", CmdDelegateSettle, "p", TaskPayload{TaskID: "t1", Status: TaskCompleted, EndedTurnOf: "c"}))
+	if err != nil || len(d.Delegations) != 0 {
+		t.Fatalf("settled anyway: %+v %v", d.Delegations, err)
+	}
+	st.Other.Status = "idle"
+	d, _ = decide(st, NewCommand("", CmdDelegateSettle, "p", TaskPayload{TaskID: "t1", Status: TaskCompleted, EndedTurnOf: "c"}))
+	if len(d.Delegations) != 1 || d.Delegations[0].Status != TaskCompleted {
+		t.Fatalf("an idle child's settle: %+v", d.Delegations)
+	}
+}
+
+func TestReopeningACancelledTaskClearsItsResultAndWakesNoOneYet(t *testing.T) {
+	task := Delegation{TaskID: "t1", ParentID: "p", ChildID: "c", Status: TaskCancelled, Summary: "Stopped by the user", SettledAt: 5, Delivery: DeliverDisposed}
+	d, err := decide(State{Task: &task}, NewCommand("", CmdDelegateReopen, "p", TaskPayload{TaskID: "t1"}))
+	if err != nil || len(d.Delegations) != 1 || len(d.Follow) != 0 {
+		t.Fatalf("decision %+v %v", d, err)
+	}
+	if g := d.Delegations[0]; g.Status != TaskWorking || g.Summary != "" || g.SettledAt != 0 || g.Delivery != DeliverNone {
+		t.Fatalf("reopened %+v", g)
+	}
+	working := Delegation{TaskID: "t1", Status: TaskWorking}
+	if d, _ := decide(State{Task: &working}, NewCommand("", CmdDelegateReopen, "p", TaskPayload{TaskID: "t1"})); len(d.Delegations) != 0 {
+		t.Fatalf("a working task reopened: %+v", d.Delegations)
+	}
+}

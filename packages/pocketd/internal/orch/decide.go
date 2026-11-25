@@ -107,6 +107,8 @@ type (
 		CompletionWake string `json:"completionWake,omitempty"`
 		WorkState      string `json:"workState,omitempty"`
 		Stopped        bool   `json:"stopped,omitempty"`
+		// EndedTurnOf is sent as targetId so the engine loads the child as State.Other.
+		EndedTurnOf string `json:"targetId,omitempty"`
 	}
 	// StartPayload is the user's agent.create from a client, and who asked: Key is the requester.
 	StartPayload struct {
@@ -246,7 +248,7 @@ func decide(st State, cmd Command) (Decision, error) {
 			return Decision{}, err
 		}
 		return delegate(st, cmd, p, &ids)
-	case CmdDelegateStarted, CmdDelegateFailed, CmdDelegateSettle, CmdDelegateCancel, CmdDelegateWake, CmdDelegateWaited:
+	case CmdDelegateStarted, CmdDelegateFailed, CmdDelegateSettle, CmdDelegateReopen, CmdDelegateCancel, CmdDelegateWake, CmdDelegateWaited:
 		var p TaskPayload
 		if err := decode(cmd, &p); err != nil {
 			return Decision{}, err
@@ -800,14 +802,19 @@ func task(st State, cmd Command, p TaskPayload) (Decision, error) {
 		}
 		return d, nil
 	case CmdDelegateFailed, CmdDelegateSettle:
-		if t.Terminal() {
-			// A published result never changes.
+		if t.Terminal() || superseded(st, p) {
 			return Decision{}, nil
 		}
 		if cmd.Kind == CmdDelegateFailed {
 			return settle(st, t, TaskFailed, "", cmp.Or(p.Error, "The session couldn't start"), false)
 		}
 		return settle(st, t, p.Status, p.Summary, p.Error, p.Stopped)
+	case CmdDelegateReopen:
+		if !t.Terminal() {
+			return Decision{}, nil
+		}
+		t.Status, t.Summary, t.Error, t.SettledAt, t.Delivery = TaskWorking, "", "", 0, DeliverNone
+		return Decision{Delegations: []Delegation{t}, Events: []Event{{t.ParentID, "delegation.reopened", t.TaskID}}}, nil
 	case CmdDelegateWake:
 		if p.CompletionWake != "settled_only" && p.CompletionWake != "always" {
 			return Decision{}, refuse(CodeInvalid, "completionWake is settled_only or always")
@@ -844,6 +851,11 @@ func task(st State, cmd Command, p TaskPayload) (Decision, error) {
 		return d, nil
 	}
 	return Decision{}, nil
+}
+
+// superseded says a turn's end reached the task after the child's next turn began, which settles it instead.
+func superseded(st State, p TaskPayload) bool {
+	return p.EndedTurnOf != "" && st.Other != nil && st.Other.Busy()
 }
 
 // settle publishes t's result once and decides how the parent hears of it. A
