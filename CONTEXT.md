@@ -17,7 +17,7 @@ A machine as the sidebar shows it: This Mac, or one SSH host. The sidebar lists 
 _Avoid_: machine view, workspace
 
 **Worktree**:
-A git worktree of a project, listed under it on the sidebar by its name: the name of its folder, which stays when its branch changes. A project lists its main worktree and the ones Pocket created or the user imported; a folder in any other worktree belongs to the main one. One Pocket creates starts on a new branch of the same name. Deleting a worktree closes its terminals and removes its folder but keeps its branch; the main worktree can't be deleted. Its terminals are laid out in tabs and splits; the sessions in them are its session list.
+A git worktree of a project, listed under it on the sidebar by its name: the name of its folder, which stays when its branch changes. A project lists its main worktree, the worktrees that the user or an automation's run created in Pocket, and the ones the user imported. It doesn't list a worktree that Pocket made for a session an agent started, such as a delegated session's. A folder in any other worktree belongs to the main one. One Pocket creates starts on a new branch of the same name. Deleting a worktree closes its terminals and removes its folder but keeps its branch; the main worktree can't be deleted. Its terminals are laid out in tabs and splits; the sessions in them are its session list.
 _Avoid_: workspace, branch
 
 **Local**:
