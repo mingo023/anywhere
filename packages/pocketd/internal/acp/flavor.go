@@ -41,7 +41,7 @@ type flavor struct {
 	// replays as a reply: nothing else marks it.
 	summary string
 	// elicits has it ask the user through elicitation/create, which initialize
-	// offers it, and through permission requests for its interaction_ calls.
+	// offers it. Its interaction_ permission requests, never yet seen, are asked the same way.
 	elicits bool
 }
 

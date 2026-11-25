@@ -1352,6 +1352,10 @@ func (s *Session) flush() {
 // tool takes what the agent tells of a call. It shows once there is something
 // to show of it, and ends once the agent says how it went.
 func (s *Session) tool(u toolCall, starts bool, parent string) {
+	// Antigravity also tells each question it asks as a call, which the question card already shows.
+	if s.f.elicits && u.Name == "ask_question" {
+		return
+	}
 	t := s.tools[u.ID]
 	if t == nil {
 		// Hermes ends each permission check as a call it never started.

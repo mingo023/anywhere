@@ -1004,11 +1004,11 @@ func TestGroksQuestionIsAnsweredByItsText(t *testing.T) {
 	}
 }
 
-// Antigravity's form question, in the [CT] shape.
-const agyForm = `{"sessionId":"s1","mode":"form","message":"A few questions","requestedSchema":{"type":"object","properties":{
+// Antigravity's form of several questions, in the shape 1.5.16 sends.
+const agyForm = `{"sessionId":"s1","toolCallId":"call_1","mode":"form","message":"The agent has 3 questions.","requestedSchema":{"type":"object","properties":{
 	"q10":{"type":"string","title":"Anything else?"},
 	"q1":{"type":"string","title":"Which fruit?","oneOf":[{"const":"1","title":"Apple"},{"const":"2","title":"Pear"}]},
-	"q1_other":{"type":"string","title":"Another fruit"},
+	"q1_other":{"type":"string","title":"Other","description":"Optional free-form answer to: Which fruit?"},
 	"q2":{"type":"array","title":"Which colours?","items":{"anyOf":[{"const":"r","title":"Red"},{"const":"g","title":"Green"},{"const":"b","title":"Blue"}]}}}}}`
 
 func TestAntigravitysFormQuestionIsAskedAsAChatQuestionAndAnsweredByItsConst(t *testing.T) {
@@ -1076,7 +1076,51 @@ func TestAnotherAgentsFormQuestionIsAnsweredAsBefore(t *testing.T) {
 	}
 }
 
-// Antigravity's decision, in the [C] shape.
+// agyAsking is Antigravity 1.5.16 asking a question: an ask_question call, then the form.
+var agyAsking = []string{
+	`{"sessionUpdate":"tool_call","toolCallId":"call_9","name":"ask_question","status":"in_progress","kind":"other","title":"Run ask_question","rawInput":{"questions":[{"is_multi_select":false,"options":["Apple","Pear"],"question":"Which fruit?"}]}}`,
+	`{"sessionUpdate":"tool_call_update","toolCallId":"call_9","name":"ask_question","status":"pending","kind":"other","title":"Run ask_question"}`,
+}
+
+const agyAsked = `{"sessionId":"s1","toolCallId":"call_9","mode":"form","message":"The agent has a question.","requestedSchema":{"type":"object","properties":{
+	"q1":{"type":"string","title":"Which fruit?","oneOf":[{"const":"1","title":"Apple"},{"const":"2","title":"Pear"}]},
+	"q1_other":{"type":"string","title":"Other","description":"Optional free-form answer to: Which fruit?"}}}}`
+
+// agyAsks has Antigravity ask agyAsked, then end the turn as it would on that answer.
+func agyAsks(a *agent, _ string) string {
+	for _, u := range agyAsking {
+		a.update(u)
+	}
+	a.ask("8", "elicitation/create", agyAsked)
+	if a.replied("8") == `{"action":"cancel"}` {
+		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"call_9","name":"ask_question","status":"failed"}`)
+		return `{"stopReason":"cancelled"}`
+	}
+	a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"call_9","name":"ask_question","status":"completed"}`)
+	return endTurn
+}
+
+func TestAntigravitysQuestionShowsOnlyOnTheCardNotAlsoAsACall(t *testing.T) {
+	s, _, sk, b := start(t, opts{provider: "antigravity", answer: script(`{"sessionId":"s1"}`, agyAsks)})
+	s.Prompt("ask")
+	b.Resolve(asked(t, b).RequestID, broker.Answer{Decision: "allow", Answers: map[string]string{"Which fruit?": "Pear"}})
+	equal(t, after(sk.wait(t, "ended:false"), "working"), []string{"working", "needsYou", "working", "result:true:", "ended:false"})
+}
+
+func TestAStopWhileAntigravityAsksCancelsTheTurnAndAnswersTheFormCancel(t *testing.T) {
+	s, a, sk, b := start(t, opts{provider: "antigravity", answer: script(`{"sessionId":"s1"}`, agyAsks)})
+	s.Prompt("ask")
+	asked(t, b)
+	sk.wait(t, "needsYou")
+	s.Cancel()
+	a.called("session/cancel", 1)
+	if got := a.replied("8"); got != `{"action":"cancel"}` {
+		t.Fatalf("answered %s", got)
+	}
+	equal(t, after(sk.wait(t, "stopped"), "working"), []string{"working", "needsYou", "result:false:interrupted", "stopped"})
+}
+
+// Antigravity's decision as guessed: no live run has shown an interaction_ request.
 const agyDecision = `{"sessionId":"s1","toolCall":{"toolCallId":"interaction_1","title":"Which fruit?"},
 	"options":[{"optionId":"1","name":"Apple","kind":"allow_once"},{"optionId":"2","name":"Pear","kind":"allow_once"}]}`
 

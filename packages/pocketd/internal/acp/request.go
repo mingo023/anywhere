@@ -114,7 +114,9 @@ func (s *Session) permission(id json.RawMessage, params json.RawMessage) {
 }
 
 // decision is whether asked is a question the agent puts to the user, each
-// choice an option, rather than a tool's approval, which can be refused.
+// choice an option, rather than a tool's approval, which can be refused. A
+// guard: Antigravity 1.5.16 asks through elicitation/create, and no
+// interaction_ request has been seen from it.
 func decision(asked toolCall, options []option) bool {
 	return strings.HasPrefix(asked.ID, "interaction_") && strings.TrimSpace(asked.Title) != "" && len(options) > 0 &&
 		!slices.ContainsFunc(options, func(o option) bool { return strings.HasPrefix(o.Kind, "reject") })

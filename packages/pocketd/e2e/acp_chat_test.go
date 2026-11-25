@@ -765,6 +765,9 @@ func TestAChatAntigravityAsksItsQuestionsOnTheQuestionCard(t *testing.T) {
 		resolve(phone, req, c.answer)
 		phone.WaitAll(c.prompt, streamOf(id, "assistant", c.reply), statusOf(id, "done"))
 	}
+	if got := withSubAgents(phone, id); slices.ContainsFunc(got, func(line string) bool { return strings.HasPrefix(line, "tool") }) {
+		t.Fatalf("showed a question as a call too: %q", got)
+	}
 }
 
 // startsBadly has the fake agent do how instead of opening its session.
