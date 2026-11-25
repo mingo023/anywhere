@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { AgentSummary, Decision, PermissionRequest, TimelineItem } from "./timeline.js";
 import { Delegation, QueueEntry } from "./orchestrator.js";
 import { Automation, AutomationDraft, Run } from "./automation.js";
-import { Ticket } from "./board.js";
+import { BoardClient, Ticket } from "./board.js";
 import { LaunchSpec, PhoneAccess, ProviderInfo } from "./launch.js";
 import { Local, LocalId } from "./locals.js";
 import { TerminalClient, TerminalServer } from "./terminal.js";
@@ -172,6 +172,7 @@ export const ClientMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("automation.enable"), id: Schema.String, automationId: Schema.String, enabled: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("automation.delete"), id: Schema.String, automationId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("automation.run"), id: Schema.String, automationId: Schema.String }),
+  ...BoardClient,
   ...TerminalClient,
   ...WorkspaceClient,
   ...RegistryClient,
