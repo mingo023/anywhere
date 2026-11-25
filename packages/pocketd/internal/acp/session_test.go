@@ -1107,6 +1107,24 @@ func TestAntigravitysQuestionShowsOnlyOnTheCardNotAlsoAsACall(t *testing.T) {
 	equal(t, after(sk.wait(t, "ended:false"), "working"), []string{"working", "needsYou", "working", "result:true:", "ended:false"})
 }
 
+func TestAntigravitysWordsBeforeAndAfterItsQuestionStayTwoReplies(t *testing.T) {
+	s, _, sk, b := start(t, opts{provider: "antigravity", answer: script(`{"sessionId":"s1"}`, func(a *agent, text string) string {
+		a.update(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Let me ask."}}`)
+		r := agyAsks(a, text)
+		a.update(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"You picked Pear."}}`)
+		return r
+	})})
+	s.Prompt("ask")
+	b.Resolve(asked(t, b).RequestID, broker.Answer{Decision: "allow", Answers: map[string]string{"Which fruit?": "Pear"}})
+	var said []string
+	for _, line := range sk.wait(t, "ended:false") {
+		if strings.HasPrefix(line, "assistant_text:") {
+			said = append(said, line)
+		}
+	}
+	equal(t, said, []string{"assistant_text:Let me ask.", "assistant_text:You picked Pear."})
+}
+
 func TestAStopWhileAntigravityAsksCancelsTheTurnAndAnswersTheFormCancel(t *testing.T) {
 	s, a, sk, b := start(t, opts{provider: "antigravity", answer: script(`{"sessionId":"s1"}`, agyAsks)})
 	s.Prompt("ask")

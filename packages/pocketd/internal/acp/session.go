@@ -1354,6 +1354,7 @@ func (s *Session) flush() {
 func (s *Session) tool(u toolCall, starts bool, parent string) {
 	// Antigravity also tells each question it asks as a call, which the question card already shows.
 	if s.f.elicits && u.Name == "ask_question" {
+		s.flush()
 		return
 	}
 	t := s.tools[u.ID]
