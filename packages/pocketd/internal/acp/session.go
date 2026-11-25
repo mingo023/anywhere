@@ -103,10 +103,8 @@ type Session struct {
 	out int
 	// prompts counts the prompts sent, so an answer knows whether it is to the newest, the only one a steer may be unconfirmed in.
 	prompts int
-	// steered holds the prompts steered into the turn and not yet shown.
-	steered []string
-	// taken says the agent took them while it wrote a message, so they show once it ends.
-	taken    bool
+	// steered holds the prompts steered into the turn and not yet known taken, so not yet shown.
+	steered  []string
 	running  bool
 	turn     int             // counts the turns and compactions started, so a late answer ends only its own
 	began    time.Time       // when this pocketd started the turn running
@@ -864,17 +862,16 @@ func (s *Session) promptReplied(text string, unconfirmed bool, res json.RawMessa
 	}
 }
 
-// showSteered shows the prompts the agent has taken into the turn. agy
-// finishes the message it is writing before it reads them, so they show after it.
+// showSteered shows the prompts the agent has taken into the turn, after what
+// it wrote so far. agy names no message in its chunks, so a reply it goes on
+// writing can't be told apart from its answer to the steer: the reply shows
+// split where the agent took the steer.
 func (s *Session) showSteered() {
-	if s.msg.text != "" {
-		s.taken = true
-		return
-	}
+	s.flush()
 	for _, text := range s.steered {
 		s.sink.Apply(timeline.Event{Kind: "user", Text: text, Steer: true})
 	}
-	s.steered, s.taken = nil, false
+	s.steered = nil
 }
 
 // refused says the agent answered a call with an error, rather than going away.
@@ -922,7 +919,7 @@ func (s *Session) finish(res json.RawMessage, err error) {
 	stopped := s.stopping || err == nil && r.StopReason == "cancelled"
 	runs, adopted := s.runs, s.adopted
 	s.running, s.adopted, s.stopping, s.stray, s.woke, s.runs = false, false, false, nil, "", ""
-	s.out, s.steered, s.taken = 0, nil, false
+	s.out, s.steered = 0, nil
 	e := timeline.Event{Kind: "result"}
 	if !s.began.IsZero() {
 		e.DurationMs = time.Since(s.began).Milliseconds()
@@ -1408,9 +1405,6 @@ func (s *Session) flush() {
 	b := s.msg
 	if s.msg = (block{}); b.text == "" {
 		return
-	}
-	if s.taken {
-		defer s.showSteered()
 	}
 	switch b.kind {
 	case "user":

@@ -68,12 +68,16 @@ type agent struct {
 	next    int
 	waits   map[string]chan map[string]any
 	stop    chan struct{} // closed to cancel the turn under way
-	// replyTo is the prompt the turn under way answers as it ends, and steered what was steered into it, as agy.
-	replyTo json.RawMessage
-	steered []string
+	steer   *steering     // the turn under way's
 	checks  int
 	mcp     []fakemcp.Server
 	forms   bool // initialize offered elicitation forms
+}
+
+// steering is a turn's, as agy: the prompt its end answers and what was steered into it.
+type steering struct {
+	replyTo json.RawMessage
+	steered []string
 }
 
 type session struct {
@@ -326,11 +330,12 @@ func (a *agent) handle(id json.RawMessage, method string, p map[string]any) {
 		a.mu.Lock()
 		busy := a.stop != nil
 		if !busy {
-			a.stop, a.replyTo = make(chan struct{}), id
+			a.stop, a.steer = make(chan struct{}), &steering{replyTo: id}
 		}
-		stop, open := a.stop, a.replyTo
+		stop, t := a.stop, a.steer
+		open := t.replyTo
 		if busy && a.name == "agy" {
-			a.replyTo, a.steered = id, append(a.steered, promptText(p))
+			t.replyTo, t.steered = id, append(t.steered, promptText(p))
 		}
 		a.mu.Unlock()
 		if busy && a.name == "agy" {
@@ -343,7 +348,7 @@ func (a *agent) handle(id json.RawMessage, method string, p map[string]any) {
 			a.refuse(id, -32603, "a turn is running", nil)
 			return
 		}
-		go a.turn(id, promptText(p), stop)
+		go a.turn(id, promptText(p), stop, t)
 	case "_x.ai/compact_conversation":
 		if a.name != "grok" {
 			a.refuse(id, -32601, "Method not found", map[string]string{"method": method})
@@ -360,7 +365,9 @@ func (a *agent) handle(id json.RawMessage, method string, p map[string]any) {
 			close(a.stop)
 			a.stop = nil
 		}
-		a.steered = nil
+		if a.steer != nil {
+			a.steer.steered = nil
+		}
 		a.mu.Unlock()
 	default:
 		if id != nil {
@@ -405,7 +412,7 @@ func (a *agent) say(text string) {
 	}
 }
 
-func (a *agent) turn(id json.RawMessage, text string, stop chan struct{}) {
+func (a *agent) turn(id json.RawMessage, text string, stop chan struct{}, t *steering) {
 	note("prompt: %s", text)
 	if a.name == "opencode" && text == "/compact" {
 		// The real one keeps its summary as a reply no prompt asked for.
@@ -469,7 +476,7 @@ func (a *agent) turn(id json.RawMessage, text string, stop chan struct{}) {
 		a.say(text)
 	}
 	a.tell(map[string]any{"sessionUpdate": "usage_update", "used": 1200, "size": 200000})
-	a.reply(a.settle(id), map[string]any{"stopReason": reason, "usage": map[string]int{"inputTokens": 1000, "outputTokens": 200, "totalTokens": 1200}})
+	a.reply(a.settle(t, stop), map[string]any{"stopReason": reason, "usage": map[string]int{"inputTokens": 1000, "outputTokens": 200, "totalTokens": 1200}})
 }
 
 // info is what initialize tells of the agent: as agy, what agy 1.5.16 tells.
@@ -480,21 +487,21 @@ func (a *agent) info() map[string]string {
 	return map[string]string{"name": a.name, "version": "0"}
 }
 
-// settle says each prompt steered into the turn and ends the turn. It
-// returns the prompt the turn's end answers: the last steer's, else id.
-func (a *agent) settle(id json.RawMessage) json.RawMessage {
+// settle says each prompt steered into turn t and ends it. It returns the
+// prompt the turn's end answers. A turn stopped and followed by another
+// leaves that one running.
+func (a *agent) settle(t *steering, stop chan struct{}) json.RawMessage {
 	for {
 		a.mu.Lock()
-		if len(a.steered) == 0 {
-			if a.replyTo != nil {
-				id = a.replyTo
+		if len(t.steered) == 0 {
+			if a.stop == stop {
+				a.stop = nil
 			}
-			a.stop, a.replyTo = nil, nil
 			a.mu.Unlock()
-			return id
+			return t.replyTo
 		}
-		text := a.steered[0]
-		a.steered = a.steered[1:]
+		text := t.steered[0]
+		t.steered = t.steered[1:]
 		a.mu.Unlock()
 		a.say(text)
 	}

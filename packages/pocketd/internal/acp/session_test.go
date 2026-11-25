@@ -3067,32 +3067,33 @@ func TestAnErrorOnASteerAntigravityTookIsNoRefusalAndItRunsOnce(t *testing.T) {
 	equal(t, promptsInOrder(a), []string{"one", "two", "three"})
 }
 
-// agy takes a steer at its next step: a reply it is writing runs to its end first.
-func TestASteerShowsAfterTheReplyAntigravityWasWritingWhenItTookIt(t *testing.T) {
+// agy takes a steer at its next step: a reply it is writing runs to its end
+// first, with its answer to the steer in the same unnamed message (doc 23, 1b).
+func TestASteerAntigravityTookWhileWritingSplitsTheReplyWhereItTookIt(t *testing.T) {
 	var s *Session
 	var sk *sink
 	took := make(chan struct{})
-	chunk := func(a *agent, id, text string) {
-		a.update(`{"content":{"text":"` + text + `","type":"text"},"messageId":"` + id + `","sessionUpdate":"agent_message_chunk"}`)
+	chunk := func(a *agent, text string) {
+		a.update(`{"content":{"text":"` + text + `","type":"text"},"sessionUpdate":"agent_message_chunk"}`)
 	}
 	s, a, sk, _ := start(t, opts{provider: "antigravity", answer: agy(agyInit, func(a *agent, text string) string {
 		if text == "one" {
-			chunk(a, "m1", "a story")
+			chunk(a, "a story")
 			<-took
 			return endTurn
 		}
 		close(took)
 		answered(t, s, 1)
-		chunk(a, "m1", " to its end")
-		chunk(a, "m2", "re: two")
+		chunk(a, " to its end")
+		chunk(a, `\n\nre: two`)
 		return endTurn
 	})})
 	s.Prompt("one")
 	sk.wait(t, "assistant_draft:a story")
 	s.Prompt("two")
 	equal(t, after(sk.wait(t, "ended:false"), "user:one"), []string{
-		"user:one", "working", "assistant_draft:a story", "assistant_draft: to its end", "assistant_text:a story to its end", "steer:two",
-		"assistant_draft:re: two", "assistant_text:re: two", "result:true:", "ended:false"})
+		"user:one", "working", "assistant_draft:a story", "assistant_text:a story", "steer:two",
+		"assistant_draft: to its end", "assistant_draft:\n\nre: two", "assistant_text: to its end\n\nre: two", "result:true:", "ended:false"})
 	equal(t, promptsInOrder(a), []string{"one", "two"})
 }
 
