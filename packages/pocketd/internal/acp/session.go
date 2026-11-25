@@ -405,6 +405,11 @@ func (s *Session) loaded(ok bool, left Left) {
 	replayed := len(s.replay)
 	if ok && left != Running {
 		cut := s.interrupt() || left == Cut && len(s.replay) > 0
+		// agy replays no sub-agent's calls, and each launch already ended.
+		if left == Cut && s.Shown {
+			out := "Interrupted"
+			s.endShownLaunches(timeline.Event{Output: &out})
+		}
 		switch {
 		case cut:
 			s.record(timeline.Event{Kind: "result", Error: "interrupted"})
@@ -862,7 +867,7 @@ func (s *Session) finish(res json.RawMessage, err error) {
 	default:
 		e.Error = fmt.Sprintf("%s ended the turn (%s)", s.name, r.StopReason)
 	}
-	s.endLaunches(e.OK, adopted)
+	s.endLaunches(e, adopted)
 	s.sink.Apply(e)
 	// The turn goes on until Hermes has been handed what its background sub-agents did.
 	if e.OK && len(s.handoff.calls)+len(s.handoff.tails) > 0 {

@@ -1427,6 +1427,25 @@ func TestAnAntigravityFailedLaunchEndsAtOnce(t *testing.T) {
 		"tool_start:sa1:task:task:Fixer: Fix it", "tool_end:sa1:false", "assistant_draft:it failed", "assistant_text:it failed", "result:true:", "ended:false"})
 }
 
+// agy replays a launch already completed and none of its sub-agent's calls.
+func TestAntigravitySubAgentsOfATurnCutShortWithItsPocketdEndInterrupted(t *testing.T) {
+	inBrain(t, nil)
+	call := func(id, kind string) *proto.ToolCall {
+		return &proto.ToolCall{ToolUseID: id, Name: kind, Detail: proto.ToolDetail{Kind: kind}, Status: "running"}
+	}
+	shown := []proto.Item{{Kind: "user", Text: "go"}, {Kind: "tool", Call: call("sa1", "task")},
+		{Kind: "tool", Call: call("c1:call_1", "shell"), ParentToolUseID: "sa1"}}
+	_, _, sk, _ := start(t, opts{provider: "antigravity", saved: "s1", left: Cut, shown: shown, answer: func(a *agent, method string, _ json.RawMessage) string {
+		if method == "session/load" {
+			a.update(`{"content":{"text":"go","type":"text"},"sessionUpdate":"user_message_chunk"}`)
+			a.update(agyLaunch("sa1", "Fixer", "Fix it")[0])
+			a.update(agyLaunch("sa1", "Fixer", "Fix it")[1])
+		}
+		return `{"sessionId":"s1"}`
+	}})
+	equal(t, sk.wait(t, "bound:s1"), []string{"tool_end:c1:call_1:false:Interrupted", "tool_end:sa1:false:Interrupted", "result:false:interrupted", "bound:s1"})
+}
+
 func TestAntigravitySubAgentsOfATurnAPocketdBeforeThisOneStartedEndWithIt(t *testing.T) {
 	inBrain(t, nil)
 	s, a, sk, _ := start(t, opts{provider: "antigravity", saved: "s1", left: Running, answer: func(*agent, string, json.RawMessage) string {
@@ -1447,6 +1466,13 @@ func TestAntigravitySubAgentsOfATurnAPocketdBeforeThisOneStartedEndWithIt(t *tes
 	sk.wait(t, "bound:s1")
 	a.say(`{"jsonrpc":"2.0","id":7,"result":{"stopReason":"end_turn"}}`)
 	equal(t, after(sk.wait(t, "ended:false"), "bound:s1")[1:], []string{"tool_end:c1:call_1:false:Interrupted", "tool_end:sa1:true", "result:true:", "ended:false"})
+
+	s, a, sk, _ = start(t, opts{provider: "antigravity", saved: "s1", left: Running, shown: []proto.Item{{Kind: "tool", Call: call("sa1", "task", "running")}},
+		answer: func(*agent, string, json.RawMessage) string { return `{"sessionId":"s1"}` }})
+	sk.wait(t, "bound:s1")
+	s.Cancel()
+	a.say(`{"jsonrpc":"2.0","id":7,"result":{"stopReason":"cancelled"}}`)
+	equal(t, after(sk.wait(t, "stopped"), "bound:s1")[1:], []string{"tool_end:sa1:false:Interrupted", "result:false:interrupted", "stopped"})
 }
 
 func TestPlansTodosAndSubAgentsOfCursorAndGrokShowInTheChat(t *testing.T) {

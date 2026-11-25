@@ -67,7 +67,7 @@ func (t *tool) role() string {
 
 // endLaunches ends the sub-agents launched this turn with it: agy answers the
 // prompt only once they are done, and tells of their end nothing else.
-func (s *Session) endLaunches(ok, adopted bool) {
+func (s *Session) endLaunches(e timeline.Event, adopted bool) {
 	if !s.f.childCalls {
 		return
 	}
@@ -83,18 +83,25 @@ func (s *Session) endLaunches(ok, adopted bool) {
 	for _, id := range s.launches {
 		if s.tools[id] != nil {
 			delete(s.tools, id)
-			s.record(timeline.Event{Kind: "tool_end", ToolUseID: id, OK: ok})
+			s.record(timeline.Event{Kind: "tool_end", ToolUseID: id, OK: e.OK})
 		}
 	}
 	s.launches = nil
-	if adopted && s.Showing != nil {
-		s.endShownLaunches(ok)
+	if adopted {
+		end := timeline.Event{OK: e.OK}
+		if e.Error == "interrupted" {
+			end.Output = &out
+		}
+		s.endShownLaunches(end)
 	}
 }
 
-// endShownLaunches ends the launches a pocketd before this one held open,
-// which only its timeline still knows of.
-func (s *Session) endShownLaunches(ok bool) {
+// endShownLaunches ends as end the launches a pocketd before this one held
+// open, which only its timeline still knows of, and their calls interrupted.
+func (s *Session) endShownLaunches(end timeline.Event) {
+	if !s.f.childCalls || s.Showing == nil {
+		return
+	}
 	out := "Interrupted"
 	running := func(it proto.Item) bool { return it.Call != nil && it.Call.Status == "running" }
 	shown := s.Showing()
@@ -109,7 +116,9 @@ func (s *Session) endShownLaunches(ok bool) {
 			s.record(timeline.Event{Kind: "tool_end", ToolUseID: it.Call.ToolUseID, Output: &out})
 		}
 	}
+	end.Kind = "tool_end"
 	for _, id := range launches {
-		s.record(timeline.Event{Kind: "tool_end", ToolUseID: id, OK: ok})
+		end.ToolUseID = id
+		s.record(end)
 	}
 }
