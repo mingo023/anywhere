@@ -1,7 +1,7 @@
 fn main() {
     let third_party = "../../../../third_party/ghostty";
-    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
-    let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").unwrap().as_str() {
+    let os = std::env::var("CARGO_CFG_TARGET_OS").expect("cargo sets CARGO_CFG_TARGET_OS");
+    let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").expect("cargo sets CARGO_CFG_TARGET_ARCH").as_str() {
         "aarch64" => "arm64",
         _ => "amd64",
     };
@@ -12,7 +12,7 @@ fn main() {
         _ => (format!("{third_party}/zig-out-{os}-{arch}"), "lib/libghostty-vt.a"),
     };
     let lib = format!("{ghostty}/{lib}");
-    let out = std::env::var("OUT_DIR").unwrap();
+    let out = std::env::var("OUT_DIR").expect("cargo sets OUT_DIR");
     // Copied alone into OUT_DIR: next to the .dylib the linker would pick the dylib.
     std::fs::copy(&lib, format!("{out}/libghostty-vt.a")).unwrap_or_else(|e| panic!("{lib}: {e}; run scripts/build-ghostty.sh for this target"));
     cc::Build::new()

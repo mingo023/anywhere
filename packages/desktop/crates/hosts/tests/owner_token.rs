@@ -28,7 +28,7 @@ impl Drop for Pocketd {
 }
 
 fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+    std::net::TcpListener::bind("127.0.0.1:0").expect("a free local port").local_addr().expect("a free local port").port()
 }
 
 /// Every pocketd run gets its own home and socket, or it would take over the one the developer's terminals use.
@@ -40,28 +40,28 @@ fn pocketd(home: &Path, bin: &Path, args: &[&str]) -> Command {
 
 /// Starts pocketd with ownerListen on and mints a token the way `link` does: `pocketd pair --json --name`.
 fn start(home: &Path) -> (Pocketd, u16, String) {
-    std::fs::create_dir_all(home).unwrap();
+    std::fs::create_dir_all(home).expect("home created");
     let bin = home.join("pocketd");
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../pocketd");
-    assert!(Command::new("go").args(["build", "-o"]).arg(&bin).arg("./cmd/pocketd").current_dir(src).status().unwrap().success());
+    assert!(Command::new("go").args(["build", "-o"]).arg(&bin).arg("./cmd/pocketd").current_dir(src).status().expect("go builds pocketd").success());
     let owner = free_port();
     let config = json!({"port": free_port(), "listen": "loopback", "ownerListen": format!("127.0.0.1:{owner}")});
-    std::fs::write(home.join("config.json"), config.to_string()).unwrap();
-    let pair = pocketd(home, &bin, &["pair", "--json", "--name", "Test Mac"]).output().unwrap();
+    std::fs::write(home.join("config.json"), config.to_string()).expect("config written");
+    let pair = pocketd(home, &bin, &["pair", "--json", "--name", "Test Mac"]).output().expect("pocketd pair runs");
     assert!(pair.status.success(), "{}", String::from_utf8_lossy(&pair.stderr));
-    let pair: Value = serde_json::from_slice(&pair.stdout).unwrap();
+    let pair: Value = serde_json::from_slice(&pair.stdout).expect("pair prints JSON");
     assert_eq!(pair["port"], owner);
-    let child = pocketd(home, &bin, &["serve"]).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
-    (Pocketd { home: home.into(), child }, owner, pair["token"].as_str().unwrap().into())
+    let child = pocketd(home, &bin, &["serve"]).stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("pocketd serve starts");
+    (Pocketd { home: home.into(), child }, owner, pair["token"].as_str().expect("pair prints a token").into())
 }
 
 /// What ssh's `-L <sock>:127.0.0.1:<port>` does on this side: each connection to `sock` becomes one to `port`.
 fn forward(sock: &Path, port: u16) {
-    let listener = UnixListener::bind(sock).unwrap();
+    let listener = UnixListener::bind(sock).expect("socket bound");
     std::thread::spawn(move || {
         for local in listener.incoming().map_while(Result::ok) {
             let Ok(remote) = TcpStream::connect(("127.0.0.1", port)) else { continue };
-            let (mut a, mut b) = (local.try_clone().unwrap(), remote.try_clone().unwrap());
+            let (mut a, mut b) = (local.try_clone().expect("stream cloned"), remote.try_clone().expect("stream cloned"));
             std::thread::spawn(move || {
                 let _ = std::io::copy(&mut a, &mut b);
                 let _ = b.shutdown(std::net::Shutdown::Both);

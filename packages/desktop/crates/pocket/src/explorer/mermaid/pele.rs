@@ -68,7 +68,7 @@ pub(super) fn render(source: &str) -> Result<String, String> {
         if engine.is_none() {
             *engine = Some(start()?);
         }
-        let (_, context) = engine.as_ref().unwrap();
+        let (_, context) = engine.as_ref().expect("started above");
         context.with(|cx| {
             let render: Function = cx.globals().get("__render").map_err(js)?;
             let out: Object = render.call((source, family(&SANS, "sans-serif"), FONT_SIZE)).map_err(js)?;

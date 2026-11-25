@@ -169,7 +169,7 @@ impl Finder {
         }
         let mut chain = vec![self.dir.clone()];
         loop {
-            let last = chain.last().unwrap();
+            let last = chain.last().expect("chain starts with dir");
             let up = parent(last);
             if *last == self.base || up == *last {
                 break;
