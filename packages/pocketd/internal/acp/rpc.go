@@ -41,7 +41,10 @@ func (e *Error) Error() string {
 	}
 }
 
-const methodNotFound = -32601
+const (
+	methodNotFound = -32601
+	invalidParams  = -32602
+)
 
 type frame = jsonrpc.Message
 

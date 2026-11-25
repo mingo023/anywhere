@@ -659,7 +659,7 @@ func TestEachAgentOpensItsSessionItsOwnWay(t *testing.T) {
 			"session/set_mode": `{"modeId":"full-access","sessionId":"s1"}`,
 		}},
 		{"antigravity", state.Launch{Access: "edits"}, `{}`, map[string]string{
-			"initialize":       `{"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"session":{"configOptions":{"boolean":{}}},"terminal":false},"clientInfo":{"name":"anywhere","title":"Anywhere","version":"0"},"protocolVersion":1}`,
+			"initialize":       `{"clientCapabilities":{"elicitation":{"form":{}},"fs":{"readTextFile":false,"writeTextFile":false},"session":{"configOptions":{"boolean":{}}},"terminal":false},"clientInfo":{"name":"anywhere","title":"Anywhere","version":"0"},"protocolVersion":1}`,
 			"session/set_mode": `{"modeId":"accept-edits","sessionId":"s1"}`,
 		}},
 		{"antigravity", state.Launch{Access: "full"}, `{}`, map[string]string{
@@ -995,6 +995,149 @@ func TestGroksQuestionIsAnsweredByItsText(t *testing.T) {
 				t.Fatalf("answered %s\nwant %s", got, c.want)
 			}
 		})
+	}
+}
+
+// Antigravity's form question, in the [CT] shape.
+const agyForm = `{"sessionId":"s1","mode":"form","message":"A few questions","requestedSchema":{"type":"object","properties":{
+	"q10":{"type":"string","title":"Anything else?"},
+	"q1":{"type":"string","title":"Which fruit?","oneOf":[{"const":"1","title":"Apple"},{"const":"2","title":"Pear"}]},
+	"q1_other":{"type":"string","title":"Another fruit"},
+	"q2":{"type":"array","title":"Which colours?","items":{"anyOf":[{"const":"r","title":"Red"},{"const":"g","title":"Green"},{"const":"b","title":"Blue"}]}}}}}`
+
+func TestAntigravitysFormQuestionIsAskedAsAChatQuestionAndAnsweredByItsConst(t *testing.T) {
+	for name, c := range map[string]struct {
+		answer broker.Answer
+		want   string
+	}{
+		"answered": {broker.Answer{Decision: "allow", Answers: map[string]string{"Which fruit?": "Pear", "Which colours?": "Red, Blue", "Anything else?": "No"}},
+			`{"action":"accept","content":{"q1":"2","q10":"No","q2":["r","b"]}}`},
+		"picked out of order": {broker.Answer{Decision: "allow", Answers: map[string]string{"Which colours?": "Blue, Red"}},
+			`{"action":"accept","content":{"q2":["r","b"]}}`},
+		"typed":   {broker.Answer{Decision: "allow", Answers: map[string]string{"Which fruit?": "Peach"}}, `{"action":"accept","content":{"q1_other":"Peach"}}`},
+		"skipped": {broker.Answer{Decision: "deny"}, `{"action":"decline"}`},
+		"stopped": {broker.Answer{}, `{"action":"cancel"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, a, _, b := start(t, opts{provider: "antigravity", answer: script(`{"sessionId":"s1"}`, says())})
+			a.ask("8", "elicitation/create", agyForm)
+			req := asked(t, b)
+			want := `{"kind":"other","name":"AskUserQuestion","input":{"questions":[` +
+				`{"question":"Which fruit?","options":[{"description":"","label":"Apple"},{"description":"","label":"Pear"}],"multiSelect":false},` +
+				`{"question":"Which colours?","options":[{"description":"","label":"Red"},{"description":"","label":"Green"},{"description":"","label":"Blue"}],"multiSelect":true},` +
+				`{"question":"Anything else?","options":[],"multiSelect":false}]}}`
+			if got, _ := json.Marshal(req.Detail); req.ToolName != "AskUserQuestion" || string(got) != want {
+				t.Fatalf("asked %s\n%s", req.ToolName, got)
+			}
+			if c.answer.Decision == "" {
+				b.Dismiss("a1\x008", "")
+			} else {
+				b.Resolve(req.RequestID, c.answer)
+			}
+			if got := a.replied("8"); got != c.want {
+				t.Fatalf("answered %s\nwant %s", got, c.want)
+			}
+		})
+	}
+}
+
+func TestAFormQuestionLeftUnansweredIsLeftOutEvenWhenAChoiceIsBlank(t *testing.T) {
+	qs, _ := formQuestions(json.RawMessage(`{"requestedSchema":{"properties":{"q1":{"type":"string","enum":["","x"]},"q2":{"type":"string"}}}}`))
+	got, _ := json.Marshal(formAnswer(qs, broker.Answer{Decision: "allow", Answers: map[string]string{"q2": "hi"}}))
+	if string(got) != `{"action":"accept","content":{"q2":"hi"}}` {
+		t.Fatalf("answered %s", got)
+	}
+}
+
+func TestAFormQuestionPocketdCannotShowIsRefusedSoTheAgentAsksInChat(t *testing.T) {
+	_, a, _, b := start(t, opts{provider: "antigravity", answer: script(`{"sessionId":"s1"}`, says())})
+	a.ask("8", "elicitation/create", `{"mode":"form","message":"Sure?","requestedSchema":{"type":"object","properties":{"q1":{"type":"boolean","title":"Sure?"}}}}`)
+	if got := a.replied("8"); got != "!-32602 Anywhere can't show this form" {
+		t.Fatalf("answered %s", got)
+	}
+	if open := b.Open(); len(open) != 0 {
+		t.Fatalf("asked %v", open)
+	}
+}
+
+func TestAnotherAgentsFormQuestionIsAnsweredAsBefore(t *testing.T) {
+	for provider, want := range map[string]string{"cursor": `{}`, "hermes": "!-32601 Method not found: elicitation/create"} {
+		_, a, _, _ := start(t, opts{provider: provider, answer: script(`{"sessionId":"s1"}`, says())})
+		a.ask("8", "elicitation/create", agyForm)
+		if got := a.replied("8"); got != want {
+			t.Errorf("%s answered %s, want %s", provider, got, want)
+		}
+	}
+}
+
+// Antigravity's decision, in the [C] shape.
+const agyDecision = `{"sessionId":"s1","toolCall":{"toolCallId":"interaction_1","title":"Which fruit?"},
+	"options":[{"optionId":"1","name":"Apple","kind":"allow_once"},{"optionId":"2","name":"Pear","kind":"allow_once"}]}`
+
+func TestAntigravitysDecisionIsAskedInEveryAccessAndAnsweredByOptionID(t *testing.T) {
+	for _, access := range []string{"ask", "edits", "auto", "full"} {
+		t.Run(access, func(t *testing.T) {
+			_, a, _, b := start(t, opts{provider: "antigravity", launch: state.Launch{Access: access}, answer: script(`{"sessionId":"s1"}`, says())})
+			a.ask("8", "session/request_permission", agyDecision)
+			req := asked(t, b)
+			want := `{"kind":"other","name":"AskUserQuestion","input":{"questions":[` +
+				`{"question":"Which fruit?","options":[{"description":"","label":"Apple"},{"description":"","label":"Pear"}],"multiSelect":false}]}}`
+			if got, _ := json.Marshal(req.Detail); req.ToolName != "AskUserQuestion" || string(got) != want {
+				t.Fatalf("asked %s\n%s", req.ToolName, got)
+			}
+			b.Resolve(req.RequestID, broker.Answer{Decision: "allow", Answers: map[string]string{"Which fruit?": "Pear"}})
+			if got := a.replied("8"); got != `{"outcome":{"optionId":"2","outcome":"selected"}}` {
+				t.Fatalf("answered %s", got)
+			}
+		})
+	}
+}
+
+func TestASkippedOrTypedDecisionIsCancelled(t *testing.T) {
+	for name, answer := range map[string]broker.Answer{
+		"skipped": {Decision: "deny"},
+		"typed":   {Decision: "allow", Answers: map[string]string{"Which fruit?": "Peach"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, a, _, b := start(t, opts{provider: "antigravity", answer: script(`{"sessionId":"s1"}`, says())})
+			a.ask("8", "session/request_permission", agyDecision)
+			b.Resolve(asked(t, b).RequestID, answer)
+			if got := a.replied("8"); got != `{"outcome":{"outcome":"cancelled"}}` {
+				t.Fatalf("answered %s", got)
+			}
+		})
+	}
+}
+
+func TestADecisionsChoicesThatShareANameAreToldApartByID(t *testing.T) {
+	_, a, _, b := start(t, opts{provider: "antigravity", answer: script(`{"sessionId":"s1"}`, says())})
+	a.ask("8", "session/request_permission", `{"sessionId":"s1","toolCall":{"toolCallId":"interaction_2","title":"Go on?"},
+		"options":[{"optionId":"a","name":"Continue","kind":"allow_once"},{"optionId":"b","name":"Continue","kind":"allow_once"}]}`)
+	req := asked(t, b)
+	if got, _ := json.Marshal(req.Detail); !strings.Contains(string(got), `"options":[{"description":"","label":"Continue (a)"},{"description":"","label":"Continue (b)"}]`) {
+		t.Fatalf("asked %s", got)
+	}
+	b.Resolve(req.RequestID, broker.Answer{Decision: "allow", Answers: map[string]string{"Go on?": "Continue (b)"}})
+	if got := a.replied("8"); got != `{"outcome":{"optionId":"b","outcome":"selected"}}` {
+		t.Fatalf("answered %s", got)
+	}
+}
+
+func TestAnInteractionRequestThatIsNoDecisionIsAnsweredByAccessAsBefore(t *testing.T) {
+	for provider, c := range map[string]struct{ params, want string }{
+		"antigravity": {`{"sessionId":"s1","toolCall":{"toolCallId":"interaction_3","title":"Run it?"},
+			"options":[{"optionId":"allow_once","name":"Allow","kind":"allow_once"},{"optionId":"reject_once","name":"Deny","kind":"reject_once"}]}`,
+			`{"outcome":{"optionId":"allow_once","outcome":"selected"}}`},
+		"hermes": {agyDecision, `{"outcome":{"optionId":"1","outcome":"selected"}}`},
+	} {
+		_, a, _, b := start(t, opts{provider: provider, launch: state.Launch{Access: "full"}, answer: script(`{"sessionId":"s1"}`, says())})
+		a.ask("8", "session/request_permission", c.params)
+		if got := a.replied("8"); got != c.want {
+			t.Errorf("%s answered %s, want %s", provider, got, c.want)
+		}
+		if open := b.Open(); len(open) != 0 {
+			t.Errorf("%s asked %v", provider, open)
+		}
 	}
 }
 
