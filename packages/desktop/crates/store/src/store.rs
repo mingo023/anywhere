@@ -374,24 +374,6 @@ pub struct ColumnWidths {
     pub sessions: Option<f32>,
 }
 
-/// A subagent's folder on a host whose worktree waits on that host: when the subagent started there, and whether its
-/// branch goes too.
-#[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone, Copy)]
-#[serde(default)]
-pub struct Leftover {
-    pub started: u64,
-    pub delete_branch: bool,
-}
-
-/// The folder of the session that delegated to a subagent, and when the subagent's session started, in Unix
-/// milliseconds on the clock of the machine holding its folder: a worktree made there later is someone else's.
-#[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone)]
-#[serde(default)]
-pub struct Subtree {
-    pub parent: String,
-    pub started: u64,
-}
-
 /// Calls `$to` with the names of the fields Settings reads of the store.
 macro_rules! settings_fields {
     ($to:ident) => {
@@ -457,13 +439,6 @@ pub struct Store {
     /// Each worktree's Changes scope, keyed by the worktree's path.
     #[serde(deserialize_with = "lenient")]
     pub scopes: BTreeMap<String, scope::Scope>,
-    /// Each folder a subagent worked in, to its parent's folder. Outlives both sessions.
-    #[serde(deserialize_with = "lenient")]
-    pub subtrees: BTreeMap<String, Subtree>,
-    /// Subagents' folders on hosts that were offline when their parent's worktree went, to when each subagent started:
-    /// their worktrees go once the host is back.
-    #[serde(deserialize_with = "lenient")]
-    pub host_leftovers: BTreeMap<String, Leftover>,
     /// The Board shows its list rather than its columns.
     pub board_list: bool,
     #[serde(deserialize_with = "lenient")]
@@ -637,11 +612,6 @@ impl Store {
 
     pub fn is_tracked(&self, tree: &str) -> bool {
         self.tracked.contains(tree)
-    }
-
-    /// Whether the sidebar lists `tree`, a worktree Anywhere didn't make: one the user imported, or any while it lists those made elsewhere.
-    pub fn lists(&self, tree: &str) -> bool {
-        self.sidebar.external_worktrees || self.is_tracked(tree)
     }
 
     /// The folder `repo`'s new worktrees go in: a folder named for it under the root.
@@ -1193,22 +1163,11 @@ mod tests {
     }
 
     #[test]
-    fn worktrees_made_elsewhere_are_listed_only_when_asked() {
-        let mut s = Store::default();
-        s.track("/w/mine");
-        assert_eq!([s.lists("/w/mine"), s.lists("/w/theirs")], [true, false]);
-        s.sidebar.external_worktrees = true;
-        assert!(s.lists("/w/theirs"));
-    }
-
-    #[test]
-    fn a_worktree_nobody_tracked_is_not_listed_for_being_in_the_projects_worktrees_folder() {
-        let mut s = Store::default();
-        s.add("/code/app");
-        let stray = format!("{}/stray", s.worktrees_dir("/code/app", "/h"));
-        assert!(!s.lists(&stray));
-        s.track(&stray);
-        assert!(s.lists(&stray));
+    fn a_desktop_json_holding_the_dropped_worktree_settings_and_subagent_folders_still_loads() {
+        let raw = r#"{"projects":["/w"],"sidebar":{"external_worktrees":true,"usage_card":false},
+            "subtrees":{"/wt/child":{"parent":"/w","started":5}},"host_leftovers":{"//devbox/wt/x":{"started":7,"delete_branch":true}}}"#;
+        let s: Store = serde_json::from_str(raw).unwrap();
+        assert_eq!((s.projects.as_slice(), s.sidebar.usage_card), (["/w".to_string()].as_slice(), false));
     }
 
     #[test]

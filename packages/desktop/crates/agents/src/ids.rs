@@ -17,6 +17,8 @@ pub(super) const DELEGATIONS: &str = "delegations-";
 pub(super) const QUEUE: &str = "queue-";
 pub(super) const INTERRUPT: &str = "interrupt-";
 pub(super) const REGISTRY: &str = "registry-";
+pub(super) const INSPECT: &str = "wtinspect-";
+pub(super) const DELETE: &str = "wtdelete-";
 
 pub(super) static NEXT: AtomicU64 = AtomicU64::new(0);
 
@@ -38,6 +40,14 @@ pub(super) fn board_id() -> String {
 
 pub(super) fn registry_id() -> String {
     format!("{REGISTRY}{}", NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+pub(super) fn inspect_id() -> String {
+    format!("{INSPECT}{}", NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+pub(super) fn delete_id() -> String {
+    format!("{DELETE}{}", NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
 /**

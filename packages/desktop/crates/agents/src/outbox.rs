@@ -2,8 +2,8 @@ use crate::McpAction;
 use crate::automations::AutomationDraft;
 use crate::hosts;
 use crate::ids::{
-    BTW, COMMANDS, CREATE, DELEGATIONS, INTERRUPT, MCP, MCP_ACT, NEXT, PAIR, PROMPT, QUEUE, REMOTE_CONTROL, SETTINGS, auto_id, board_id, host_id, queue_id,
-    registry_id, request_id,
+    BTW, COMMANDS, CREATE, DELEGATIONS, INTERRUPT, MCP, MCP_ACT, NEXT, PAIR, PROMPT, QUEUE, REMOTE_CONTROL, SETTINGS, auto_id, board_id, delete_id, host_id,
+    inspect_id, queue_id, registry_id, request_id,
 };
 use crate::locals::Local;
 use crate::registry::Shared;
@@ -229,6 +229,22 @@ impl Outbox {
     /// Replaces the shared settings whole.
     pub fn settings_shared(&self, settings: &Shared) {
         self.send(json!({"type": "settings.shared", "id": registry_id(), "settings": settings}));
+    }
+
+    /// Asks what deleting the worktree at `path` takes; returns the request id its reply carries.
+    pub fn worktree_inspect(&self, path: &str) -> String {
+        let id = inspect_id();
+        self.send(json!({"type": "worktree.inspect", "id": id, "path": path}));
+        id
+    }
+
+    /// Deletes the worktree at `path` and its subagents', `trash` moving their folders to the Trash, each teardown bounded by
+    /// `teardown_secs` or skipped; the commits the sheet showed go too. Returns the request id its reply carries.
+    pub fn worktree_delete(&self, path: &str, delete_branch: bool, trash: bool, teardown_secs: u32, teardown: bool) -> String {
+        let id = delete_id();
+        let m = json!({"type": "worktree.delete", "id": id, "path": path, "deleteBranch": delete_branch, "force": true, "trash": trash, "teardownSecs": teardown_secs, "teardown": teardown});
+        self.send(m);
+        id
     }
 
     /// Adds the ticket to To do, or edits the one with the draft's `id`; `start` also queues it.
@@ -481,9 +497,16 @@ mod tests {
                 json!({"type": "project.remove", "path": "/app"}),
                 json!({"type": "project.set", "path": "/app", "repo": {"setup": "make"}}),
                 json!({"type": "worktree.track", "path": "/w/fox", "tracked": false}),
-                json!({"type": "settings.shared", "settings": {"git": {"remote": "", "commit_all": null, "force_with_lease": false}, "access": "", "worktree_root": "/w", "external_worktrees": false}}),
+                json!({"type": "settings.shared", "settings": {"git": {"remote": "", "commit_all": null, "force_with_lease": false}, "access": "", "worktree_root": "/w"}}),
             ]
         );
+    }
+
+    #[test]
+    fn worktree_inspect_and_delete_send_the_golden_frames_but_their_ids() {
+        assert_eq!(sent_but_id(|o| _ = o.worktree_inspect("/Users/me/.worktrees/pocket/calm-otter")), without_id(golden!("client/worktree_inspect.json")));
+        let delete = |o: &Outbox| _ = o.worktree_delete("/Users/me/.worktrees/pocket/calm-otter", true, true, 120, false);
+        assert_eq!(sent_but_id(delete), without_id(golden!("client/worktree_delete_trash.json")));
     }
 
     #[test]

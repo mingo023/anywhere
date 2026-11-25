@@ -11,6 +11,7 @@ pub mod providers;
 pub mod queue;
 pub mod registry;
 pub mod tickets;
+pub mod worktrees;
 
 mod ask;
 mod caps;
@@ -34,6 +35,7 @@ pub use summary::{Goal, GoalStatus, Level, ListedModel, ModelSetting, Summary, l
 use automations::Automations;
 use caps::{
     ACCESS_CAP, AUTOMATIONS_CAP, BOARD_CAP, FORK_CAP, HOSTS_CAP, LOCALS_CAP, NAMES_CAP, OPEN_CAP, ORCHESTRATOR_CAP, PAIR_CAP, REGISTRY_CAP, SETTINGS_CAP,
+    WORKTREES_CAP,
 };
 use delegations::Delegations;
 #[cfg(test)]
@@ -73,6 +75,10 @@ pub struct Agents {
     pub holders: HashSet<String>,
     /// Whether each pocketd that said hello, this Mac's as "" and a host's by its id, takes registry changes.
     pub registries: HashMap<String, bool>,
+    /// Whether each pocketd that said hello, keyed as `registries`, deletes its worktrees for this client.
+    pub deletes: HashMap<String, bool>,
+    /// The worktrees each project lists on the sidebar, by the project's key, from its pocketd's `project.list`.
+    pub projects: HashMap<String, Vec<worktrees::Tree>>,
 }
 
 impl Agents {
@@ -116,10 +122,12 @@ impl Agents {
     pub fn forget(&mut self, source: &str) {
         self.apply_from(Some(source), Event::Agents(Vec::new()));
         self.apply_from(Some(source), Event::Connected { scopes: Vec::new(), caps: Vec::new(), version: String::new() });
+        self.apply_from(Some(source), Event::Projects(Vec::new()));
         self.timelines.retain(|id, _| id.split_once('/').map(|(h, _)| h) != Some(source));
         self.delegations.forget(source);
         self.queues.forget(source);
         self.registries.remove(source);
+        self.deletes.remove(source);
     }
 
     /// Applies an event, already tagged, from this Mac's pocketd (`None`) or host `source`'s:
@@ -139,6 +147,7 @@ impl Agents {
                 self.names.retain(|path, _| !my_name(path));
                 self.holds_queues(source, &caps);
                 self.says_registry(source, &caps);
+                self.says_deletes(source, &caps);
             }
             Event::Agent(a) if a.status == "closed" => self.list.retain(|x| x.id != a.id),
             Event::Agent(a) => {
@@ -169,6 +178,7 @@ impl Agents {
                 self.scopes = scopes;
                 self.holds_queues(source, &caps);
                 self.says_registry(source, &caps);
+                self.says_deletes(source, &caps);
                 self.caps = caps;
                 self.version = version;
                 self.names.retain(|path, _| !my_name(path));
@@ -188,7 +198,11 @@ impl Agents {
                 self.names.extend(names);
             }
             Event::Locals(locals) => self.locals = locals,
-            Event::Registry(_) | Event::RegistryFailed(_) => {}
+            Event::Registry(_) | Event::RegistryFailed(_) | Event::WorktreeInspected { .. } | Event::WorktreeDeleted { .. } => {}
+            Event::Projects(projects) => {
+                self.projects.retain(|path, _| !my_name(path));
+                self.projects.extend(projects.into_iter().map(|p| (p.path, p.worktrees)));
+            }
             Event::Automations { automations, runs } => {
                 let mut snapshot = Automations::default();
                 snapshot.apply(automations, runs);
@@ -343,6 +357,20 @@ impl Agents {
     /// Whether `host`'s pocketd (this Mac's for `None`) said hello without taking registry changes: it needs updating.
     pub fn registry_outdated(&self, host: Option<&str>) -> bool {
         self.registries.get(host.unwrap_or_default()) == Some(&false)
+    }
+
+    fn says_deletes(&mut self, source: Option<&str>, caps: &[String]) {
+        self.deletes.insert(source.unwrap_or_default().to_string(), caps.iter().any(|c| c == WORKTREES_CAP));
+    }
+
+    /// Whether `host`'s pocketd (this Mac's for `None`) said hello without deleting worktrees for this client: it needs updating.
+    pub fn deletes_outdated(&self, host: Option<&str>) -> bool {
+        self.deletes.get(host.unwrap_or_default()) == Some(&false)
+    }
+
+    /// Takes a deleted worktree off its project's list before its pocketd lists them again.
+    pub fn unlist(&mut self, tree: &str) {
+        self.projects.values_mut().for_each(|trees| trees.retain(|t| t.path != tree));
     }
 
     /// The pocketd holding `agent_id`'s session keeps its queue: a send while the agent works goes there, not held here.
@@ -760,6 +788,36 @@ mod tests {
         a.apply_from(Some("old"), hello(&[]));
         a.forget("old");
         assert!(!a.registry_outdated(Some("old")));
+    }
+
+    #[test]
+    fn only_a_pocketd_that_said_hello_without_worktrees_v1_cant_delete_its_worktrees() {
+        let hello =
+            |caps: &[&str]| Event::Connected { scopes: vec!["owner".into()], caps: caps.iter().map(|c| c.to_string()).collect(), version: String::new() };
+        let mut a = Agents::default();
+        assert!(!a.deletes_outdated(Some("devbox")), "a host not yet heard from isn't known to be old");
+        a.apply_from(Some("devbox"), hello(&["workspace.v1"]));
+        a.apply(hello(&[WORKTREES_CAP]));
+        assert!(a.deletes_outdated(Some("devbox")) && !a.deletes_outdated(None));
+        a.forget("devbox");
+        assert!(!a.deletes_outdated(Some("devbox")));
+    }
+
+    #[test]
+    fn each_pocketds_project_list_replaces_only_its_own_projects_worktrees() {
+        let tree = |path: &str| worktrees::Tree { path: path.into(), ..Default::default() };
+        let project = |path: &str, trees: &[&str]| worktrees::Project { path: path.into(), worktrees: trees.iter().map(|t| tree(t)).collect() };
+        let mut a = Agents::default();
+        a.apply(Event::Projects(vec![project("/r/app", &["/r/app", "/wt/fix"])]));
+        a.apply_from(Some("devbox"), Event::Projects(vec![project("//devbox/r/api", &["//devbox/r/api"])]));
+        a.apply(Event::Projects(vec![project("/r/web", &["/r/web"])]));
+        let mut keys: Vec<&str> = a.projects.keys().map(String::as_str).collect();
+        keys.sort();
+        assert_eq!(keys, ["//devbox/r/api", "/r/web"]);
+        a.unlist("/r/web");
+        assert!(a.projects["/r/web"].is_empty());
+        a.forget("devbox");
+        assert_eq!(a.projects.keys().collect::<Vec<_>>(), ["/r/web"]);
     }
 
     #[test]

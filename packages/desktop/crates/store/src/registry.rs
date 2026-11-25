@@ -80,7 +80,6 @@ impl Store {
             git: SharedGit { remote: self.git.remote.clone(), commit_all: Some(self.git.commit_all), force_with_lease: self.git.force_with_lease },
             access: self.agents.access.clone(),
             worktree_root: self.worktree.root.clone(),
-            external_worktrees: self.sidebar.external_worktrees,
         }
     }
 
@@ -113,7 +112,6 @@ impl Store {
             self.git.force_with_lease = s.git.force_with_lease;
             self.agents.access = s.access.clone();
             self.worktree.root = s.worktree_root.clone();
-            self.sidebar.external_worktrees = s.external_worktrees;
         }
     }
 
@@ -216,14 +214,13 @@ mod tests {
             git: SharedGit { remote: "fork".into(), commit_all: Some(false), force_with_lease: true },
             access: "full".into(),
             worktree_root: "/w".into(),
-            external_worktrees: true,
         };
         s.apply_registry(Some("devbox"), &there);
         assert_eq!((s.git.remote.as_str(), s.git.force_with_lease, s.worktree.root.as_str()), ("origin", false, ""));
         s.apply_registry(None, &there);
         assert_eq!(
-            (s.git.remote.as_str(), s.git.commit_all, s.git.force_with_lease, s.agents.access.as_str(), s.worktree.root.as_str(), s.sidebar.external_worktrees),
-            ("fork", false, true, "full", "/w", true)
+            (s.git.remote.as_str(), s.git.commit_all, s.git.force_with_lease, s.agents.access.as_str(), s.worktree.root.as_str()),
+            ("fork", false, true, "full", "/w")
         );
         s.apply_registry(None, &list(&[]));
         assert_eq!((s.git.remote.as_str(), s.git.commit_all), ("origin", true));

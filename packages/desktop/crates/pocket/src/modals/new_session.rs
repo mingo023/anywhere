@@ -692,7 +692,7 @@ impl Desktop {
         self.store
             .projects
             .iter()
-            .filter(|p| (repo == Some(p.as_str()) || !self.store.is_scratch(p)) && self.listed_trees(p, cx).is_some_and(|t| !t.is_empty()))
+            .filter(|p| (repo == Some(p.as_str()) || !self.store.is_scratch(p)) && self.listed_trees(p).is_some_and(|t| !t.is_empty()))
             .cloned()
             .collect()
     }

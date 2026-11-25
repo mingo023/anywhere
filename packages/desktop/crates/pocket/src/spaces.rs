@@ -404,7 +404,7 @@ impl Desktop {
         let listed = match tree {
             None => self.projects(cx).contains(project),
             Some(t) if is_local(t) => self.agents.local(t).is_some_and(|l| l.project == *project),
-            Some(t) => self.listed_trees(project, cx).is_some_and(|trees| trees.iter().any(|w| w.path == *t)),
+            Some(t) => self.listed_trees(project).is_some_and(|trees| trees.iter().any(|w| w.path == *t)),
         };
         listed.then(|| (project.clone(), tree.clone()))
     }

@@ -28,7 +28,6 @@ pub struct Shared {
     pub git: SharedGit,
     pub access: String,
     pub worktree_root: String,
-    pub external_worktrees: bool,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]

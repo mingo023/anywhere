@@ -442,7 +442,7 @@ const STEPS: [(&str, Step); 308] = [
             sections.pin(store::sections::Pin::Project(p.clone()));
         }
         let first = projects.first().cloned().unwrap_or_default();
-        if let Some(w) = d.listed_trees(&first, cx).and_then(|ts| ts.into_iter().find(|w| !w.main)) {
+        if let Some(w) = d.listed_trees(&first).and_then(|ts| ts.into_iter().find(|w| !w.main)) {
             d.store.sections.pin(store::sections::Pin::Tree { project: first, tree: w.path });
         }
     }),
@@ -475,7 +475,7 @@ const STEPS: [(&str, Step); 308] = [
     }),
     ("branch-tree", |d, _, cx| {
         let Some(p) = d.project.clone() else { return };
-        if let Some(w) = d.listed_trees(&p, cx).and_then(|ts| ts.into_iter().find(|w| !w.main)) {
+        if let Some(w) = d.listed_trees(&p).and_then(|ts| ts.into_iter().find(|w| !w.main)) {
             d.select_tree(p, Some(w.path), cx);
             d.refresh_git(cx);
         }
@@ -1042,14 +1042,14 @@ const STEPS: [(&str, Step); 308] = [
             }
         });
     }),
-    ("deleting", |d, _, cx| {
-        let Some(tree) = d.project.as_ref().and_then(|p| d.listed_trees(p, cx)).and_then(|w| w.into_iter().find(|w| !w.main)).map(|w| w.path) else { return };
+    ("deleting", |d, _, _| {
+        let Some(tree) = d.project.as_ref().and_then(|p| d.listed_trees(p)).and_then(|w| w.into_iter().find(|w| !w.main)).map(|w| w.path) else { return };
         d.removals.start(&tree);
     }),
     ("delete-worktree", |d, _, cx| {
-        let Some((project, w)) = d.project.clone().and_then(|p| d.listed_trees(&p, cx)?.into_iter().find(|w| !w.main).map(|w| (p, w))) else { return };
+        let Some((project, w)) = d.project.clone().and_then(|p| d.listed_trees(&p)?.into_iter().find(|w| !w.main).map(|w| (p, w))) else { return };
         let removal = crate::removal::Removal { project, tree: w.path, branch: Some(w.branch), delete_branch: true, teardown: true };
-        d.ask(Confirm::DeleteWorktree { removal, dirty: 2, lost: 3, lost_anyway: 0, subtrees: vec![], requested: true }, cx);
+        d.ask(Confirm::DeleteWorktree { removal, takes: crate::removal::Inspection { dirty: 2, lost: 3, ..Default::default() } }, cx);
         cx.notify();
     }),
     ("error", |d, _, cx| d.fail("Couldn't save placeholder.tsx: Permission denied (os error 13)", cx)),
@@ -1063,7 +1063,7 @@ const STEPS: [(&str, Step); 308] = [
         d.welcome = Some(welcome);
     }),
     ("prs", |d, _, cx| {
-        let Some(trees) = d.project.as_ref().and_then(|p| d.listed_trees(p, cx)) else { return };
+        let Some(trees) = d.project.as_ref().and_then(|p| d.listed_trees(p)) else { return };
         let trees: Vec<String> = trees.into_iter().filter(|w| !w.main).map(|w| w.path).collect();
         let now = Instant::now();
         let checks = [
@@ -1246,8 +1246,8 @@ const STEPS: [(&str, Step); 308] = [
             d.view_thread(&id, cx);
         }
     }),
-    ("names", |d, _, cx| {
-        let tree = d.project.as_ref().and_then(|p| d.listed_trees(p, cx)).into_iter().flatten().find(|w| !w.main).map(|w| w.path);
+    ("names", |d, _, _| {
+        let tree = d.project.as_ref().and_then(|p| d.listed_trees(p)).into_iter().flatten().find(|w| !w.main).map(|w| w.path);
         if let Some(tree) = tree {
             d.agents.names.insert(tree, "Fix the login form".into());
         }

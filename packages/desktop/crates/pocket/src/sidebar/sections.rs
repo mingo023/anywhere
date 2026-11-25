@@ -103,7 +103,7 @@ pub(crate) fn emoji_mark(e: String) -> Div {
 impl Desktop {
     /// `p`'s trees, less those being deleted, plus those being made; `None` until git lists them.
     pub(super) fn trees_shown(&self, p: &str, cx: &App) -> Option<Vec<git::Worktree>> {
-        self.listed_trees(p, cx).map(|w| self.removals.hide(self.creates.read(cx).trees(p, &w)))
+        self.listed_trees(p).map(|w| self.removals.hide(self.creates.read(cx).trees(p, &w)))
     }
 
     /// The rows under `p`: its own Local while in use, the Locals added to it, then its worktrees, in the order they were dragged to.

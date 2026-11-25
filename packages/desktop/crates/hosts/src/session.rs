@@ -166,6 +166,21 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
             list.projects.iter_mut().for_each(|p| p.path = crate::place(host, &p.path));
             list.tracked.iter_mut().for_each(|t| *t = crate::place(host, t));
         }
+        Event::Projects(projects) => {
+            for p in projects {
+                p.path = crate::place(host, &p.path);
+                p.worktrees.iter_mut().for_each(|w| w.path = crate::place(host, &w.path));
+            }
+        }
+        Event::WorktreeInspected { request, .. } => t(request),
+        Event::WorktreeDeleted { request, reply } => {
+            t(request);
+            if let Err(refusal) = reply
+                && !refusal.path.is_empty()
+            {
+                refusal.path = crate::place(host, &refusal.path);
+            }
+        }
         Event::Connected { .. } | Event::SettingsFailed(_) | Event::Btw { .. } | Event::RegistryFailed(_) => {}
         Event::Host(_)
         | Event::PairCode { .. }
@@ -383,6 +398,22 @@ impl Outboxes {
 
     pub fn worktree_track(&self, key: &str, tracked: bool) -> bool {
         self.by_path(key, |o, path| o.worktree_track(path, tracked))
+    }
+
+    /// Sends `send` to the pocketd holding the tree `key`, in its paths, and returns the request id it made, tagged for a
+    /// host; `None` while that pocketd isn't connected.
+    fn request(&self, key: &str, send: impl FnOnce(&Outbox, &str) -> String) -> Option<String> {
+        let (host, path) = crate::split(key);
+        let id = send(&self.to(host)?, path);
+        Some(host.map_or_else(|| id.clone(), |h| tag(h, &id)))
+    }
+
+    pub fn worktree_inspect(&self, key: &str) -> Option<String> {
+        self.request(key, |o, path| o.worktree_inspect(path))
+    }
+
+    pub fn worktree_delete(&self, key: &str, delete_branch: bool, trash: bool, teardown_secs: u32, teardown: bool) -> Option<String> {
+        self.request(key, |o, path| o.worktree_delete(path, delete_branch, trash, teardown_secs, teardown))
     }
 
     /**

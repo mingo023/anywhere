@@ -54,8 +54,6 @@ pub struct Sidebar {
     #[serde(deserialize_with = "crate::lenient")]
     pub sort: SessionSort,
     pub details: Details,
-    /// Lists worktrees made outside the app, not only the ones it made or imported.
-    pub external_worktrees: bool,
     pub usage_card: bool,
     /// Percent of the context window used at which it turns amber, then red.
     pub warn_at: u32,
@@ -85,7 +83,6 @@ impl Default for Sidebar {
         Self {
             sort: SessionSort::default(),
             details: Details::default(),
-            external_worktrees: false,
             usage_card: true,
             warn_at: 75,
             critical_at: 90,
@@ -138,10 +135,7 @@ mod tests {
     fn a_sidebar_from_before_these_settings_keeps_todays_list() {
         let s: Sidebar = serde_json::from_str("{}").unwrap();
         assert_eq!(s, Sidebar::default());
-        assert_eq!(
-            (s.sort, s.details, s.external_worktrees, s.warn_at, s.critical_at, s.hint_delay_ms),
-            (SessionSort::Newest, Details::default(), false, 75, 90, 280)
-        );
+        assert_eq!((s.sort, s.details, s.warn_at, s.critical_at, s.hint_delay_ms), (SessionSort::Newest, Details::default(), 75, 90, 280));
     }
 
     #[test]

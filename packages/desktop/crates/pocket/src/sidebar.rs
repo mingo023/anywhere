@@ -59,6 +59,15 @@ pub(crate) fn in_tree(cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&st
     cards.into_iter().filter(|c| if c.local.is_empty() { tree_of(&c.cwd).as_deref() == tree } else { Some(c.local.as_str()) == tree }).collect()
 }
 
+/// The row a folder in `tree` sits under: `tree` while the project's pocketd lists it (`listed`, `None` until it has),
+/// else the project's `main` one, as a folder in a worktree the project doesn't list belongs to its main one.
+pub(crate) fn row_of(tree: Option<String>, listed: Option<&[agents::worktrees::Tree]>, main: impl FnOnce() -> Option<String>) -> Option<String> {
+    match (&tree, listed) {
+        (Some(t), Some(rows)) if !rows.iter().any(|r| &r.path == t) => main(),
+        _ => tree,
+    }
+}
+
 /// The column left of the page, listing the inbox or Automations.
 pub(crate) fn column_shown(layout: Layout, screen: Screen) -> bool {
     layout != Layout::Focus && matches!(screen, Screen::Inbox | Screen::Automations)
@@ -510,7 +519,8 @@ impl Desktop {
     }
 
     pub(super) fn tree_cards(&self, project: &str, tree: &str, cx: &App) -> Vec<Card> {
-        in_tree(self.cards(project, cx), Some(tree), |cwd| self.tree_of(cwd, cx))
+        let listed = self.agents.projects.get(project).map(Vec::as_slice);
+        in_tree(self.cards(project, cx), Some(tree), |cwd| row_of(self.tree_of(cwd, cx), listed, || self.tree_of(project, cx)))
     }
 
     pub(crate) fn sync_aside(&self, cx: &mut Context<Self>) {
@@ -627,7 +637,7 @@ fn with_sub(label: AnyElement, sub: Option<String>, editing: bool) -> AnyElement
 
 #[cfg(test)]
 mod tests {
-    use super::{ProjectRow, aside_shown, column_shown, in_tree, lead_stop, lead_width, setting_up, sweep_base, tree_label};
+    use super::{ProjectRow, aside_shown, column_shown, in_tree, lead_stop, lead_width, row_of, setting_up, sweep_base, tree_label};
     use crate::desktop::chrome::{Layout, Screen};
     use crate::status::{self, Card};
     use agents::{Agents, Summary};
@@ -672,6 +682,16 @@ mod tests {
         let cards = vec![card("a", "/p"), local("b", "l1"), local("c", "l2")];
         assert_eq!(ids(in_tree(cards.clone(), Some("l1"), tree_of)), vec!["b"]);
         assert_eq!(ids(in_tree(cards, Some("/p"), tree_of)), vec!["a"]);
+    }
+
+    #[test]
+    fn a_session_in_a_worktree_pocketd_leaves_off_the_sidebar_sits_under_the_main_row() {
+        let listed = [agents::worktrees::Tree { path: "/p".into(), is_main: true, ..Default::default() }];
+        let tree_of = |cwd: &str| if cwd.starts_with("/agents/fork") { Some("/agents/fork".to_string()) } else { tree_of(cwd) };
+        let row = |cwd: &str| row_of(tree_of(cwd), Some(&listed), || Some("/p".into()));
+        let cards = vec![card("a", "/p"), card("fork", "/agents/fork/src")];
+        assert_eq!(ids(in_tree(cards, Some("/p"), row)), vec!["a", "fork"]);
+        assert_eq!(row_of(Some("/wt".into()), None, || Some("/p".into())), Some("/wt".into()), "kept until pocketd lists the project");
     }
 
     #[test]

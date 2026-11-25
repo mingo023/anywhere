@@ -282,7 +282,7 @@ impl Desktop {
         let mut trees: Vec<String> = self
             .projects(cx)
             .iter()
-            .filter_map(|p| self.listed_trees(p, cx))
+            .filter_map(|p| self.listed_trees(p))
             .flatten()
             .filter(|w| !w.main && w.branch != "detached" && self.gh_accounts.accounts_of(&w.path).is_some())
             .map(|w| w.path)

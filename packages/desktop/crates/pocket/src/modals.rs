@@ -40,11 +40,7 @@ impl Desktop {
     pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.overlay.take() {
             Some(Overlay::Handoff) => self.handoff_closed(cx),
-            Some(Overlay::Confirm) => {
-                let left = self.confirm.update(cx, |c, _| c.clear());
-                self.sheet_closed(left);
-                self.sweep_host_leftovers(cx);
-            }
+            Some(Overlay::Confirm) => _ = self.confirm.update(cx, |c, _| c.clear()),
             _ => {}
         }
         self.host_finder.update(cx, |f, _| f.drop_finder());
