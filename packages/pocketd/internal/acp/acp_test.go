@@ -66,6 +66,9 @@ func (s *sink) Apply(e timeline.Event) {
 	case "tool_model":
 		line += ":" + e.ToolUseID + ":" + e.Name
 	}
+	if e.Steer {
+		line = "steer:" + e.Text
+	}
 	if e.ParentToolUseID != "" {
 		line = e.ParentToolUseID + ">" + line
 	}

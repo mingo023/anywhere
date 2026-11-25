@@ -10,8 +10,8 @@
 //	                more lines go on: "mcp <tool> <json>" again, or "await <name>" until $HOME/.acp-fake/<name> exists
 //	delegate <task> run a sub-agent on task in a session of its own, as OpenCode 2 does, which reports "did <task>";
 //	                as hermes, in the background, telling its work only in a transcript;
-//	                as agy, in an invoke_subagent call that ends as it launches, then the sub-agent's
-//	                "echo <task>" on this session, its id "<sub-agent>:<call>";
+//	                as agy, in an invoke_subagent call that ends as it launches (or once $HOME/.acp-fake/<name> exists
+//	                for "delegate await <name>"), then the sub-agent's "echo <task>" on this session, its id "<sub-agent>:<call>";
 //	                "delegate await <name>" runs its first call until $HOME/.acp-fake/<name> exists
 //	[Anywhere internal background handoff] …
 //	                as hermes, reply "echo: took back <summary>" of each transcript tail it holds
@@ -26,6 +26,10 @@
 //	                "echo: form <its answer>"; else reply "echo: asks in chat: <question>"
 //	decide <question>  as agy might, though never seen live, ask question as an interaction_ permission of
 //	                choices 1 Apple, 2 Pear, then reply "echo: decided <optionId or cancelled>"
+//
+// As agy, a prompt sent while a turn runs steers it: the prompt under way is
+// answered at once, and the turn says "echo: <text>" after its step and
+// answers the steer as it ends.
 //
 // With $HOME/.acp-fake/start it never opens a session: "exit <message>" has
 // it say message and exit 1, "refuse <message>" refuse session/new with it.
@@ -64,6 +68,9 @@ type agent struct {
 	next    int
 	waits   map[string]chan map[string]any
 	stop    chan struct{} // closed to cancel the turn under way
+	// replyTo is the prompt the turn under way answers as it ends, and steered what was steered into it, as agy.
+	replyTo json.RawMessage
+	steered []string
 	checks  int
 	mcp     []fakemcp.Server
 	forms   bool // initialize offered elicitation forms
@@ -174,6 +181,12 @@ func (a *agent) tellIn(sid string, u map[string]any) {
 
 func dir() string { return filepath.Join(os.Getenv("HOME"), ".acp-fake") }
 
+func await(name string) {
+	for _, err := os.Stat(filepath.Join(dir(), name)); err != nil; _, err = os.Stat(filepath.Join(dir(), name)) {
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func (a *agent) save() {
 	a.mu.Lock()
 	b, _ := json.Marshal(a.session)
@@ -234,7 +247,7 @@ func (a *agent) handle(id json.RawMessage, method string, p map[string]any) {
 		elicitation, _ := caps["elicitation"].(map[string]any)
 		_, a.forms = elicitation["form"]
 		a.reply(id, map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{"loadSession": true, "mcpCapabilities": map[string]any{"http": true}},
-			"agentInfo": map[string]string{"name": a.name, "version": "0"}, "authMethods": []map[string]string{{"id": "cached_token"}}})
+			"agentInfo": a.info(), "authMethods": []map[string]string{{"id": "cached_token"}}})
 	case "authenticate":
 		note("authenticate: %s", str("methodId"))
 		a.reply(id, map[string]any{})
@@ -313,10 +326,18 @@ func (a *agent) handle(id json.RawMessage, method string, p map[string]any) {
 		a.mu.Lock()
 		busy := a.stop != nil
 		if !busy {
-			a.stop = make(chan struct{})
+			a.stop, a.replyTo = make(chan struct{}), id
 		}
-		stop := a.stop
+		stop, open := a.stop, a.replyTo
+		if busy && a.name == "agy" {
+			a.replyTo, a.steered = id, append(a.steered, promptText(p))
+		}
 		a.mu.Unlock()
+		if busy && a.name == "agy" {
+			note("steer: %s", promptText(p))
+			a.reply(open, map[string]any{"stopReason": "end_turn"})
+			return
+		}
 		if busy {
 			note("busy")
 			a.refuse(id, -32603, "a turn is running", nil)
@@ -339,6 +360,7 @@ func (a *agent) handle(id json.RawMessage, method string, p map[string]any) {
 			close(a.stop)
 			a.stop = nil
 		}
+		a.steered = nil
 		a.mu.Unlock()
 	default:
 		if id != nil {
@@ -447,8 +469,35 @@ func (a *agent) turn(id json.RawMessage, text string, stop chan struct{}) {
 		a.say(text)
 	}
 	a.tell(map[string]any{"sessionUpdate": "usage_update", "used": 1200, "size": 200000})
-	a.end()
-	a.reply(id, map[string]any{"stopReason": reason, "usage": map[string]int{"inputTokens": 1000, "outputTokens": 200, "totalTokens": 1200}})
+	a.reply(a.settle(id), map[string]any{"stopReason": reason, "usage": map[string]int{"inputTokens": 1000, "outputTokens": 200, "totalTokens": 1200}})
+}
+
+// info is what initialize tells of the agent: as agy, what agy 1.5.16 tells.
+func (a *agent) info() map[string]string {
+	if a.name == "agy" {
+		return map[string]string{"name": "Antigravity ACP Server", "version": "1.5.16"}
+	}
+	return map[string]string{"name": a.name, "version": "0"}
+}
+
+// settle says each prompt steered into the turn and ends the turn. It
+// returns the prompt the turn's end answers: the last steer's, else id.
+func (a *agent) settle(id json.RawMessage) json.RawMessage {
+	for {
+		a.mu.Lock()
+		if len(a.steered) == 0 {
+			if a.replyTo != nil {
+				id = a.replyTo
+			}
+			a.stop, a.replyTo = nil, nil
+			a.mu.Unlock()
+			return id
+		}
+		text := a.steered[0]
+		a.steered = a.steered[1:]
+		a.mu.Unlock()
+		a.say(text)
+	}
 }
 
 // wait replies text after d unless stop closes first, which ends the turn cancelled.
@@ -506,6 +555,9 @@ func (a *agent) launch(task string) {
 	call := "call_" + hex(4)
 	a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": call, "name": "invoke_subagent", "status": "in_progress", "kind": "other", "title": "Run invoke_subagent",
 		"rawInput": map[string]string{"Model": "inherit", "Prompt": task, "Role": "Runner", "TypeName": "self"}})
+	if gate, ok := strings.CutPrefix(task, "await "); ok {
+		await(gate)
+	}
 	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "name": "invoke_subagent", "status": "completed"})
 	run := hex(8) + ":call_" + hex(4)
 	command := map[string]string{"CommandLine": "echo " + task}
@@ -535,9 +587,7 @@ func (a *agent) background(task string) {
 		f, _ := os.OpenFile(log, os.O_APPEND|os.O_WRONLY, 0)
 		fmt.Fprintf(f, "12:00:01 tool     | -> terminal(echo %s)\n", task)
 		if gate, ok := strings.CutPrefix(task, "await "); ok {
-			for _, err := os.Stat(filepath.Join(dir(), gate)); err != nil; _, err = os.Stat(filepath.Join(dir(), gate)) {
-				time.Sleep(20 * time.Millisecond)
-			}
+			await(gate)
 		}
 		fmt.Fprintf(f, "12:00:01 result   | terminal ok 0.1s: %[1]s\n12:00:02 assistant| did %[1]s\n"+
 			"12:00:02 final    | status=completed duration=2s summary: did %[1]s\n12:00:02 final    | end status=completed\n", task)

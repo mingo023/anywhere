@@ -96,7 +96,13 @@ type Session struct {
 	startedOn string
 	options   []configOption
 	// queue holds the prompts sent before the session opened, while a turn runs or while it compacts, which ACP has no place for.
-	queue    []string
+	// A steering agent's mid-turn prompts skip it.
+	queue  []string
+	steers bool
+	// out counts the turn's prompts the agent has not answered yet.
+	out int
+	// steered holds the prompts steered into the turn and not yet known taken, so not yet shown.
+	steered  []string
 	running  bool
 	turn     int             // counts the turns and compactions started, so a late answer ends only its own
 	began    time.Time       // when this pocketd started the turn running
@@ -334,6 +340,9 @@ func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) 
 	if err != nil {
 		return opened{}, err
 	}
+	s.mu.Lock()
+	s.steers = steers(init)
+	s.mu.Unlock()
 	servers := s.servers(init)
 	if s.f.auth != nil {
 		if params := s.f.auth(init); params != nil {
@@ -768,13 +777,17 @@ func (s *Session) Commands() ([]proto.Command, error) {
 	return slices.Clone(s.commands), nil
 }
 
-// Prompt starts a turn on text, once the session is open and the turn under way has ended.
+// Prompt starts a turn on text, once the session is open and the turn under
+// way has ended, or steers it into the turn under way, where the agent takes that.
 func (s *Session) Prompt(text string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch {
 	case s.err != nil:
 		return s.failed()
+	case s.ready && s.running && s.steerable():
+		s.steered = append(s.steered, text)
+		s.prompt(text, true)
 	case !s.ready || s.running || s.compacting:
 		s.queue = append(s.queue, text)
 	default:
@@ -793,10 +806,26 @@ func (s *Session) send(text string) {
 	s.running, s.began = true, time.Now()
 	s.turn++
 	s.sink.Working()
-	c, id, turn := s.c, s.id, s.turn
+	s.prompt(text, false)
+}
+
+// steerable says a prompt sent now may go to the agent mid-turn. agy refuses
+// one while it asks, a prompt waiting must not be overtaken, and only one
+// steer goes unconfirmed, so a refused one goes back first in the queue.
+func (s *Session) steerable() bool {
+	return s.steers && !s.stopping && !s.adopted && len(s.asks) == 0 && len(s.queue) == 0 && len(s.steered) == 0
+}
+
+func (s *Session) prompt(text string, steer bool) {
+	s.out++
+	c, id, turn, before := s.c, s.id, s.turn, s.sent
 	sent := make(chan struct{})
 	s.sent = sent
 	go func() {
+		// A steer must reach the agent after the prompt it steers.
+		if steer && before != nil {
+			<-before
+		}
 		res, err := s.deliver(c, sent, "session/prompt", map[string]any{"sessionId": id, "prompt": []map[string]string{{"type": "text", "text": text}}})
 		if s.ctx.Err() != nil {
 			return
@@ -805,9 +834,38 @@ func (s *Session) send(text string) {
 		defer s.mu.Unlock()
 		// A stop the agent was slow to answer has ended the turn already.
 		if s.running && s.turn == turn {
-			s.finish(res, err)
+			s.promptReplied(text, steer, res, err)
 		}
 	}()
+}
+
+// promptReplied takes the answer to one of the turn's prompts. agy answers
+// the prompt a steer came after as it takes the steer, and the last prompt's
+// answer ends the turn.
+func (s *Session) promptReplied(text string, steer bool, res json.RawMessage, err error) {
+	s.out--
+	switch {
+	case steer && err != nil && s.out > 0:
+		// Refused: it runs as a turn of its own once this one ends, ahead of what was sent after it.
+		s.steered = nil
+		if !s.stopping {
+			s.queue = append([]string{text}, s.queue...)
+		}
+	case s.out > 0:
+		s.showSteered()
+	default:
+		s.showSteered()
+		s.finish(res, err)
+	}
+}
+
+// showSteered shows the prompts the agent has taken into the turn, after what it wrote so far.
+func (s *Session) showSteered() {
+	s.flush()
+	for _, text := range s.steered {
+		s.sink.Apply(timeline.Event{Kind: "user", Text: text, Steer: true})
+	}
+	s.steered = nil
 }
 
 // deliver sends method, closes sent once it has gone out, and returns its result.
@@ -849,6 +907,7 @@ func (s *Session) finish(res json.RawMessage, err error) {
 	stopped := s.stopping || err == nil && r.StopReason == "cancelled"
 	runs, adopted := s.runs, s.adopted
 	s.running, s.adopted, s.stopping, s.stray, s.woke, s.runs = false, false, false, nil, "", ""
+	s.out, s.steered = 0, nil
 	e := timeline.Event{Kind: "result"}
 	if !s.began.IsZero() {
 		e.DurationMs = time.Since(s.began).Milliseconds()
@@ -1599,4 +1658,31 @@ func (s *Session) task(params json.RawMessage) any {
 		delete(s.tools, p.ID)
 	}
 	return struct{}{}
+}
+
+// steers says an agent's initialize names an agy that folds a prompt sent
+// mid-turn into the turn under way: Antigravity 1.5 or later.
+func steers(init json.RawMessage) bool {
+	var r struct {
+		AgentInfo struct {
+			Name    string `json:"name"`
+			Version string `json:"version"`
+		} `json:"agentInfo"`
+	}
+	json.Unmarshal(init, &r)
+	return r.AgentInfo.Name == "Antigravity ACP Server" && atLeast(r.AgentInfo.Version, 1, 5)
+}
+
+// atLeast says version is major.minor or later. A prerelease or a version it can't read is not.
+func atLeast(version string, major, minor int) bool {
+	parts := strings.Split(version, ".")
+	if strings.Contains(version, "-") || len(parts) < 2 {
+		return false
+	}
+	ma, err1 := strconv.Atoi(parts[0])
+	mi, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return ma > major || ma == major && mi >= minor
 }

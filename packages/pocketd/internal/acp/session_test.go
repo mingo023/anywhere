@@ -2804,3 +2804,221 @@ func TestAnAgentThatCompactsOnlyByItselfIsNotAskedTo(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// What agy 1.5.16 tells of itself in its initialize.
+const agyInit = `{"protocolVersion":1,"agentInfo":{"name":"Antigravity ACP Server","version":"1.5.16"}}`
+
+func agy(init string, turn func(a *agent, text string) string) func(*agent, string, json.RawMessage) string {
+	return func(a *agent, method string, params json.RawMessage) string {
+		switch method {
+		case "initialize":
+			return init
+		case "session/new":
+			return `{"sessionId":"s1"}`
+		case "session/prompt":
+			return turn(a, promptOf(params))
+		}
+		return `{}`
+	}
+}
+
+func reply(a *agent, text string) {
+	a.update(`{"content":{"text":"re: ` + text + `","type":"text"},"messageId":"` + text + `","sessionUpdate":"agent_message_chunk"}`)
+}
+
+func promptsInOrder(a *agent) []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var order []string
+	for _, c := range a.calls {
+		switch m, params, _ := strings.Cut(c, " "); m {
+		case "session/prompt":
+			order = append(order, promptOf(json.RawMessage(params)))
+		case "session/cancel":
+			order = append(order, "cancel")
+		}
+	}
+	return order
+}
+
+func TestOnlyAnAntigravityOf1_5OrLaterSteers(t *testing.T) {
+	for init, want := range map[string]bool{
+		agyInit: true,
+		`{"agentInfo":{"name":"Antigravity ACP Server","version":"1.5.0"}}`:      true,
+		`{"agentInfo":{"name":"Antigravity ACP Server","version":"1.10.0"}}`:     true,
+		`{"agentInfo":{"name":"Antigravity ACP Server","version":"2.0"}}`:        true,
+		`{"agentInfo":{"name":"Antigravity ACP Server","version":"1.4.9"}}`:      false,
+		`{"agentInfo":{"name":"Antigravity ACP Server","version":"1.5.0-rc.1"}}`: false,
+		`{"agentInfo":{"name":"Antigravity ACP Server","version":"1"}}`:          false,
+		`{"agentInfo":{"name":"Antigravity ACP Server","version":""}}`:           false,
+		`{"agentInfo":{"name":"hermes","version":"1.5.16"}}`:                     false,
+		`{}`: false,
+	} {
+		if got := steers(json.RawMessage(init)); got != want {
+			t.Errorf("%s: %v", init, got)
+		}
+	}
+}
+
+func TestAPromptSentMidAntigravityTurnSteersItAndTheTurnEndsOnce(t *testing.T) {
+	var sk *sink
+	took := make(chan struct{})
+	s, a, sk, _ := start(t, opts{provider: "antigravity", answer: agy(agyInit, func(a *agent, text string) string {
+		if text == "one" {
+			reply(a, text)
+			// agy answers the prompt under way as it takes the steer, often with no usage.
+			<-took
+			return endTurn
+		}
+		close(took)
+		sk.wait(t, "steer:two")
+		reply(a, text)
+		return `{"stopReason":"end_turn","usage":{"inputTokens":10,"outputTokens":2}}`
+	})})
+	s.Prompt("one")
+	sk.wait(t, "assistant_draft:re: one")
+	s.Prompt("two")
+	a.called("session/prompt", 2)
+	equal(t, after(sk.wait(t, "ended:false"), "user:one"), []string{
+		"user:one", "working", "assistant_draft:re: one", "assistant_text:re: one", "steer:two",
+		"assistant_draft:re: two", "assistant_text:re: two", "result:true::10/2/0", "ended:false"})
+	equal(t, promptsInOrder(a), []string{"one", "two"})
+}
+
+func TestAPromptSentMidTurnQueuesForAnAntigravityThatCantSteer(t *testing.T) {
+	for _, info := range []string{
+		`{"name":"Antigravity ACP Server","version":"1.4.9"}`,
+		`{"name":"Antigravity ACP Server","version":"1.5.0-rc.1"}`,
+		`{"name":"Antigravity ACP Server","version":""}`,
+		`{"name":"Antigravity","version":"1.5.16"}`,
+	} {
+		t.Run(info, func(t *testing.T) {
+			release := make(chan struct{})
+			s, a, sk, _ := start(t, opts{provider: "antigravity", answer: agy(`{"agentInfo":`+info+`}`, func(a *agent, text string) string {
+				if text == "one" {
+					<-release
+				}
+				reply(a, text)
+				return endTurn
+			})})
+			s.Prompt("one")
+			s.Prompt("two")
+			a.called("session/prompt", 1)
+			time.Sleep(50 * time.Millisecond)
+			if got := promptsInOrder(a); len(got) != 1 {
+				t.Fatalf("the second prompt went mid-turn: %v", got)
+			}
+			close(release)
+			equal(t, after(sk.waitN(t, "ended:false", 2), "user:one"), []string{
+				"user:one", "working", "assistant_draft:re: one", "assistant_text:re: one", "result:true:", "ended:false",
+				"user:two", "working", "assistant_draft:re: two", "assistant_text:re: two", "result:true:", "ended:false"})
+		})
+	}
+}
+
+func TestAPromptSentWhileAntigravityAsksWaitsForTheTurnToEnd(t *testing.T) {
+	s, a, sk, b := start(t, opts{provider: "antigravity", answer: agy(agyInit, func(a *agent, text string) string {
+		if text == "one" {
+			a.ask("41", "session/request_permission", `{"sessionId":"s1","toolCall":{"toolCallId":"c1","title":"rm x","kind":"execute","rawInput":{"command":"rm x"}},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"deny","name":"Deny","kind":"reject_once"}]}`)
+			a.replied("41")
+		}
+		reply(a, text)
+		return endTurn
+	})})
+	s.Prompt("one")
+	req := asked(t, b)
+	s.Prompt("two")
+	time.Sleep(50 * time.Millisecond)
+	if got := promptsInOrder(a); len(got) != 1 {
+		t.Fatalf("a prompt went while agy asked: %v", got)
+	}
+	b.Resolve(req.RequestID, broker.Answer{Decision: "allow"})
+	equal(t, after(sk.waitN(t, "ended:false", 2), "result:true:"), []string{
+		"result:true:", "ended:false", "user:two", "working", "assistant_draft:re: two", "assistant_text:re: two", "result:true:", "ended:false"})
+}
+
+func TestASteerAntigravityRefusesRunsAfterTheTurnAndShowsOnce(t *testing.T) {
+	var s *Session
+	refused := false
+	s, a, sk, _ := start(t, opts{provider: "antigravity", answer: agy(agyInit, func(a *agent, text string) string {
+		if text == "two" && !refused {
+			refused = true
+			return `!{"code":-32603,"message":"Internal error"}`
+		}
+		if text == "one" {
+			// agy refused the steer before this prompt ends.
+			for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+				s.mu.Lock()
+				back := slices.Equal(s.queue, []string{"two"})
+				s.mu.Unlock()
+				if back {
+					break
+				}
+			}
+		}
+		reply(a, text)
+		return endTurn
+	})})
+	s.Prompt("one")
+	s.Prompt("two")
+	equal(t, after(sk.waitN(t, "ended:false", 2), "user:one"), []string{
+		"user:one", "working", "assistant_draft:re: one", "assistant_text:re: one", "result:true:", "ended:false",
+		"user:two", "working", "assistant_draft:re: two", "assistant_text:re: two", "result:true:", "ended:false"})
+	equal(t, promptsInOrder(a), []string{"one", "two", "two"})
+}
+
+func TestAStopRightAfterASteerReachesTheAgentAfterItAndEndsTheOneTurnInterrupted(t *testing.T) {
+	cancelled := make(chan struct{})
+	s, a, sk, _ := start(t, opts{provider: "antigravity", answer: func(a *agent, method string, params json.RawMessage) string {
+		switch method {
+		case "initialize":
+			return agyInit
+		case "session/new":
+			return `{"sessionId":"s1"}`
+		case "session/cancel":
+			close(cancelled)
+		case "session/prompt":
+			<-cancelled
+			return `{"stopReason":"cancelled"}`
+		}
+		return `{}`
+	}})
+	s.Prompt("one")
+	s.Prompt("two")
+	s.Cancel()
+	sk.wait(t, "stopped")
+	time.Sleep(50 * time.Millisecond)
+	got := sk.lines()
+	equal(t, promptsInOrder(a), []string{"one", "two", "cancel"})
+	for _, line := range []string{"result:false:interrupted", "stopped"} {
+		if n := len(slices.DeleteFunc(slices.Clone(got), func(l string) bool { return l != line })); n != 1 {
+			t.Fatalf("%d of %q in:\n%s", n, line, strings.Join(got, "\n"))
+		}
+	}
+	if slices.Contains(got, "ended:false") || slices.Contains(got, "ended:true") {
+		t.Fatalf("the stopped turn ended as done:\n%s", strings.Join(got, "\n"))
+	}
+}
+
+func TestASteerWhileAnAntigravitySubAgentCardIsOpenLeavesTheCardToEnd(t *testing.T) {
+	var sk *sink
+	took := make(chan struct{})
+	s, _, sk, _ := start(t, opts{provider: "antigravity", answer: agy(agyInit, func(a *agent, text string) string {
+		if text == "one" {
+			a.update(`{"sessionUpdate":"tool_call","toolCallId":"sa1","name":"invoke_subagent","status":"in_progress","kind":"other","title":"Run invoke_subagent","rawInput":{"Model":"inherit","Prompt":"Fix the flaky test","Role":"Test Fixer","TypeName":"self"}}`)
+			<-took
+			return endTurn
+		}
+		close(took)
+		sk.wait(t, "steer:two")
+		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"sa1","name":"invoke_subagent","status":"completed"}`)
+		reply(a, text)
+		return endTurn
+	})})
+	s.Prompt("one")
+	sk.wait(t, "tool_start:sa1:task:task:Test Fixer: Fix the flaky test")
+	s.Prompt("two")
+	equal(t, after(sk.wait(t, "ended:false"), "user:one"), []string{
+		"user:one", "working", "tool_start:sa1:task:task:Test Fixer: Fix the flaky test", "steer:two",
+		"tool_end:sa1:true", "assistant_draft:re: two", "assistant_text:re: two", "result:true:", "ended:false"})
+}
