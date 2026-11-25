@@ -377,13 +377,12 @@ func TestACallShowsByItsKind(t *testing.T) {
 		"anything else by title":  {toolCall{Kind: "fetch", Title: "Fetch example.com", RawInput: json.RawMessage(`{"url":"https://example.com"}`)}, `Fetch example.com:other:`},
 		"grok's by its meta":      {grokMeta("execute", "Run", `{"command":"pwd"}`), "shell:shell:pwd"},
 		"a sub-agent by its meta": {grokMeta("task", "Subagent", `{"description":"List the files","prompt":"ls"}`), "task:task:List the files"},
-		"several Antigravity sub-agents each by its role": {toolCall{Name: "invoke_subagent", RawInput: json.RawMessage(`{"Subagents":[{"Role":"Reviewer","Prompt":"Read the diff"},{"TypeName":"Tester","Prompt":"Run the tests"}]}`)},
-			"task:task:Reviewer: Read the diff\nTester: Run the tests"},
-		"an Antigravity sub-agent by its prompt":                              {toolCall{Name: "invoke_subagent", Title: "Subagent", RawInput: json.RawMessage(`{"Subagents":[{"Role":"DeepCoder","Prompt":"Fix the flaky test"}]}`)}, "task:task:Fix the flaky test"},
-		"an Antigravity sub-agent told in lower case":                         {toolCall{Name: "start_subagent", RawInput: json.RawMessage(`{"subagents":[{"prompt":"Look around"}]}`)}, "task:task:Look around"},
-		"an Antigravity sub-agent whose input it can't read by its title":     {toolCall{Name: "invoke_subagent", Title: "Fix the test", RawInput: json.RawMessage(`{"Subagents":"oops"}`)}, "task:task:Fix the test"},
-		"an Antigravity sub-agent with a kind of task by its prompt":          {toolCall{Name: "invoke_subagent", Kind: "task", RawInput: json.RawMessage(`{"Subagents":[{"Role":"DeepCoder","Prompt":"Fix the flaky test"}]}`)}, "task:task:Fix the flaky test"},
-		"an Antigravity sub-agent titled by its tool's name before its input": {toolCall{Name: "invoke_subagent", Title: "invoke_subagent"}, "task:task:"},
+		"an Antigravity sub-agent by its role and prompt": {toolCall{Name: "invoke_subagent", Kind: "other", Title: "Run invoke_subagent",
+			RawInput: json.RawMessage(`{"Model":"inherit","Prompt":"Fix the flaky test","Role":"Test Fixer","TypeName":"self"}`)}, "task:task:Test Fixer: Fix the flaky test"},
+		"an Antigravity sub-agent with no role by its type":          {toolCall{Name: "invoke_subagent", RawInput: json.RawMessage(`{"Prompt":"Look around","TypeName":"self"}`)}, "task:task:self: Look around"},
+		"an Antigravity sub-agent told in lower case":                {toolCall{Name: "start_subagent", RawInput: json.RawMessage(`{"prompt":"Look around"}`)}, "task:task:Look around"},
+		"an Antigravity sub-agent with a kind of task by its role":   {toolCall{Name: "invoke_subagent", Kind: "task", RawInput: json.RawMessage(`{"Prompt":"Fix the flaky test","Role":"Test Fixer"}`)}, "task:task:Test Fixer: Fix the flaky test"},
+		"an Antigravity sub-agent before its input not by its title": {toolCall{Name: "invoke_subagent", Title: "Run invoke_subagent"}, "task:task:"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var merged toolCall
@@ -1162,16 +1161,16 @@ func TestAnInteractionRequestThatIsNoDecisionIsAnsweredByAccessAsBefore(t *testi
 	}
 }
 
-func TestAnAntigravitySubAgentShowsAsATaskThatEndsWithWhatItReported(t *testing.T) {
+func TestAnAntigravitySubAgentShowsAsATaskThatEndsAsItLaunchesWithNoReport(t *testing.T) {
 	s, a, sk, _ := start(t, opts{provider: "antigravity", answer: script(`{"sessionId":"s1"}`, says(
-		`{"sessionUpdate":"tool_call","toolCallId":"sa1","name":"invoke_subagent","title":"invoke_subagent","status":"pending","rawInput":{"Subagents":[{"Role":"DeepCoder","Prompt":"Fix the flaky test"}]}}`,
-		`{"sessionUpdate":"tool_call_update","toolCallId":"sa1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"Fixed it"}}]}`,
+		`{"sessionUpdate":"tool_call","toolCallId":"sa1","name":"invoke_subagent","status":"in_progress","kind":"other","title":"Run invoke_subagent","rawInput":{"Model":"inherit","Prompt":"Fix the flaky test","Role":"Test Fixer","TypeName":"self"}}`,
+		`{"sessionUpdate":"tool_call_update","toolCallId":"sa1","name":"invoke_subagent","status":"completed"}`,
 	))})
 	s.Prompt("go")
 	equal(t, after(sk.wait(t, "ended:false"), "working"), []string{
 		"working",
-		"tool_start:sa1:task:task:Fix the flaky test",
-		"tool_end:sa1:true:Fixed it",
+		"tool_start:sa1:task:task:Test Fixer: Fix the flaky test",
+		"tool_end:sa1:true",
 		"result:true:",
 		"ended:false",
 	})
