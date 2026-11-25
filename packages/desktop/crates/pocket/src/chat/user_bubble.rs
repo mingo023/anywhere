@@ -20,6 +20,10 @@ const LINE_HEIGHT: f32 = 22.;
 const TEXT_SIZE: f32 = 14.5;
 /// A bubble's widest, of the reading width.
 const WIDTH: f32 = 0.78;
+/// A sent image's box; the image keeps its shape inside it.
+const IMAGE_H: f32 = 200.;
+const IMAGE_MAX_W: f32 = 320.;
+const IMAGE_RADIUS: f32 = 12.;
 
 /// A mention's `@` and the gap after it, which its icon covers; two narrow spaces, as one leaves the icon touching the name.
 const SLOT: &str = "@\u{202F}\u{202F}";
@@ -249,8 +253,8 @@ pub(super) fn send_now(id: &str) -> Stateful<Div> {
         .child("Send now")
 }
 
-/// A prompt, right-aligned in a wash rounded and ringed as the composer it was typed in, its files and images under
-/// it; one over five lines clips to five with "Show more".
+/// A prompt, right-aligned in a wash rounded and ringed as the composer it was typed in, its images and files set apart
+/// above it; one over five lines clips to five with "Show more".
 /// `toggle` is set when the prompt collapses; `expanded` says which way it reads. Just after a toggle the height eases between the two.
 /// `lit` brightens its wash and ring, fading back, to show the prompt the timeline landed on.
 /// An image sent to a host shows from this Mac's copy of it in `here`, its attachments folder.
@@ -268,11 +272,14 @@ pub(super) fn bubble(
     let Sent { text, files, images, elements } = split_attachments(&prompt);
     let text = text.to_string();
     let attached = (!images.is_empty() || !files.is_empty() || !elements.is_empty()).then(|| {
-        let thumb = |path: PathBuf| img(path).size(px(54.)).rounded(px(7.)).object_fit(ObjectFit::Cover);
+        let fit = IMAGE_MAX_W.min(width * WIDTH - 2.);
+        let placeholder = || div().w(px(IMAGE_H * 0.75)).h_full().rounded(px(IMAGE_RADIUS)).bg(FILL_3).into_any_element();
+        // `img` takes its shape as its aspect ratio, so a max width also caps its height and a wide image shrinks to fit.
+        let picture = move |path: PathBuf| img(path).h(px(IMAGE_H)).max_w(px(fit)).rounded(px(IMAGE_RADIUS)).with_loading(placeholder);
         let tile = |path: &str| {
             let here = here.join(Path::new(path).file_name().unwrap_or_default());
-            let image = thumb(PathBuf::from(path)).with_fallback(move || thumb(here.clone()).into_any_element());
-            div().size(px(56.)).flex_none().rounded(px(8.)).border_1().border_color(hairline(0.10)).child(image)
+            let image = picture(PathBuf::from(path)).with_fallback(move || picture(here.clone()).with_fallback(placeholder).into_any_element());
+            div().flex_none().rounded(px(IMAGE_RADIUS + 1.)).border_1().border_color(hairline(0.10)).child(image)
         };
         let card = |(i, path): (usize, &str)| file_card(SharedString::from(format!("{id}-file-{i}")), Path::new(path));
         let element = |(i, heading): (usize, &str)| {
@@ -280,11 +287,12 @@ pub(super) fn bubble(
             element_card(SharedString::from(format!("{id}-element-{i}")), number, host, title, None)
         };
         div()
+            .max_w(px(width * WIDTH))
             .flex()
             .flex_wrap()
+            .justify_end()
+            .items_end()
             .gap(px(8.))
-            .when(!text.is_empty(), |d| d.mt(px(8.)))
-            .mb(px(3.))
             .children(images.into_iter().map(tile))
             .children(files.into_iter().enumerate().map(card))
             .children(elements.into_iter().enumerate().map(element))
@@ -343,9 +351,7 @@ pub(super) fn bubble(
         .text_size(px(TEXT_SIZE))
         .line_height(px(LINE_HEIGHT))
         .text_color(TEXT)
-        .when(pending, |d| d.opacity(0.65))
         .child(body)
-        .children(attached)
         .children(expander);
     let bubble = if lit {
         let fade = Animation::new(super::transcript::FLASH).with_easing(ease_in_out);
@@ -357,7 +363,13 @@ pub(super) fn bubble(
     } else {
         bubble.into_any_element()
     };
-    div().w_full().flex().justify_end().child(bubble)
+    let attached = attached.map(|files| if lit && text.is_empty() {
+        let fade = Animation::new(super::transcript::FLASH).with_easing(ease_in_out);
+        files.p(px(4.)).m(px(-4.)).max_w(px(width * WIDTH + 8.)).rounded(px(RADIUS)).with_animation(SharedString::from(format!("{id}-lit")), fade, |d, t| d.bg(ink(0.08 * (1. - t)))).into_any_element()
+    } else {
+        files.into_any_element()
+    });
+    div().w_full().flex().flex_col().items_end().gap(px(6.)).when(pending, |d| d.opacity(0.65)).children(attached).when(!text.is_empty(), |d| d.child(bubble))
 }
 
 #[cfg(test)]
