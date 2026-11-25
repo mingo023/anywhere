@@ -103,8 +103,10 @@ type Session struct {
 	out int
 	// prompts counts the prompts sent, so an answer knows whether it is to the newest, the only one a steer may be unconfirmed in.
 	prompts int
-	// steered holds the prompts steered into the turn and not yet known taken, so not yet shown.
-	steered  []string
+	// steered holds the prompts steered into the turn and not yet shown.
+	steered []string
+	// taken says the agent took them while it wrote a message, so they show once it ends.
+	taken    bool
 	running  bool
 	turn     int             // counts the turns and compactions started, so a late answer ends only its own
 	began    time.Time       // when this pocketd started the turn running
@@ -848,7 +850,7 @@ func (s *Session) prompt(text string, steer bool) {
 func (s *Session) promptReplied(text string, unconfirmed bool, res json.RawMessage, err error) {
 	s.out--
 	switch {
-	case unconfirmed && err != nil && s.out > 0:
+	case unconfirmed && refused(err) && s.out > 0:
 		// Refused: it runs as a turn of its own once this one ends, ahead of what was sent after it.
 		s.steered = nil
 		if !s.stopping {
@@ -862,13 +864,23 @@ func (s *Session) promptReplied(text string, unconfirmed bool, res json.RawMessa
 	}
 }
 
-// showSteered shows the prompts the agent has taken into the turn, after what it wrote so far.
+// showSteered shows the prompts the agent has taken into the turn. agy
+// finishes the message it is writing before it reads them, so they show after it.
 func (s *Session) showSteered() {
-	s.flush()
+	if s.msg.text != "" {
+		s.taken = true
+		return
+	}
 	for _, text := range s.steered {
 		s.sink.Apply(timeline.Event{Kind: "user", Text: text, Steer: true})
 	}
-	s.steered = nil
+	s.steered, s.taken = nil, false
+}
+
+// refused says the agent answered a call with an error, rather than going away.
+func refused(err error) bool {
+	var e *Error
+	return errors.As(err, &e)
 }
 
 // deliver sends method, closes sent once it has gone out, and returns its result.
@@ -910,7 +922,7 @@ func (s *Session) finish(res json.RawMessage, err error) {
 	stopped := s.stopping || err == nil && r.StopReason == "cancelled"
 	runs, adopted := s.runs, s.adopted
 	s.running, s.adopted, s.stopping, s.stray, s.woke, s.runs = false, false, false, nil, "", ""
-	s.out, s.steered = 0, nil
+	s.out, s.steered, s.taken = 0, nil, false
 	e := timeline.Event{Kind: "result"}
 	if !s.began.IsZero() {
 		e.DurationMs = time.Since(s.began).Milliseconds()
@@ -1396,6 +1408,9 @@ func (s *Session) flush() {
 	b := s.msg
 	if s.msg = (block{}); b.text == "" {
 		return
+	}
+	if s.taken {
+		defer s.showSteered()
 	}
 	switch b.kind {
 	case "user":

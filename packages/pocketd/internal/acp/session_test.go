@@ -2826,6 +2826,20 @@ func reply(a *agent, text string) {
 	a.update(`{"content":{"text":"re: ` + text + `","type":"text"},"messageId":"` + text + `","sessionUpdate":"agent_message_chunk"}`)
 }
 
+// answered waits until the session has the answers to all but n of the turn's prompts.
+func answered(t *testing.T, s *Session, n int) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		s.mu.Lock()
+		out := s.out
+		s.mu.Unlock()
+		if out == n {
+			return
+		}
+	}
+	t.Fatalf("not down to %d prompts out", n)
+}
+
 func promptsInOrder(a *agent) []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -2861,7 +2875,7 @@ func TestOnlyAnAntigravityOf1_5OrLaterSteers(t *testing.T) {
 }
 
 func TestAPromptSentMidAntigravityTurnSteersItAndTheTurnEndsOnce(t *testing.T) {
-	var sk *sink
+	var s *Session
 	took := make(chan struct{})
 	s, a, sk, _ := start(t, opts{provider: "antigravity", answer: agy(agyInit, func(a *agent, text string) string {
 		if text == "one" {
@@ -2871,7 +2885,7 @@ func TestAPromptSentMidAntigravityTurnSteersItAndTheTurnEndsOnce(t *testing.T) {
 			return endTurn
 		}
 		close(took)
-		sk.wait(t, "steer:two")
+		answered(t, s, 1)
 		reply(a, text)
 		return `{"stopReason":"end_turn","usage":{"inputTokens":10,"outputTokens":2}}`
 	})})
@@ -3029,7 +3043,6 @@ func TestAnErrorOnASteerAntigravityTookIsNoRefusalAndItRunsOnce(t *testing.T) {
 	s, a, sk, _ := start(t, opts{provider: "antigravity", answer: agy(agyInit, func(a *agent, text string) string {
 		switch text {
 		case "one":
-			reply(a, text)
 			<-tookTwo
 			return endTurn
 		case "two":
@@ -3043,13 +3056,64 @@ func TestAnErrorOnASteerAntigravityTookIsNoRefusalAndItRunsOnce(t *testing.T) {
 		return endTurn
 	})})
 	s.Prompt("one")
-	sk.wait(t, "assistant_draft:re: one")
+	a.called("session/prompt", 1)
 	s.Prompt("two")
 	sk.wait(t, "steer:two")
 	s.Prompt("three")
 	equal(t, after(sk.wait(t, "ended:false"), "user:one"), []string{
-		"user:one", "working", "assistant_draft:re: one", "assistant_text:re: one", "steer:two", "steer:three",
+		"user:one", "working", "steer:two", "steer:three",
 		"assistant_draft:re: three", "assistant_text:re: three", "result:true:", "ended:false"})
 	time.Sleep(50 * time.Millisecond)
 	equal(t, promptsInOrder(a), []string{"one", "two", "three"})
+}
+
+// agy takes a steer at its next step: a reply it is writing runs to its end first.
+func TestASteerShowsAfterTheReplyAntigravityWasWritingWhenItTookIt(t *testing.T) {
+	var s *Session
+	var sk *sink
+	took := make(chan struct{})
+	chunk := func(a *agent, id, text string) {
+		a.update(`{"content":{"text":"` + text + `","type":"text"},"messageId":"` + id + `","sessionUpdate":"agent_message_chunk"}`)
+	}
+	s, a, sk, _ := start(t, opts{provider: "antigravity", answer: agy(agyInit, func(a *agent, text string) string {
+		if text == "one" {
+			chunk(a, "m1", "a story")
+			<-took
+			return endTurn
+		}
+		close(took)
+		answered(t, s, 1)
+		chunk(a, "m1", " to its end")
+		chunk(a, "m2", "re: two")
+		return endTurn
+	})})
+	s.Prompt("one")
+	sk.wait(t, "assistant_draft:a story")
+	s.Prompt("two")
+	equal(t, after(sk.wait(t, "ended:false"), "user:one"), []string{
+		"user:one", "working", "assistant_draft:a story", "assistant_draft: to its end", "assistant_text:a story to its end", "steer:two",
+		"assistant_draft:re: two", "assistant_text:re: two", "result:true:", "ended:false"})
+	equal(t, promptsInOrder(a), []string{"one", "two"})
+}
+
+func TestAnAntigravityThatGoesAwayMidSteerEndsTheTurnOnceAndRunsNothingMore(t *testing.T) {
+	sent := make(chan struct{})
+	s, a, sk, _ := start(t, opts{provider: "antigravity", answer: agy(agyInit, func(a *agent, text string) string {
+		if text == "two" {
+			close(sent)
+		}
+		select {}
+	})})
+	s.Prompt("one")
+	a.called("session/prompt", 1)
+	s.Prompt("two")
+	<-sent
+	a.Close()
+	sk.wait(t, "ended:true")
+	time.Sleep(100 * time.Millisecond)
+	got := sk.lines()
+	results := slices.DeleteFunc(slices.Clone(got), func(l string) bool { return !strings.HasPrefix(l, "result:") })
+	if len(results) != 1 || slices.Contains(got, "user:two") {
+		t.Fatalf("got\n%s", strings.Join(got, "\n"))
+	}
 }
