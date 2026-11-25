@@ -248,7 +248,7 @@ impl Desktop {
     }
 
     pub fn go_to_file(&mut self, _: &crate::actions::GoToFile, window: &mut Window, cx: &mut Context<Self>) {
-        self.palette.all = false;
+        self.palette.update(cx, |p, _| p.search_project());
         self.open(Overlay::Palette, window, cx);
     }
 

@@ -1,6 +1,6 @@
 # Desktop code layout: model crates, feature modules, state per feature
 
-The desktop follows Zed's split. Model crates hold domain logic with no rendering and are unit-tested without GPUI; the `pocket` crate holds views. Inside `pocket`, each feature owns one module and a state struct that `Desktop` composes, instead of `Desktop` carrying every field. We chose this because `Desktop` had grown to ~90 fields touched from every file, so a change to the diff view risked the terminal, and none of the project/worktree rules could be tested. The cost: views still `impl Desktop`, so a feature reads shared state (`projects`, `repos`, `agents`) through `Desktop`; turning a feature into its own `Entity` with `.cached()` rendering is the next step, one feature at a time.
+The desktop follows Zed's split. Model crates hold domain logic with no rendering and are unit-tested without GPUI; the `pocket` crate holds views. Inside `pocket`, each feature owns one module and a state struct that `Desktop` composes, instead of `Desktop` carrying every field. We chose this because `Desktop` had grown to ~90 fields touched from every file, so a change to the diff view risked the terminal, and none of the project/worktree rules could be tested. The cost: views still `impl Desktop`, so a feature reads shared state (`projects`, `repos`, `agents`) through `Desktop`; turning a feature into its own `Entity` is the next step, one feature at a time. The palette is the first.
 
 ## Rules
 
@@ -9,6 +9,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 - A feature's state struct lives in its module, is built by its own `new`, and returns its own subscriptions. `Desktop::new` only composes them.
 - Logic that only needs a feature's state is a method on that state, or a free function, with tests beside it. `impl Desktop` methods stay thin: gather inputs, call the logic, `cx.notify()`.
 - One file per component. Split by component, not by size.
+- A feature that is its own `Entity` owns its state, its render and its keys. `Desktop` hands it plain data each render (the palette's `sections`) and acts on the events it emits (`PaletteEvent`); the feature never reads `Desktop`. `Desktop` keeps the work that needs its state, such as building the data and running a pick.
 
 ## Map
 
@@ -55,7 +56,8 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `activity` | the Activity screen: `activity/logic` the pure rules (which column a session is in, their order, the filters), `page`, `column`, `card`, `panel` the preview beside the columns, `recap` what the preview tells of the last turn, `motion` cards moving between places, `filter_bar` |
 | `board` | the Board screen (offered only when pocketd has the capability): `board/logic` the pure rules, `values` the composer's and ticket page's choices, `page`, `composer`, `top_bar`, `tabs`, `filter_bar`, `filter_notice`, `views` the saved views, `display_menu`, `column`, `hidden_columns`, `card`, `row`, `card_menu`, `selection` the keyboard cursor and the picked tickets, `bulk_bar`, `toast`, `form` the ticket page's state, `ticket_page` its view, `form_chips`, `parts` |
 | `automations` | the Automations screen (⌘⇧A, offered only when pocketd has the capability): `automations/logic` the pure rules, `column` the tabs and lists, `rows`, `runs`, `detail` and `run_detail` the right pane, `editor` with `form` and `trigger` the full-page editor, `glyph`, `parts` |
-| `inbox`, `palette` | their screens |
+| `inbox` | its screen |
+| `palette` | the Cmd+K palette as its own `Entity`: its query, scope, selection and keys, and the sections `Desktop` lists for them |
 | `spaces` | the sidebar's spaces, one per machine: `Space` and the plain rules (which projects a space holds, the switcher's order, waiting counts, stepping, a project's twin on another machine, colours, swipes), `Spaces` the one on screen and its slide; `spaces/header` the header and its menu, `spaces/switcher` the buttons at the sidebar's foot and the rail, `spaces/cards` an offline host's card and an empty space; `spaces/open` Open folder on the space on screen, saving a chosen folder and lighting its row |
 | `fleet` | each SSH host's link, adding, installing, updating and removing hosts, signing in to one with a password |
 | `host_agents` | each host's pocketd agent channel, opened once the host serves projects |

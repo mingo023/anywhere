@@ -299,43 +299,191 @@ fn action_entries(words: &[String], project: &str, sounds: &Sounds, agents: &Age
     .collect()
 }
 
-pub struct PaletteState {
-    pub(crate) filter: Entity<InputState>,
-    pub(crate) ix: usize,
-    pub(crate) all: bool,
-    pub(crate) files: Vec<String>,
-    pub(crate) scroll: ScrollHandle,
+pub enum PaletteEvent {
+    Changed,
+    Pick(Pick),
+    Dismiss,
 }
 
-impl PaletteState {
-    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+pub struct Palette {
+    filter: Entity<InputState>,
+    ix: usize,
+    all: bool,
+    files: Vec<String>,
+    scroll: ScrollHandle,
+    sections: Vec<(&'static str, Vec<Entry>)>,
+    _subs: Vec<Subscription>,
+}
+
+impl EventEmitter<PaletteEvent> for Palette {}
+
+impl Palette {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions, files and actions…"));
         let subs = vec![cx.subscribe(&filter, |this, _, ev: &InputEvent, cx| {
             if let InputEvent::Change = ev {
-                this.palette.ix = 0;
-                this.palette.scroll.set_offset(Point::default());
+                this.ix = 0;
+                this.scroll.set_offset(Point::default());
+                cx.emit(PaletteEvent::Changed);
             }
             cx.notify()
         })];
-        (Self { filter, ix: 0, all: true, files: Vec::new(), scroll: ScrollHandle::new() }, subs)
+        Self { filter, ix: 0, all: true, files: Vec::new(), scroll: ScrollHandle::new(), sections: Vec::new(), _subs: subs }
+    }
+
+    pub(crate) fn search_project(&mut self) {
+        self.all = false;
+    }
+
+    fn query(&self, cx: &App) -> Query {
+        query(&self.filter.read(cx).value())
+    }
+
+    fn reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.ix = 0;
+        self.scroll.set_offset(Point::default());
+        self.filter.update(cx, |s, cx| {
+            s.set_value("", window, cx);
+            s.focus(window, cx);
+        });
+    }
+
+    fn on_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let lens: Vec<usize> = self.sections.iter().map(|(_, e)| e.len()).collect();
+        let mut entries = self.sections.iter().flat_map(|(_, e)| e);
+        match nav(ev.keystroke.key.as_str(), self.ix, lens.iter().sum()) {
+            Some(Nav::To(ix)) => {
+                self.ix = ix;
+                self.scroll.scroll_to_item(row_child(&lens, ix));
+            }
+            Some(Nav::Scope) => {
+                self.all = !self.all;
+                self.ix = 0;
+                self.scroll.scroll_to_item(0);
+                cx.emit(PaletteEvent::Changed);
+            }
+            Some(Nav::Close) => cx.emit(PaletteEvent::Dismiss),
+            Some(Nav::Open(ix)) => {
+                if let Some(e) = entries.nth(ix) {
+                    cx.emit(PaletteEvent::Pick(e.pick.clone()));
+                }
+            }
+            None => return,
+        }
+        cx.stop_propagation();
+        cx.notify();
+    }
+}
+
+impl Render for Palette {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let total: usize = self.sections.iter().map(|(_, e)| e.len()).sum();
+        let selected = selected(self.ix, total);
+        let q = self.query(cx);
+        let words = q.words();
+        let mut n = 0;
+        let mut body = div().id("palette-results").max_h(px(460.)).overflow_y_scroll().track_scroll(&self.scroll).px(px(8.)).pb(px(8.)).flex().flex_col();
+        for (label, entries) in &self.sections {
+            body = body.child(div().pt(px(12.)).pb(px(6.)).px(px(12.)).text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_2).child(*label));
+            for e in entries {
+                let i = n;
+                n += 1;
+                let lead = match &e.lead {
+                    Lead::Waiting => dot(8., WAITING).into_any_element(),
+                    Lead::Status(s) => ui::indicator(("palette-status", i), Some(state(*s, 0, 0))).unwrap_or_else(|| div().into_any_element()),
+                    Lead::Provider(p) => provider_icon(p, 13., TEXT_2).into_any_element(),
+                    Lead::File => file_icon(&e.title, false, false, 16.).into_any_element(),
+                    Lead::Icon(name) => icon(name, 13., TEXT_2).into_any_element(),
+                };
+                let keys = e.keys.or((i == selected).then_some("↵"));
+                let pick = e.pick.clone();
+                let (title, detail) = (marked(e.title.clone(), words), marked(e.detail.clone(), words));
+                body = body.child(
+                    ui::palette_row(("palette-row", i), i == selected, lead, title, detail, keys)
+                        .on_mouse_move(cx.listener(move |this, _: &MouseMoveEvent, _, cx| {
+                            if this.ix != i {
+                                this.ix = i;
+                                cx.notify();
+                            }
+                        }))
+                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(PaletteEvent::Pick(pick.clone())))),
+                );
+            }
+        }
+        if total == 0 {
+            body = body.child(
+                div()
+                    .p(px(20.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .text_color(TEXT_2)
+                    .child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child("No matches."))
+                    .child(div().text_size(px(12.5)).child("Try a session title, project, worktree or branch.")),
+            );
+        }
+        let input = div()
+            .h(px(60.))
+            .px(px(20.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(12.))
+            .border_b(px(0.5))
+            .border_color(SEPARATOR)
+            .child(icon("search", 17., TEXT_3))
+            .child(div().flex_1().text_size(px(17.)).child(Input::new(&self.filter).appearance(false).p_0().text_size(px(17.))))
+            .child(div().text_size(px(12.)).text_color(TEXT_2).child("esc"));
+        let scope = if self.all { "Tab to filter by project" } else { "Tab to search all projects" };
+        let footer = div()
+            .h(px(40.))
+            .px(px(20.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(16.))
+            .border_t(px(0.5))
+            .border_color(SEPARATOR)
+            .text_size(px(11.5))
+            .text_color(TEXT_2)
+            .child(hint("↑↓", "Navigate"))
+            .child(hint("↵", "Open"))
+            .child(div().ml_auto().child(scope))
+            .child(hint("esc", "Close"));
+        div().absolute().top(px(120.)).left_0().right_0().flex().justify_center().child(
+            ui::pop(div().w(px(660.)).overflow_hidden().flex().flex_col())
+                .rounded(px(R_DIALOG))
+                .occlude()
+                .capture_key_down(cx.listener(Self::on_key))
+                .child(input)
+                .child(body)
+                .child(footer),
+        )
     }
 }
 
 impl Desktop {
+    pub(crate) fn on_palette_event(&mut self, _: &Entity<Palette>, ev: &PaletteEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            PaletteEvent::Changed => {
+                self.list_in_palette(cx);
+                cx.notify();
+            }
+            PaletteEvent::Pick(pick) => self.activate(pick.clone(), window, cx),
+            PaletteEvent::Dismiss => self.close_overlay(window, cx),
+        }
+    }
+
     pub fn open_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.palette.ix = 0;
-        self.palette.scroll.set_offset(Point::default());
-        self.palette.filter.update(cx, |s, cx| {
-            s.set_value("", window, cx);
-            s.focus(window, cx);
-        });
+        self.palette.update(cx, |p, cx| p.reset(window, cx));
         let Some(root) = self.explore_root() else { return };
         let runner = hosts::runner_for(&root);
         let task = cx.background_executor().spawn(async move { git::ls_files(&runner, &root) });
         cx.spawn(async move |this, cx| {
             let files = task.await;
             this.update(cx, |d, cx| {
-                d.palette.files = files;
+                d.palette.update(cx, |p, _| p.files = files);
+                d.list_in_palette(cx);
                 cx.notify();
             })
             .ok();
@@ -343,8 +491,19 @@ impl Desktop {
         .detach();
     }
 
-    pub fn palette_sections(&self, cx: &App) -> Vec<(&'static str, Vec<Entry>)> {
-        let q = query(&self.palette.filter.read(cx).value());
+    pub(crate) fn palette_view(&mut self, cx: &mut Context<Self>) -> Div {
+        self.list_in_palette(cx);
+        div().absolute().inset_0().child(self.palette.clone())
+    }
+
+    fn list_in_palette(&mut self, cx: &mut Context<Self>) {
+        let sections = self.palette_sections(cx);
+        self.palette.update(cx, |p, _| p.sections = sections);
+    }
+
+    fn palette_sections(&self, cx: &App) -> Vec<(&'static str, Vec<Entry>)> {
+        let palette = self.palette.read(cx);
+        let q = palette.query(cx);
         let words = q.words();
         let project = self.project.as_deref().map(|p| self.repo_name(p)).unwrap_or_default();
         let mut actions = action_entries(words, &project, &self.store.sounds, &self.agents);
@@ -354,7 +513,7 @@ impl Desktop {
         let groups = match q {
             Query::Actions(_) => vec![("Actions", actions)],
             Query::All(_) => {
-                let scope = if self.palette.all { self.projects() } else { self.project.iter().cloned().collect() };
+                let scope = if palette.all { self.projects() } else { self.project.iter().cloned().collect() };
                 let cards: Vec<SessionCard> = scope
                     .iter()
                     .flat_map(|p| {
@@ -375,7 +534,7 @@ impl Desktop {
                     ("Sessions", session_entries(words, cards)),
                     ("Locals", local_entries(words, locals)),
                     ("Worktrees", tree_entries(words, trees, &self.agents)),
-                    ("Files", file_entries(words, &root, &changed, &self.palette.files)),
+                    ("Files", file_entries(words, &root, &changed, &palette.files)),
                     ("Actions", actions),
                 ]
             }
@@ -421,119 +580,6 @@ impl Desktop {
             }
         }
         cx.notify();
-    }
-
-    fn on_palette_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let sections = self.palette_sections(cx);
-        let lens: Vec<usize> = sections.iter().map(|(_, e)| e.len()).collect();
-        let entries: Vec<Entry> = sections.into_iter().flat_map(|(_, e)| e).collect();
-        match nav(ev.keystroke.key.as_str(), self.palette.ix, entries.len()) {
-            Some(Nav::To(ix)) => {
-                self.palette.ix = ix;
-                self.palette.scroll.scroll_to_item(row_child(&lens, ix));
-            }
-            Some(Nav::Scope) => {
-                self.palette.all = !self.palette.all;
-                self.palette.ix = 0;
-                self.palette.scroll.scroll_to_item(0);
-            }
-            Some(Nav::Close) => self.close_overlay(window, cx),
-            Some(Nav::Open(ix)) => {
-                if let Some(e) = entries.get(ix) {
-                    self.activate(e.pick.clone(), window, cx);
-                }
-            }
-            None => return,
-        }
-        cx.stop_propagation();
-        cx.notify();
-    }
-
-    pub(crate) fn palette(&mut self, cx: &mut Context<Self>) -> Div {
-        let sections = self.palette_sections(cx);
-        let total: usize = sections.iter().map(|(_, e)| e.len()).sum();
-        let selected = selected(self.palette.ix, total);
-        let q = query(&self.palette.filter.read(cx).value());
-        let words = q.words();
-        let mut n = 0;
-        let mut body =
-            div().id("palette-results").max_h(px(460.)).overflow_y_scroll().track_scroll(&self.palette.scroll).px(px(8.)).pb(px(8.)).flex().flex_col();
-        for (label, entries) in sections {
-            body = body.child(div().pt(px(12.)).pb(px(6.)).px(px(12.)).text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_2).child(label));
-            for e in entries {
-                let i = n;
-                n += 1;
-                let lead = match &e.lead {
-                    Lead::Waiting => dot(8., WAITING).into_any_element(),
-                    Lead::Status(s) => ui::indicator(("palette-status", i), Some(state(*s, 0, 0))).unwrap_or_else(|| div().into_any_element()),
-                    Lead::Provider(p) => provider_icon(p, 13., TEXT_2).into_any_element(),
-                    Lead::File => file_icon(&e.title, false, false, 16.).into_any_element(),
-                    Lead::Icon(name) => icon(name, 13., TEXT_2).into_any_element(),
-                };
-                let keys = e.keys.or((i == selected).then_some("↵"));
-                let pick = e.pick.clone();
-                let (title, detail) = (marked(e.title, words), marked(e.detail, words));
-                body = body.child(
-                    ui::palette_row(("palette-row", i), i == selected, lead, title, detail, keys)
-                        .on_mouse_move(cx.listener(move |this, _: &MouseMoveEvent, _, cx| {
-                            if this.palette.ix != i {
-                                this.palette.ix = i;
-                                cx.notify();
-                            }
-                        }))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.activate(pick.clone(), window, cx))),
-                );
-            }
-        }
-        if total == 0 {
-            body = body.child(
-                div()
-                    .p(px(20.))
-                    .flex()
-                    .flex_col()
-                    .gap(px(4.))
-                    .text_color(TEXT_2)
-                    .child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child("No matches."))
-                    .child(div().text_size(px(12.5)).child("Try a session title, project, worktree or branch.")),
-            );
-        }
-        let input = div()
-            .h(px(60.))
-            .px(px(20.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(12.))
-            .border_b(px(0.5))
-            .border_color(SEPARATOR)
-            .child(icon("search", 17., TEXT_3))
-            .child(div().flex_1().text_size(px(17.)).child(Input::new(&self.palette.filter).appearance(false).p_0().text_size(px(17.))))
-            .child(div().text_size(px(12.)).text_color(TEXT_2).child("esc"));
-        let scope = if self.palette.all { "Tab to filter by project" } else { "Tab to search all projects" };
-        let footer = div()
-            .h(px(40.))
-            .px(px(20.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(16.))
-            .border_t(px(0.5))
-            .border_color(SEPARATOR)
-            .text_size(px(11.5))
-            .text_color(TEXT_2)
-            .child(hint("↑↓", "Navigate"))
-            .child(hint("↵", "Open"))
-            .child(div().ml_auto().child(scope))
-            .child(hint("esc", "Close"));
-        div().absolute().top(px(120.)).left_0().right_0().flex().justify_center().child(
-            ui::pop(div().w(px(660.)).overflow_hidden().flex().flex_col())
-                .rounded(px(R_DIALOG))
-                .occlude()
-                .capture_key_down(cx.listener(Self::on_palette_key))
-                .child(input)
-                .child(body)
-                .child(footer),
-        )
     }
 }
 
