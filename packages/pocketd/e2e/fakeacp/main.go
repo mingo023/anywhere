@@ -10,6 +10,7 @@
 //	                more lines go on: "mcp <tool> <json>" again, or "await <name>" until $HOME/.acp-fake/<name> exists
 //	delegate <task> run a sub-agent on task in a session of its own, as OpenCode 2 does, which reports "did <task>";
 //	                as hermes, in the background, telling its work only in a transcript;
+//	                as agy, in an invoke_subagent call that ends with that report;
 //	                "delegate await <name>" runs its first call until $HOME/.acp-fake/<name> exists
 //	[Anywhere internal background handoff] …
 //	                as hermes, reply "echo: took back <summary>" of each transcript tail it holds
@@ -471,8 +472,12 @@ func (a *agent) end() {
 // session, names that session only as the call ends, and its history tells
 // that work only to a load of that session.
 func (a *agent) delegate(task string) {
-	if a.name == "hermes" {
+	switch a.name {
+	case "hermes":
 		a.background(task)
+		return
+	case "agy":
+		a.launch(task)
 		return
 	}
 	call := "call_" + hex(4)
@@ -490,6 +495,17 @@ func (a *agent) delegate(task string) {
 	out := "<subagent sessionID=\"" + kid.ID + "\" state=\"completed\">\ndid " + task + "\n</subagent>"
 	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed", "content": []map[string]any{{"type": "content", "content": textBlock(out)}},
 		"rawOutput": map[string]any{"metadata": map[string]any{"sessionID": kid.ID, "status": "completed", "truncated": false}}})
+	a.say("delegated " + task)
+}
+
+// launch runs a sub-agent on task as agy's invoke_subagent is thought to,
+// never having been captured: a call with a top-level name, whose input lists
+// its sub-agents and whose content is what they reported.
+func (a *agent) launch(task string) {
+	call := "call_" + hex(4)
+	a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": call, "name": "invoke_subagent", "title": "invoke_subagent", "status": "pending",
+		"rawInput": map[string]any{"Subagents": []map[string]string{{"Role": "DeepCoder", "Prompt": task}}}})
+	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed", "content": []map[string]any{{"type": "content", "content": textBlock("did " + task)}}})
 	a.say("delegated " + task)
 }
 

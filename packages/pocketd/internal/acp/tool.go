@@ -13,7 +13,7 @@ import (
 // toolCall is a tool call as a tool_call, a tool_call_update or a permission request tells it.
 type toolCall struct {
 	ID     string `json:"toolCallId"`
-	Name   string `json:"name"` // OpenCode's
+	Name   string `json:"name"` // OpenCode's and Antigravity's
 	Title  string `json:"title"`
 	Kind   string `json:"kind"`
 	Status string `json:"status"`
@@ -214,6 +214,10 @@ func (t *toolCall) command() string {
 
 // describe is the call's name and the card the phone draws for it, by its ACP kind.
 func (t *toolCall) describe() (string, proto.ToolDetail) {
+	// Antigravity's invoke_subagent comes first: were its kind task, the next would read a description it has none of.
+	if brief, ok := t.launch(); ok {
+		return "task", proto.ToolDetail{Kind: "task", Description: brief}
+	}
 	// A sub-agent's call is OpenCode's subagent, an other to Cursor, and has no kind in Grok's history.
 	if t.Kind == "task" || t.Name == "subagent" || t.input("subagent_type") != "" || t.input("variant") == "Task" || t.input("_toolName") == "task" {
 		return "task", proto.ToolDetail{Kind: "task", Description: t.input("description"), Model: t.input("model")}
@@ -260,6 +264,37 @@ func (t *toolCall) delegation() (string, bool) {
 		return goal, true
 	}
 	return said, strings.HasPrefix(said, "Delegating ")
+}
+
+// launch is the brief of Antigravity's invoke_subagent, whose input is
+// {"Subagents":[{"Role":…,"TypeName":…,"Prompt":…}]}: one sub-agent's prompt, or
+// each one's prompt after its role. Without them it is the call's title.
+func (t *toolCall) launch() (string, bool) {
+	if t.Name != "invoke_subagent" && t.Name != "start_subagent" {
+		return "", false
+	}
+	var in struct {
+		Subagents []struct{ Role, TypeName, Prompt string }
+	}
+	json.Unmarshal(t.RawInput, &in)
+	var prompts, briefs []string
+	for _, s := range in.Subagents {
+		if s.Prompt == "" {
+			continue
+		}
+		brief := s.Prompt
+		if label := cmp.Or(s.Role, s.TypeName); label != "" {
+			brief = label + ": " + brief
+		}
+		prompts, briefs = append(prompts, s.Prompt), append(briefs, brief)
+	}
+	switch len(prompts) {
+	case 0:
+		return t.Title, true
+	case 1:
+		return prompts[0], true
+	}
+	return strings.Join(briefs, "\n"), true
 }
 
 // output is what the call came to: its content, else its raw output.

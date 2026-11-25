@@ -74,8 +74,9 @@ type acpItem struct {
 		Status string `json:"status"`
 		Output string `json:"output"`
 		Detail struct {
-			Kind    string `json:"kind"`
-			Command string `json:"command"`
+			Kind        string `json:"kind"`
+			Command     string `json:"command"`
+			Description string `json:"description"`
 		} `json:"detail"`
 	} `json:"call"`
 }
@@ -715,6 +716,16 @@ func TestAChatGrokOrOpenCodeCompactsItsContext(t *testing.T) {
 			phone.Prompt(id, "after it")
 			phone.WaitAll("the next turn", streamOf(id, "assistant", "echo: after it"), statusOf(id, "done"))
 		})
+	}
+}
+
+func TestAChatAntigravityShowsItsSubAgentAsATaskThatEndsWithWhatItReported(t *testing.T) {
+	_, phone, _, id := chatACP(t, "antigravity", nil)
+	phone.Prompt(id, "delegate ls")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: delegated ls"),
+		itemOf(id, func(it acpItem) bool { return it.Call.Detail.Kind == "task" && it.Call.Detail.Description == "ls" }), statusOf(id, "done"))
+	if got, want := withSubAgents(phone, id), []string{"user delegate ls", "tool task ok did ls", "assistant echo: delegated ls", "result"}; !slices.Equal(got, want) {
+		t.Fatalf("got %q", got)
 	}
 }
 
