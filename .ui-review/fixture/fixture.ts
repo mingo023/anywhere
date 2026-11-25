@@ -37,6 +37,8 @@
 // FIXTURE_BACKGROUND=<image path> saves it as the background image in desktop.json.
 // FIXTURE_REGISTRY=1 speaks registry.v2: pocketd sends registry.list with the scenario's repos plus app-extra, a clone desktop.json doesn't
 // list, and answers project.*, worktree.track and settings.shared; devbox (with FIXTURE_HOST_AGENTS) sends an empty list.
+// FIXTURE_THREAD=1 (with FIXTURE_REGISTRY) lists ~/.anywhere/sessions/dainty-skink, a thread's folder another desktop made, so
+// desktop.json doesn't mark it, with a Claude session in it.
 // FIXTURE_LOOSE=1 runs a Claude session in ~/Downloads and a shell in ~/notes, folders no project holds.
 // FIXTURE_EXPIRED=1 adds two Claude accounts whose login expired: one never read, one with stale usage.
 // FIXTURE_ONE_ACCOUNT=1 lists only the built-in Claude login.
@@ -309,6 +311,12 @@ if (process.env.FIXTURE_LOOSE) {
   for (const d of ["Downloads", "notes"]) mkdirSync(join(home, d), { recursive: true });
   scenario.agents.push({ id: "loose", title: "Sort the downloads folder", provider: "claude", repo: "", cwd: join(home, "Downloads"), status: "running", ago: 2 });
 }
+const threadPath = join(home, ".anywhere", "sessions", "dainty-skink");
+if (process.env.FIXTURE_THREAD) {
+  mkdirSync(threadPath, { recursive: true });
+  git(threadPath, "init", "-q", "-b", "main");
+  scenario.agents.push({ id: "thread", title: "Find and remove unused dependencies", provider: "claude", repo: "", cwd: threadPath, status: "running", ago: 1 });
+}
 const cwd = (a: Agent) => a.cwd ?? (a.branch ? treePath(a.repo, a.branch) : repoPath(a.repo));
 const status = (a: Agent) => (a.waiting ? "needsYou" : a.failed ? "done" : a.status === "running" ? "working" : "idle");
 const left: Record<Provider, number> = { claude: 62, codex: 41, cursor: 77, grok: 58, opencode: 49, pi: 83, omp: 91, fx: 66, hermes: 35, antigravity: 72 };
@@ -369,7 +377,7 @@ write(join(pocket, "desktop.json"), JSON.stringify({ projects: [...scenario.repo
 
 // As pocketd's registry: the projects it holds, by path, each with the id it minted.
 const registered = new Map<string, { id: string; repo: Record<string, unknown> }>(
-  [...scenario.repos.map(repoPath), join(home, "code", "app-extra")].map((path, i) => [path, { id: `p${i + 1}`, repo: {} }]),
+  [...scenario.repos.map(repoPath), join(home, "code", "app-extra"), ...(process.env.FIXTURE_THREAD ? [threadPath] : [])].map((path, i) => [path, { id: `p${i + 1}`, repo: {} }]),
 );
 const registrySettings = { git: { remote: "", commit_all: null, force_with_lease: false }, access: "", worktree_root: "" };
 const registryList = () => JSON.stringify({ type: "registry.list", projects: [...registered].map(([path, p]) => ({ id: p.id, path, repo: p.repo })), tracked, settings: registrySettings });

@@ -189,6 +189,15 @@ mod tests {
     }
 
     #[test]
+    fn a_listed_folder_another_desktop_made_for_a_thread_is_a_thread_here() {
+        let mut s = Store::default();
+        let host = ["//m1/Users/me/.anywhere/sessions/dainty-skink", "//m1/Users/me/app", "//m1/Users/me/.anywhere/sessions/a/b"];
+        s.apply_registry(Some("m1"), &list(&host.map(|p| ("", p))));
+        s.apply_registry(None, &list(&[("", "/Users/me/.anywhere/sessions/calm-river"), ("", "/Users/me/.anywhere/sessions-other/x")]));
+        assert_eq!(s.scratches(), ["/Users/me/.anywhere/sessions/calm-river", "//m1/Users/me/.anywhere/sessions/dainty-skink"]);
+    }
+
+    #[test]
     fn a_hosts_list_leaves_this_macs_projects_alone_and_this_macs_leaves_the_hosts() {
         let mut s = Store {
             projects: ["/a", "//devbox/home/me/x", "/b"].map(String::from).to_vec(),
