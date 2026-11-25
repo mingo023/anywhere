@@ -120,19 +120,25 @@ func decision(asked toolCall, options []option) bool {
 		!slices.ContainsFunc(options, func(o option) bool { return strings.HasPrefix(o.Kind, "reject") })
 }
 
-// decisionQuestion asks title with a choice per option. Answers come back as
-// labels, so options that share a name are told apart by their ids.
+// decisionQuestion asks title with a choice per option.
 func decisionQuestion(title string, options []option) question {
-	label := func(o option) string { return cmp.Or(o.Name, o.ID) }
 	q := question{ID: title, Prompt: title}
 	for _, o := range options {
-		l := label(o)
-		if slices.ContainsFunc(options, func(other option) bool { return other.ID != o.ID && label(other) == l }) {
-			l += " (" + o.ID + ")"
-		}
-		q.Options = append(q.Options, questionOption{ID: o.ID, Label: l})
+		q.Options = append(q.Options, questionOption{ID: o.ID, Label: cmp.Or(o.Name, o.ID)})
 	}
+	q.Options = distinct(q.Options)
 	return q
+}
+
+// distinct tells apart options that share a label by their ids: answers come back as labels.
+func distinct(options []questionOption) []questionOption {
+	out := slices.Clone(options)
+	for i, o := range options {
+		if slices.ContainsFunc(options, func(other questionOption) bool { return other.ID != o.ID && other.Label == o.Label }) {
+			out[i].Label += " (" + o.ID + ")"
+		}
+	}
+	return out
 }
 
 // decide asks the user the agent's decision and answers with the choice they
@@ -359,6 +365,7 @@ func (p property) question(key string) (question, bool) {
 		q.Options, ok = p.Items.choices()
 		ok = ok && len(q.Options) > 0
 	}
+	q.Options = distinct(q.Options)
 	return q, ok
 }
 

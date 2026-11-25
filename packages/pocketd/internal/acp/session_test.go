@@ -1123,6 +1123,20 @@ func TestADecisionsChoicesThatShareANameAreToldApartByID(t *testing.T) {
 	}
 }
 
+func TestAFormsChoicesThatShareATitleAreToldApartByConst(t *testing.T) {
+	_, a, _, b := start(t, opts{provider: "antigravity", answer: script(`{"sessionId":"s1"}`, says())})
+	a.ask("8", "elicitation/create", `{"mode":"form","requestedSchema":{"type":"object","properties":{
+		"q1":{"type":"string","title":"Go on?","oneOf":[{"const":"a","title":"Continue"},{"const":"b","title":"Continue"}]}}}}`)
+	req := asked(t, b)
+	if got, _ := json.Marshal(req.Detail); !strings.Contains(string(got), `"options":[{"description":"","label":"Continue (a)"},{"description":"","label":"Continue (b)"}]`) {
+		t.Fatalf("asked %s", got)
+	}
+	b.Resolve(req.RequestID, broker.Answer{Decision: "allow", Answers: map[string]string{"Go on?": "Continue (b)"}})
+	if got := a.replied("8"); got != `{"action":"accept","content":{"q1":"b"}}` {
+		t.Fatalf("answered %s", got)
+	}
+}
+
 func TestAnInteractionRequestThatIsNoDecisionIsAnsweredByAccessAsBefore(t *testing.T) {
 	for provider, c := range map[string]struct{ params, want string }{
 		"antigravity": {`{"sessionId":"s1","toolCall":{"toolCallId":"interaction_3","title":"Run it?"},
