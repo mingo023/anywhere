@@ -14,7 +14,8 @@ import (
 func (e *Engine) OnTurn(c TurnChange) {
 	busy := func(s string) bool { return s == "working" || s == "needsYou" }
 	if busy(c.To) {
-		if c.From != "" && !busy(c.From) {
+		// A compaction the user starts from idle isn't a turn of the task.
+		if c.From != "" && !busy(c.From) && !c.Summary.Compacting {
 			e.reopenChild(c.Session)
 		}
 		return
@@ -98,7 +99,7 @@ func (e *Engine) settleChild(c TurnChange) {
 	go func() {
 		defer e.running.Done()
 		e.awaitTurnEnd(c.Session)
-		p.Summary, p.EndedTurnOf = e.store.LatestReply(c.Session), c.Session
+		p.Summary, p.Turn = e.store.LatestReply(c.Session), c.Turn
 		e.dispatch(NewCommand("", CmdDelegateSettle, t.ParentID, p))
 	}()
 }

@@ -812,6 +812,14 @@ func TestAChildTakingAnotherTurnWorksItsTaskAgainAndWakesTheParentOnceMore(t *te
 	k.Flush()
 	waitFor(t, func() bool { return get().Status == TaskCompleted && deliveries() == 1 })
 
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working", Compacting: true})
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	time.Sleep(100 * time.Millisecond)
+	if g := get(); g.Status != TaskCompleted || g.Summary != "Redirect fixed" || deliveries() != 1 {
+		t.Fatalf("a compaction reopened the task: %+v", g)
+	}
+
 	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
 	k.Flush()
 	waitFor(t, func() bool { return get().Status == TaskWorking })

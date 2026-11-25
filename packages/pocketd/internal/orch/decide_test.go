@@ -2,6 +2,7 @@ package orch
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 )
 
@@ -170,17 +171,16 @@ func TestMessageSendRefusesAModeItDoesNotKnow(t *testing.T) {
 	}
 }
 
-func TestASettleForAChildWhoseNextTurnBeganIsDropped(t *testing.T) {
+func TestASettleForATurnOlderThanTheChildsLatestIsDropped(t *testing.T) {
 	task := Delegation{TaskID: "t1", ParentID: "p", ChildID: "c", Status: TaskWorking}
-	st := State{Task: &task, Other: &Session{ID: "c", Status: "working"}}
-	d, err := decide(st, NewCommand("", CmdDelegateSettle, "p", TaskPayload{TaskID: "t1", Status: TaskCompleted, EndedTurnOf: "c"}))
+	st := State{Task: &task, ChildTurn: 2}
+	d, err := decide(st, NewCommand("", CmdDelegateSettle, "p", TaskPayload{TaskID: "t1", Status: TaskCompleted, Turn: 1}))
 	if err != nil || len(d.Delegations) != 0 {
 		t.Fatalf("settled anyway: %+v %v", d.Delegations, err)
 	}
-	st.Other.Status = "idle"
-	d, _ = decide(st, NewCommand("", CmdDelegateSettle, "p", TaskPayload{TaskID: "t1", Status: TaskCompleted, EndedTurnOf: "c"}))
+	d, _ = decide(st, NewCommand("", CmdDelegateSettle, "p", TaskPayload{TaskID: "t1", Status: TaskCompleted, Turn: 2}))
 	if len(d.Delegations) != 1 || d.Delegations[0].Status != TaskCompleted {
-		t.Fatalf("an idle child's settle: %+v", d.Delegations)
+		t.Fatalf("the latest turn's settle: %+v", d.Delegations)
 	}
 }
 
@@ -196,5 +196,23 @@ func TestReopeningACancelledTaskClearsItsResultAndWakesNoOneYet(t *testing.T) {
 	working := Delegation{TaskID: "t1", Status: TaskWorking}
 	if d, _ := decide(State{Task: &working}, NewCommand("", CmdDelegateReopen, "p", TaskPayload{TaskID: "t1"})); len(d.Delegations) != 0 {
 		t.Fatalf("a working task reopened: %+v", d.Delegations)
+	}
+}
+
+func TestReopeningATaskTakesItOutOfTheWakeStillQueued(t *testing.T) {
+	task := Delegation{TaskID: "t1", ParentID: "p", Status: TaskCompleted, Delivery: DeliverQueued}
+	queue := []QueueEntry{
+		{ID: "w1", Origin: OriginWake, State: EntryPending, Refs: []string{"t1", "t2"}, Text: WakeText([]string{"t1", "t2"})},
+		{ID: "w2", Origin: OriginWake, State: EntryPending, Refs: []string{"t1"}, Text: WakeText([]string{"t1"})},
+	}
+	d, err := decide(State{Task: &task, Queue: queue}, NewCommand("", CmdDelegateReopen, "p", TaskPayload{TaskID: "t1"}))
+	if err != nil || len(d.Queue) != 2 {
+		t.Fatalf("queue %+v %v", d.Queue, err)
+	}
+	if w := d.Queue[0]; w.State != EntryPending || !slices.Equal(w.Refs, []string{"t2"}) || w.Text != WakeText([]string{"t2"}) {
+		t.Fatalf("shared wake %+v", w)
+	}
+	if d.Queue[1].State != EntryCancelled {
+		t.Fatalf("its own wake %+v", d.Queue[1])
 	}
 }
