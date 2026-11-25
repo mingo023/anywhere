@@ -67,7 +67,7 @@ struct HomeListTests {
         #expect(built.elsewhere == ["lost"])
     }
 
-    @Test("a delegated session shows only in its chat, and a worktree made for delegated sessions alone isn't listed")
+    @Test("a delegated session shows only in its chat, and every worktree pocketd lists stays listed")
     func delegated() {
         let login = "/Users/mingo/.worktrees/anywhere/fix-login"
         let built = build([
@@ -75,17 +75,11 @@ struct HomeListTests {
             session("mine", login), session("orphan", "/Users/mingo/dev/website", parent: "gone"),
         ], query: "")
         let trees = Dictionary(uniqueKeysWithValues: built.sections.flatMap(\.trees).map { ($0.id, $0.sessions) })
-        #expect(trees[otter] == nil)
+        #expect(trees[otter] == [], "pocketd leaves out a worktree made for an agent; one it lists stays")
         #expect(trees[login] == ["mine"])
         #expect(trees[anywhere] == ["chat"])
         #expect(trees["/Users/mingo/dev/website"] == ["orphan"], "a child whose chat isn't listed stays reachable")
         #expect(build([session("chat", anywhere), session("child", otter, parent: "chat")], query: "child").matches.isEmpty)
-        let shell = HomeList.build(projects: Sample.projects, names: [:], locals: [], localOfTerminal: [:],
-                                   sessions: [session("chat", anywhere), session("child", otter, parent: "chat")], terminalCwds: [otter])
-        #expect(shell.sections[0].trees.contains { $0.id == otter }, "a shell open in it keeps it listed")
-        let open = HomeList.build(projects: Sample.projects, names: [:], locals: [], localOfTerminal: [:],
-                                  sessions: [session("chat", anywhere), session("child", otter, parent: "chat")], open: otter)
-        #expect(open.sections[0].trees.contains { $0.id == otter }, "the one the phone has open stays while it does")
     }
 
     @Test("a folder inside a project but outside its worktrees goes to the project's own checkout")

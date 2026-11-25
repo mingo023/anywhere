@@ -74,8 +74,8 @@ public enum HomeList {
     /// `localOfTerminal` places a session opened in a Local there; the rest go to the tree holding their folder.
     /// A project's own checkout is listed only while in use: a session, or a shell outside any Local (`terminalCwds`), is in it, or the phone has it open (`open`).
     /// Trees in `hiding`, worktrees and Locals being deleted, aren't listed.
-    /// A delegated session shows only in the chat that delegated it, when that chat is listed (`status::hidden_children`);
-    /// a worktree holding such sessions and no other session or shell exists for their sake and isn't listed either, unless the phone has it open.
+    /// A delegated session shows only in the chat that delegated it, when that chat is listed (`status::hidden_children`).
+    /// The worktrees are pocketd's `project.list`, which already leaves out those made for an agent's sessions.
     public static func build(
         projects: [Project], names: [String: String], locals: [Local], localOfTerminal: [String: String], sessions: [Session],
         terminalCwds: [String] = [], open: String? = nil, query: String = "", sort: Sidebar.SessionSort = .newest, projectSort: ProjectSort = .manual,
@@ -85,12 +85,10 @@ public enum HomeList {
         let localIds = Set(locals.map(\.id))
         var byTree: [String: [Sidebar.Card]] = [:]
         var elsewhere: [Sidebar.Card] = []
-        var childTrees: Set<String> = []
         let ids = Set(sessions.map(\.card.id))
         for s in sessions {
-            if let parent = s.parent, ids.contains(parent) {
-                if let tree = index.tree(of: s) { childTrees.insert(tree) }
-            } else if let local = localOfTerminal[s.terminalId], localIds.contains(local) {
+            if let parent = s.parent, ids.contains(parent) { continue }
+            if let local = localOfTerminal[s.terminalId], localIds.contains(local) {
                 byTree[local, default: []].append(s.card)
             } else if let tree = index.tree(of: s) {
                 byTree[tree, default: []].append(s.card)
@@ -113,7 +111,7 @@ public enum HomeList {
                                   place: main.map { Sidebar.treePlace(path: $0.path, branch: $0.branch) }, sessions: []))
             }
             trees += (localsOf[project.path] ?? []).map { Tree(id: $0.id, kind: .local, label: $0.name, sessions: []) }
-            for w in project.worktrees where !w.isMain && (!childTrees.contains(w.path) || byTree[w.path] != nil || busy.contains(w.path) || open == w.path) {
+            for w in project.worktrees where !w.isMain {
                 let (label, place) = Sidebar.treeLabel(path: w.path, branch: w.branch, given: names[w.path])
                 let branch = w.branch.isEmpty || w.branch == "detached" ? nil : w.branch
                 trees.append(Tree(id: w.path, kind: .worktree, label: label, place: place, sessions: [], branch: branch))
