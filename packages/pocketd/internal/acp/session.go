@@ -125,6 +125,8 @@ type Session struct {
 	calls map[string]string
 	// launches are the Antigravity sub-agent calls held open until the turn ends, oldest first.
 	launches []string
+	// stored is what storedCards read of the timeline.
+	stored map[string]string
 	// handoff is what Hermes's background sub-agents did, for the turn under way to hand it.
 	handoff pendingHandoff
 	// woke is the turn the agent started by itself to take what a sub-agent handed back.
@@ -1380,9 +1382,8 @@ func (s *Session) tool(u toolCall, starts bool, parent string) {
 			return
 		}
 		t = &tool{parent: parent}
-		if card, ok := s.shownCall(u.ID); ok {
-			t.parent, t.started = card, true
-		}
+		// A pocketd before this one showed it.
+		_, t.started = s.storedCards()[u.ID]
 		s.tools[u.ID] = t
 	}
 	t.merge(u)

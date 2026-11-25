@@ -30,6 +30,12 @@ func (s *Session) launchOf(id string) string {
 	if launch, seen := s.children[child]; seen {
 		return launch
 	}
+	for id, card := range s.storedCards() {
+		if strings.HasPrefix(id, child+":") {
+			s.children[child] = card
+			return card
+		}
+	}
 	claimed := slices.Collect(maps.Values(s.children))
 	open := slices.DeleteFunc(slices.Clone(s.launches), func(l string) bool { return s.tools[l] == nil || slices.Contains(claimed, l) })
 	launch := ""
@@ -68,18 +74,22 @@ func (t *tool) role() string {
 	return in.Role
 }
 
-// shownCall is the card of the sub-agent's call id that the timeline of a
-// turn a pocketd before this one started still shows running.
-func (s *Session) shownCall(id string) (string, bool) {
-	if !s.adopted || !s.f.childCalls || s.Showing == nil || !strings.Contains(id, ":") {
-		return "", false
+// storedCards are the sub-agents' calls that the timeline of a turn a pocketd
+// before this one started shows running, to their cards. It reads the
+// timeline once.
+func (s *Session) storedCards() map[string]string {
+	if !s.adopted || !s.f.childCalls || s.Showing == nil {
+		return nil
 	}
-	for _, it := range s.Showing() {
-		if it.Call != nil && it.Call.ToolUseID == id && it.Call.Status == "running" && it.ParentToolUseID != "" {
-			return it.ParentToolUseID, true
+	if s.stored == nil {
+		s.stored = map[string]string{}
+		for _, it := range s.Showing() {
+			if it.Call != nil && it.Call.Status == "running" && it.ParentToolUseID != "" {
+				s.stored[it.Call.ToolUseID] = it.ParentToolUseID
+			}
 		}
 	}
-	return "", false
+	return s.stored
 }
 
 // endLaunches ends the sub-agents launched this turn with it: agy answers the

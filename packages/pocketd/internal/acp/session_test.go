@@ -1480,8 +1480,12 @@ func TestAntigravitySubAgentsOfATurnAPocketdBeforeThisOneStartedEndWithIt(t *tes
 	s.mu.Unlock()
 	sk.wait(t, "bound:s1")
 	a.update(agyRun("c1:call_1", "echo ok")[2])
+	for _, u := range agyRun("c1:call_2", "echo more") {
+		a.update(u)
+	}
 	a.say(`{"jsonrpc":"2.0","id":7,"result":{"stopReason":"end_turn"}}`)
-	equal(t, after(sk.wait(t, "ended:false"), "bound:s1")[1:], []string{"tool_end:c1:call_1:true:ok", "tool_end:sa1:true", "result:true:", "ended:false"})
+	equal(t, after(sk.wait(t, "ended:false"), "bound:s1")[1:], []string{"tool_end:c1:call_1:true:ok",
+		"sa1>tool_start:c1:call_2:shell:shell:echo more", "tool_end:c1:call_2:true:ok", "tool_end:sa1:true", "result:true:", "ended:false"})
 
 	s, a, sk, _ = start(t, opts{provider: "antigravity", saved: "s1", left: Running, shown: []proto.Item{{Kind: "tool", Call: call("sa1", "task", "running")}},
 		answer: func(*agent, string, json.RawMessage) string { return `{"sessionId":"s1"}` }})
