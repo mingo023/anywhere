@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -70,9 +71,12 @@ cat "` + bin + `/report.json"
 	}
 }
 
-func TestWithoutAgyAntigravityIsListedSignedOut(t *testing.T) {
+func TestWithoutAgyAntigravityIsNotListed(t *testing.T) {
 	h := Start(t)
-	if a := h.antigravity(); a.ID != accounts.BuiltIn || a.SignedIn || a.Error != "" || a.Usage == nil || a.Usage.Session != nil {
-		t.Fatalf("%+v %+v", a, a.Usage)
+	c := h.Ops()
+	c.Send(ops.Msg{Op: "accounts.usage"})
+	r, err := c.Recv()
+	if err != nil || r.Ev != "accounts" || slices.ContainsFunc(r.Accounts, func(a accounts.Account) bool { return a.Provider == "antigravity" }) {
+		t.Fatalf("%+v %v", r, err)
 	}
 }

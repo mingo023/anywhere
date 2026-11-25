@@ -315,7 +315,7 @@ func TestAFailedReadLeavesTheLastUsageStale(t *testing.T) {
 	}
 }
 
-func TestWithoutAgyTheRowIsSignedOutAndNothingRuns(t *testing.T) {
+func TestWithoutAgyAntigravityIsNotListedAndNothingRuns(t *testing.T) {
 	for name, find := range map[string]func() (string, []string, bool){
 		"no finder": nil,
 		"not found": func() (string, []string, bool) { return "", nil, false },
@@ -327,8 +327,10 @@ func TestWithoutAgyTheRowIsSignedOutAndNothingRuns(t *testing.T) {
 			return agyRun{}, nil
 		}
 		refresh(s)
-		if a := agyRow(t, s); a.SignedIn || a.Error != "" || a.Default != true {
-			t.Errorf("%s: %+v", name, a)
+		for _, a := range s.List(none) {
+			if a.Provider == "antigravity" {
+				t.Errorf("%s: listed %+v", name, a)
+			}
 		}
 	}
 }
@@ -394,6 +396,24 @@ func TestTheRealRunnerKillsAgyAtTheSignInLine(t *testing.T) {
 	r, err := runAgyProcess(ctx, "/bin/sh", nil, t.TempDir(), "-c", `echo "Authentication required. Please visit the URL to log in" >&2; sleep 30`)
 	if err != nil || !r.signIn || time.Since(start) > 3*time.Second {
 		t.Fatalf("%+v, %v after %v", r, err, time.Since(start))
+	}
+}
+
+func TestTheRealRunnerNeverLetsASignedOutAgyOpenABrowser(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs /bin/sh")
+	}
+	bin, opened := t.TempDir(), filepath.Join(t.TempDir(), "opened")
+	for _, name := range []string{"open", "xdg-open"} {
+		os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\necho \"$0 $*\" >> "+opened+"\n"), 0o755)
+	}
+	// As agy 1.5.16 signed out: it opens the sign-in page, then says so.
+	agy := `open "https://accounts.example/login"; xdg-open "https://accounts.example/login"; echo "Authentication required. Please visit the URL to log in" >&2; sleep 30`
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	r, err := runAgyProcess(ctx, "/bin/sh", []string{"PATH=" + bin + ":/usr/bin:/bin"}, t.TempDir(), "-c", agy)
+	if got, _ := os.ReadFile(opened); err != nil || !r.signIn || len(got) > 0 {
+		t.Fatalf("%+v, %v; opened %q", r, err, got)
 	}
 }
 

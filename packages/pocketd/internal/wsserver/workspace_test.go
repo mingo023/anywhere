@@ -761,7 +761,6 @@ func TestAccountListNamesEachProvidersAccountsOrOnlyOnes(t *testing.T) {
 	want := []any{
 		map[string]any{"id": "builtin", "provider": "claude", "name": "Not signed in", "signedIn": false, "isDefault": true},
 		map[string]any{"id": "builtin", "provider": "codex", "name": "Not signed in", "signedIn": false, "isDefault": true},
-		map[string]any{"id": "builtin", "provider": "antigravity", "name": "Not signed in", "signedIn": false, "isDefault": true},
 	}
 	if m["id"] != "al" || !reflect.DeepEqual(m["accounts"], want) {
 		t.Fatalf("%v", m)
