@@ -256,6 +256,43 @@ func TestAPromptSentMidTurnWaitsForTheChatHermesTurnToEnd(t *testing.T) {
 	}
 }
 
+func TestAPromptSentMidTurnSteersTheChatAntigravityTurn(t *testing.T) {
+	h, phone, term, id := chatACP(t, "antigravity", nil)
+	phone.Prompt(id, "slow first")
+	phone.WaitStatus(id, "working")
+	phone.Prompt(id, "second")
+	h.WaitScreen(term, "steer: second")
+	phone.WaitAll("one turn with both",
+		streamOf(id, "user", "second"),
+		streamOf(id, "assistant", "echo: first"),
+		streamOf(id, "assistant", "echo: second"),
+		statusOf(id, "done"),
+	)
+	if got, want := withSubAgents(phone, id), []string{"user slow first", "user second", "assistant echo: first", "assistant echo: second", "result"}; !slices.Equal(got, want) {
+		t.Fatalf("got %q", got)
+	}
+	if screen := h.Screen(term); strings.Contains(screen, "busy") {
+		t.Fatalf("agy refused the steer:\n%s", screen)
+	}
+}
+
+func TestASteerWhileAnAntigravitySubAgentCardIsOpenLeavesTheCardToEnd(t *testing.T) {
+	h, phone, term, id := chatACP(t, "antigravity", nil)
+	phone.Prompt(id, "delegate await g1")
+	phone.WaitFor("the open card", itemOf(id, func(it acpItem) bool { return it.Call.Detail.Kind == "task" && it.Call.Status == "running" }))
+	phone.Prompt(id, "second")
+	h.WaitScreen(term, "steer: second")
+	phone.WaitFor("the steer", streamOf(id, "user", "second"))
+	if err := os.WriteFile(filepath.Join(h.Home, ".acp-fake", "g1"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: second"), statusOf(id, "done"))
+	want := []string{"user delegate await g1", "tool task ok", "user second", "assistant echo: delegated await g1", "assistant echo: second", "result"}
+	if got := withSubAgents(phone, id); !slices.Equal(got, want) {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestAChatHermesSwitchesModelForItsNextTurn(t *testing.T) {
 	h, phone, term, id := chatACP(t, "hermes", nil)
 	phone.Prompt(id, "before")

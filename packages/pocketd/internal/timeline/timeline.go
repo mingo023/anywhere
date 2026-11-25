@@ -41,6 +41,8 @@ type Event struct {
 	Limit bool
 	// Detached marks a tool_background no turn waits for: its end takes no turn of the agent's, or may never come.
 	Detached bool
+	// Steer marks a user item the agent took into the turn under way, which goes on with the calls it left open.
+	Steer bool
 }
 
 type Timeline struct {

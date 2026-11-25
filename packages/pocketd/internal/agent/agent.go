@@ -786,7 +786,7 @@ func firstLine(text string) string {
 // Record adds one provider event to the timeline and tells every phone. It leaves the status alone.
 func (a *Agent) Record(e timeline.Event) {
 	sub := e.ParentToolUseID != ""
-	if e.Kind == "user" && !sub {
+	if e.Kind == "user" && !sub && !e.Steer {
 		a.Timeline.StartEpoch()
 		a.update(false, func() {
 			if a.title == "" {
