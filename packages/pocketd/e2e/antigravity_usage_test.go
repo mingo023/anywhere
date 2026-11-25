@@ -56,11 +56,11 @@ cat "` + bin + `/report.json"
 	os.WriteFile(filepath.Join(bin, "agy"), []byte(script), 0o755)
 	h := Start(t, onLoginPath(bin))
 	a := h.antigravity()
-	if a.ID != accounts.BuiltIn || !a.SignedIn || a.Usage == nil || a.Usage.Session == nil || a.Usage.Week == nil {
+	if a.ID != accounts.BuiltIn || !a.SignedIn || a.Usage == nil || a.Usage.Session != nil || a.Usage.Week == nil {
 		t.Fatalf("%+v %+v", a, a.Usage)
 	}
-	if a.Usage.Session.Percent != 100 || a.Usage.Week.Percent != 25 {
-		t.Fatalf("session %+v, week %+v", a.Usage.Session, a.Usage.Week)
+	if a.Usage.Week.Percent != 0 || a.Usage.Week.ResetsAt != 1796189468000 {
+		t.Fatalf("week %+v", a.Usage.Week)
 	}
 	raw, _ := os.ReadFile(filepath.Join(bin, "argv"))
 	argv := strings.Split(strings.TrimSpace(string(raw)), "\n")

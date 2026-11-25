@@ -40,7 +40,8 @@
 // FIXTURE_LOOSE=1 runs a Claude session in ~/Downloads and a shell in ~/notes, folders no project holds.
 // FIXTURE_EXPIRED=1 adds two Claude accounts whose login expired: one never read, one with stale usage.
 // FIXTURE_ONE_ACCOUNT=1 lists only the built-in Claude login.
-// FIXTURE_ANTIGRAVITY=usage|out|old adds Antigravity's built-in login: read (5h full, week at 25%), signed out, or on an agy too old to say its usage.
+// FIXTURE_ANTIGRAVITY=usage|live|out|old adds Antigravity's built-in login: read (5h full, week at 25%), as a signed-in agy 1.5.16 reported it
+// (no 5h pool, week at 16%), signed out, or on an agy too old to say its usage.
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
@@ -516,6 +517,7 @@ function antigravity(state?: string) {
   const row = { id: "builtin", provider: "antigravity", default: true };
   switch (state) {
     case "usage": return [{ ...row, signedIn: true, usage: usage(100, 25) }];
+    case "live": return [{ ...row, signedIn: true, usage: { week: { percent: 16.229522228240967, resetsAt: now + 7 * 1440 * MIN }, at: now } }];
     case "out": return [{ ...row, signedIn: false, usage: { at: now } }];
     case "old": return [{ ...row, signedIn: true, usage: { at: now }, error: "Update agy to 1.1.11 or later to see its usage" }];
     default: return [];

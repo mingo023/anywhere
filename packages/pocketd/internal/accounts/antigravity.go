@@ -337,7 +337,8 @@ func readReport(out []byte, now time.Time) (agyOutcome, Usage) {
 
 func (b agyBucket) window() *Window {
 	w := &Window{Percent: min(max((1-*b.Remaining)*100, 0), 100)}
-	if t, err := time.Parse(time.RFC3339, b.Reset); err == nil {
+	// An unused bucket resets at the epoch, which means no reset time.
+	if t, err := time.Parse(time.RFC3339, b.Reset); err == nil && t.Unix() > 0 {
 		w.ResetsAt = t.UnixMilli()
 	}
 	return w

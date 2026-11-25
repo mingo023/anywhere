@@ -57,7 +57,7 @@ func (f *fakeAgy) count(arg string) int {
 	return n
 }
 
-// The report in testdata is derived from research doc §2.5, not captured from a live agy.
+// The report in testdata was captured from a signed-in agy 1.5.16: its Gemini group has no 5h bucket, and an unused bucket resets at the epoch.
 func report(t *testing.T) []byte {
 	raw, err := os.ReadFile(filepath.Join("testdata", "agy-usage.json"))
 	if err != nil {
@@ -101,20 +101,31 @@ func noMeters(a Account) bool {
 }
 
 func TestTheUsageReportFillsTheSessionAndWeekFromGeminisPools(t *testing.T) {
-	f := &fakeAgy{version: "agy 1.5.16\n", usage: agyRun{out: report(t)}}
+	f := &fakeAgy{version: "1.5.16\n", usage: agyRun{out: report(t)}}
 	s, _ := agyStore(t, f)
 	refresh(s)
 	a := agyRow(t, s)
 	if !a.SignedIn || a.Error != "" || a.Usage == nil {
 		t.Fatalf("%+v", a)
 	}
-	if *a.Usage.Session != (Window{Percent: 100, ResetsAt: 1795456800000}) || *a.Usage.Week != (Window{Percent: 25}) {
+	if a.Usage.Session != nil || a.Usage.Week == nil || *a.Usage.Week != (Window{Percent: 0, ResetsAt: 1796189468000}) {
 		t.Fatalf("session %+v, week %+v", a.Usage.Session, a.Usage.Week)
 	}
 	args := f.runs[1]
 	want := []string{"--print", "/usage", "--output-format", "json", "--print-timeout", "10s", "--settings", `{"disableSlashCommands":false}`, "--disable-slash-commands=false", "--log-file"}
 	if !reflect.DeepEqual(f.runs[0], []string{"--version"}) || !reflect.DeepEqual(args[:len(want)], want) || len(args) != len(want)+1 || filepath.Base(args[len(want)]) != "agy.log" {
 		t.Fatalf("ran %q", f.runs)
+	}
+
+	both := `{"status":"SUCCESS","num_turns":0,"command":{"name":"usage","data":{"groups":[{"name":"Gemini Models","buckets":[
+		{"window":"5h","remaining_fraction":0,"reset_time":"2026-11-23T18:00:00Z"},{"window":"weekly","remaining_fraction":0.75,"reset_time":"1970-01-01T00:00:00Z"}]}]}}}`
+	if o, u := readReport([]byte(both), time.Now()); o != agyOK || *u.Session != (Window{Percent: 100, ResetsAt: 1795456800000}) || *u.Week != (Window{Percent: 25}) {
+		t.Fatalf("session %+v, week %+v", u.Session, u.Week)
+	}
+	for _, reset := range []string{"1970-01-01T00:00:00Z", "1969-12-31T23:00:00Z", "soon", ""} {
+		if w := (agyBucket{Remaining: new(float64), Reset: reset}).window(); w.ResetsAt != 0 {
+			t.Errorf("%q resets at %d", reset, w.ResetsAt)
+		}
 	}
 }
 
@@ -210,7 +221,7 @@ func TestTheSignInLineMarksAntigravitySignedOutAndASignInEndingClearsIt(t *testi
 	}
 	s.Finish("antigravity", BuiltIn, func() {})
 	refresh(s)
-	if a := agyRow(t, s); !a.SignedIn || a.Usage.Session == nil || f.count("--print") != 3 {
+	if a := agyRow(t, s); !a.SignedIn || a.Usage.Week == nil || f.count("--print") != 3 {
 		t.Fatalf("after a sign-in: %+v, ran %q", a, f.runs)
 	}
 }
@@ -223,7 +234,7 @@ func TestAntigravityIsProbedAtMostOncePerFloor(t *testing.T) {
 	if n := f.count("--print"); n != 1 {
 		t.Fatalf("%d runs in a row", n)
 	}
-	if a := agyRow(t, s); a.Usage == nil || a.Usage.Stale || a.Usage.Session == nil {
+	if a := agyRow(t, s); a.Usage == nil || a.Usage.Stale || a.Usage.Week == nil {
 		t.Fatalf("a cached hit: %+v", a.Usage)
 	}
 
@@ -254,7 +265,7 @@ func TestAProbeTheCallerCancelledKeepsTheLastReadFresh(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	s.Refresh(ctx, "")
 	cancel()
-	if a := agyRow(t, s); !a.SignedIn || a.Usage == nil || a.Usage.Stale || a.Usage.Session == nil || a.Usage.Session.Percent != 100 {
+	if a := agyRow(t, s); !a.SignedIn || a.Usage == nil || a.Usage.Stale || a.Usage.Week == nil {
 		t.Fatalf("%+v", a.Usage)
 	}
 	f.mu.Lock()
@@ -298,7 +309,7 @@ func TestAFailedReadLeavesTheLastUsageStale(t *testing.T) {
 		floorPassed(s)
 		f.set(fail.run, fail.err)
 		refresh(s)
-		if a := agyRow(t, s); !a.SignedIn || a.Usage == nil || !a.Usage.Stale || a.Usage.Session.Percent != 100 {
+		if a := agyRow(t, s); !a.SignedIn || a.Usage == nil || !a.Usage.Stale || a.Usage.Week == nil {
 			t.Errorf("%s: %+v %+v", name, a, a.Usage)
 		}
 	}
@@ -442,7 +453,7 @@ func TestASignedOutAgysErrorReportMarksTheRowSignedOut(t *testing.T) {
 	s.Finish("antigravity", BuiltIn, func() {})
 	f.set(agyRun{out: report(t)}, nil)
 	refresh(s)
-	if a := agyRow(t, s); !a.SignedIn || a.Usage.Session == nil {
+	if a := agyRow(t, s); !a.SignedIn || a.Usage.Week == nil {
 		t.Fatalf("after a sign-in: %+v", a)
 	}
 }
@@ -454,7 +465,7 @@ func TestAnErrorReportBeforeAnyTurnIsAFailureTriedAgainAfterTheFloor(t *testing.
 	floorPassed(s)
 	f.set(agyRun{out: []byte(`{"status":"ERROR","error":"network unreachable","num_turns":0}`)}, nil)
 	refresh(s)
-	if a := agyRow(t, s); !a.SignedIn || a.Error != "" || !a.Usage.Stale || a.Usage.Session.Percent != 100 {
+	if a := agyRow(t, s); !a.SignedIn || a.Error != "" || !a.Usage.Stale || a.Usage.Week == nil {
 		t.Fatalf("%+v %+v", a, a.Usage)
 	}
 	floorPassed(s)
