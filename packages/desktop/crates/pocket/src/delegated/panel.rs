@@ -222,7 +222,7 @@ struct Groups<'a> {
 }
 
 fn groups(entries: &[Entry]) -> Groups<'_> {
-    let mut g = Groups { asking: Vec::new(), running: Vec::new(), ended: Vec::new(), folds: entries.len() > FOLD_ABOVE };
+    let mut g = Groups { asking: Vec::new(), running: Vec::new(), ended: Vec::new(), folds: false };
     for e in entries {
         match e.delegation.phase() {
             Phase::Asking => g.asking.push(e),
@@ -232,6 +232,7 @@ fn groups(entries: &[Entry]) -> Groups<'_> {
     }
     g.running.sort_by_key(|e| e.delegation.created_at);
     g.ended.sort_by_key(|e| std::cmp::Reverse(e.delegation.settled_at));
+    g.folds = entries.len() > FOLD_ABOVE && g.ended.len() < entries.len();
     g
 }
 
@@ -401,7 +402,7 @@ impl PanelView {
     fn measured(&mut self, chat_h: f32, cx: &mut Context<Self>) {
         if self.chat_h.is_none_or(|h| (h - chat_h).abs() > 0.5) {
             self.chat_h = Some(chat_h);
-            cx.notify();
+            crate::region::notify_after_draw(cx);
         }
     }
 
@@ -861,6 +862,8 @@ mod tests {
         assert_eq!(groups(&seven).fold_index(), 2, "under Working and its one row");
         assert_eq!(height(&seven, 1), HEAD_H + SECTION_H + ROW_H + FOLD_H + 6., "one row stands for the six that ended");
         assert_eq!(groups(&seven).heights(true, |_| 1).full, HEAD_H + SECTION_H + 7. * ROW_H + FOLD_H + 6., "opened, they show under it");
+        let all_ended = (0..7).map(|i| entry(&i.to_string(), "completed", "", 0, 1)).collect::<Vec<_>>();
+        assert!(!groups(&all_ended).folds, "with nothing else to show, the ended ones show");
     }
 
     #[test]
