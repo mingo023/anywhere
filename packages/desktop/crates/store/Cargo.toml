@@ -10,6 +10,7 @@ path = "src/store.rs"
 [dependencies]
 agents.workspace = true
 hosts.workspace = true
+project.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 workspace.workspace = true

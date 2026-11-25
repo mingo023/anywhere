@@ -95,6 +95,10 @@ impl Store {
         }
         for p in &list.projects {
             self.add(&p.path);
+            // Only the desktop that made a thread's folder keeps it in `scratch`; another knows it by where it is.
+            if project::scratch::made(&p.path) {
+                self.scratch.insert(p.path.clone());
+            }
             // One this build can't read keeps what was cached.
             match serde_json::from_value(p.repo.clone()) {
                 Ok(repo) => _ = self.repos.insert(p.path.clone(), repo),
@@ -186,6 +190,15 @@ mod tests {
         s.apply_registry(None, &List { projects: vec![project("p1", "/a", repo), project("p2", "/b", json!(null))], ..List::default() });
         assert_eq!((s.repos["/a"].name.as_str(), s.repos["/a"].setup.as_str(), s.repos["/a"].launch.model.as_str()), ("App", "make", "opus"));
         assert_eq!(s.repos["/b"].name, "Kept");
+    }
+
+    #[test]
+    fn a_listed_folder_another_desktop_made_for_a_thread_is_a_thread_here() {
+        let mut s = Store::default();
+        let host = ["//m1/Users/me/.anywhere/sessions/dainty-skink", "//m1/Users/me/app", "//m1/Users/me/.anywhere/sessions/a/b"];
+        s.apply_registry(Some("m1"), &list(&host.map(|p| ("", p))));
+        s.apply_registry(None, &list(&[("", "/Users/me/.anywhere/sessions/calm-river"), ("", "/Users/me/.anywhere/sessions-other/x")]));
+        assert_eq!(s.scratches(), ["/Users/me/.anywhere/sessions/calm-river", "//m1/Users/me/.anywhere/sessions/dainty-skink"]);
     }
 
     #[test]
