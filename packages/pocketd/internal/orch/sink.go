@@ -49,6 +49,7 @@ type TurnChange struct {
 	Stopped  bool // the turn ended because the user or an agent stopped it
 	// Restarted is the turn cut for a message sent in restart mode, whose turn follows.
 	Restarted bool
+	Turn      int64 // the turn that ended
 	Summary   proto.AgentSummary
 }
 
@@ -317,6 +318,7 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 		}
 	}
 	stopped, restarted := false, false
+	var turn int64
 	switch {
 	case working(s.Status) && !working(from):
 		if _, err := tx.Exec(`INSERT INTO turns (session_id, state, started_at, results_before) VALUES (?, 'working', ?, (`+countResults+`))`, s.ID, now, s.ID); err != nil {
@@ -338,6 +340,9 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 			state = "failed"
 		}
 		stopped = state == "interrupted" && !restarted
+		if err := tx.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM turns WHERE session_id = ?`, s.ID).Scan(&turn); err != nil {
+			return nil, err
+		}
 		if _, err := tx.Exec(`UPDATE turns SET state = ?, ended_at = ?, error = ? WHERE id = (SELECT MAX(id) FROM turns WHERE session_id = ?) AND ended_at = 0`, state, now, s.Error, s.ID); err != nil {
 			return nil, err
 		}
@@ -345,7 +350,7 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 			return nil, err
 		}
 	}
-	return &TurnChange{Session: s.ID, From: from, To: s.Status, Failed: s.Failed, Error: s.Error, Stopped: stopped, Restarted: restarted, Summary: s}, nil
+	return &TurnChange{Session: s.ID, From: from, To: s.Status, Failed: s.Failed, Error: s.Error, Stopped: stopped, Restarted: restarted, Turn: turn, Summary: s}, nil
 }
 
 // asked says whether an event of kind, a stop or a restart, was decided for id since its last turn ended.

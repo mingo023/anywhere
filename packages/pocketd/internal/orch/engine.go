@@ -364,6 +364,7 @@ type peek struct {
 	TargetID  string `json:"targetId"`
 	Agent     string `json:"agent"`
 	ChildID   string `json:"childId"`
+	Turn      int64  `json:"turn"`
 }
 
 func (e *Engine) load(tx *Tx, cmd Command) (State, error) {
@@ -417,6 +418,11 @@ func (e *Engine) load(tx *Tx, cmd Command) (State, error) {
 	if st.Task != nil {
 		if st.Parent, err = e.session(tx, st.Task.ParentID); err != nil {
 			return st, err
+		}
+		if p.Turn != 0 {
+			if err := tx.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM turns WHERE session_id = ?`, st.Task.ChildID).Scan(&st.ChildTurn); err != nil {
+				return st, err
+			}
 		}
 		if cmd.Kind == CmdDelegateCancel {
 			if st.Subtree, err = subtree(tx, *st.Task); err != nil {

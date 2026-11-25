@@ -779,6 +779,107 @@ func TestAChildWhoseReplyLandsAfterItsTurnEndsPublishesThatReply(t *testing.T) {
 	}
 }
 
+func TestAChildTakingAnotherTurnWorksItsTaskAgainAndWakesTheParentOnceMore(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		if e.Kind == EffLaunch {
+			return map[string]any{"childId": "child-1"}, nil
+		}
+		return nil, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	r, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "fix the redirect", Title: "Fix redirect"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	get := func() Delegation {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return ts[0]
+	}
+	waitFor(t, func() bool { return get().Status == TaskWorking })
+	k := NewSink(s)
+	defer k.Close()
+	k.OnTurn = e.OnTurn
+	deliveries := func() int { return strings.Count(strings.Join(f.kinds(), " "), EffDelivery+"@p") }
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Item("child-1", 1, proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Redirect fixed"})
+	k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { return get().Status == TaskCompleted && deliveries() == 1 })
+
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working", Compacting: true})
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	time.Sleep(100 * time.Millisecond)
+	if g := get(); g.Status != TaskCompleted || g.Summary != "Redirect fixed" || deliveries() != 1 {
+		t.Fatalf("a compaction reopened the task: %+v", g)
+	}
+
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Flush()
+	waitFor(t, func() bool { return get().Status == TaskWorking })
+	if g := get(); g.SettledAt != 0 || g.Summary != "" {
+		t.Fatalf("reopened task kept its old result: %+v", g)
+	}
+	k.Item("child-1", 1, proto.Item{ID: "i3", Seq: 3, Kind: "assistant", Text: "Tests added too"})
+	k.Item("child-1", 1, proto.Item{ID: "i4", Seq: 4, Kind: "result", OK: true})
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { return get().Status == TaskCompleted && deliveries() == 2 })
+	if g := get(); g.Summary != "Tests added too" {
+		t.Fatalf("summary %q", g.Summary)
+	}
+
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Item("child-1", 1, proto.Item{ID: "i5", Seq: 5, Kind: "result", OK: true})
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { return get().Status == TaskCompleted && deliveries() == 3 })
+	if g := get(); g.Summary != "" {
+		t.Fatalf("a turn with no reply reported %q", g.Summary)
+	}
+}
+
+func TestATurnThatStartsBeforeTheLastOneSettlesLeavesTheTaskWorking(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		if e.Kind == EffLaunch {
+			return map[string]any{"childId": "child-1"}, nil
+		}
+		return nil, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	r, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "fix the redirect", Title: "Fix redirect"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	get := func() Delegation {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return ts[0]
+	}
+	waitFor(t, func() bool { return get().Status == TaskWorking })
+	k := NewSink(s)
+	defer k.Close()
+	k.OnTurn = e.OnTurn
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Flush()
+	time.Sleep(turnEndWait + 500*time.Millisecond)
+	if g := get(); g.Status != TaskWorking {
+		t.Fatalf("status %q while the child works", g.Status)
+	}
+}
+
 func TestATaskCancelledWhileItsChildLaunchesClosesTheChild(t *testing.T) {
 	s := openTest(t)
 	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})

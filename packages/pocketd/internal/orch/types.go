@@ -36,6 +36,7 @@ const (
 	CmdDelegateStarted = "delegation.started"
 	CmdDelegateFailed  = "delegation.launch_failed"
 	CmdDelegateSettle  = "delegation.settle"
+	CmdDelegateReopen  = "delegation.reopen"
 	CmdDelegateCancel  = "delegation.cancel"
 	CmdDelegateWake    = "delegation.wake_policy"
 	CmdDelegatePump    = "delegation.pump"

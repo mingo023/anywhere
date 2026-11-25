@@ -188,3 +188,22 @@ func TestAnAnswerThatComesBeforeAChildsQuestionNoticeIsSentCancelsTheNotice(t *t
 		}
 	}
 }
+
+func TestAChildPromptedAfterItSettledWorksItsTaskAgainAndWakesTheParentWithTheNewResult(t *testing.T) {
+	h, phone, _, parent := chatClaude(t)
+	phone.Prompt(parent, `mcp delegate_task {"task":"first pass","title":"Pass"}`)
+	first := settledAndWoken(h, phone, parent, "completed")
+	if first.Summary != "echo: first pass" {
+		t.Fatalf("task = %+v", first)
+	}
+
+	phone.Prompt(first.ChildID, "second pass")
+	phone.WaitFor("the task working again", func(m Message) bool {
+		return m.Type == "delegation.update" && m.Delegation.TaskID == first.TaskID && m.Delegation.Status == "working"
+	})
+	h.eventually("the task settled with the new reply", func() bool {
+		ts := delegationsOf(phone, parent)
+		return ts[0].Status == "completed" && ts[0].Summary == "echo: second pass"
+	})
+	h.eventually("the parent woken a second time", func() bool { return wakesIn(timelineOf(phone, parent)) == 2 })
+}

@@ -962,6 +962,11 @@ const reply = (ws: Ws, agentId: string, text = REPLY, chunks = Number(process.en
   const [id, seq] = [`a-${Date.now()}`, (seqs.get(agentId) ?? 0) + 1];
   seqs.set(agentId, seq);
   update(ws, agentId, "working");
+  const task = taskOf(agentId);
+  if (task?.settledAt) {
+    Object.assign(task, { status: "working", summary: undefined, settledAt: undefined });
+    ws.send(JSON.stringify({ type: "delegation.update", agentId: task.parentId, delegation: task }));
+  }
   clearInterval(streams.get(agentId));
   let n = 0;
   const timer = setInterval(() => {
@@ -976,6 +981,10 @@ const reply = (ws: Ws, agentId: string, text = REPLY, chunks = Number(process.en
     if (steer) return steer();
     item(ws, agentId, { id: `r-${Date.now()}`, kind: "result", ok: true, durationMs: 1200, usage: { inputTokens: 12000, outputTokens: 180 } });
     update(ws, agentId, "idle");
+    if (task?.status === "working") {
+      Object.assign(task, { status: "completed", summary: text, settledAt: Date.now() });
+      ws.send(JSON.stringify({ type: "delegation.update", agentId: task.parentId, delegation: task }));
+    }
     const queued = take(ws, agentId);
     if (queued) takeTurn(ws, agentId, queued.text);
   }, 30);
@@ -984,6 +993,7 @@ const reply = (ws: Ws, agentId: string, text = REPLY, chunks = Number(process.en
 // As pocketd's orchestrator: the agent delegates three tasks, each a session of its own, and what they report comes back as deliveries in its timeline.
 type Task = { taskId: string; parentId: string; childId: string; title: string; agent: string; model?: string; status: string; summary?: string; error?: string; question?: string; createdAt: number; settledAt?: number };
 const tasks = new Map<string, Task[]>();
+const taskOf = (childId: string) => [...tasks.values()].flat().find((t) => t.childId === childId);
 const childTimelines = new Map<string, Item[]>();
 const childItems = new Map<string, Item[]>();
 const ALL_TASKS: [string, Provider, string, string][] = [

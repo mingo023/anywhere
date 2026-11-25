@@ -14,6 +14,10 @@ import (
 func (e *Engine) OnTurn(c TurnChange) {
 	busy := func(s string) bool { return s == "working" || s == "needsYou" }
 	if busy(c.To) {
+		// A compaction the user starts from idle isn't a turn of the task.
+		if c.From != "" && !busy(c.From) && !c.Summary.Compacting {
+			e.reopenChild(c.Session)
+		}
 		return
 	}
 	if c.To == "closed" {
@@ -57,6 +61,14 @@ func (e *Engine) dropChildren(parent string) {
 	}
 }
 
+func (e *Engine) reopenChild(child string) {
+	ts, err := e.store.Delegations(`child_id = ? ORDER BY created_at DESC LIMIT 1`, child)
+	if err != nil || len(ts) == 0 || !ts[0].Terminal() {
+		return
+	}
+	e.dispatch(NewCommand("", CmdDelegateReopen, ts[0].ParentID, TaskPayload{TaskID: ts[0].TaskID}))
+}
+
 func (e *Engine) settleChild(c TurnChange) {
 	if c.Restarted {
 		return
@@ -87,7 +99,7 @@ func (e *Engine) settleChild(c TurnChange) {
 	go func() {
 		defer e.running.Done()
 		e.awaitTurnEnd(c.Session)
-		p.Summary = e.store.LatestReply(c.Session)
+		p.Summary, p.Turn = e.store.LatestReply(c.Session), c.Turn
 		e.dispatch(NewCommand("", CmdDelegateSettle, t.ParentID, p))
 	}()
 }
@@ -168,13 +180,16 @@ func (e *Engine) pumpOthers(parent string) {
 	}
 }
 
-// awaitTurnEnd waits, up to 3 s, for the session's last turn to reach its
+// turnEndWait bounds how long a settle waits for the turn's reply to reach the timeline.
+const turnEndWait = 3 * time.Second
+
+// awaitTurnEnd waits, up to turnEndWait, for the session's last turn to reach its
 // timeline: a turn ends on the agent's stream, and its reply comes through
 // the transcript after.
 func (e *Engine) awaitTurnEnd(session string) {
 	var before int
 	e.store.db.QueryRow(`SELECT results_before FROM turns WHERE session_id = ? ORDER BY id DESC LIMIT 1`, session).Scan(&before)
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(turnEndWait)
 	for time.Now().Before(deadline) {
 		var n int
 		e.store.db.QueryRow(countResults, session).Scan(&n)
@@ -189,10 +204,17 @@ func (e *Engine) awaitTurnEnd(session string) {
 	}
 }
 
-// LatestReply is the session's newest assistant text outside sub-agents.
+// LatestReply is the newest assistant text outside sub-agents of the session's latest turn: after the
+// result that ended the turn before it.
 func (s *Store) LatestReply(session string) string {
+	var before int
+	s.db.QueryRow(`SELECT results_before FROM turns WHERE session_id = ? ORDER BY id DESC LIMIT 1`, session).Scan(&before)
+	var after int64
+	if before > 0 {
+		s.db.QueryRow(`SELECT seq FROM items WHERE session_id = ? AND kind = 'result' AND parent_tool = '' ORDER BY seq LIMIT 1 OFFSET ?`, session, before-1).Scan(&after)
+	}
 	var text string
-	s.db.QueryRow(`SELECT text FROM items WHERE session_id = ? AND kind = 'assistant' AND parent_tool = '' ORDER BY seq DESC LIMIT 1`, session).Scan(&text)
+	s.db.QueryRow(`SELECT text FROM items WHERE session_id = ? AND kind = 'assistant' AND parent_tool = '' AND seq > ? ORDER BY seq DESC LIMIT 1`, session, after).Scan(&text)
 	return text
 }
 

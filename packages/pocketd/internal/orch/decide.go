@@ -21,22 +21,23 @@ type AgentInfo struct {
 
 // State is everything decide reads, loaded by the engine before it runs.
 type State struct {
-	Now      int64
-	Session  *Session
-	Queue    []QueueEntry // the session's entries not sent or cancelled, by order
-	Children []Delegation // delegations the session started
-	Task     *Delegation  // the delegation the payload names
-	Subtree  []Delegation // Task and every delegation under it, deepest first
-	Parent   *Session     // Task's parent, for a settle
-	Request  *Request
-	Other    *Session // the payload's target session
-	Related  bool     // Other is the session's parent, child, fork or source
-	Running  int      // sessions agents started on this Mac: launching, or running and not yet settled
-	Limits   Limits
-	Self     AgentInfo // the session's own agent
-	Target   AgentInfo // the payload's agent
-	Held     []string  // task ids the session holds
-	Starting bool      // a turn start the session was sent is still out
+	Now       int64
+	Session   *Session
+	Queue     []QueueEntry // the session's entries not sent or cancelled, by order
+	Children  []Delegation // delegations the session started
+	Task      *Delegation  // the delegation the payload names
+	Subtree   []Delegation // Task and every delegation under it, deepest first
+	Parent    *Session     // Task's parent, for a settle
+	Request   *Request
+	Other     *Session // the payload's target session
+	Related   bool     // Other is the session's parent, child, fork or source
+	Running   int      // sessions agents started on this Mac: launching, or running and not yet settled
+	Limits    Limits
+	Self      AgentInfo // the session's own agent
+	Target    AgentInfo // the payload's agent
+	Held      []string  // task ids the session holds
+	Starting  bool      // a turn start the session was sent is still out
+	ChildTurn int64     // the latest turn of Task's child, for a settle that names its turn
 }
 
 // Decision is what a command does: facts, row writes, effects and the
@@ -107,6 +108,8 @@ type (
 		CompletionWake string `json:"completionWake,omitempty"`
 		WorkState      string `json:"workState,omitempty"`
 		Stopped        bool   `json:"stopped,omitempty"`
+		// Turn is the child's turn whose end settles the task.
+		Turn int64 `json:"turn,omitempty"`
 	}
 	// StartPayload is the user's agent.create from a client, and who asked: Key is the requester.
 	StartPayload struct {
@@ -246,7 +249,7 @@ func decide(st State, cmd Command) (Decision, error) {
 			return Decision{}, err
 		}
 		return delegate(st, cmd, p, &ids)
-	case CmdDelegateStarted, CmdDelegateFailed, CmdDelegateSettle, CmdDelegateCancel, CmdDelegateWake, CmdDelegateWaited:
+	case CmdDelegateStarted, CmdDelegateFailed, CmdDelegateSettle, CmdDelegateReopen, CmdDelegateCancel, CmdDelegateWake, CmdDelegateWaited:
 		var p TaskPayload
 		if err := decode(cmd, &p); err != nil {
 			return Decision{}, err
@@ -800,14 +803,32 @@ func task(st State, cmd Command, p TaskPayload) (Decision, error) {
 		}
 		return d, nil
 	case CmdDelegateFailed, CmdDelegateSettle:
-		if t.Terminal() {
-			// A published result never changes.
+		if t.Terminal() || superseded(st, p) {
 			return Decision{}, nil
 		}
 		if cmd.Kind == CmdDelegateFailed {
 			return settle(st, t, TaskFailed, "", cmp.Or(p.Error, "The session couldn't start"), false)
 		}
 		return settle(st, t, p.Status, p.Summary, p.Error, p.Stopped)
+	case CmdDelegateReopen:
+		if !t.Terminal() {
+			return Decision{}, nil
+		}
+		t.Status, t.Summary, t.Error, t.SettledAt, t.Delivery = TaskWorking, "", "", 0, DeliverNone
+		d := Decision{Delegations: []Delegation{t}, Events: []Event{{t.ParentID, "delegation.reopened", t.TaskID}}}
+		for _, e := range st.Queue {
+			if e.State != EntryPending || e.Origin != OriginWake || !slices.Contains(e.Refs, t.TaskID) {
+				continue
+			}
+			e.Refs = slices.DeleteFunc(slices.Clone(e.Refs), func(id string) bool { return id == t.TaskID })
+			if len(e.Refs) == 0 {
+				e.State = EntryCancelled
+			} else {
+				e.Text = WakeText(e.Refs)
+			}
+			d.Queue = append(d.Queue, e)
+		}
+		return d, nil
 	case CmdDelegateWake:
 		if p.CompletionWake != "settled_only" && p.CompletionWake != "always" {
 			return Decision{}, refuse(CodeInvalid, "completionWake is settled_only or always")
@@ -844,6 +865,11 @@ func task(st State, cmd Command, p TaskPayload) (Decision, error) {
 		return d, nil
 	}
 	return Decision{}, nil
+}
+
+// superseded says a turn's end reached the task after the child's next turn began, which settles it instead.
+func superseded(st State, p TaskPayload) bool {
+	return p.Turn != 0 && st.ChildTurn != p.Turn
 }
 
 // settle publishes t's result once and decides how the parent hears of it. A
