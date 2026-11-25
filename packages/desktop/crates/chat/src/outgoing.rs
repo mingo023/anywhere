@@ -856,7 +856,8 @@ mod tests {
         assert!(o.sending_now() && !o.send_now(2_100), "one Send now covers every waiting send");
         o.settle(&open(0), true, 2_500);
         assert!(o.sending_now());
-        let taken = Transcript { turns: vec![turn("u1", 0, "long job", false), turn("u2", 1_000, "ok?", false), turn("u3", 1_100, "run the store tests too", false)] };
+        let taken =
+            Transcript { turns: vec![turn("u1", 0, "long job", false), turn("u2", 1_000, "ok?", false), turn("u3", 1_100, "run the store tests too", false)] };
         o.settle(&taken, true, 3_000);
         assert!(waiting(&o).is_empty() && !o.sending_now());
     }
@@ -1134,7 +1135,9 @@ mod tests {
         let asked = Transcript { turns: vec![turn("u1", 0, "long job", false), turn("u2", 2_500, "are you reading my goal?", false)] };
         o.settle(&asked, true, 300_000);
         assert_eq!(o.after_turn().map(|p| p.text.as_str()).collect::<Vec<_>>(), ["/goal ship it"]);
-        let goal = Transcript { turns: vec![turn("u1", 0, "long job", false), turn("u2", 2_500, "are you reading my goal?", true), turn("u3", 301_000, "/goal ship it", false)] };
+        let goal = Transcript {
+            turns: vec![turn("u1", 0, "long job", false), turn("u2", 2_500, "are you reading my goal?", true), turn("u3", 301_000, "/goal ship it", false)],
+        };
         o.settle(&goal, true, 301_500);
         assert!(o.list().is_empty(), "its own turn echoes it");
     }
@@ -1153,7 +1156,15 @@ mod tests {
     #[test]
     fn a_sub_agent_in_the_background_leaves_the_chat_free_and_holds_no_queue() {
         use crate::{Block, SubAgent, ToolCall, ToolKind, ToolStatus};
-        let agent = Block::Tool(ToolCall { id: "a".into(), name: String::new(), kind: ToolKind::Agent(SubAgent::default()), status: ToolStatus::Running, output: None, duration_ms: None, at: 0 });
+        let agent = Block::Tool(ToolCall {
+            id: "a".into(),
+            name: String::new(),
+            kind: ToolKind::Agent(SubAgent::default()),
+            status: ToolStatus::Running,
+            output: None,
+            duration_ms: None,
+            at: 0,
+        });
         let t = Transcript { turns: vec![Turn { blocks: vec![agent], ..turn("u1", 0, "audit", true) }] };
         let mut o = Outgoing::default();
         assert!(!busy(&t, &o, false), "a send starts a turn rather than steering into one");

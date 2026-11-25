@@ -29,7 +29,9 @@ impl Desktop {
                 .child(div().truncate().child(label))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.finder_go(dir.clone(), cx)))
         };
-        let heading = |label: String| div().px(px(8.)).pt(px(10.)).pb(px(4.)).text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(label.to_uppercase());
+        let heading = |label: String| {
+            div().px(px(8.)).pt(px(10.)).pb(px(4.)).text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(label.to_uppercase())
+        };
         div()
             .w(px(180.))
             .flex_none()

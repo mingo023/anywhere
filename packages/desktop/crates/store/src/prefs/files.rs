@@ -80,7 +80,9 @@ impl Files {
 fn matches(pattern: &str, name: &str) -> bool {
     match pattern.split_once('*') {
         None => pattern == name,
-        Some((head, rest)) => name.strip_prefix(head).is_some_and(|tail| tail.char_indices().map(|(i, _)| i).chain([tail.len()]).any(|i| matches(rest, &tail[i..]))),
+        Some((head, rest)) => {
+            name.strip_prefix(head).is_some_and(|tail| tail.char_indices().map(|(i, _)| i).chain([tail.len()]).any(|i| matches(rest, &tail[i..])))
+        }
     }
 }
 

@@ -104,7 +104,9 @@ impl PullRequests {
         match self.problem(tree).map(|(p, _)| p) {
             Some(GhProblem::Missing) => Some(PrItem::Hint("Install gh to see PRs")),
             Some(GhProblem::LoggedOut) => Some(PrItem::Hint("Run gh auth login to see PRs")),
-            Some(GhProblem::Failed) | None => (self.by_tree.contains_key(tree) && base.is_some_and(|b| github::base_branch(b) != branch)).then_some(PrItem::Create),
+            Some(GhProblem::Failed) | None => {
+                (self.by_tree.contains_key(tree) && base.is_some_and(|b| github::base_branch(b) != branch)).then_some(PrItem::Create)
+            }
         }
     }
 
@@ -246,7 +248,8 @@ impl Desktop {
             return;
         }
         self.prs.gh = Some(None);
-        let task = cx.background_executor().spawn(async { github::status(daemon::run_login(github::VERSION, "/", ""), daemon::run_login(github::AUTH, "/", "")) });
+        let task =
+            cx.background_executor().spawn(async { github::status(daemon::run_login(github::VERSION, "/", ""), daemon::run_login(github::AUTH, "/", "")) });
         cx.spawn(async move |this, cx| {
             let status = task.await;
             this.update(cx, |d, cx| {
@@ -267,7 +270,14 @@ impl Desktop {
         if !matches!(self.prs.gh, Some(Some(_))) {
             return self.check_gh(cx);
         }
-        let mut trees: Vec<String> = self.projects().iter().filter_map(|p| self.listed_trees(p)).flatten().filter(|w| !w.main && w.branch != "detached" && self.gh_accounts.accounts_of(&w.path).is_some()).map(|w| w.path).collect();
+        let mut trees: Vec<String> = self
+            .projects()
+            .iter()
+            .filter_map(|p| self.listed_trees(p))
+            .flatten()
+            .filter(|w| !w.main && w.branch != "detached" && self.gh_accounts.accounts_of(&w.path).is_some())
+            .map(|w| w.path)
+            .collect();
         trees.sort();
         let Some(tree) = self.prs.due(self.cwd().as_deref(), self.store.general.prs_every(), &trees, Instant::now()) else { return };
         let started = Instant::now();

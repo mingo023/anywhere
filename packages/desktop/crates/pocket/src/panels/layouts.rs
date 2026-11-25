@@ -13,7 +13,8 @@ impl Desktop {
             self.store.layouts.clear();
             return;
         }
-        let (waiting, here): (BTreeMap<_, _>, BTreeMap<_, _>) = std::mem::take(&mut self.store.layouts).into_iter().partition(|(tree, _)| hosts::split(tree).0.is_some());
+        let (waiting, here): (BTreeMap<_, _>, BTreeMap<_, _>) =
+            std::mem::take(&mut self.store.layouts).into_iter().partition(|(tree, _)| hosts::split(tree).0.is_some());
         self.panels.waiting = waiting;
         self.restore(here);
     }

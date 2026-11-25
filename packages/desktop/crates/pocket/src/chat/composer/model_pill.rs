@@ -1,11 +1,11 @@
 use super::{close_menu, hang};
-use crate::composer::{self, Menu, launch};
 use crate::composer::effort_menu::{Effort, choice_menu};
 use crate::composer::effort_slider::{self, effort_slider};
 use crate::composer::model_menu::{Choose, Entry, FAVORITES, Listed, focus_search, model_effort_pill, model_list, panel};
-use crate::pick_menu::{Line, checked};
+use crate::composer::{self, Menu, launch};
 use crate::desktop::Desktop;
 use crate::models::effort_label;
+use crate::pick_menu::{Line, checked};
 use agents::{ListedModel, ModelSetting, Summary};
 use gpui_kit::*;
 use std::rc::Rc;
@@ -80,12 +80,23 @@ impl Desktop {
         let menu = open.then(|| {
             let viewed = self.chats.composer.draft.viewing.unwrap_or(agent.provider.as_str());
             let project = self.chat_project(agent);
-            let rail = self.model_rail(viewed, &agent.provider, project.as_deref(), &self.chats.composer.draft.rail, |d: &mut Desktop| &mut d.chats.composer.draft, cx);
+            let rail = self.model_rail(
+                viewed,
+                &agent.provider,
+                project.as_deref(),
+                &self.chats.composer.draft.rail,
+                |d: &mut Desktop| &mut d.chats.composer.draft,
+                cx,
+            );
             let own = viewed == agent.provider;
             let effort = (own && !levels.is_empty()).then(|| self.chat_effort_slider(agent, &levels, default, cx));
             let settings = if own { self.chat_setting_menus(agent, cx) } else { Vec::new() };
-            let hidden = effort.is_none().then(|| effort_slider::hand_back(&self.chats.composer.draft.slider, self.chats.composer.search.read(cx).focus_handle(cx))).flatten();
-            let panel = panel(rail, &self.chats.composer.search, self.chat_models(agent, viewed, project.as_deref(), cx), self.models_note(viewed), effort, settings);
+            let hidden = effort
+                .is_none()
+                .then(|| effort_slider::hand_back(&self.chats.composer.draft.slider, self.chats.composer.search.read(cx).focus_handle(cx)))
+                .flatten();
+            let panel =
+                panel(rail, &self.chats.composer.search, self.chat_models(agent, viewed, project.as_deref(), cx), self.models_note(viewed), effort, settings);
             hang("chat-model-menu", panel.children(hidden), cx)
         });
         div().relative().min_w_0().flex_shrink(1.).child(chip).children(menu)
@@ -118,7 +129,8 @@ impl Desktop {
     fn chat_models(&self, agent: &Summary, viewed: &str, project: Option<&str>, cx: &mut Context<Self>) -> Div {
         let draft = &self.chats.composer.draft;
         let query = self.chats.composer.search.read(cx).value();
-        let listed = draft.listed.get((viewed, &*query, &agent.provider, &agent.model, self.lines_from(project)), || self.chat_listed(agent, viewed, &query, project));
+        let listed =
+            draft.listed.get((viewed, &*query, &agent.provider, &agent.model, self.lines_from(project)), || self.chat_listed(agent, viewed, &query, project));
         if listed.lines.is_empty() {
             return self.no_models(viewed, &query);
         }
@@ -150,7 +162,15 @@ impl Desktop {
         let menus = settings.iter().enumerate().map(|(i, s)| {
             let (id, setting) = (agent.id.clone(), s.id.clone());
             let pick: launch::Pick = Rc::new(move |this, value, _| this.outbox.option(&id, &setting, &value));
-            choice_menu(("chat-setting", i), s.name.clone().into(), (&s.choices, Some(running_option(agent, s))), &self.chats.composer.draft.effort, |d: &mut Desktop| &mut d.chats.composer.draft, pick, cx)
+            choice_menu(
+                ("chat-setting", i),
+                s.name.clone().into(),
+                (&s.choices, Some(running_option(agent, s))),
+                &self.chats.composer.draft.effort,
+                |d: &mut Desktop| &mut d.chats.composer.draft,
+                pick,
+                cx,
+            )
         });
         menus.collect()
     }
@@ -163,7 +183,9 @@ mod tests {
     #[test]
     fn the_line_checked_is_the_model_the_chat_runs() {
         let listed = |value: &str, resolved: &str| ListedModel { value: value.into(), resolved: resolved.into(), ..ListedModel::default() };
-        let line = |provider: &str, value: &str| Line::Pick(Entry { provider: provider.into(), value: value.into(), label: String::new(), upstream: String::new(), missing: false });
+        let line = |provider: &str, value: &str| {
+            Line::Pick(Entry { provider: provider.into(), value: value.into(), label: String::new(), upstream: String::new(), missing: false })
+        };
         let agent = Summary { provider: "claude".into(), model: Some("claude-opus-5-5".into()), ..Default::default() };
         let own = [listed("sonnet", "claude-sonnet-5"), listed("opus", "claude-opus-5-5")];
         let lines = [Line::Heading("ANTHROPIC".into()), line("codex", "opus"), line("claude", "sonnet"), line("claude", "opus")];
@@ -179,13 +201,19 @@ mod tests {
         assert_eq!(unlisted_running(&agent, &[listed("")]), "claude-sonnet-4-6");
         assert_eq!(unlisted_running(&agent, &[listed("claude-sonnet-4-6")]), "", "a listed one needs no extra line");
         assert_eq!(unlisted_running(&Summary { model: None, ..agent.clone() }, &[]), "");
-        let line = |value: &str| Line::Pick(Entry { provider: "pi".into(), value: value.into(), label: String::new(), upstream: String::new(), missing: false });
+        let line =
+            |value: &str| Line::Pick(Entry { provider: "pi".into(), value: value.into(), label: String::new(), upstream: String::new(), missing: false });
         assert_eq!(running_line(&[line("claude-sonnet-4-6"), line("")], &agent, &[listed("")]), Some(0));
     }
 
     #[test]
     fn the_model_pill_reads_model_and_effort_else_the_models_default() {
-        let agent = |model: &str, effort: Option<&str>| Summary { provider: "claude".into(), model: Some(model.into()), effort: effort.map(Into::into), ..Default::default() };
+        let agent = |model: &str, effort: Option<&str>| Summary {
+            provider: "claude".into(),
+            model: Some(model.into()),
+            effort: effort.map(Into::into),
+            ..Default::default()
+        };
         let levels = ["low".to_string(), "medium".to_string()];
         assert_eq!(label(&agent("claude-opus-4-5", Some("xhigh")), &[], None), ("Opus 4.5".into(), Some("Extra high".into())));
         assert_eq!(label(&agent("claude-opus-4-5", Some("medium")), &levels, Some("low")).1.as_deref(), Some("Medium"));
@@ -195,7 +223,8 @@ mod tests {
 
     #[test]
     fn the_pill_names_the_model_as_its_list_does_but_keeps_an_aliased_models_version() {
-        let listed = |value: &str, name: &str| ListedModel { value: value.into(), name: name.into(), resolved: "claude-opus-5-5".into(), ..ListedModel::default() };
+        let listed =
+            |value: &str, name: &str| ListedModel { value: value.into(), name: name.into(), resolved: "claude-opus-5-5".into(), ..ListedModel::default() };
         let agent = |model: Option<&str>| Summary { provider: "cursor".into(), model: model.map(Into::into), ..Default::default() };
         assert_eq!(pill_name(&agent(Some("gpt-5.4")), &[listed("gpt-5.4", "GPT-5.4")]).as_deref(), Some("GPT-5.4"));
         assert_eq!(pill_name(&agent(Some("claude-opus-5-5")), &[listed("opus", "Opus")]), None);
@@ -214,8 +243,17 @@ mod tests {
 
     #[test]
     fn a_setting_runs_on_what_the_agent_was_started_on_or_switched_to_else_the_models_default() {
-        let fast = ModelSetting { id: "fast".into(), name: "Fast".into(), choices: vec![("false".into(), "Off".into()), ("true".into(), "On".into())], default: "false".into() };
-        let agent = |options: &[(&str, &str)]| Summary { provider: "omp".into(), options: options.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(), ..Default::default() };
+        let fast = ModelSetting {
+            id: "fast".into(),
+            name: "Fast".into(),
+            choices: vec![("false".into(), "Off".into()), ("true".into(), "On".into())],
+            default: "false".into(),
+        };
+        let agent = |options: &[(&str, &str)]| Summary {
+            provider: "omp".into(),
+            options: options.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            ..Default::default()
+        };
         assert_eq!(running_option(&agent(&[("fast", "true")]), &fast), "true");
         assert_eq!(running_option(&agent(&[("mode", "review")]), &fast), "false");
     }
@@ -231,7 +269,8 @@ mod tests {
     #[test]
     fn a_listed_model_is_the_one_its_value_or_resolved_id_names() {
         let agent = |provider: &str, model: &str| Summary { provider: provider.into(), model: Some(model.into()), ..Default::default() };
-        let listed = |value: &str, resolved: &str| ListedModel { value: value.into(), name: String::new(), resolved: resolved.into(), ..ListedModel::default() };
+        let listed =
+            |value: &str, resolved: &str| ListedModel { value: value.into(), name: String::new(), resolved: resolved.into(), ..ListedModel::default() };
         assert!(runs(&agent("claude", "claude-opus-5-5"), &listed("opus", "claude-opus-5-5")));
         assert!(runs(&agent("claude", "opus"), &listed("opus", "claude-opus-5-5")));
         assert!(!runs(&agent("claude", "claude-opus-4-6"), &listed("opus", "claude-opus-5-5")));

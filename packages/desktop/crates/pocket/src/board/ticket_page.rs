@@ -1,6 +1,5 @@
 use super::logic::{Field, Surface, column, in_line, place_in_column};
 use super::parts::{bar_button, flush_textarea, prop_chip, start_kbd, status_glyph};
-use ui::card_pill as pill;
 use crate::desktop::Desktop;
 use crate::util::{ago_long, now_ms};
 use agents::tickets::State;
@@ -8,6 +7,7 @@ use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::*;
 use theme::*;
 use ui::Variant;
+use ui::card_pill as pill;
 
 impl Desktop {
     fn ticket_page_bar(&self, cx: &mut Context<Self>) -> Div {
@@ -16,27 +16,62 @@ impl Desktop {
         let t = self.ticket(&id);
         let key = t.and_then(|t| self.ticket_key(t)).unwrap_or_default();
         let name = div().min_w_0().truncate().child(format!("{key}  {}", f.title.read(cx).value()));
-        let back = ui::icon_button_sized("ticket-back", "back", 24., TEXT_2).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.leave_ticket_page(window, cx)));
-        let board = div().id("ticket-crumb").px(px(4.)).h(px(24.)).flex().flex_none().items_center().gap(px(6.)).rounded(px(6.)).cursor_pointer().font_weight(FontWeight::MEDIUM).text_color(TEXT_2).hover(|s| s.bg(FILL_2).text_color(TEXT)).child(icon("blocks", 13., TEXT_3)).child("Board").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.leave_ticket_page(window, cx)));
+        let back = ui::icon_button_sized("ticket-back", "back", 24., TEXT_2)
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.leave_ticket_page(window, cx)));
+        let board = div()
+            .id("ticket-crumb")
+            .px(px(4.))
+            .h(px(24.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(6.))
+            .rounded(px(6.))
+            .cursor_pointer()
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(TEXT_2)
+            .hover(|s| s.bg(FILL_2).text_color(TEXT))
+            .child(icon("blocks", 13., TEXT_3))
+            .child("Board")
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.leave_ticket_page(window, cx)));
         let crumb = div().flex_1().min_w_0().flex().items_center().gap(px(4.)).child(back).child(board).child(icon("chevron-right", 11., TEXT_4)).child(name);
         let queued = f.picks.values.state == Some(State::Queued);
         let line = t.filter(|_| queued).and_then(|t| place_in_column(&self.board.columns, &self.agents.board.tickets, t));
         let action: AnyElement = if queued {
-            bar_button("ticket-back-todo", Variant::Secondary, None, "Move back to To do").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.move_page_ticket_back(cx))).into_any_element()
+            bar_button("ticket-back-todo", Variant::Secondary, None, "Move back to To do")
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.move_page_ticket_back(cx)))
+                .into_any_element()
         } else {
-            bar_button("ticket-start", Variant::Primary, Some("play"), "Start").child(start_kbd()).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_from_page(window, cx))).into_any_element()
+            bar_button("ticket-start", Variant::Primary, Some("play"), "Start")
+                .child(start_kbd())
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_from_page(window, cx)))
+                .into_any_element()
         };
         let ids = self.board.page.as_deref().unwrap_or_default();
         let at = ids.iter().position(|i| *i == id).map_or(0, |i| i + 1);
         let count = div().text_size(px(12.)).text_color(TEXT_3).child(format!("{at} / {}", ids.len()));
-        let step = |btn: &'static str, glyph: &'static str, delta: isize| ui::icon_button_sized(btn, glyph, 24., TEXT_2).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.step_ticket_page(delta, window, cx)));
-        let right = div().flex().items_center().gap(px(6.)).children(line.map(|p| pill().child(in_line(p)))).child(action).child(div().w(px(1.)).h(px(16.)).mx(px(6.)).bg(SEPARATOR)).child(count).child(step("ticket-prev", "chevron-up", -1)).child(step("ticket-next", "chevron-down", 1));
+        let step = |btn: &'static str, glyph: &'static str, delta: isize| {
+            ui::icon_button_sized(btn, glyph, 24., TEXT_2)
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.step_ticket_page(delta, window, cx)))
+        };
+        let right = div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .children(line.map(|p| pill().child(in_line(p))))
+            .child(action)
+            .child(div().w(px(1.)).h(px(16.)).mx(px(6.)).bg(SEPARATOR))
+            .child(count)
+            .child(step("ticket-prev", "chevron-up", -1))
+            .child(step("ticket-next", "chevron-down", 1));
         self.detail_bar(crumb.ml(px(2.)), right, cx).h(px(44.))
     }
 
     fn page_properties(&self, cx: &mut Context<Self>) -> Div {
         let f = &self.board.form;
-        let row = |name: &'static str, value: AnyElement| div().h(px(28.)).flex().items_center().text_size(px(12.5)).text_color(TEXT_3).child(div().w(px(84.)).flex_none().child(name)).child(value);
+        let row = |name: &'static str, value: AnyElement| {
+            div().h(px(28.)).flex().items_center().text_size(px(12.5)).text_color(TEXT_3).child(div().w(px(84.)).flex_none().child(name)).child(value)
+        };
         let id = f.picks.values.id.as_deref().unwrap_or_default();
         let t = self.ticket(id);
         let status = t.map(|t| {

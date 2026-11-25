@@ -43,7 +43,15 @@ pub(crate) struct HostFinder {
 
 impl HostFinder {
     pub fn new(cx: &mut App) -> Self {
-        Self { finder: None, opener: Opener::AddProject, focus: cx.focus_handle(), scrolls: HashMap::new(), preview_scroll: UniformListScrollHandle::new(), host_menu: false, opened: 0 }
+        Self {
+            finder: None,
+            opener: Opener::AddProject,
+            focus: cx.focus_handle(),
+            scrolls: HashMap::new(),
+            preview_scroll: UniformListScrollHandle::new(),
+            host_menu: false,
+            opened: 0,
+        }
     }
 
     fn scroll(&mut self, dir: &str) -> UniformListScrollHandle {
@@ -257,7 +265,13 @@ impl Desktop {
             (None, false) => self.finder_note("spinner", format!("Connecting to {name}\u{2026}"), ""),
             (None, true) => {
                 let projects = self.finder_projects(&host);
-                div().flex_1().min_h_0().flex().child(self.finder_places(&projects, cx)).child(self.finder_columns(Rc::new(projects), cx)).child(self.finder_detail())
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .child(self.finder_places(&projects, cx))
+                    .child(self.finder_columns(Rc::new(projects), cx))
+                    .child(self.finder_detail())
             }
         };
         let panel = ui::pop(div().w(px(980.)).max_w(window.viewport_size().width - px(48.)).h(max_h).flex().flex_col().overflow_hidden())

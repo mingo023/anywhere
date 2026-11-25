@@ -1,10 +1,10 @@
 use super::card::DragTicket;
 use super::logic::{Col, Slot, busy, set_away};
 use super::parts::col_heading;
-use ui::empty_hint;
 use crate::desktop::Desktop;
 use gpui_kit::*;
 use theme::*;
+use ui::empty_hint;
 
 const COL_RADIUS: f32 = 10.;
 
@@ -29,10 +29,13 @@ impl Desktop {
 
     pub(super) fn board_column(&mut self, col: Col, cx: &mut Context<Self>) -> Stateful<Div> {
         let empty = self.board.columns[col as usize].is_empty().then(|| empty_hint(col.hint()));
-        let cards = list(self.board.lists[col as usize].clone(), cx.processor(move |this, ix, _, cx| {
-            let index = this.board.columns[col as usize].get(ix).copied();
-            index.map_or_else(|| div().into_any_element(), |index| this.ticket_card(Slot { col, pos: ix, index }, cx))
-        }))
+        let cards = list(
+            self.board.lists[col as usize].clone(),
+            cx.processor(move |this, ix, _, cx| {
+                let index = this.board.columns[col as usize].get(ix).copied();
+                index.map_or_else(|| div().into_any_element(), |index| this.ticket_card(Slot { col, pos: ix, index }, cx))
+            }),
+        )
         .flex_1()
         .w_full();
         div()

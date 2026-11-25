@@ -38,7 +38,8 @@ const fn terminal(id: &'static str, label: &'static str, bundles: &'static [&'st
 pub static FINDER: Opener = Opener { id: "finder", label: "Finder", bundles: &["Finder.app"], generic_icon: "folder", folder_flags: &[] };
 const FINDER_BUNDLE: &str = "/System/Library/CoreServices/Finder.app";
 
-const VS_CODE: &[Opener] = &[ide("vscode", "VS Code", &["Visual Studio Code.app"]), ide("vscode-insiders", "VS Code Insiders", &["Visual Studio Code - Insiders.app"])];
+const VS_CODE: &[Opener] =
+    &[ide("vscode", "VS Code", &["Visual Studio Code.app"]), ide("vscode-insiders", "VS Code Insiders", &["Visual Studio Code - Insiders.app"])];
 
 const JETBRAINS: &[Opener] = &[
     ide("intellij", "IntelliJ IDEA", &["IntelliJ IDEA.app", "IntelliJ IDEA Ultimate.app", "IntelliJ IDEA CE.app", "IntelliJ IDEA Community Edition.app"]),
@@ -75,7 +76,10 @@ const TERMINALS: &[Slot] = &[
     Slot::App(terminal("wezterm", "WezTerm", &["WezTerm.app"], &["start", "--cwd"])),
 ];
 
-static GROUPS: [CatalogueGroup; 2] = [CatalogueGroup { id: "ide", label: "IDE", icon: "code", slots: IDES }, CatalogueGroup { id: "terminal", label: "Terminal", icon: "terminal", slots: TERMINALS }];
+static GROUPS: [CatalogueGroup; 2] = [
+    CatalogueGroup { id: "ide", label: "IDE", icon: "code", slots: IDES },
+    CatalogueGroup { id: "terminal", label: "Terminal", icon: "terminal", slots: TERMINALS },
+];
 
 fn apps() -> impl Iterator<Item = &'static Opener> {
     GROUPS.iter().flat_map(|group| group.slots.iter()).flat_map(|slot| match slot {
@@ -89,12 +93,19 @@ pub type Installed = HashMap<&'static str, PathBuf>;
 
 /// The folders apps are installed in; JetBrains Toolbox links its IDEs into its own.
 pub fn search_roots(home: &Path) -> Vec<PathBuf> {
-    vec![PathBuf::from("/Applications"), home.join("Applications"), home.join("Applications/JetBrains Toolbox"), PathBuf::from("/System/Applications/Utilities")]
+    vec![
+        PathBuf::from("/Applications"),
+        home.join("Applications"),
+        home.join("Applications/JetBrains Toolbox"),
+        PathBuf::from("/System/Applications/Utilities"),
+    ]
 }
 
 /// The catalogue's apps found under `roots`, and Finder, which every Mac has.
 pub fn installed(roots: &[PathBuf], exists: impl Fn(&Path) -> bool) -> Installed {
-    let mut found: Installed = apps().filter_map(|app| Some((app.id, app.bundles.iter().flat_map(|name| roots.iter().map(move |root| root.join(name))).find(|path| exists(path))?))).collect();
+    let mut found: Installed = apps()
+        .filter_map(|app| Some((app.id, app.bundles.iter().flat_map(|name| roots.iter().map(move |root| root.join(name))).find(|path| exists(path))?)))
+        .collect();
     found.insert(FINDER.id, PathBuf::from(FINDER_BUNDLE));
     found
 }
@@ -156,14 +167,21 @@ pub fn launch(app: &Opener, bundle: &Path, folder: &str) -> Cmd {
     let args = if app.folder_flags.is_empty() {
         vec!["-a".into(), text(bundle), folder.into()]
     } else {
-        ["-n".to_string(), "-a".into(), text(bundle), "--args".into()].into_iter().chain(app.folder_flags.iter().map(|flag| flag.to_string())).chain([folder.to_string()]).collect()
+        ["-n".to_string(), "-a".into(), text(bundle), "--args".into()]
+            .into_iter()
+            .chain(app.folder_flags.iter().map(|flag| flag.to_string()))
+            .chain([folder.to_string()])
+            .collect()
     };
     Cmd { program: "/usr/bin/open", args }
 }
 
 /// Reads the app's `CFBundleIconFile`.
 pub fn icon_name(bundle: &Path) -> Cmd {
-    Cmd { program: "/usr/bin/plutil", args: vec!["-extract".into(), "CFBundleIconFile".into(), "raw".into(), "-o".into(), "-".into(), text(&bundle.join("Contents/Info.plist"))] }
+    Cmd {
+        program: "/usr/bin/plutil",
+        args: vec!["-extract".into(), "CFBundleIconFile".into(), "raw".into(), "-o".into(), "-".into(), text(&bundle.join("Contents/Info.plist"))],
+    }
 }
 
 /// The `.icns` a `CFBundleIconFile` value names; the value may leave off the extension.
@@ -215,7 +233,8 @@ mod tests {
 
     #[test]
     fn apps_are_found_in_each_root_and_under_jetbrains_toolbox() {
-        let found = with(&["/Users/me/Applications/Zed.app", "/Users/me/Applications/JetBrains Toolbox/GoLand.app", "/System/Applications/Utilities/Terminal.app"]);
+        let found =
+            with(&["/Users/me/Applications/Zed.app", "/Users/me/Applications/JetBrains Toolbox/GoLand.app", "/System/Applications/Utilities/Terminal.app"]);
         assert_eq!(found["zed"], Path::new("/Users/me/Applications/Zed.app"));
         assert_eq!(found["goland"], Path::new("/Users/me/Applications/JetBrains Toolbox/GoLand.app"));
         assert_eq!(found["terminal"], Path::new("/System/Applications/Utilities/Terminal.app"));
@@ -259,18 +278,27 @@ mod tests {
     #[test]
     fn launching_opens_the_folder_with_the_bundle() {
         let zed = ide("zed", "Zed", &["Zed.app"]);
-        assert_eq!(launch(&zed, Path::new("/Applications/Zed.app"), "/w/app"), Cmd { program: "/usr/bin/open", args: vec!["-a".into(), "/Applications/Zed.app".into(), "/w/app".into()] });
+        assert_eq!(
+            launch(&zed, Path::new("/Applications/Zed.app"), "/w/app"),
+            Cmd { program: "/usr/bin/open", args: vec!["-a".into(), "/Applications/Zed.app".into(), "/w/app".into()] }
+        );
     }
 
     #[test]
     fn a_terminal_that_ignores_a_folder_gets_it_on_its_command_line() {
         let wezterm = apps().find(|a| a.id == "wezterm").unwrap();
-        assert_eq!(launch(wezterm, Path::new("/Applications/WezTerm.app"), "/w/app").args, ["-n", "-a", "/Applications/WezTerm.app", "--args", "start", "--cwd", "/w/app"]);
+        assert_eq!(
+            launch(wezterm, Path::new("/Applications/WezTerm.app"), "/w/app").args,
+            ["-n", "-a", "/Applications/WezTerm.app", "--args", "start", "--cwd", "/w/app"]
+        );
     }
 
     #[test]
     fn the_icon_name_is_read_from_the_bundles_plist() {
-        assert_eq!(icon_name(Path::new("/Applications/Zed.app")).args, ["-extract", "CFBundleIconFile", "raw", "-o", "-", "/Applications/Zed.app/Contents/Info.plist"]);
+        assert_eq!(
+            icon_name(Path::new("/Applications/Zed.app")).args,
+            ["-extract", "CFBundleIconFile", "raw", "-o", "-", "/Applications/Zed.app/Contents/Info.plist"]
+        );
     }
 
     #[test]
@@ -284,6 +312,12 @@ mod tests {
     #[test]
     fn the_png_is_made_by_sips_at_64_points() {
         let cmd = png_icon(Path::new("/a.icns"), Path::new("/c/a.png"));
-        assert_eq!((cmd.program, cmd.args), ("/usr/bin/sips", vec!["-s".to_string(), "format".into(), "png".into(), "-Z".into(), "64".into(), "/a.icns".into(), "--out".into(), "/c/a.png".into()]));
+        assert_eq!(
+            (cmd.program, cmd.args),
+            (
+                "/usr/bin/sips",
+                vec!["-s".to_string(), "format".into(), "png".into(), "-Z".into(), "64".into(), "/a.icns".into(), "--out".into(), "/c/a.png".into()]
+            )
+        );
     }
 }

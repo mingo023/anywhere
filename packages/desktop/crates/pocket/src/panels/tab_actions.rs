@@ -3,8 +3,8 @@ use crate::explorer::preview::relative;
 use crate::util::basename;
 use gpui_kit::*;
 use std::path::Path;
-use workspace::{Doc, Tab};
 use workspace::tree::{Edge, PaneId, Target};
+use workspace::{Doc, Tab};
 
 /// Where Move left and Move right take tab `i` of `len`, if it can go that way.
 fn neighbours(i: usize, len: usize) -> (Option<usize>, Option<usize>) {
@@ -59,7 +59,9 @@ impl Desktop {
         .collect();
         let file = match tab {
             Tab::Doc(Doc::File(p)) => Some(p.clone()),
-            Tab::Doc(Doc::Diff(p) | Doc::CommitFile { path: p, .. } | Doc::PrFile { path: p, .. } | Doc::CompareFile { path: p, .. }) => self.cwd().map(|cwd| format!("{cwd}/{p}")),
+            Tab::Doc(Doc::Diff(p) | Doc::CommitFile { path: p, .. } | Doc::PrFile { path: p, .. } | Doc::CompareFile { path: p, .. }) => {
+                self.cwd().map(|cwd| format!("{cwd}/{p}"))
+            }
             _ => None,
         };
         let mut files = Vec::new();
@@ -85,7 +87,9 @@ impl Desktop {
                 cx.notify();
             })));
             let name = basename(&path);
-            for (id, label, text) in [("tab-copy-path", "Copy Path", path), ("tab-copy-relative", "Copy Relative Path", rel), ("tab-copy-name", "Copy File Name", name)] {
+            for (id, label, text) in
+                [("tab-copy-path", "Copy Path", path), ("tab-copy-relative", "Copy Relative Path", rel), ("tab-copy-name", "Copy File Name", name)]
+            {
                 files.push(ui::menu_row(id, "copy", label, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.panels.actions = None;
                     this.copy_path(&text, cx);
@@ -105,7 +109,9 @@ impl Desktop {
                 cx.notify();
             })));
         }
-        let groups = [moves, files, closes].into_iter().filter(|g| !g.is_empty()).enumerate().flat_map(|(n, g)| (n > 0).then(ui::menu_divider).map(IntoElement::into_any_element).into_iter().chain(g.into_iter().map(IntoElement::into_any_element)));
+        let groups = [moves, files, closes].into_iter().filter(|g| !g.is_empty()).enumerate().flat_map(|(n, g)| {
+            (n > 0).then(ui::menu_divider).map(IntoElement::into_any_element).into_iter().chain(g.into_iter().map(IntoElement::into_any_element))
+        });
         let menu = ui::pop(div().id("tab-actions"))
             .w(px(220.))
             .p(px(6.))

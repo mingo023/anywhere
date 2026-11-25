@@ -1,8 +1,8 @@
 use super::glyph::status_pill;
 use super::logic::{access_label, duration_text, run_age_text, run_reason, stamp, when_label};
 use super::parts::{card, crumbs, details, section};
-use crate::desktop::chrome::pill;
 use crate::desktop::Desktop;
+use crate::desktop::chrome::pill;
 use crate::util::{now_ms, tilde};
 use agents::Decision;
 use agents::automations::{Run, RunStatus};
@@ -18,7 +18,9 @@ impl Desktop {
         let reason = run_reason(&run, &Local);
         let agent = run.agent_id.clone();
         let open = (!agent.is_empty()).then(|| {
-            pill("run-open-session", Variant::Secondary, None, "Open session").child(icon("external", 12., TEXT)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_run_session(&agent, window, cx)))
+            pill("run-open-session", Variant::Secondary, None, "Open session")
+                .child(icon("external", 12., TEXT))
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_run_session(&agent, window, cx)))
         });
         let bar = self.detail_bar(crumbs("Runs", reason.clone()), div().children(open), cx);
 
@@ -27,7 +29,12 @@ impl Desktop {
         let who = match &auto {
             Some(a) => {
                 let id = a.id.clone();
-                ui::link("run-automation", a.name.clone()).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(ACCENT_LINK).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_automation(id.clone(), cx))).into_any_element()
+                ui::link("run-automation", a.name.clone())
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(ACCENT_LINK)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_automation(id.clone(), cx)))
+                    .into_any_element()
             }
             None => "a deleted automation".into_any_element(),
         };
@@ -35,7 +42,14 @@ impl Desktop {
             .flex()
             .flex_col()
             .gap(px(10.))
-            .child(div().flex().items_center().gap(px(8.)).child(status_pill(run.status, "run-pill")).child(div().text_size(px(12.5)).text_color(TEXT_3).child(run_age_text(&run, now, &Local))))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(status_pill(run.status, "run-pill"))
+                    .child(div().text_size(px(12.5)).text_color(TEXT_3).child(run_age_text(&run, now, &Local))),
+            )
             .child(div().text_size(px(22.)).line_height(px(28.)).font_weight(FontWeight::BOLD).child(reason))
             .child(
                 div()
@@ -55,9 +69,8 @@ impl Desktop {
             let title = if run.why.is_empty() { "Run failed".to_string() } else { format!("Run failed · {}", run.why) };
             div().p(px(16.)).py(px(14.)).rounded(px(12.)).bg(FAILED_BG).text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).text_color(FAILED).child(title)
         });
-        let summary = (!run.summary.is_empty()).then(|| {
-            section("Summary", card().py(px(14.)).px(px(16.)).text_size(px(14.)).line_height(px(22.4)).child(run.summary.clone()))
-        });
+        let summary = (!run.summary.is_empty())
+            .then(|| section("Summary", card().py(px(14.)).px(px(16.)).text_size(px(14.)).line_height(px(22.4)).child(run.summary.clone())));
         let duration = match run.status {
             RunStatus::Running | RunStatus::Pending | RunStatus::Waiting => "In progress".to_string(),
             _ => Some(duration_text(run.started_at, run.finished_at)).filter(|d| !d.is_empty()).unwrap_or_else(|| "—".into()),
@@ -106,7 +119,15 @@ impl Desktop {
         });
         let command = pending.as_ref().map(|p| {
             let text = if p.detail.kind == "shell" { format!("$ {}", p.detail.command) } else { p.ask() };
-            div().py(px(10.)).px(px(12.)).rounded(px(8.)).bg(FILL_2).font_family(MONO).text_size(px(13.)).text_color(Token::new(0x0f766eff, 0x5eead4ff)).child(text)
+            div()
+                .py(px(10.))
+                .px(px(12.))
+                .rounded(px(8.))
+                .bg(FILL_2)
+                .font_family(MONO)
+                .text_size(px(13.))
+                .text_color(Token::new(0x0f766eff, 0x5eead4ff))
+                .child(text)
         });
         let answers = pending.map(|p| {
             let (allow, deny) = (p.request_id.clone(), p.request_id);
@@ -120,14 +141,12 @@ impl Desktop {
                         this.outbox.resolve(&allow, Decision::Allow);
                         cx.notify();
                     })),
-                pill("approval-deny", Variant::Ghost, None, "Deny")
-                    .h(px(30.))
-                    .rounded(px(15.))
-                    .text_color(FAILED)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                pill("approval-deny", Variant::Ghost, None, "Deny").h(px(30.)).rounded(px(15.)).text_color(FAILED).on_click(cx.listener(
+                    move |this, _: &ClickEvent, _, cx| {
                         this.outbox.resolve(&deny, Decision::Deny);
                         cx.notify();
-                    })),
+                    },
+                )),
             ]
         });
         card()
@@ -145,7 +164,13 @@ impl Desktop {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(ui::dot(8., WAITING).shadow(vec![ui::ring(WAITING_BG, 3.)]))
                     .child(if command.is_some() { "Allow command?" } else { "Needs your answer" })
-                    .child(div().text_size(px(12.5)).font_weight(FontWeight::NORMAL).text_color(TEXT_3).child(format!("{} paused until you answer", self.agent_name(provider)))),
+                    .child(
+                        div()
+                            .text_size(px(12.5))
+                            .font_weight(FontWeight::NORMAL)
+                            .text_color(TEXT_3)
+                            .child(format!("{} paused until you answer", self.agent_name(provider))),
+                    ),
             )
             .children(command)
             .child(div().h(px(30.)).flex().items_center().gap(px(8.)).children(answers.into_iter().flatten()).children(reply))

@@ -167,7 +167,10 @@ impl Desktop {
             for start in (0..files.len()).step_by(CHUNK) {
                 let chunk = files[start..(start + CHUNK).min(files.len())].to_vec();
                 let (cwd, sha, parent) = (cwd.clone(), sha.clone(), parent.clone());
-                let diffs = cx.background_executor().spawn(async move { chunk.iter().map(|f| read_file(&cwd, &sha, parent.as_deref(), f, options)).collect::<Vec<_>>() }).await;
+                let diffs = cx
+                    .background_executor()
+                    .spawn(async move { chunk.iter().map(|f| read_file(&cwd, &sha, parent.as_deref(), f, options)).collect::<Vec<_>>() })
+                    .await;
                 let shown = this.update(cx, |d, cx| {
                     let ok = d.commit.panes.get_mut(&pane).is_some_and(|c| c.set_diffs(run, start, diffs));
                     if ok {
@@ -184,7 +187,9 @@ impl Desktop {
     }
 
     pub fn commit_view(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Div {
-        let Some((sha, n, state)) = self.commit.get(pane).and_then(|c| Some((c.sha.clone()?, c.files.len(), c.list.clone()))) else { return empty("No commit.") };
+        let Some((sha, n, state)) = self.commit.get(pane).and_then(|c| Some((c.sha.clone()?, c.files.len(), c.list.clone()))) else {
+            return empty("No commit.");
+        };
         let meta = vec![ui::meta_item().child(ui::meta_value(format!("{n} file{}", if n == 1 { "" } else { "s" }))).into_any_element()];
         let crumbs = std::iter::once(git::short_sha(&sha).to_string()).chain(self.graph.commit(&sha).map(|c| c.subject.clone())).collect();
         let rows = list(state, cx.processor(move |this, ix, _, cx| this.commit_diff_row(pane, ix, cx))).pb(px(8.));
@@ -235,9 +240,25 @@ impl Desktop {
             .cursor_pointer()
             .hover(|s| s.bg(FILL_2))
             .child(file_icon(name, false, false, 14.))
-            .child(div().flex_none().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).when(file.status == 'D', |d| d.line_through()).child(name.to_string()))
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(TEXT)
+                    .when(file.status == 'D', |d| d.line_through())
+                    .child(name.to_string()),
+            )
             .when(!dir.is_empty(), |d| d.child(div().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_4).child(dir.to_string())))
-            .child(div().ml_auto().font_family(MONO).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(ui::git_color(file.status)).child(file.status.to_string()))
+            .child(
+                div()
+                    .ml_auto()
+                    .font_family(MONO)
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(ui::git_color(file.status))
+                    .child(file.status.to_string()),
+            )
             .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
                 if let Some(doc) = doc.clone() {
                     this.open_doc(doc, ev.click_count() > 1, cx);

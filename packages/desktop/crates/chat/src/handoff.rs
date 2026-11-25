@@ -66,7 +66,11 @@ mod tests {
 
     #[test]
     fn a_handoff_carries_the_messages_and_leaves_the_work_out() {
-        let turn = Turn { prompt: Some(message(" Fix CI ")), blocks: vec![Block::Thinking(message("hmm")), Block::Text(message("Done.")), Block::Plan(message("1. Fix"))], ..Turn::default() };
+        let turn = Turn {
+            prompt: Some(message(" Fix CI ")),
+            blocks: vec![Block::Thinking(message("hmm")), Block::Text(message("Done.")), Block::Plan(message("1. Fix"))],
+            ..Turn::default()
+        };
         let own = Turn { blocks: vec![Block::Text(message("  "))], ..Turn::default() };
         assert_eq!(transcript(&Transcript { turns: vec![turn, own] }, "Claude Code"), "User: Fix CI\n\nClaude Code: Done.");
     }

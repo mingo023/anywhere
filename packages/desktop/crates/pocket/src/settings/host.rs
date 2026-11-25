@@ -142,7 +142,10 @@ impl Desktop {
             return;
         }
         cx.spawn(async |this, cx| {
-            let (status, devices, cli) = cx.background_executor().spawn(async { (daemon::request(&json!({"op": "status"})), daemon::request(&json!({"op": "devices"})), daemon::cli::installed()) }).await;
+            let (status, devices, cli) = cx
+                .background_executor()
+                .spawn(async { (daemon::request(&json!({"op": "status"})), daemon::request(&json!({"op": "devices"})), daemon::cli::installed()) })
+                .await;
             this.update(cx, |d, cx| {
                 d.settings.host.cli = cli;
                 if let Ok(reply) = status {
@@ -300,7 +303,8 @@ mod tests {
     #[test]
     fn pocketd_settings_land_in_the_store_and_report_a_change_once() {
         let mut store = Store::default();
-        let config = json!({"restore.resumeAgents": false, "awake.enabled": false, "awake.lingerMinutes": 10, "automations.graceHours": 0, "automations.history": 200});
+        let config =
+            json!({"restore.resumeAgents": false, "awake.enabled": false, "awake.lingerMinutes": 10, "automations.graceHours": 0, "automations.history": 200});
         let config = config.as_object().unwrap();
         assert!(mirror(&mut store, config));
         assert_eq!((store.general.resume_agents, store.general.keep_awake, store.general.linger_minutes), (false, false, 10));

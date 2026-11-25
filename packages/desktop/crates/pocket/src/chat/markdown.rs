@@ -1,4 +1,7 @@
-use gpui_kit::base::text::{CodeBlockHighlighterFn, InlineElement, InlineRenderContext, MarkdownNode, MarkdownParseContext, MarkdownPlugin, TextView, TextViewMotion, TextViewState, TextViewStyle, markdown_ast};
+use gpui_kit::base::text::{
+    CodeBlockHighlighterFn, InlineElement, InlineRenderContext, MarkdownNode, MarkdownParseContext, MarkdownPlugin, TextView, TextViewMotion, TextViewState,
+    TextViewStyle, markdown_ast,
+};
 use gpui_kit::component::highlighter::SyntaxHighlighter;
 use gpui_kit::component::input::Rope;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -246,7 +249,15 @@ fn style() -> TextViewStyle {
     // is, so a table too wide to fit ends at the frame, not mid-column on the page; a shade stronger, having no fill.
     let mut table = StyleRefinement::default().rounded(px(10.)).border_1().border_color(SEPARATOR_STRONG);
     table.overflow.x = Some(Overflow::Scroll);
-    let quote = StyleRefinement::default().border_l_2().border_color(accent.opacity(0.6)).bg(accent.opacity(0.05)).rounded_r(px(6.)).pl(px(12.)).pr(px(10.)).py(px(6.)).text_color(TEXT);
+    let quote = StyleRefinement::default()
+        .border_l_2()
+        .border_color(accent.opacity(0.6))
+        .bg(accent.opacity(0.05))
+        .rounded_r(px(6.))
+        .pl(px(12.))
+        .pr(px(10.))
+        .py(px(6.))
+        .text_color(TEXT);
     TextViewStyle::default()
         .with_foreground(TEXT_BODY.into())
         .with_muted_foreground(TEXT_2.into())
@@ -271,17 +282,21 @@ fn style() -> TextViewStyle {
         .with_code_font(code_font())
         // 16px between blocks; GPUI's rem is 16px.
         .with_paragraph_gap(rems(1.))
-        .with_heading_font_size(|level, _| px(match level {
-            1 => 19.,
-            2 => 16.,
-            3 => 15.,
-            _ => 14.,
-        }))
-        .with_heading_line_height(|level| px(match level {
-            1 => 27.,
-            2 => 24.,
-            _ => 22.,
-        }))
+        .with_heading_font_size(|level, _| {
+            px(match level {
+                1 => 19.,
+                2 => 16.,
+                3 => 15.,
+                _ => 14.,
+            })
+        })
+        .with_heading_line_height(|level| {
+            px(match level {
+                1 => 27.,
+                2 => 24.,
+                _ => 22.,
+            })
+        })
         .with_dark(is_dark())
 }
 

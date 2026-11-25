@@ -67,7 +67,11 @@ pub(super) fn lead_in(top: usize, target: usize, viewport: f32, height: impl Fn(
         covered += height(ix).unwrap_or(viewport / 4.);
         covered >= viewport
     };
-    if target < top { (target..top).find(|&ix| fills_viewport(ix)).map_or(top, |ix| ix + 1) } else { (top..target).rev().find(|&ix| fills_viewport(ix)).unwrap_or(top) }
+    if target < top {
+        (target..top).find(|&ix| fills_viewport(ix)).map_or(top, |ix| ix + 1)
+    } else {
+        (top..target).rev().find(|&ix| fills_viewport(ix)).unwrap_or(top)
+    }
 }
 
 /// Once offered, the pill stays until the end is within 2px; one 320px threshold dropped it halfway through a scroll down.

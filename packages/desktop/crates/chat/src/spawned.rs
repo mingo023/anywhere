@@ -56,7 +56,15 @@ mod tests {
     }
 
     fn shell(id: &str) -> Block {
-        Block::Tool(ToolCall { id: id.into(), name: "Bash".into(), kind: ToolKind::Shell { command: "ls".into(), description: String::new() }, status: ToolStatus::Ok, output: None, duration_ms: None, at: 0 })
+        Block::Tool(ToolCall {
+            id: id.into(),
+            name: "Bash".into(),
+            kind: ToolKind::Shell { command: "ls".into(), description: String::new() },
+            status: ToolStatus::Ok,
+            output: None,
+            duration_ms: None,
+            at: 0,
+        })
     }
 
     fn turn(blocks: Vec<Block>, ended: bool) -> Turn {
@@ -69,7 +77,12 @@ mod tests {
 
     #[test]
     fn each_sub_agent_follows_the_one_that_spawned_it() {
-        let t = Transcript { turns: vec![turn(vec![agent("a", ToolStatus::Ok, vec![shell("s"), agent("a1", ToolStatus::Ok, vec![])]), shell("x"), agent("b", ToolStatus::Running, vec![])], false)] };
+        let t = Transcript {
+            turns: vec![turn(
+                vec![agent("a", ToolStatus::Ok, vec![shell("s"), agent("a1", ToolStatus::Ok, vec![])]), shell("x"), agent("b", ToolStatus::Running, vec![])],
+                false,
+            )],
+        };
         assert_eq!(ids(&spawned(&t)), [("a", None), ("a1", Some(0)), ("b", None)]);
     }
 

@@ -120,7 +120,8 @@ impl Desktop {
                     .h(px(30.))
                     .mt(px(10.))
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_pr_composer(window, cx)));
-                let badge = div().size(px(40.)).mb(px(8.)).flex().items_center().justify_center().rounded_full().bg(FILL_2).child(icon("pull-request", 18., TEXT_2));
+                let badge =
+                    div().size(px(40.)).mb(px(8.)).flex().items_center().justify_center().rounded_full().bg(FILL_2).child(icon("pull-request", 18., TEXT_2));
                 let base = repo.base.as_deref().map(base_branch).unwrap_or_default();
                 let branches = div()
                     .max_w_full()

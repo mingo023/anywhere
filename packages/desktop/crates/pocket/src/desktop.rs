@@ -1,8 +1,8 @@
 pub(crate) mod alerts;
 pub(crate) mod chrome;
 pub(crate) mod close;
-pub(crate) mod geometry;
 pub(crate) mod dock;
+pub(crate) mod geometry;
 pub(crate) mod jump;
 pub(crate) mod locals;
 pub(crate) mod pages;
@@ -12,8 +12,8 @@ pub(crate) mod sounds;
 pub(crate) mod toast;
 
 use crate::accounts::Accounts;
-use crate::add_to_chat::ChatComposer;
 use crate::activity::ActivityState;
+use crate::add_to_chat::ChatComposer;
 use crate::automations::AutomationsState;
 use crate::board::BoardState;
 use crate::browser::Browsers;
@@ -28,15 +28,15 @@ use crate::desktop::sounds::Chime;
 use crate::explorer::ExplorerState;
 use crate::explorer::preview::PreviewState;
 use crate::fleet::Fleet;
-use crate::host_agents::HostAgents;
 use crate::git_ui::changes::ChangesState;
-use crate::git_ui::compare::CompareState;
 use crate::git_ui::commit::Commits;
+use crate::git_ui::compare::CompareState;
 use crate::git_ui::diff::{At, DiffState};
 use crate::git_ui::gh_accounts::GhAccounts;
 use crate::git_ui::graph::GraphState;
 use crate::git_ui::pull_request::PullRequest;
 use crate::git_ui::pull_requests::PullRequests;
+use crate::host_agents::HostAgents;
 use crate::inbox::InboxState;
 use crate::modals::pair_phone::PairPhone;
 use crate::modals::{add_project, clone_project, new_session};
@@ -44,25 +44,25 @@ use crate::models::Models;
 use crate::notch::Notch;
 use crate::open_in::OpenIn;
 use crate::palette::PaletteState;
-use crate::region::Regions;
 use crate::panels::Panels;
+use crate::region::Regions;
 use crate::removal::Removals;
 use crate::renames::Renames;
 use crate::settings::SettingsState;
 use crate::sidebar::SidebarState;
 use crate::spaces::Spaces;
+use crate::star::Star;
 use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
-use crate::themes::Themes;
 use crate::terminals::link::{Hint, Update};
-use crate::star::Star;
-use crate::welcome::Welcome;
+use crate::themes::Themes;
 use crate::updates::Updates;
+use crate::welcome::Welcome;
 use agents::Agents;
-use hosts::session::{Daemons, Outboxes};
 use git::Repo;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use hosts::session::{Daemons, Outboxes};
 use std::collections::HashMap;
 use std::time::Instant;
 use store::Store;
@@ -506,13 +506,37 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.board.menu.is_some() || self.panels.menu.is_some() || self.panels.actions.is_some() || self.panels.top_actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.compare.menu || self.pr.ship_menu || self.pr.merge_menu || self.pr.create_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.sidebar.organize.menu || self.spaces.menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some() || self.clone_form.machine_menu || self.chats.files.is_some() || self.chats.select.menu_open() || self.open_in.menu.is_some() || self.activity.menu.is_some()
+        self.board.menu.is_some()
+            || self.panels.menu.is_some()
+            || self.panels.actions.is_some()
+            || self.panels.top_actions.is_some()
+            || self.row_menu.is_some()
+            || self.changes.commit_menu
+            || self.changes.menu
+            || self.compare.menu
+            || self.pr.ship_menu
+            || self.pr.merge_menu
+            || self.pr.create_menu
+            || self.sidebar.picker.open
+            || self.sidebar.add_menu
+            || self.sidebar.organize.menu
+            || self.spaces.menu
+            || self.automations.menu.is_some()
+            || self.explorer.menu.is_some()
+            || self.terminal.menu.is_some()
+            || self.accounts.menu.is_some()
+            || self.clone_form.machine_menu
+            || self.chats.files.is_some()
+            || self.chats.select.menu_open()
+            || self.open_in.menu.is_some()
+            || self.activity.menu.is_some()
     }
 
     /// Returns whether a menu was open.
     pub(crate) fn close_menus(&mut self) -> bool {
         let open = self.menu_open();
-        (self.panels.menu, self.panels.actions, self.panels.top_actions, self.row_menu, self.changes.commit_menu, self.changes.menu) = (None, None, None, None, false, false);
+        (self.panels.menu, self.panels.actions, self.panels.top_actions, self.row_menu, self.changes.commit_menu, self.changes.menu) =
+            (None, None, None, None, false, false);
         self.compare.menu = false;
         (self.pr.ship_menu, self.pr.merge_menu, self.pr.create_menu) = (false, false, false);
         self.sidebar.menu_at = None;
@@ -550,7 +574,11 @@ impl Desktop {
     pub(crate) fn idle_main(&self) -> bool {
         let Some(p) = self.project.as_deref() else { return false };
         let Some(main) = self.tree_of(p) else { return false };
-        self.panels.restored && new_session::may_start(&self.agents) && self.worktrees.get(p).is_some_and(|w| !w.is_empty()) && self.place().as_ref() == Some(&main) && !self.in_use(&main)
+        self.panels.restored
+            && new_session::may_start(&self.agents)
+            && self.worktrees.get(p).is_some_and(|w| !w.is_empty())
+            && self.place().as_ref() == Some(&main)
+            && !self.in_use(&main)
     }
 
     /// The provider's Label from Settings, else its own name.
@@ -583,7 +611,20 @@ impl Desktop {
                 None => self.blank_page(cx),
             },
         };
-        ui::page(div()).relative().flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).children(self.error_toast(cx)).children(self.deleting_toast()).children(self.added_toast()).children(self.tree_toast(cx)).children(self.pr_notice(cx))
+        ui::page(div())
+            .relative()
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .child(body)
+            .children(self.error_toast(cx))
+            .children(self.deleting_toast())
+            .children(self.added_toast())
+            .children(self.tree_toast(cx))
+            .children(self.pr_notice(cx))
     }
 
     fn link_page(&self, now: Instant, window: &mut Window, cx: &mut Context<Self>) -> Div {
@@ -591,10 +632,15 @@ impl Desktop {
         let hint = link.hint(now);
         let tip = match hint {
             None | Some(Hint::Stale) => Vec::new(),
-            Some(Hint::Install) => vec![div().child("Not starting? In Terminal:").into_any_element(), div().font_family(MONO).child("pocketd daemon install").into_any_element()],
+            Some(Hint::Install) => {
+                vec![div().child("Not starting? In Terminal:").into_any_element(), div().font_family(MONO).child("pocketd daemon install").into_any_element()]
+            }
             Some(Hint::LoginItems) => vec![
                 div().child("Anywhere's background service is off.").into_any_element(),
-                ui::button("open-login-items", ui::Variant::Primary, None, "Open Login Items").mt(px(6.)).on_click(|_, _, _| daemon::service::open_login_items()).into_any_element(),
+                ui::button("open-login-items", ui::Variant::Primary, None, "Open Login Items")
+                    .mt(px(6.))
+                    .on_click(|_, _, _| daemon::service::open_login_items())
+                    .into_any_element(),
             ],
             Some(Hint::Reopen) => vec![div().child("Not starting? Quit and reopen Anywhere.").into_any_element()],
         };
@@ -670,28 +716,18 @@ impl Desktop {
         let text = if self.project.is_none() { "Add a project to begin." } else { "Pick a session, or start a new one." };
         let observe = self.agents.observe_only();
         let (pad, toggle) = self.bar_start(12., cx);
-        let bar = chrome::drag_area(ui::page_bar())
-            .pl(px(pad))
-            .children(toggle)
-            .child(ui::breadcrumb(vec!["Sessions".into()]));
+        let bar = chrome::drag_area(ui::page_bar()).pl(px(pad)).children(toggle).child(ui::breadcrumb(vec!["Sessions".into()]));
         div().flex_1().flex().flex_col().child(bar).when(observe, |d| d.child(chrome::observe_banner())).child(
-            div()
-                .flex_1()
-                .flex()
-                .flex_col()
-                .items_center()
-                .justify_center()
-                .gap(px(14.))
-                .text_size(px(14.))
-                .text_color(TEXT_3)
-                .child(text)
-                .when(self.project.is_some() && !observe, |d| {
+            div().flex_1().flex().flex_col().items_center().justify_center().gap(px(14.)).text_size(px(14.)).text_color(TEXT_3).child(text).when(
+                self.project.is_some() && !observe,
+                |d| {
                     d.child(
                         ui::button("blank-new", ui::Variant::Primary, Some("sparkle"), "New session")
                             .child(ui::button_kbd("⌘N"))
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_session(None, false, window, cx))),
                     )
-                }),
+                },
+            ),
         )
     }
 }
@@ -707,7 +743,11 @@ impl Render for Desktop {
         // A capture draws one frame a step, which would catch a glide midway.
         let (now, reduce_motion) = (Instant::now(), cx.reduce_motion() || self.capturing);
         // Not `||`: each steps every frame.
-        if self.sidebar.tick(self.layout, now, reduce_motion) | self.panels.tick(now, reduce_motion) | self.star.tick(now, self.capturing) | self.chats.dock.tick(now, reduce_motion) {
+        if self.sidebar.tick(self.layout, now, reduce_motion)
+            | self.panels.tick(now, reduce_motion)
+            | self.star.tick(now, self.capturing)
+            | self.chats.dock.tick(now, reduce_motion)
+        {
             window.request_animation_frame();
         }
         self.sync_code(window, cx);
@@ -754,7 +794,17 @@ impl Render for Desktop {
                 if ev.keystroke.key != "escape" {
                     return;
                 }
-                if this.close_host_finder(window, cx) || this.cancel_drag() || this.explorer.cancel_edit() || this.sidebar.cancel_rename() || this.spaces.rename.take().is_some() || this.close_picker() || this.escape_composer_menu() || this.close_menus() || this.chat_escape_dock(window, cx) || this.delegated_escape(window, cx) {
+                if this.close_host_finder(window, cx)
+                    || this.cancel_drag()
+                    || this.explorer.cancel_edit()
+                    || this.sidebar.cancel_rename()
+                    || this.spaces.rename.take().is_some()
+                    || this.close_picker()
+                    || this.escape_composer_menu()
+                    || this.close_menus()
+                    || this.chat_escape_dock(window, cx)
+                    || this.delegated_escape(window, cx)
+                {
                     cx.notify();
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);

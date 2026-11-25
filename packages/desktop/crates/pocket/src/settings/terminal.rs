@@ -36,37 +36,76 @@ const SHELL_SOURCE: &str = if cfg!(target_os = "macos") {
 const LINK_CLICKS: [&str; 2] = [if cfg!(target_os = "macos") { "⌘-click" } else { "Ctrl-click" }, "Click"];
 
 pub(super) const ROWS: &[Setting] = &[
-    Setting::custom("terminal-font", "Text", "Font", |d, s, cx| font_row(d, s, &FONT, cx)).resets(|s| FONT.name(s), |s, d| s.terminal.font = d.terminal.font.clone()),
+    Setting::custom("terminal-font", "Text", "Font", |d, s, cx| font_row(d, s, &FONT, cx))
+        .resets(|s| FONT.name(s), |s, d| s.terminal.font = d.terminal.font.clone()),
     Setting::stepper("terminal-size", "Text", "Size", (9, 24, 1), " pt", |s| s.terminal.size, |s, n| s.terminal.size = n),
     Setting::stepper("line-height", "Text", "Line height", (100, 200, 10), "%", |s| s.terminal.line_height, |s, n| s.terminal.line_height = n).advanced(),
-    Setting::switch("ligatures", "Text", "Ligatures", |s| s.terminal.ligatures, |s, on| s.terminal.ligatures = on).hint("Joins characters like => and != into one glyph").advanced(),
-    Setting::stepper("padding", "Text", "Padding", (0, 32, 1), " px", |s| s.terminal.padding, |s, n| s.terminal.padding = n).hint("Space between the text and the pane edge").advanced(),
+    Setting::switch("ligatures", "Text", "Ligatures", |s| s.terminal.ligatures, |s, on| s.terminal.ligatures = on)
+        .hint("Joins characters like => and != into one glyph")
+        .advanced(),
+    Setting::stepper("padding", "Text", "Padding", (0, 32, 1), " px", |s| s.terminal.padding, |s, n| s.terminal.padding = n)
+        .hint("Space between the text and the pane edge")
+        .advanced(),
     Setting::custom("preview", "Text", "Preview", preview),
-    Setting::choice("scheme", "Colors", "Color scheme", &["Default", "Graphite", "Solarized", "Custom"], Look::Dropdown, |s| s.terminal.scheme as usize, |s, i| s.terminal.scheme = Scheme::ALL[i])
-        .hint("16 ANSI colors. Click one to change it")
-        .effect(configure),
+    Setting::choice(
+        "scheme",
+        "Colors",
+        "Color scheme",
+        &["Default", "Graphite", "Solarized", "Custom"],
+        Look::Dropdown,
+        |s| s.terminal.scheme as usize,
+        |s, i| s.terminal.scheme = Scheme::ALL[i],
+    )
+    .hint("16 ANSI colors. Click one to change it")
+    .effect(configure),
     Setting::custom("swatches", "Colors", "Colors", swatches).effect(configure),
-    Setting::choice("cursor", "Cursor", "Cursor shape", &["Block", "Bar", "Underline"], Look::Segmented, |s| s.terminal.cursor as usize, |s, i| s.terminal.cursor = CURSORS[i]).effect(configure),
+    Setting::choice(
+        "cursor",
+        "Cursor",
+        "Cursor shape",
+        &["Block", "Bar", "Underline"],
+        Look::Segmented,
+        |s| s.terminal.cursor as usize,
+        |s, i| s.terminal.cursor = CURSORS[i],
+    )
+    .effect(configure),
     Setting::switch("blink", "Cursor", "Blink", |s| s.terminal.blink, |s, on| s.terminal.blink = on).effect(configure),
-    Setting::choice("option-as-meta", "Keyboard & mouse", "Use Option as Meta", &["Off", "Both keys", "Left Option only", "Right Option only"], Look::Dropdown, |s| s.terminal.option_as_meta as usize, |s, i| {
-        s.terminal.option_as_meta = Meta::ALL[i]
-    })
-        .hint("Leave off if you type characters like @ or € with Option"),
+    Setting::choice(
+        "option-as-meta",
+        "Keyboard & mouse",
+        "Use Option as Meta",
+        &["Off", "Both keys", "Left Option only", "Right Option only"],
+        Look::Dropdown,
+        |s| s.terminal.option_as_meta as usize,
+        |s, i| s.terminal.option_as_meta = Meta::ALL[i],
+    )
+    .hint("Leave off if you type characters like @ or € with Option"),
     Setting::switch("copy-on-select", "Keyboard & mouse", "Copy on select", |s| s.terminal.copy_on_select, |s, on| s.terminal.copy_on_select = on),
     Setting::switch("confirm-paste", "Keyboard & mouse", "Confirm multi-line paste", |s| s.terminal.confirm_paste, |s, on| s.terminal.confirm_paste = on)
         .hint("Asks before pasting text that would run several commands"),
-    Setting::choice("link-click", "Keyboard & mouse", "Open links with", &LINK_CLICKS, Look::Segmented, |s| s.terminal.click_opens_links as usize, |s, i| s.terminal.click_opens_links = i == 1),
+    Setting::choice(
+        "link-click",
+        "Keyboard & mouse",
+        "Open links with",
+        &LINK_CLICKS,
+        Look::Segmented,
+        |s| s.terminal.click_opens_links as usize,
+        |s, i| s.terminal.click_opens_links = i == 1,
+    ),
     Setting::choice("shell", "Shell", "Shell", &["Login shell", "Custom"], Look::Segmented, |s| s.terminal.shell as usize, |s, i| s.terminal.shell = SHELLS[i])
         .note(|_| Some(format!("Login shell is {}{SHELL_SOURCE}", daemon::login_shell()))),
-    Setting::custom("shell-path", "Shell", "Shell path", shell_path)
-        .under(|s| s.terminal.shell == Shell::Custom)
-        .resets(|s| if s.terminal.shell_path.is_empty() { "Not set".into() } else { crate::util::tilde(&s.terminal.shell_path) }, |s, _| s.terminal.shell_path.clear()),
+    Setting::custom("shell-path", "Shell", "Shell path", shell_path).under(|s| s.terminal.shell == Shell::Custom).resets(
+        |s| if s.terminal.shell_path.is_empty() { "Not set".into() } else { crate::util::tilde(&s.terminal.shell_path) },
+        |s, _| s.terminal.shell_path.clear(),
+    ),
     Setting::text("shell-args", "Shell", "Arguments", "--login", |s| s.terminal.shell_args.clone(), |s, v| s.terminal.shell_args = v)
         .hint("Split at spaces")
         .under(|s| s.terminal.shell == Shell::Custom),
     Setting::switch("confirm-close", "Shell", "Confirm before closing a terminal in use", |s| s.terminal.confirm_close, |s, on| s.terminal.confirm_close = on)
         .hint("When a command other than the shell has it"),
-    Setting::stepper("scrollback", "Shell", "Scrollback", (1_000, 100_000, 1_000), " lines", |s| s.terminal.scrollback, |s, n| s.terminal.scrollback = n).advanced().effect(configure),
+    Setting::stepper("scrollback", "Shell", "Scrollback", (1_000, 100_000, 1_000), " lines", |s| s.terminal.scrollback, |s, n| s.terminal.scrollback = n)
+        .advanced()
+        .effect(configure),
 ];
 
 fn configure(d: &mut Desktop, _: &mut Context<Desktop>) {
@@ -98,10 +137,22 @@ fn preview(d: &mut Desktop, setting: &'static Setting, _: &mut Context<Desktop>)
     let caret = move || div().h(px(line)).flex().items_end().child(div().w(px(w)).h(px(h)).bg(TERM_CURSOR));
     let rows = lines.into_iter().enumerate().map(|(i, spans)| {
         let text: String = spans.iter().map(|(s, _)| *s).collect();
-        let runs = spans.iter().map(|(s, color)| TextRun { len: s.len(), font: m.font.clone(), color: *color, background_color: None, underline: None, strikethrough: None }).collect();
+        let runs = spans
+            .iter()
+            .map(|(s, color)| TextRun { len: s.len(), font: m.font.clone(), color: *color, background_color: None, underline: None, strikethrough: None })
+            .collect();
         div().h(px(m.line)).flex().whitespace_nowrap().child(StyledText::new(text).with_runs(runs)).when(i == 3, |d| d.child(caret()))
     });
-    let screen = div().py(px(m.pad / 2. + 8.)).px(px(m.pad + 8.)).rounded(px(8.)).bg(CUTOUT).shadow(vec![ui::ring(HAIRLINE, 0.5)]).overflow_hidden().text_size(px(m.size)).line_height(px(m.line)).children(rows);
+    let screen = div()
+        .py(px(m.pad / 2. + 8.))
+        .px(px(m.pad + 8.))
+        .rounded(px(8.))
+        .bg(CUTOUT)
+        .shadow(vec![ui::ring(HAIRLINE, 0.5)])
+        .overflow_hidden()
+        .text_size(px(m.size))
+        .line_height(px(m.line))
+        .children(rows);
     div()
         .px(px(14.))
         .py(px(10.))
@@ -177,7 +228,8 @@ fn swatches(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Desktop
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| edit_swatch(this, setting, i, window, cx)))
     };
     let editor = d.settings.swatch.as_ref().map(|s| {
-        let field = field_box().w(px(110.)).child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(&s.field).appearance(false).p_0().text_size(px(12.))));
+        let field =
+            field_box().w(px(110.)).child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(&s.field).appearance(false).p_0().text_size(px(12.))));
         let done = action("terminal-swatch-done", "Done").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.settings.swatch = None;
             cx.notify();
@@ -200,7 +252,9 @@ fn swatches(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Desktop
 fn shell_path(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Desktop>) -> Div {
     let path = d.store.terminal.shell_path.clone();
     let shown = if path.is_empty() { "Not set".to_string() } else { crate::util::tilde(&path) };
-    let field = field_box().child(icon("terminal", 13., TEXT_3)).child(div().flex_1().min_w_0().truncate().font_family(MONO).text_size(px(12.)).text_color(if path.is_empty() { TEXT_3 } else { TEXT }).child(shown));
+    let field = field_box()
+        .child(icon("terminal", 13., TEXT_3))
+        .child(div().flex_1().min_w_0().truncate().font_family(MONO).text_size(px(12.)).text_color(if path.is_empty() { TEXT_3 } else { TEXT }).child(shown));
     let choose = action("shell-path-choose", "Choose…").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
         this.pick_path(false, window, cx, move |_, paths, _, cx| {
             let Some(p) = paths.into_iter().next() else { return };

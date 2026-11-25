@@ -11,13 +11,12 @@ pub(crate) mod suggest;
 mod switch_agent;
 
 use super::question::Wizard;
-use suggest::Prompt;
-use crate::composer::{Draft, Menu};
 use crate::composer::model_menu::focus_search;
+use crate::composer::{Draft, Menu};
 use crate::desktop::Desktop;
-use crate::renames;
 use crate::desktop::chrome::id;
 use crate::explorer::toast::Notice;
+use crate::renames;
 use crate::status::Status;
 use crate::util::now_ms;
 use agents::{Decision, Summary};
@@ -27,6 +26,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::cell::Cell;
 use std::collections::HashMap;
+use suggest::Prompt;
 use theme::*;
 use workspace::Place;
 
@@ -51,8 +51,12 @@ pub(super) enum Mode {
     Prompt,
     ViewOnly,
     /// The agent waits on a permission; pocketd refuses prompts until it's answered.
-    Permission { answerable: bool },
-    Question { answerable: bool },
+    Permission {
+        answerable: bool,
+    },
+    Question {
+        answerable: bool,
+    },
 }
 
 pub(super) fn composer_mode(observe_only: bool, ask: Option<&Ask>) -> Mode {
@@ -121,7 +125,14 @@ fn text_view_focused(contexts: &[KeyContext]) -> bool {
 /// The prompt input, built here since dropped files and Enter are wired at construction.
 pub(crate) fn input(window: &mut Window, cx: &mut Context<Desktop>) -> Entity<TextareaState> {
     let drop = crate::composer::drop_handler(cx.weak_entity(), |d| &mut d.chats.composer.draft);
-    cx.new(|cx| TextareaState::new(window, cx).placeholder(PLACEHOLDER).auto_grow(MIN_ROWS, MAX_ROWS).submit_on_enter(true).on_drop_paths(drop).decorate(super::mention::decorations))
+    cx.new(|cx| {
+        TextareaState::new(window, cx)
+            .placeholder(PLACEHOLDER)
+            .auto_grow(MIN_ROWS, MAX_ROWS)
+            .submit_on_enter(true)
+            .on_drop_paths(drop)
+            .decorate(super::mention::decorations)
+    })
 }
 
 /// The chat composer's state besides its input (`ChatState::input`), shared by every chat pane.
@@ -193,7 +204,16 @@ impl ComposerState {
 /// A code span's rounded shade, inset from the line it sits on; none for a span wrapped onto another line.
 pub(super) fn code_shade(span: Bounds<Pixels>) -> Option<PaintQuad> {
     let one_line = span.size.width > px(0.) && span.size.height <= px(INPUT_LINE_HEIGHT);
-    one_line.then(|| quad(Bounds::new(span.origin + point(px(0.), px(2.)), size(span.size.width, span.size.height - px(4.))), px(5.), Hsla::from(FILL_3), px(1.), HAIRLINE, BorderStyle::Solid))
+    one_line.then(|| {
+        quad(
+            Bounds::new(span.origin + point(px(0.), px(2.)), size(span.size.width, span.size.height - px(4.))),
+            px(5.),
+            Hsla::from(FILL_3),
+            px(1.),
+            HAIRLINE,
+            BorderStyle::Solid,
+        )
+    })
 }
 
 /// A fenced block's shade, from its opening fence's line down to its closing one's and as wide as `within`.
@@ -218,7 +238,11 @@ pub(crate) fn marks_overlay(input: Entity<TextareaState>) -> impl IntoElement {
                     chat::Code::Block { open, close } => Some(block_shade(input.range_to_bounds(open)?.top(), input.range_to_bounds(close)?.bottom(), visible)),
                 })
                 .collect();
-            let slots: Vec<(Bounds<Pixels>, String)> = marks.mentions.into_iter().filter_map(|r| Some((input.range_to_bounds(&(r.start..r.start + 1))?, text[r.start + 1..r.end].to_string()))).collect();
+            let slots: Vec<(Bounds<Pixels>, String)> = marks
+                .mentions
+                .into_iter()
+                .filter_map(|r| Some((input.range_to_bounds(&(r.start..r.start + 1))?, text[r.start + 1..r.end].to_string())))
+                .collect();
             window.with_content_mask(Some(ContentMask { bounds: visible }), |window| {
                 shades.into_iter().for_each(|q| window.paint_quad(q));
                 super::mention::paint_icons(slots.iter().map(|(slot, path)| (*slot, path.as_str())), 13., window, cx)
@@ -292,7 +316,11 @@ fn hang(id: &'static str, menu: impl IntoElement, cx: &mut Context<Desktop>) -> 
         .child(menu)
         .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| close_menu(this, cx)));
     let menu = ui::menu_in(SharedString::from(format!("{id}-in")), menu);
-    div().absolute().top(px(-6.)).left_0().child(deferred(anchored().anchor(Anchor::BottomLeft).snap_to_window_with_margin(px(8.)).child(menu)).with_priority(1))
+    div()
+        .absolute()
+        .top(px(-6.))
+        .left_0()
+        .child(deferred(anchored().anchor(Anchor::BottomLeft).snap_to_window_with_margin(px(8.)).child(menu)).with_priority(1))
 }
 
 fn fade_in<E: Styled + IntoElement + 'static>(id: ElementId, e: E) -> AnimationElement<E> {
@@ -575,7 +603,16 @@ impl Desktop {
     /// can read them. The draft stays, and this chat sends nothing else, until the copy is done; a chat left meanwhile sends
     /// on its next Send, without copying again.
     #[allow(clippy::too_many_arguments)]
-    fn chat_copy_first(&mut self, terminal: &str, agent: String, cwd: &str, queue: bool, copies: crate::composer::HostCopies, window: &mut Window, cx: &mut Context<Self>) {
+    fn chat_copy_first(
+        &mut self,
+        terminal: &str,
+        agent: String,
+        cwd: &str,
+        queue: bool,
+        copies: crate::composer::HostCopies,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.chats.copying.insert(agent.clone());
         let (terminal, host) = (terminal.to_string(), self.host_name(hosts::split(cwd).0.unwrap_or_default()));
         let copied = cx.background_executor().spawn(async move { copies.make().map(|()| copies.files) });
@@ -742,8 +779,12 @@ impl Desktop {
             self.chats.input.update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
         }
         let body = match (mode, ask) {
-            (Mode::Permission { answerable }, Some((ask, feedback))) => fade_in(id(format!("chat-ask:{}", ask.request_id)), self.permission_card(terminal, &ask, feedback, answerable, cx)).into_any_element(),
-            (Mode::Question { answerable }, Some((ask, _))) => fade_in(id(format!("chat-ask:{}", ask.request_id)), self.question_panel(terminal, &ask, answerable, cx)).into_any_element(),
+            (Mode::Permission { answerable }, Some((ask, feedback))) => {
+                fade_in(id(format!("chat-ask:{}", ask.request_id)), self.permission_card(terminal, &ask, feedback, answerable, cx)).into_any_element()
+            }
+            (Mode::Question { answerable }, Some((ask, _))) => {
+                fade_in(id(format!("chat-ask:{}", ask.request_id)), self.question_panel(terminal, &ask, answerable, cx)).into_any_element()
+            }
             _ => {
                 let locked = (mode == Mode::ViewOnly).then_some(mark.as_ref().map_or("View only", crate::handoff::Mark::composer));
                 self.prompt_box(terminal, agent, locked, window, cx).into_any_element()
@@ -756,7 +797,9 @@ impl Desktop {
         let tray = tray.map(|t| fade_in(id(format!("chat-queue:{terminal}")), t));
         let interrupt = self.chat_caps(&agent.provider).interrupt;
         let stop = |tasks: &[&chat::ToolCall]| mode == Mode::Prompt && background::stops(agent.chat_only, interrupt, busy, tasks);
-        let background = matches!(mode, Mode::Prompt | Mode::ViewOnly).then(|| view.and_then(|v| self.background_tray(&agent.id, &v.session.transcript, stop, cx))).flatten();
+        let background = matches!(mode, Mode::Prompt | Mode::ViewOnly)
+            .then(|| view.and_then(|v| self.background_tray(&agent.id, &v.session.transcript, stop, cx)))
+            .flatten();
         let background = background.map(|t| fade_in(id(format!("chat-background-in:{terminal}")), t));
         let btw = matches!(mode, Mode::Prompt).then(|| self.btw_card(&agent.id, cx)).flatten();
         let (typed, draft) = self.chat_draft(&agent.id, cx);
@@ -766,20 +809,42 @@ impl Desktop {
         let account = (mode != Mode::ViewOnly).then(|| self.chat_account_chip(agent, cx)).flatten();
         let footer = self.composer_footer(agent, account, hint(mode, busy, stopping, empty, can_queue), said, asking, cx.reduce_motion());
         let map = view.and_then(|v| self.chat_agent_map(agent, &v.session.transcript, cx));
-        let column = div().w_full().max_w(px(MAX_WIDTH)).flex().flex_col().children(map).children(btw).children(background).children(tray).child(body).child(footer).children(handoff);
+        let column = div()
+            .w_full()
+            .max_w(px(MAX_WIDTH))
+            .flex()
+            .flex_col()
+            .children(map)
+            .children(btw)
+            .children(background)
+            .children(tray)
+            .child(body)
+            .child(footer)
+            .children(handoff);
         dock.child(column)
     }
 
     /// The agent's branch and `account`, then `hint`, amber while the agent asks; `said` stands in for the hint while it shows.
-    fn composer_footer(&self, agent: &Summary, account: Option<Div>, hint: Option<&'static str>, said: Option<(&'static str, &str)>, asking: bool, reduce_motion: bool) -> Div {
+    fn composer_footer(
+        &self,
+        agent: &Summary,
+        account: Option<Div>,
+        hint: Option<&'static str>,
+        said: Option<(&'static str, &str)>,
+        asking: bool,
+        reduce_motion: bool,
+    ) -> Div {
         let branch = self.worktree_of(&agent.cwd).filter(|t| !t.branch.is_empty()).map(|t| {
-            div()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .child(icon("worktree", 13., TEXT_3))
-                .child(div().min_w_0().truncate().font_family(code_font()).text_size(px(11.5)).text_color(TEXT_2).child(renames::branch_label(&self.renames, "composer-branch", &t.path, &t.branch, TEXT_2, reduce_motion)))
+            div().min_w_0().flex().items_center().gap(px(6.)).child(icon("worktree", 13., TEXT_3)).child(
+                div().min_w_0().truncate().font_family(code_font()).text_size(px(11.5)).text_color(TEXT_2).child(renames::branch_label(
+                    &self.renames,
+                    "composer-branch",
+                    &t.path,
+                    &t.branch,
+                    TEXT_2,
+                    reduce_motion,
+                )),
+            )
         });
         div()
             .min_w_0()
@@ -794,7 +859,16 @@ impl Desktop {
             .children(account)
             .child(div().flex_1())
             .children(match said {
-                Some((glyph, said)) => Some(div().min_w_0().flex().items_center().gap(px(6.)).text_color(TEXT_2).child(icon(glyph, 13., TEXT_3)).child(div().min_w_0().truncate().child(said.to_string()))),
+                Some((glyph, said)) => Some(
+                    div()
+                        .min_w_0()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .text_color(TEXT_2)
+                        .child(icon(glyph, 13., TEXT_3))
+                        .child(div().min_w_0().truncate().child(said.to_string())),
+                ),
                 None => hint.map(|h| div().flex_none().whitespace_nowrap().text_color(if asking { WAITING_TEXT } else { TEXT_4 }).child(h)),
             })
     }
@@ -850,7 +924,14 @@ impl Desktop {
         } else if !held {
             // Another chat's draft is in the input; this one's shows until a press here takes the input.
             let shown = if typed.is_empty() { (self.chats.composer.placeholder.get().to_string(), TEXT_3) } else { (typed, TEXT) };
-            div().px(px(10.)).py(px(8.)).min_h(px(MIN_ROWS as f32 * INPUT_LINE_HEIGHT + 16.)).line_height(px(INPUT_LINE_HEIGHT)).text_color(shown.1).child(shown.0).into_any_element()
+            div()
+                .px(px(10.))
+                .py(px(8.))
+                .min_h(px(MIN_ROWS as f32 * INPUT_LINE_HEIGHT + 16.))
+                .line_height(px(INPUT_LINE_HEIGHT))
+                .text_color(shown.1)
+                .child(shown.0)
+                .into_any_element()
         } else {
             let (desktop, input) = (cx.entity().downgrade(), self.chats.input.clone());
             let textarea = crate::composer::pills::with_pills(Textarea::new(&self.chats.input), &self.chats.input)
@@ -876,10 +957,7 @@ impl Desktop {
         let suggestions = (!view_only && held).then(|| self.suggest_list(Prompt::Chat, cx)).flatten();
         let keyed = self.suggest_keys(Prompt::Chat, frame(typing), cx);
         self.rich_keys(Prompt::Chat, keyed, cx)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _: &MouseDownEvent, window, cx| this.chat_focus_input(&a, window, cx)),
-            )
+            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| this.chat_focus_input(&a, window, cx)))
             .on_key_down(cx.listener(move |this, e: &KeyDownEvent, _, cx| {
                 if e.keystroke.key == "escape" {
                     if this.escape_composer_menu() {
@@ -903,11 +981,14 @@ fn added(draft: &str, text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Mode, added, busy, composer_mode, hint, placeholder, remote_control_on, remote_control_said, guards_stop, pointer_left, said_in_chat, shows_button, terminal_only_said, text_view_focused, typed_text, working};
-    use gpui_kit::{KeyContext, Keystroke, Modifiers};
+    use super::{
+        Mode, added, busy, composer_mode, guards_stop, hint, placeholder, pointer_left, remote_control_on, remote_control_said, said_in_chat, shows_button,
+        terminal_only_said, text_view_focused, typed_text, working,
+    };
     use crate::explorer::toast::Notice;
     use agents::Summary;
     use chat::{Action, Ask, Block, End, Message, Question, Session, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
+    use gpui_kit::{KeyContext, Keystroke, Modifiers};
 
     #[test]
     fn added_text_follows_the_draft_after_a_space() {
@@ -944,7 +1025,15 @@ mod tests {
 
     #[test]
     fn sub_agents_left_in_the_background_leave_the_composer_free() {
-        let running = Block::Tool(ToolCall { id: "a".into(), name: "Task".into(), kind: ToolKind::Agent(SubAgent::default()), status: ToolStatus::Running, output: None, duration_ms: None, at: 0 });
+        let running = Block::Tool(ToolCall {
+            id: "a".into(),
+            name: "Task".into(),
+            kind: ToolKind::Agent(SubAgent::default()),
+            status: ToolStatus::Running,
+            output: None,
+            duration_ms: None,
+            at: 0,
+        });
         let ended = session(vec![Turn { blocks: vec![running], ..turn(Some(End::Done { duration_ms: 5, usage: None })) }]);
         let busy = busy(&agent("idle"), Some(&ended));
         assert!(!busy, "a send starts a new turn");
@@ -982,7 +1071,11 @@ mod tests {
         assert_eq!(hint(Mode::Prompt, false, false, true, true), None);
         assert_eq!(hint(Mode::Prompt, true, false, true, true), Some("Working · esc to stop"));
         assert_eq!(hint(Mode::Prompt, true, false, false, true), Some("⏎ send into this turn · ⌘⏎ queue for after"));
-        assert_eq!(hint(Mode::Prompt, true, false, false, false), Some("Working · esc to stop"), "an agent that can't take a send mid-turn has nothing to send");
+        assert_eq!(
+            hint(Mode::Prompt, true, false, false, false),
+            Some("Working · esc to stop"),
+            "an agent that can't take a send mid-turn has nothing to send"
+        );
         assert_eq!(hint(Mode::Permission { answerable: true }, true, false, true, true), Some("Answer the request above to continue"));
         assert_eq!(hint(Mode::ViewOnly, false, false, true, true), None);
     }
@@ -999,7 +1092,11 @@ mod tests {
     #[test]
     fn the_box_shows_one_button_and_none_for_an_idle_agent_with_nothing_typed() {
         assert!(!shows_button(Action::Send, true));
-        assert!([(Action::Send, false), (Action::Steer, false), (Action::Queue, false), (Action::Stop, true), (Action::Stopping, true)].into_iter().all(|(a, empty)| shows_button(a, empty)));
+        assert!(
+            [(Action::Send, false), (Action::Steer, false), (Action::Queue, false), (Action::Stop, true), (Action::Stopping, true)]
+                .into_iter()
+                .all(|(a, empty)| shows_button(a, empty))
+        );
     }
 
     #[test]
@@ -1055,7 +1152,9 @@ mod tests {
 
     #[test]
     fn shortcuts_and_control_keys_type_no_text() {
-        let key = |name: &str, key_char: Option<&str>, modifiers: Modifiers| typed_text(&Keystroke { modifiers, key: name.into(), key_char: key_char.map(Into::into) });
+        let key = |name: &str, key_char: Option<&str>, modifiers: Modifiers| {
+            typed_text(&Keystroke { modifiers, key: name.into(), key_char: key_char.map(Into::into) })
+        };
         assert_eq!(key("a", Some("a"), Modifiers::default()).as_deref(), Some("a"));
         assert_eq!(key("a", Some("A"), Modifiers::shift()).as_deref(), Some("A"));
         assert_eq!(key("s", Some("ß"), Modifiers::alt()).as_deref(), Some("ß"));

@@ -58,9 +58,8 @@ impl Sparkle {
         let delegate: Retained<Delegate> = unsafe { msg_send![super(delegate), init] };
         // SAFETY: matches -initWithStartingUpdater:updaterDelegate:userDriverDelegate: (SPUStandardUpdaterController.h:97).
         let controller: Allocated<AnyObject> = unsafe { msg_send![class, alloc] };
-        let controller: Retained<AnyObject> = unsafe {
-            msg_send![controller, initWithStartingUpdater: Bool::YES, updaterDelegate: &*delegate, userDriverDelegate: None::<&AnyObject>]
-        };
+        let controller: Retained<AnyObject> =
+            unsafe { msg_send![controller, initWithStartingUpdater: Bool::YES, updaterDelegate: &*delegate, userDriverDelegate: None::<&AnyObject>] };
         Some(Self { controller, delegate })
     }
 

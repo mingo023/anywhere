@@ -140,7 +140,10 @@ mod tests {
             with_context("find it with @mcp/fff", &all, "codex"),
             "MCP context: Use the configured server \"fff\" (codex) when relevant to this request.\n\nfind it with @mcp/fff"
         );
-        assert!(with_context("@mcp/docs and @mcp/fff", &all, "claude").starts_with("MCP context: Use the configured servers \"docs\" (claude), \"fff\" (claude) when"));
+        assert!(
+            with_context("@mcp/docs and @mcp/fff", &all, "claude")
+                .starts_with("MCP context: Use the configured servers \"docs\" (claude), \"fff\" (claude) when")
+        );
         assert_eq!(with_context("no tags here", &all, "codex"), "no tags here");
     }
 }

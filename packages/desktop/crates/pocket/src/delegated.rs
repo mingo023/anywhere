@@ -183,7 +183,9 @@ impl Desktop {
             return cx.notify();
         }
         let from = self.session().map(str::to_string);
-        self.delegated.push = from.and_then(|from| push::direction(&self.agents.list, &from, agent).map(|dir| push::Push::begin(self.delegated.push.as_ref(), from, agent.to_string(), dir)));
+        self.delegated.push = from.and_then(|from| {
+            push::direction(&self.agents.list, &from, agent).map(|dir| push::Push::begin(self.delegated.push.as_ref(), from, agent.to_string(), dir))
+        });
         self.focus_agent(agent, window, cx);
         cx.notify();
     }
@@ -237,7 +239,10 @@ mod tests {
     #[test]
     fn a_session_on_a_host_not_connected_is_not_listed_but_names_its_host() {
         let list = [child("devbox/c", "p", "subagent"), child("c2", "p", "subagent")];
-        assert_eq!([unlisted_host(&list, "devbox/c"), unlisted_host(&list, "gpu/c"), unlisted_host(&list, "c2"), unlisted_host(&list, "gone")], [None, Some("gpu"), None, None]);
+        assert_eq!(
+            [unlisted_host(&list, "devbox/c"), unlisted_host(&list, "gpu/c"), unlisted_host(&list, "c2"), unlisted_host(&list, "gone")],
+            [None, Some("gpu"), None, None]
+        );
     }
 
     fn on_host(child: &str, status: &str) -> Delegation {
@@ -245,7 +250,8 @@ mod tests {
     }
 
     fn unreachable_with(link: Option<Link>, d: &Delegation) -> Option<String> {
-        let list = [Host { id: "gpu".into(), name: "GPU box".into(), target: Target::Alias { name: "gpu".into() }, windows: false, socket: Default::default() }];
+        let list =
+            [Host { id: "gpu".into(), name: "GPU box".into(), target: Target::Alias { name: "gpu".into() }, windows: false, socket: Default::default() }];
         unreachable_host(d, &list, &Links(link.into_iter().map(|l| ("gpu".to_string(), l)).collect()))
     }
 

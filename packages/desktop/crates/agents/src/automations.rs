@@ -309,7 +309,9 @@ mod tests {
 
     #[test]
     fn an_automation_with_a_schedule_from_a_newer_pocketd_is_dropped_alone() {
-        let auto = |id: &str, schedule: &str| format!(r#"{{"id":"{id}","name":"n","prompt":"p","provider":"claude","folder":"/f","schedule":{schedule},"enabled":true}}"#);
+        let auto = |id: &str, schedule: &str| {
+            format!(r#"{{"id":"{id}","name":"n","prompt":"p","provider":"claude","folder":"/f","schedule":{schedule},"enabled":true}}"#)
+        };
         let raw = format!(
             r#"{{"type":"automations","automations":[{},{},{},{}],"runs":[]}}"#,
             auto("a", r#"{"kind":"interval","everyMin":60}"#),
@@ -327,16 +329,25 @@ mod tests {
         let au: Automation = serde_json::from_str(raw).unwrap();
         assert_eq!(au.schedule, Schedule::Webhook);
         assert_eq!((au.created_by.as_str(), au.bound.as_str(), au.webhook, au.webhook_url.as_str()), ("a7", "a7", true, "http://127.0.0.1:4321/hooks/au9"));
-        let by_user: Automation = serde_json::from_str(r#"{"id":"au1","name":"n","prompt":"p","provider":"codex","folder":"/f","schedule":{"kind":"interval","everyMin":60},"enabled":true}"#).unwrap();
+        let by_user: Automation = serde_json::from_str(
+            r#"{"id":"au1","name":"n","prompt":"p","provider":"codex","folder":"/f","schedule":{"kind":"interval","everyMin":60},"enabled":true}"#,
+        )
+        .unwrap();
         assert_eq!((by_user.created_by.as_str(), by_user.bound.as_str(), by_user.webhook, by_user.webhook_url.as_str()), ("", "", false, ""));
-        let f: crate::Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/automations_agent_made.json")).unwrap();
-        assert_eq!(f.automations.iter().map(|a| (a.id.as_str(), a.schedule == Schedule::Webhook, a.webhook)).collect::<Vec<_>>(), [("au2", true, true), ("au3", false, true)]);
+        let f: crate::Frame =
+            serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/automations_agent_made.json")).unwrap();
+        assert_eq!(
+            f.automations.iter().map(|a| (a.id.as_str(), a.schedule == Schedule::Webhook, a.webhook)).collect::<Vec<_>>(),
+            [("au2", true, true), ("au3", false, true)]
+        );
     }
 
     #[test]
     fn a_webhook_draft_serializes_as_pocketd_reads_it() {
-        let d = AutomationDraft { id: Some("au2".into()), name: "Nightly tests".into(), prompt: "run the tests".into(), schedule: Schedule::Webhook, ..draft() };
-        let want: serde_json::Value = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/client/automation_save_webhook.json")).unwrap();
+        let d =
+            AutomationDraft { id: Some("au2".into()), name: "Nightly tests".into(), prompt: "run the tests".into(), schedule: Schedule::Webhook, ..draft() };
+        let want: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/client/automation_save_webhook.json")).unwrap();
         assert_eq!(serde_json::to_value(&d).unwrap(), want["automation"]);
         assert_eq!(d.problem(), None);
     }

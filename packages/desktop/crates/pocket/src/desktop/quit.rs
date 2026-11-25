@@ -40,7 +40,8 @@ impl Desktop {
             }
             Ask::Alert => {
                 ALERT_UP.store(true, Ordering::Relaxed);
-                let answer = window.prompt(PromptLevel::Info, "Are you sure you want to quit?", None, &[PromptButton::ok("Quit"), PromptButton::cancel("Cancel")], cx);
+                let answer =
+                    window.prompt(PromptLevel::Info, "Are you sure you want to quit?", None, &[PromptButton::ok("Quit"), PromptButton::cancel("Cancel")], cx);
                 cx.spawn(async move |_, cx| {
                     let quit = answer.await == Ok(QUIT);
                     ALERT_UP.store(false, Ordering::Relaxed);

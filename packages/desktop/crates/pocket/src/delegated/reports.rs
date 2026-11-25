@@ -53,7 +53,11 @@ pub(crate) fn standing<'a>(deliveries: impl Iterator<Item = &'a Delivered>, list
         let yet: Vec<Standing> = list
             .iter()
             .filter(|l| !l.phase().settled() && !out.iter().any(|o| o.child.id == l.child_id))
-            .map(|l| Standing { child: Child { id: l.child_id.clone(), title: l.title.clone(), agent: l.agent.clone() }, phase: l.phase(), question: l.question.clone() })
+            .map(|l| Standing {
+                child: Child { id: l.child_id.clone(), title: l.title.clone(), agent: l.agent.clone() },
+                phase: l.phase(),
+                question: l.question.clone(),
+            })
             .collect();
         out.extend(yet);
     }
@@ -137,17 +141,28 @@ pub(crate) fn group(g: Group, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut 
             div().child(column)
         } else if cx.reduce_motion() {
             let fade = Animation::new(Duration::from_millis(200));
-            div().child(column.with_animation(SharedString::from(format!("{id}-fade-{:?}", g.toggled)), fade, move |d, t| d.opacity(if open { t } else { 1. - t })))
+            div().child(
+                column.with_animation(SharedString::from(format!("{id}-fade-{:?}", g.toggled)), fade, move |d, t| d.opacity(if open { t } else { 1. - t })),
+            )
         } else {
             // Opened before this chat showed, it is just there.
             let drop = SpringAnimation::new(SPRING).to(open).from(!open || g.toggled.is_none());
-            div().child(column.with_spring(SharedString::from(format!("{id}-drop-{:?}", g.toggled)), drop, |d, t| d.relative().top(px(-DROP * (1. - t.0))).opacity(t.0.clamp(0., 1.))))
+            div().child(column.with_spring(SharedString::from(format!("{id}-drop-{:?}", g.toggled)), drop, |d, t| {
+                d.relative().top(px(-DROP * (1. - t.0))).opacity(t.0.clamp(0., 1.))
+            }))
         }
     });
     div().flex().flex_col().gap(px(4.)).ml(px(-8.)).child(head(id, &g.sessions, g.live, updates, g.open, on_toggle)).children(pins).children(body)
 }
 
-fn head(id: &str, sessions: &[Standing], live: Option<String>, updates: usize, open: bool, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Stateful<Div> {
+fn head(
+    id: &str,
+    sessions: &[Standing],
+    live: Option<String>,
+    updates: usize,
+    open: bool,
+    on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
     let mut agents: Vec<&str> = Vec::new();
     for s in sessions {
         if !agents.contains(&s.child.agent.as_str()) && agents.len() < 3 {
@@ -213,11 +228,25 @@ mod tests {
     }
 
     fn news(outcome: Outcome, ids: &[&str]) -> Delivered {
-        Delivered { id: ids.join("+"), outcome, question: if outcome == Outcome::Asks { "Which runner?".into() } else { String::new() }, children: ids.iter().map(|i| child(i)).collect() }
+        Delivered {
+            id: ids.join("+"),
+            outcome,
+            question: if outcome == Outcome::Asks { "Which runner?".into() } else { String::new() },
+            children: ids.iter().map(|i| child(i)).collect(),
+        }
     }
 
     fn listed(id: &str, status: &str, question: &str, settled_at: i64) -> Delegation {
-        Delegation { child_id: id.into(), title: format!("Task {id}"), agent: "claude".into(), status: status.into(), question: question.into(), created_at: 10, settled_at, ..Default::default() }
+        Delegation {
+            child_id: id.into(),
+            title: format!("Task {id}"),
+            agent: "claude".into(),
+            status: status.into(),
+            question: question.into(),
+            created_at: 10,
+            settled_at,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -257,6 +286,9 @@ mod tests {
     #[test]
     fn a_session_settled_without_a_time_still_counts_as_settled() {
         let settled = |at| Span { began: 10, settled: at };
-        assert_eq!(spans(&[listed("a", "working", "", 0), listed("b", "completed", "", 0), listed("c", "completed", "", 300)]), [settled(None), settled(Some(0)), settled(Some(300))]);
+        assert_eq!(
+            spans(&[listed("a", "working", "", 0), listed("b", "completed", "", 0), listed("c", "completed", "", 300)]),
+            [settled(None), settled(Some(0)), settled(Some(300))]
+        );
     }
 }

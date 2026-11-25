@@ -24,7 +24,12 @@ pub fn init() {
     for (name, grammar, highlights, injections) in [
         ("vue", tree_sitter_vue_next::LANGUAGE.into(), include_str!("syntax/vue/highlights.scm"), include_str!("syntax/vue/injections.scm")),
         ("scss", tree_sitter_scss::LANGUAGE.into(), include_str!("syntax/scss/highlights.scm"), include_str!("syntax/scss/injections.scm")),
-        ("dockerfile", tree_sitter_dockerfile_updated::language(), include_str!("syntax/dockerfile/highlights.scm"), include_str!("syntax/dockerfile/injections.scm")),
+        (
+            "dockerfile",
+            tree_sitter_dockerfile_updated::language(),
+            include_str!("syntax/dockerfile/highlights.scm"),
+            include_str!("syntax/dockerfile/injections.scm"),
+        ),
     ] {
         registry.register(name, &LanguageConfig::new(name, grammar, vec![], highlights, injections, ""));
     }
@@ -70,10 +75,11 @@ pub fn language_for(path: &str) -> &'static str {
 pub fn grammar(name: &str) -> &'static str {
     match name {
         "astro" => "astro",
-        "bash" | "sh" | "shell" | "console" | "zsh" | "bashrc" | "bash_profile" | "bash_aliases" | "bash_login" | "bash_logout" | "bats" | "envrc" | "profile" | "zshrc"
-        | "zshenv" | "zsh_profile" | "zsh_aliases" | "zlogin" | "zprofile" | "pkgbuild" | "apkbuild" | "ebuild" => "bash",
+        "bash" | "sh" | "shell" | "console" | "zsh" | "bashrc" | "bash_profile" | "bash_aliases" | "bash_login" | "bash_logout" | "bats" | "envrc"
+        | "profile" | "zshrc" | "zshenv" | "zsh_profile" | "zsh_aliases" | "zlogin" | "zprofile" | "pkgbuild" | "apkbuild" | "ebuild" => "bash",
         "c" => "c",
-        "cpp" | "c++" | "cc" | "ccm" | "hh" | "cppm" | "h" | "hpp" | "cxx" | "cxxm" | "hxx" | "c++m" | "h++" | "hip" | "ipp" | "inl" | "ino" | "ixx" | "cu" | "cuh" => "cpp",
+        "cpp" | "c++" | "cc" | "ccm" | "hh" | "cppm" | "h" | "hpp" | "cxx" | "cxxm" | "hxx" | "c++m" | "h++" | "hip" | "ipp" | "inl" | "ino" | "ixx" | "cu"
+        | "cuh" => "cpp",
         "css" | "postcss" | "pcss" => "css",
         "diff" | "patch" => "diff",
         "dockerfile" | "containerfile" => "dockerfile",
@@ -82,17 +88,18 @@ pub fn grammar(name: &str) -> &'static str {
         "html" | "htm" | "shtml" => "html",
         "java" => "java",
         "javascript" | "js" | "jsx" | "mjs" | "cjs" => "javascript",
-        "json" | "jsonc" | "json5" | "geojson" | "topojson" | "flake.lock" | "deno.lock" | "bun.lock" | "prettierrc" | "babelrc" | "eslintrc" | "stylelintrc" | "jshintrc"
-        | "swcrc" | "luaurc" => "json",
+        "json" | "jsonc" | "json5" | "geojson" | "topojson" | "flake.lock" | "deno.lock" | "bun.lock" | "prettierrc" | "babelrc" | "eslintrc"
+        | "stylelintrc" | "jshintrc" | "swcrc" | "luaurc" => "json",
         "kotlin" | "kt" | "kts" => "kotlin",
         "make" | "makefile" | "gnumakefile" | "ocamlmakefile" | "mk" | "mak" => "make",
         "markdown" | "md" | "mdx" | "mdwn" | "mdc" => "markdown",
         "php" | "phtml" | "phpt" => "php",
         "proto" | "protobuf" => "proto",
         "python" | "py" | "pyi" | "mpy" => "python",
-        "ruby" | "rb" | "rbi" | "gemfile" | "guardfile" | "rake" | "rakefile" | "ru" | "thor" | "cap" | "capfile" | "jbuilder" | "rabl" | "rxml" | "builder" | "gemspec"
-        | "irbrc" | "pryrc" | "simplecov" | "steepfile" | "podfile" | "brewfile" | "vagrantfile" | "puppetfile" | "fastfile" | "appfile" | "matchfile" | "cheffile"
-        | "hobofile" | "appraisals" | "rantfile" | "berksfile" | "berksfile.lock" | "thorfile" | "dangerfile" | "deliverfile" | "scanfile" | "snapfile" | "gymfile" => "ruby",
+        "ruby" | "rb" | "rbi" | "gemfile" | "guardfile" | "rake" | "rakefile" | "ru" | "thor" | "cap" | "capfile" | "jbuilder" | "rabl" | "rxml"
+        | "builder" | "gemspec" | "irbrc" | "pryrc" | "simplecov" | "steepfile" | "podfile" | "brewfile" | "vagrantfile" | "puppetfile" | "fastfile"
+        | "appfile" | "matchfile" | "cheffile" | "hobofile" | "appraisals" | "rantfile" | "berksfile" | "berksfile.lock" | "thorfile" | "dangerfile"
+        | "deliverfile" | "scanfile" | "snapfile" | "gymfile" => "ruby",
         "rust" | "rs" => "rust",
         "scss" => "scss",
         "sql" => "sql",
@@ -269,11 +276,21 @@ mod tests {
 
     #[test]
     fn resolves_fence_names_through_the_same_table() {
-        for (fence, language) in
-            [("js", "javascript"), ("ts", "typescript"), ("py", "python"), ("rb", "ruby"), ("yml", "yaml"), ("sh", "bash"), ("shell", "bash"), ("console", "bash"), ("diff", "diff"), ("vue", "vue"), ("svelte", "svelte"), ("brainfuck", "text")]
-        {
+        for (fence, language) in [
+            ("js", "javascript"),
+            ("ts", "typescript"),
+            ("py", "python"),
+            ("rb", "ruby"),
+            ("yml", "yaml"),
+            ("sh", "bash"),
+            ("shell", "bash"),
+            ("console", "bash"),
+            ("diff", "diff"),
+            ("vue", "vue"),
+            ("svelte", "svelte"),
+            ("brainfuck", "text"),
+        ] {
             assert_eq!(grammar(fence), language, "{fence}");
         }
     }
 }
-

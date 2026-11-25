@@ -14,7 +14,10 @@ pub(crate) fn highlight(style: Style) -> HighlightStyle {
         Style::Bold => HighlightStyle { font_weight: Some(FontWeight::SEMIBOLD), ..Default::default() },
         Style::Italic => HighlightStyle { font_style: Some(FontStyle::Italic), ..Default::default() },
         Style::Strike => HighlightStyle { strikethrough: Some(StrikethroughStyle { thickness: px(1.), color: None }), ..tint(TEXT_3) },
-        Style::Link => HighlightStyle { underline: Some(UnderlineStyle { thickness: px(1.), color: Some(Hsla::from(MD_LINK).opacity(0.4)), wavy: false }), ..tint(MD_LINK) },
+        Style::Link => HighlightStyle {
+            underline: Some(UnderlineStyle { thickness: px(1.), color: Some(Hsla::from(MD_LINK).opacity(0.4)), wavy: false }),
+            ..tint(MD_LINK)
+        },
         Style::Syntax => tint(TEXT_4),
         Style::Code => tint(TEXT_2),
     }

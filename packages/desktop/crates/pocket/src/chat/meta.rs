@@ -11,7 +11,14 @@ where
 }
 
 /// A round icon button with its tooltip.
-pub(super) fn action(id: String, glyph: &'static str, size: f32, icon_size: f32, tip: &'static str, on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Stateful<Div> {
+pub(super) fn action(
+    id: String,
+    glyph: &'static str,
+    size: f32,
+    icon_size: f32,
+    tip: &'static str,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
     div()
         .id(SharedString::from(id))
         .size(px(size))

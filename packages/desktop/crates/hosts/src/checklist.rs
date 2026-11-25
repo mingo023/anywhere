@@ -137,7 +137,12 @@ mod tests {
 
     #[test]
     fn an_error_fails_the_step_under_way_and_keeps_its_message() {
-        let list = run(&[Progress::Step(Step::Detect), Progress::Warn("linger is off".into()), Progress::Step(Step::Service), Progress::Error("systemctl failed".into())]);
+        let list = run(&[
+            Progress::Step(Step::Detect),
+            Progress::Warn("linger is off".into()),
+            Progress::Step(Step::Service),
+            Progress::Error("systemctl failed".into()),
+        ]);
         assert_eq!(marks(&list)[..2], [(Step::Detect, Mark::Done), (Step::Service, Mark::Failed)]);
         assert_eq!(list.warnings, ["linger is off"]);
         assert_eq!(list.outcome, Some(Outcome::Failed("systemctl failed".into())));

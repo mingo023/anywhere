@@ -6,7 +6,57 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use workspace::tree::Edge;
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, FocusSearch, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat, PrevPrompt, NextPrompt, ZoomIn, ZoomOut, ResetZoom, CopyWorktreePath, FormatBold, FormatItalic, FormatCode, FormatLink, BackToParent]);
+actions!(
+    desktop,
+    [
+        OpenPalette,
+        GoToFile,
+        OpenSession,
+        StartSession,
+        NextNeedsYou,
+        GoToUpNext,
+        NextSession,
+        PrevSession,
+        ToggleRail,
+        ToggleSidebar,
+        ToggleFocus,
+        NewWorktree,
+        ProjectSettings,
+        OpenSettings,
+        FocusSearch,
+        CheckForUpdates,
+        NewTab,
+        CopySelection,
+        SelectAll,
+        Paste,
+        CloseTab,
+        Save,
+        Quit,
+        NewBrowser,
+        FocusAddress,
+        Reload,
+        Back,
+        Forward,
+        SplitRight,
+        SplitDown,
+        PrevTab,
+        NextTab,
+        ZoomPane,
+        EqualizePanes,
+        AddToChat,
+        PrevPrompt,
+        NextPrompt,
+        ZoomIn,
+        ZoomOut,
+        ResetZoom,
+        CopyWorktreePath,
+        FormatBold,
+        FormatItalic,
+        FormatCode,
+        FormatLink,
+        BackToParent
+    ]
+);
 
 /// The nth session in the visible list, 1-based.
 #[derive(Clone, PartialEq, Debug, Action)]
@@ -55,7 +105,13 @@ fn off_mac(keys: &str, context: Option<&str>) -> String {
     let k = Keystroke::parse_with_os(keys, keys::OS).unwrap();
     let m = k.modifiers;
     let tab = k.key == "tab";
-    let modifiers = Modifiers { control: m.platform || (m.control && tab), alt: m.alt || (m.control && !tab), shift: m.shift || (m.platform && context == Some(keys::CONTEXT)), platform: false, ..m };
+    let modifiers = Modifiers {
+        control: m.platform || (m.control && tab),
+        alt: m.alt || (m.control && !tab),
+        shift: m.shift || (m.platform && context == Some(keys::CONTEXT)),
+        platform: false,
+        ..m
+    };
     Keystroke { modifiers, ..k }.unparse(keys::OS)
 }
 
@@ -186,7 +242,9 @@ fn terminal_aliases(bindings: &[KeyBinding]) -> Vec<KeyBinding> {
             let ctrl_letter = k.modifiers == Modifiers::control() && k.key.len() == 1 && k.key.chars().all(|c| c.is_ascii_lowercase());
             let alias = format!("ctrl-shift-{}", k.key);
             let free = !bindings.iter().any(|o| reaches_terminal(o) && on(o, &alias));
-            (b.predicate().is_none() && ctrl_letter && free).then(|| KeyBinding::load_for_os(&alias, b.action().boxed_clone(), KeyBindingContextPredicate::parse(keys::CONTEXT).ok().map(Rc::new), keys::OS).unwrap())
+            (b.predicate().is_none() && ctrl_letter && free).then(|| {
+                KeyBinding::load_for_os(&alias, b.action().boxed_clone(), KeyBindingContextPredicate::parse(keys::CONTEXT).ok().map(Rc::new), keys::OS).unwrap()
+            })
         })
         .collect()
 }
@@ -207,11 +265,11 @@ pub fn rebind(custom: &BTreeMap<String, String>, cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::{CopySelection, NewTab, SplitDown, SplitRight, binding_id, bindings, keymap, native, off_mac, terminal_aliases};
-    use std::collections::BTreeMap;
     use crate::inbox;
     use gpui_kit::{KeyBinding, KeyBindingContextPredicate, KeyContext, Keymap, Keystroke, actions};
-    use std::rc::Rc;
+    use std::collections::BTreeMap;
     use std::collections::HashSet;
+    use std::rc::Rc;
 
     #[test]
     fn no_two_bindings_share_a_keystroke_and_context() {
@@ -228,12 +286,28 @@ mod tests {
     /// The actions bound to `keys`, as macOS writes them, outside any context.
     fn bound(keys: &str) -> Vec<&'static str> {
         let want = vec![Keystroke::parse_with_os(&native(keys, None), keys::OS).unwrap().unparse(keys::OS)];
-        bindings().iter().filter(|b| b.predicate().is_none() && b.keystrokes().iter().map(|k| k.unparse(keys::OS)).collect::<Vec<_>>() == want).map(|b| b.action().name()).collect()
+        bindings()
+            .iter()
+            .filter(|b| b.predicate().is_none() && b.keystrokes().iter().map(|k| k.unparse(keys::OS)).collect::<Vec<_>>() == want)
+            .map(|b| b.action().name())
+            .collect()
     }
 
     #[test]
     fn the_panel_shortcuts_work_everywhere() {
-        let panel = [("cmd-d", "desktop::SplitRight"), ("cmd-shift-d", "desktop::SplitDown"), ("cmd-alt-left", "desktop::FocusPane"), ("cmd-alt-right", "desktop::FocusPane"), ("cmd-alt-up", "desktop::FocusPane"), ("cmd-alt-down", "desktop::FocusPane"), ("cmd-{", "desktop::PrevTab"), ("cmd-}", "desktop::NextTab"), ("cmd-shift-enter", "desktop::ZoomPane"), ("cmd-ctrl-=", "desktop::EqualizePanes"), ("cmd-w", "desktop::CloseTab")];
+        let panel = [
+            ("cmd-d", "desktop::SplitRight"),
+            ("cmd-shift-d", "desktop::SplitDown"),
+            ("cmd-alt-left", "desktop::FocusPane"),
+            ("cmd-alt-right", "desktop::FocusPane"),
+            ("cmd-alt-up", "desktop::FocusPane"),
+            ("cmd-alt-down", "desktop::FocusPane"),
+            ("cmd-{", "desktop::PrevTab"),
+            ("cmd-}", "desktop::NextTab"),
+            ("cmd-shift-enter", "desktop::ZoomPane"),
+            ("cmd-ctrl-=", "desktop::EqualizePanes"),
+            ("cmd-w", "desktop::CloseTab"),
+        ];
         for (keys, action) in panel {
             assert_eq!(bound(keys), [action], "{keys}");
         }
@@ -253,7 +327,13 @@ mod tests {
     #[test]
     fn cmd_enter_opens_a_session_only_from_the_inbox() {
         let mut keymap = Keymap::default();
-        keymap.add_bindings([KeyBinding::load_for_os("secondary-enter", Box::new(Submit), KeyBindingContextPredicate::parse("Input").ok().map(Rc::new), keys::OS).unwrap()]);
+        keymap.add_bindings([KeyBinding::load_for_os(
+            "secondary-enter",
+            Box::new(Submit),
+            KeyBindingContextPredicate::parse("Input").ok().map(Rc::new),
+            keys::OS,
+        )
+        .unwrap()]);
         keymap.add_bindings(bindings());
         let action = |stack: &[&str]| {
             let stack: Vec<KeyContext> = stack.iter().map(|c| KeyContext::parse(c).unwrap()).collect();
@@ -281,7 +361,8 @@ mod tests {
 
     #[test]
     fn a_changed_shortcut_moves_to_its_new_keys_and_an_emptied_one_is_gone() {
-        let custom = BTreeMap::from([("desktop::OpenPalette".to_string(), "cmd-shift-p".to_string()), ("desktop::Reload in Browser".to_string(), String::new())]);
+        let custom =
+            BTreeMap::from([("desktop::OpenPalette".to_string(), "cmd-shift-p".to_string()), ("desktop::Reload in Browser".to_string(), String::new())]);
         let keys = |id: &str| keymap(&custom).iter().filter(|b| binding_id(b) == id).map(|b| b.keystrokes()[0].inner().unparse(keys::OS)).collect::<Vec<_>>();
         let unparsed = |k: &str| Keystroke::parse_with_os(k, keys::OS).unwrap().unparse(keys::OS);
         assert_eq!(keys("desktop::OpenPalette"), [unparsed("cmd-shift-p")]);
@@ -292,14 +373,25 @@ mod tests {
     #[test]
     fn off_macos_cmd_becomes_ctrl_and_ctrl_becomes_alt_except_on_tab() {
         let off = |k: &str| off_mac(k, None);
-        assert_eq!([off("cmd-k"), off("cmd-shift-j"), off("ctrl-1"), off("cmd-ctrl-="), off("ctrl-shift-tab"), off("cmd-alt-left")], ["ctrl-k", "ctrl-shift-j", "alt-1", "ctrl-alt-=", "ctrl-shift-tab", "ctrl-alt-left"]);
+        assert_eq!(
+            [off("cmd-k"), off("cmd-shift-j"), off("ctrl-1"), off("cmd-ctrl-="), off("ctrl-shift-tab"), off("cmd-alt-left")],
+            ["ctrl-k", "ctrl-shift-j", "alt-1", "ctrl-alt-=", "ctrl-shift-tab", "ctrl-alt-left"]
+        );
         assert_eq!(off_mac("cmd-c", Some(keys::CONTEXT)), "ctrl-shift-c");
     }
 
     #[test]
     fn a_ctrl_letter_shortcut_answers_to_ctrl_shift_in_a_terminal_unless_those_keys_are_taken() {
-        let bindings = [KeyBinding::new("ctrl-t", NewTab, None), KeyBinding::new("ctrl-d", SplitRight, None), KeyBinding::new("ctrl-shift-d", SplitDown, None), KeyBinding::new("ctrl-c", CopySelection, Some(keys::CONTEXT))];
-        let aliases: Vec<_> = terminal_aliases(&bindings).iter().map(|b| (b.keystrokes()[0].inner().unparse(keys::OS), b.action().name(), b.predicate().map(|p| p.to_string()))).collect();
+        let bindings = [
+            KeyBinding::new("ctrl-t", NewTab, None),
+            KeyBinding::new("ctrl-d", SplitRight, None),
+            KeyBinding::new("ctrl-shift-d", SplitDown, None),
+            KeyBinding::new("ctrl-c", CopySelection, Some(keys::CONTEXT)),
+        ];
+        let aliases: Vec<_> = terminal_aliases(&bindings)
+            .iter()
+            .map(|b| (b.keystrokes()[0].inner().unparse(keys::OS), b.action().name(), b.predicate().map(|p| p.to_string())))
+            .collect();
         assert_eq!(aliases, [("ctrl-shift-t".to_string(), "desktop::NewTab", Some(keys::CONTEXT.to_string()))]);
     }
 }

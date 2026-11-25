@@ -1,7 +1,10 @@
 use gpui_kit::component::highlighter::HighlightTheme;
 use gpui_kit::*;
 use std::borrow::Cow;
-use std::sync::{Arc, OnceLock, RwLock, atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering}};
+use std::sync::{
+    Arc, OnceLock, RwLock,
+    atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
+};
 
 pub const SANS: &str = ".SystemUIFont";
 pub const MONO: &str = "Geist Mono";
@@ -403,7 +406,8 @@ pub const DIFF_SWATCHES: [u32; 8] = [0x30a46c, 0x0090ff, 0x12a594, 0x8e4ec6, 0xe
 pub const GRAPH_HEAD: Token = Token::new(0x1a5cffff, 0x57a3f8ff);
 pub const GRAPH_UPSTREAM: Token = Token::new(0x652d90ff, 0xad80d7ff);
 pub const GRAPH_BASE: Token = Token::fixed(0xea5c00ff);
-pub const GRAPH_LANES: [Token; 5] = [Token::fixed(0xffb000ff), Token::fixed(0xdc267fff), Token::fixed(0x994f00ff), Token::fixed(0x40b0a6ff), Token::fixed(0xb66dffff)];
+pub const GRAPH_LANES: [Token; 5] =
+    [Token::fixed(0xffb000ff), Token::fixed(0xdc267fff), Token::fixed(0x994f00ff), Token::fixed(0x40b0a6ff), Token::fixed(0xb66dffff)];
 
 /// A syntax theme: the colours of keywords, functions and types, strings and numbers, and comments.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -417,9 +421,24 @@ pub struct Syntax {
 /// Graphite, GitHub, One and Solarized, in the order Settings lists them.
 pub const SYNTAX_THEMES: [Syntax; 4] = [
     Syntax { keyword: SYN_KEYWORD, function: SYN_FN, string: SYN_STRING, comment: SYN_COMMENT },
-    Syntax { keyword: Token::new(0xcf222eff, 0xff7b72ff), function: Token::new(0x8250dfff, 0xd2a8ffff), string: Token::new(0x0a3069ff, 0xa5d6ffff), comment: Token::new(0x6e7781ff, 0x8b949eff) },
-    Syntax { keyword: Token::new(0xa626a4ff, 0xc678ddff), function: Token::new(0x4078f2ff, 0x61afefff), string: Token::new(0x50a14fff, 0x98c379ff), comment: Token::new(0xa0a1a7ff, 0x7f848eff) },
-    Syntax { keyword: Token::new(0x859900ff, 0x859900ff), function: Token::new(0x268bd2ff, 0x268bd2ff), string: Token::new(0x2aa198ff, 0x2aa198ff), comment: Token::new(0x93a1a1ff, 0x657b83ff) },
+    Syntax {
+        keyword: Token::new(0xcf222eff, 0xff7b72ff),
+        function: Token::new(0x8250dfff, 0xd2a8ffff),
+        string: Token::new(0x0a3069ff, 0xa5d6ffff),
+        comment: Token::new(0x6e7781ff, 0x8b949eff),
+    },
+    Syntax {
+        keyword: Token::new(0xa626a4ff, 0xc678ddff),
+        function: Token::new(0x4078f2ff, 0x61afefff),
+        string: Token::new(0x50a14fff, 0x98c379ff),
+        comment: Token::new(0xa0a1a7ff, 0x7f848eff),
+    },
+    Syntax {
+        keyword: Token::new(0x859900ff, 0x859900ff),
+        function: Token::new(0x268bd2ff, 0x268bd2ff),
+        string: Token::new(0x2aa198ff, 0x2aa198ff),
+        comment: Token::new(0x93a1a1ff, 0x657b83ff),
+    },
 ];
 
 /// Colours code with `SYNTAX_THEMES[i]`; past the end means Graphite. Highlights already worked out keep their colours.
@@ -470,7 +489,6 @@ fn highlight_theme_with(dark: bool, palette: &Syntax) -> Arc<HighlightTheme> {
     Arc::new(serde_json::from_value(v).expect("theme deserializes"))
 }
 
-
 /// Xcode's default syntax colours, which the markdown preview's code blocks use whatever the chosen syntax theme.
 pub fn markdown_highlight_theme(dark: bool) -> Arc<HighlightTheme> {
     let keyword = Token::new(0x9b2393ff, 0xfc5fa3ff);
@@ -490,10 +508,47 @@ pub fn markdown_highlight_theme(dark: bool) -> Arc<HighlightTheme> {
     let syntax = v["style"]["syntax"].as_object_mut().expect("theme has syntax colours");
     syntax.clear();
     for name in [
-        "attribute", "boolean", "comment", "comment.doc", "constant", "constructor", "embedded", "emphasis", "emphasis.strong", "enum", "function", "hint", "keyword", "label",
-        "link_text", "link_uri", "number", "operator", "predictive", "preproc", "primary", "property", "punctuation", "punctuation.bracket", "punctuation.delimiter",
-        "punctuation.list_marker", "punctuation.special", "string", "string.escape", "string.regex", "string.special", "string.special.symbol", "tag", "tag.doctype",
-        "text.code.span", "text.literal", "title", "type", "variable", "variable.special", "variant",
+        "attribute",
+        "boolean",
+        "comment",
+        "comment.doc",
+        "constant",
+        "constructor",
+        "embedded",
+        "emphasis",
+        "emphasis.strong",
+        "enum",
+        "function",
+        "hint",
+        "keyword",
+        "label",
+        "link_text",
+        "link_uri",
+        "number",
+        "operator",
+        "predictive",
+        "preproc",
+        "primary",
+        "property",
+        "punctuation",
+        "punctuation.bracket",
+        "punctuation.delimiter",
+        "punctuation.list_marker",
+        "punctuation.special",
+        "string",
+        "string.escape",
+        "string.regex",
+        "string.special",
+        "string.special.symbol",
+        "tag",
+        "tag.doctype",
+        "text.code.span",
+        "text.literal",
+        "title",
+        "type",
+        "variable",
+        "variable.special",
+        "variant",
     ] {
         let color = match name {
             "keyword" | "boolean" | "variable.special" | "tag" => keyword,
@@ -610,10 +665,7 @@ fn material_icon(path: &str, folder: bool, open: bool) -> &'static str {
     match (folder, open) {
         (true, true) => m["foldersOpen"][&name].as_str().unwrap_or("folder-open"),
         (true, false) => m["folders"][&name].as_str().unwrap_or("folder"),
-        _ => m["names"][&name]
-            .as_str()
-            .or_else(|| name.match_indices('.').find_map(|(i, _)| m["extensions"][&name[i + 1..]].as_str()))
-            .unwrap_or("file"),
+        _ => m["names"][&name].as_str().or_else(|| name.match_indices('.').find_map(|(i, _)| m["extensions"][&name[i + 1..]].as_str())).unwrap_or("file"),
     }
 }
 
@@ -730,9 +782,142 @@ macro_rules! embed {
 }
 
 const ICONS: &[(&str, &[u8])] = embed!(
-    "activity", "agent-arc", "agent-done", "agent-failed", "agent-map", "agent-ring", "agent-starting", "antigravity", "appearance", "arrow-down-wide-narrow", "arrow-right", "arrow-up", "back", "bell", "blocks", "bolt", "bot", "branch", "bulb", "check", "chevron-down", "chevron-right", "chevron-up", "circle-x", "claude", "clock", "cloud", "code", "comment", "commit", "compose", "copy", "corner-down-right", "cursor", "diff-multiple", "diff-split",
-    "discard", "explorer", "external", "eye", "eye-off", "file", "file-plus", "filter", "fit", "flow", "folder", "folder-plus", "forward", "fullscreen", "fx", "github", "globe", "grip", "grok", "hermes", "inbox", "keyboard", "laptop", "list", "list-checks", "list-flat", "list-tree", "mascot-body", "mascot-eyes", "mascot-eyes-happy", "mascot-halo", "mascot-light", "mascot-sheen", "merge", "mic", "minus", "more", "omp", "openai", "opencode", "package", "pencil", "phone", "pi", "pin", "play", "plus", "pointer", "priority-high", "priority-low", "priority-medium", "priority-none", "priority-urgent", "prompt", "pull-request", "pull-request-closed", "pull-request-draft", "redo", "reload", "reply", "run-cancelled", "run-skipped", "search", "send", "send-ring", "server", "sessions", "settings", "shield",
-    "sidebar", "sidebar-collapse", "sidebar-expand", "sliders", "sparkle", "spinner", "spinner-ring", "split-down", "split-right", "stacked-tickets", "star", "star-fill", "status-closed", "status-full", "status-half", "status-merged", "status-needs", "status-queued", "status-stopped", "status-three-quarters", "status-todo", "stop", "terminal", "text-wrap", "tool", "trash", "unfold", "warning", "worktree", "x", "x-bold",
+    "activity",
+    "agent-arc",
+    "agent-done",
+    "agent-failed",
+    "agent-map",
+    "agent-ring",
+    "agent-starting",
+    "antigravity",
+    "appearance",
+    "arrow-down-wide-narrow",
+    "arrow-right",
+    "arrow-up",
+    "back",
+    "bell",
+    "blocks",
+    "bolt",
+    "bot",
+    "branch",
+    "bulb",
+    "check",
+    "chevron-down",
+    "chevron-right",
+    "chevron-up",
+    "circle-x",
+    "claude",
+    "clock",
+    "cloud",
+    "code",
+    "comment",
+    "commit",
+    "compose",
+    "copy",
+    "corner-down-right",
+    "cursor",
+    "diff-multiple",
+    "diff-split",
+    "discard",
+    "explorer",
+    "external",
+    "eye",
+    "eye-off",
+    "file",
+    "file-plus",
+    "filter",
+    "fit",
+    "flow",
+    "folder",
+    "folder-plus",
+    "forward",
+    "fullscreen",
+    "fx",
+    "github",
+    "globe",
+    "grip",
+    "grok",
+    "hermes",
+    "inbox",
+    "keyboard",
+    "laptop",
+    "list",
+    "list-checks",
+    "list-flat",
+    "list-tree",
+    "mascot-body",
+    "mascot-eyes",
+    "mascot-eyes-happy",
+    "mascot-halo",
+    "mascot-light",
+    "mascot-sheen",
+    "merge",
+    "mic",
+    "minus",
+    "more",
+    "omp",
+    "openai",
+    "opencode",
+    "package",
+    "pencil",
+    "phone",
+    "pi",
+    "pin",
+    "play",
+    "plus",
+    "pointer",
+    "priority-high",
+    "priority-low",
+    "priority-medium",
+    "priority-none",
+    "priority-urgent",
+    "prompt",
+    "pull-request",
+    "pull-request-closed",
+    "pull-request-draft",
+    "redo",
+    "reload",
+    "reply",
+    "run-cancelled",
+    "run-skipped",
+    "search",
+    "send",
+    "send-ring",
+    "server",
+    "sessions",
+    "settings",
+    "shield",
+    "sidebar",
+    "sidebar-collapse",
+    "sidebar-expand",
+    "sliders",
+    "sparkle",
+    "spinner",
+    "spinner-ring",
+    "split-down",
+    "split-right",
+    "stacked-tickets",
+    "star",
+    "star-fill",
+    "status-closed",
+    "status-full",
+    "status-half",
+    "status-merged",
+    "status-needs",
+    "status-queued",
+    "status-stopped",
+    "status-three-quarters",
+    "status-todo",
+    "stop",
+    "terminal",
+    "text-wrap",
+    "tool",
+    "trash",
+    "unfold",
+    "warning",
+    "worktree",
+    "x",
+    "x-bold",
 );
 
 const MATERIAL: &[(&str, &[u8])] = include!(concat!(env!("OUT_DIR"), "/material.rs"));
@@ -842,10 +1027,12 @@ pub fn window_background() -> WindowBackgroundAppearance {
 mod tests {
     use super::contrast::{over, ratio};
     use super::{
-        ACCENT, ACCENT_LINK, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, MODIFIED, PAGE, POPOVER, SEPARATOR, SEPARATOR_STRONG, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
-        ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Look, Token, WAITING, WAITING_TEXT, GOAL_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, NAV, glass_alpha, highlight_theme_with, material, material_icon, nav_rgba,
-        ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, SPRING, INDIGO, WORKING, accent_rgba, gradient_delay, gradient_opacity, lit_at, MATRIX_CROSS, MATRIX_FULL,
-        BRANDS, PROVIDER_NAMES, provider_glyph, provider_name, provider_svg,
+        ACCENT, ACCENT_BG, ACCENT_LINK, ACCENT_SWATCHES, BRANDS, DIFF_ADD_BG, DIFF_ADD_TEXT, DIFF_DEL_TEXT, DIFF_DEL_WORD, FAILED, FAILED_TEXT, FILL_1, FILL_2,
+        FILL_3, FILL_4, GOAL_TEXT, HAIRLINE, INDIGO, Look, MATERIAL, MATRIX_CROSS, MATRIX_FULL, MODIFIED, NAV, ON_PRIMARY, ON_TEXT, PAGE, POPOVER, PRIMARY,
+        PROVIDER_NAMES, SELECTION, SEPARATOR, SEPARATOR_STRONG, SIDE, SPRING, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
+        SYN_STRING, SYNTAX_THEMES, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, WHITE, WINDOW, WINDOW_SOLID, WORKING, accent_rgba,
+        glass_alpha, gradient_delay, gradient_opacity, highlight_theme_with, lit_at, material, material_icon, nav_rgba, provider_glyph, provider_name,
+        provider_svg,
     };
     use gpui_kit::component::input::HighlightStyleResolver;
     use gpui_kit::{Hsla, SpringState, rgba};
@@ -864,7 +1051,8 @@ mod tests {
         ("DIFF_DEL_TEXT", DIFF_DEL_TEXT),
         ("MODIFIED", MODIFIED),
     ];
-    const GLYPHS: [(&str, Token); 7] = [("WAITING", WAITING), ("SUCCESS", SUCCESS), ("FAILED", FAILED), ("ACCENT", ACCENT), ("WORKING", WORKING), ("TEXT_3", TEXT_3), ("INDIGO", INDIGO)];
+    const GLYPHS: [(&str, Token); 7] =
+        [("WAITING", WAITING), ("SUCCESS", SUCCESS), ("FAILED", FAILED), ("ACCENT", ACCENT), ("WORKING", WORKING), ("TEXT_3", TEXT_3), ("INDIGO", INDIGO)];
     const FILLS: [(&str, Token); 2] = [("FAILED", FAILED), ("WAITING", WAITING)];
     /// FAILED and WAITING keep WHITE in both schemes (the owner's dark-theme plan), so these dark pairs stay below AA.
     const DARK_EXEMPT: [&str; 2] = ["WHITE on FAILED", "WHITE on WAITING"];
@@ -872,11 +1060,21 @@ mod tests {
     fn surfaces(dark: bool) -> [(&'static str, u32); 6] {
         let window = WINDOW_SOLID.pick(dark);
         let on_window = |t: Token| over(t.pick(dark), window);
-        [("WINDOW", window), ("SURFACE", on_window(SURFACE)), ("SURFACE_SUNKEN", on_window(SURFACE_SUNKEN)), ("PAGE", on_window(PAGE)), ("POPOVER", on_window(POPOVER)), ("SIDE", on_window(SIDE))]
+        [
+            ("WINDOW", window),
+            ("SURFACE", on_window(SURFACE)),
+            ("SURFACE_SUNKEN", on_window(SURFACE_SUNKEN)),
+            ("PAGE", on_window(PAGE)),
+            ("POPOVER", on_window(POPOVER)),
+            ("SIDE", on_window(SIDE)),
+        ]
     }
 
     fn below(dark: bool, roles: &[(&str, Token)], min: f32) -> Vec<String> {
-        surfaces(dark).into_iter().flat_map(|(bg_name, bg)| roles.iter().filter(move |(_, t)| ratio(t.pick(dark), bg) < min).map(move |(name, _)| format!("{name} on {bg_name}"))).collect()
+        surfaces(dark)
+            .into_iter()
+            .flat_map(|(bg_name, bg)| roles.iter().filter(move |(_, t)| ratio(t.pick(dark), bg) < min).map(move |(name, _)| format!("{name} on {bg_name}")))
+            .collect()
     }
 
     fn white_below(dark: bool) -> Vec<String> {
@@ -893,7 +1091,12 @@ mod tests {
         for dark in [false, true] {
             let low: Vec<String> = surfaces(dark)
                 .into_iter()
-                .flat_map(|(bg_name, bg)| [("DIFF_ADD_TEXT", DIFF_ADD_TEXT), ("DIFF_DEL_TEXT", DIFF_DEL_TEXT)].into_iter().filter(move |(_, t)| ratio(t.pick_with(dark, true), bg) < 4.5).map(move |(n, _)| format!("{n} on {bg_name}")))
+                .flat_map(|(bg_name, bg)| {
+                    [("DIFF_ADD_TEXT", DIFF_ADD_TEXT), ("DIFF_DEL_TEXT", DIFF_DEL_TEXT)]
+                        .into_iter()
+                        .filter(move |(_, t)| ratio(t.pick_with(dark, true), bg) < 4.5)
+                        .map(move |(n, _)| format!("{n} on {bg_name}"))
+                })
                 .collect();
             assert_eq!((dark, low), (dark, Vec::<String>::new()));
         }

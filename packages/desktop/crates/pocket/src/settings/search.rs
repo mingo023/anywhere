@@ -65,7 +65,14 @@ impl Desktop {
                         .flex()
                         .flex_col()
                         .gap(px(1.))
-                        .child(div().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(marked(setting.label.to_string(), words)))
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .line_height(px(18.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(TEXT)
+                                .child(marked(setting.label.to_string(), words)),
+                        )
                         .child(div().truncate().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(marked(detail(setting), words)));
                     div().child(
                         div()
@@ -99,7 +106,16 @@ impl Desktop {
                             .gap(px(12.))
                             .cursor_pointer()
                             .hover(|d| d.bg(FILL_1))
-                            .child(div().flex_1().min_w_0().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(marked(label.to_string(), words)))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_size(px(13.))
+                                    .line_height(px(18.))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(TEXT)
+                                    .child(marked(label.to_string(), words)),
+                            )
                             .child(keys)
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_section_result(Section::Keyboard, window, cx))),
                     )

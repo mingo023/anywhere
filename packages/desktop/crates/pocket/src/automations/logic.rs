@@ -128,7 +128,8 @@ fn section_of<Tz: TimeZone>(run: &Run, now: i64, tz: &Tz) -> Section {
 
 /// The runs of `only` (all when `None`) under their sections, each kept in the order given.
 pub fn sections<Tz: TimeZone>(runs: &[Run], only: Option<&str>, now: i64, tz: &Tz) -> Vec<Row> {
-    let shown: Vec<(usize, Section)> = runs.iter().enumerate().filter(|(_, r)| only.is_none_or(|id| r.automation_id == id)).map(|(i, r)| (i, section_of(r, now, tz))).collect();
+    let shown: Vec<(usize, Section)> =
+        runs.iter().enumerate().filter(|(_, r)| only.is_none_or(|id| r.automation_id == id)).map(|(i, r)| (i, section_of(r, now, tz))).collect();
     let mut rows = Vec::new();
     for section in Section::ALL {
         let of: Vec<usize> = shown.iter().filter(|(_, s)| *s == section).map(|(i, _)| *i).collect();
@@ -565,7 +566,10 @@ mod tests {
         assert_eq!(days(&[5]), "Fridays at 09:00");
         assert_eq!(days(&[0, 5, 1]), "Mon, Fri, Sun at 09:00");
         let every = |m| when_label(&Schedule::Interval { every_min: m });
-        assert_eq!([every(30), every(60), every(120), every(1440), every(2880), every(90)], ["Every 30 minutes", "Every hour", "Every 2 hours", "Every day", "Every 2 days", "Every 90 minutes"]);
+        assert_eq!(
+            [every(30), every(60), every(120), every(1440), every(2880), every(90)],
+            ["Every 30 minutes", "Every hour", "Every 2 hours", "Every day", "Every 2 days", "Every 90 minutes"]
+        );
     }
 
     #[test]
@@ -618,7 +622,14 @@ mod tests {
     #[test]
     fn the_last_run_says_what_needs_attention_and_when_a_good_one_ran() {
         let label = |status, at| last_label(&run("1", "a", status, at), NOW, &utc());
-        let got = [label(RunStatus::Waiting, NOW), label(RunStatus::Running, NOW), label(RunStatus::Succeeded, NOW - 3 * HOUR), label(RunStatus::Failed, NOW), label(RunStatus::Skipped, NOW), label(RunStatus::Cancelled, NOW)];
+        let got = [
+            label(RunStatus::Waiting, NOW),
+            label(RunStatus::Running, NOW),
+            label(RunStatus::Succeeded, NOW - 3 * HOUR),
+            label(RunStatus::Failed, NOW),
+            label(RunStatus::Skipped, NOW),
+            label(RunStatus::Cancelled, NOW),
+        ];
         assert_eq!(got, ["Needs you", "Working", "09:00", "Failed", "Skipped", "Stopped"]);
     }
 
@@ -633,12 +644,21 @@ mod tests {
     #[test]
     fn a_live_run_shows_its_age_and_a_finished_one_its_time() {
         let when = |status, at| run_when(&run("1", "a", status, at), NOW, &utc());
-        assert_eq!([when(RunStatus::Waiting, NOW - 3 * MIN), when(RunStatus::Running, NOW - 41 * MIN), when(RunStatus::Failed, NOW - 3 * HOUR), when(RunStatus::Failed, NOW - DAY_MS)], ["3m", "41m", "09:00", "Yest."]);
+        assert_eq!(
+            [
+                when(RunStatus::Waiting, NOW - 3 * MIN),
+                when(RunStatus::Running, NOW - 41 * MIN),
+                when(RunStatus::Failed, NOW - 3 * HOUR),
+                when(RunStatus::Failed, NOW - DAY_MS)
+            ],
+            ["3m", "41m", "09:00", "Yest."]
+        );
     }
 
     #[test]
     fn a_runs_header_age_tells_how_long_ago_it_began_or_when_it_ran_and_for_how_long() {
-        let age = |status, at: i64, took: i64| run_age_text(&Run { finished_at: if took > 0 { at + took } else { 0 }, ..run("1", "a", status, at) }, NOW, &utc());
+        let age =
+            |status, at: i64, took: i64| run_age_text(&Run { finished_at: if took > 0 { at + took } else { 0 }, ..run("1", "a", status, at) }, NOW, &utc());
         assert_eq!(age(RunStatus::Waiting, NOW - 3 * MIN, 0), "3m ago");
         assert_eq!(age(RunStatus::Running, NOW - 41 * MIN, 0), "Started 11:19 · 41m");
         assert_eq!(age(RunStatus::Succeeded, NOW - 5 * HOUR, 4 * MIN), "Today 07:00 · 4m");

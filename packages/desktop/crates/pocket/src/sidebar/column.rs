@@ -10,7 +10,6 @@ pub(crate) fn has_changes(repo: Option<&Repo>) -> bool {
     repo.is_some_and(|r| !r.files.is_empty())
 }
 
-
 /// Marks a sidebar toggle while the hidden Changes list has something in it.
 pub(crate) fn changes_dot() -> Div {
     ui::dot(6., ACCENT).absolute().top(px(5.)).right(px(5.)).shadow(vec![ui::ring(RAIL_CUTOUT, 1.5)])
@@ -75,7 +74,10 @@ mod tests {
 
     #[test]
     fn binary_changes_alone_still_mark_the_worktree() {
-        let repo = Repo { files: vec![FileStat { path: "a.rs".into(), added: 0, removed: 0, staged: false, unstaged: true, status: 'M', old_path: None }], ..Default::default() };
+        let repo = Repo {
+            files: vec![FileStat { path: "a.rs".into(), added: 0, removed: 0, staged: false, unstaged: true, status: 'M', old_path: None }],
+            ..Default::default()
+        };
         assert!(has_changes(Some(&repo)));
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
-    Ask, Block, Child, Choice, Delivered, Outcome, Diff, DiffLine, End, LineKind, Message, Question, SubAgent, Todo, TodoStatus, ToolCall, ToolKind, ToolStatus,
-    Transcript, Turn, Usage,
+    Ask, Block, Child, Choice, Delivered, Diff, DiffLine, End, LineKind, Message, Outcome, Question, SubAgent, Todo, TodoStatus, ToolCall, ToolKind,
+    ToolStatus, Transcript, Turn, Usage,
 };
 use agents::{Call, Detail, FileDiff, Item, Permission};
 use serde_json::Value;
@@ -196,7 +196,9 @@ fn block(item: &Item) -> Option<Block> {
         "assistant" if !blank => Block::Text(message(item)),
         "thinking" if !blank => Block::Thinking(message(item)),
         "plan" if !blank => Block::Plan(message(item)),
-        "tasks" => Block::Todos { id: item.id.clone(), todos: item.items.iter().map(|t| Todo { text: t.text.clone(), status: todo_status(&t.status) }).collect() },
+        "tasks" => {
+            Block::Todos { id: item.id.clone(), todos: item.items.iter().map(|t| Todo { text: t.text.clone(), status: todo_status(&t.status) }).collect() }
+        }
         "delivery" => Block::Delivered(delivered(item)?),
         "host_link" => Block::HostLink { id: item.id.clone(), hint: item.hint.clone(), reason: item.reason.clone() },
         "compact" => Block::Compacted { id: item.id.clone(), auto: item.trigger == "auto" },
@@ -242,7 +244,15 @@ fn tool(id: &str, item: &Item, call: &Call) -> ToolCall {
         "error" => ToolStatus::Failed,
         _ => ToolStatus::Running,
     };
-    ToolCall { id: id.into(), name: name.clone(), kind: kind(name, &call.detail), status, output: call.output.clone(), duration_ms: call.duration_ms, at: item.ts }
+    ToolCall {
+        id: id.into(),
+        name: name.clone(),
+        kind: kind(name, &call.detail),
+        status,
+        output: call.output.clone(),
+        duration_ms: call.duration_ms,
+        at: item.ts,
+    }
 }
 
 fn kind(name: &str, d: &Detail) -> ToolKind {
@@ -469,7 +479,12 @@ mod tests {
 
     #[test]
     fn another_tool_keeps_what_pocketd_says_it_is_about() {
-        let t = fold(&items(json!([tool("s", "TaskStop", json!({"kind": "other", "name": "TaskStop", "input": {"task_id": "a1"}, "description": "Audit"}), "ok")])));
+        let t = fold(&items(json!([tool(
+            "s",
+            "TaskStop",
+            json!({"kind": "other", "name": "TaskStop", "input": {"task_id": "a1"}, "description": "Audit"}),
+            "ok"
+        )])));
         let Block::Tool(c) = &t.turns[0].blocks[0] else { panic!() };
         assert_eq!(c.kind, ToolKind::Other { input: "{\n  \"task_id\": \"a1\"\n}".into(), description: "Audit".into() });
     }
@@ -498,7 +513,12 @@ mod tests {
 
     #[test]
     fn a_task_call_carries_the_context_its_sub_agent_answered_from() {
-        let t = fold(&items(json!([tool("tu-t", "Task", json!({"kind": "task", "description": "Look", "model": "claude-haiku-5-5", "tokens": 32900}), "running")])));
+        let t = fold(&items(json!([tool(
+            "tu-t",
+            "Task",
+            json!({"kind": "task", "description": "Look", "model": "claude-haiku-5-5", "tokens": 32900}),
+            "running"
+        )])));
         let ToolKind::Agent(agent) = &only_tool(&t).kind else { panic!("not an agent") };
         assert_eq!((agent.model.as_str(), agent.tokens), ("claude-haiku-5-5", 32900));
     }
@@ -549,8 +569,10 @@ mod tests {
         assert!(matches!(&list.kind, ToolKind::Agent(a) if a.model == "claude-haiku-4-5-20251001"), "the model it replied as");
         let list = sub_agent(list);
         assert_eq!(list.turns[0].prompt.as_ref().map(|m| m.text.as_str()), Some("Run ls in /w and report what is there"));
-        assert!(matches!(&list.turns[0].blocks[..], [Block::Tool(ToolCall { kind: ToolKind::Shell { command, .. }, status: ToolStatus::Ok, .. }), Block::Text(m)]
-            if command == "ls /w" && m.text == "README.md and src/"));
+        assert!(
+            matches!(&list.turns[0].blocks[..], [Block::Tool(ToolCall { kind: ToolKind::Shell { command, .. }, status: ToolStatus::Ok, .. }), Block::Text(m)]
+            if command == "ls /w" && m.text == "README.md and src/")
+        );
         let count = sub_agent(count);
         assert!(matches!(&count.turns[0].blocks[..], [Block::Text(m)] if m.text == "1, 2, 3"));
     }
@@ -576,7 +598,10 @@ mod tests {
         let todo = |text: &str, status| Todo { text: text.into(), status };
         assert_eq!(
             t.turns[0].blocks,
-            vec![Block::Todos { id: "i1".into(), todos: vec![todo("read", TodoStatus::Done), todo("group", TodoStatus::Active), todo("test", TodoStatus::Pending)] }]
+            vec![Block::Todos {
+                id: "i1".into(),
+                todos: vec![todo("read", TodoStatus::Done), todo("group", TodoStatus::Active), todo("test", TodoStatus::Pending)]
+            }]
         );
     }
 
@@ -593,7 +618,15 @@ mod tests {
             {"kind": "delivery", "outcome": "paused", "childIds": ["a4"]},
         ])));
         let child = |id: &str, title: &str, agent: &str| Child { id: id.into(), title: title.into(), agent: agent.into() };
-        assert_eq!(t.turns[0].blocks, vec![Block::Delivered(Delivered { id: "i1".into(), outcome: Outcome::Asks, question: "Which test runner?".into(), children: vec![child("a2", "Write the tests", "codex"), child("a3", "Review", "claude")] })]);
+        assert_eq!(
+            t.turns[0].blocks,
+            vec![Block::Delivered(Delivered {
+                id: "i1".into(),
+                outcome: Outcome::Asks,
+                question: "Which test runner?".into(),
+                children: vec![child("a2", "Write the tests", "codex"), child("a3", "Review", "claude")]
+            })]
+        );
     }
 
     #[test]
@@ -657,6 +690,14 @@ mod tests {
     fn a_permission_maps_to_an_ask_with_its_tool() {
         let golden: Value = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/permission_request.json")).unwrap();
         let p: Permission = serde_json::from_value(golden["request"].clone()).unwrap();
-        assert_eq!(ask(&p), Ask { request_id: "r1".into(), tool: ToolKind::Shell { command: "rm x".into(), description: "remove".into() }, tool_name: "Bash".into(), questions: vec![] });
+        assert_eq!(
+            ask(&p),
+            Ask {
+                request_id: "r1".into(),
+                tool: ToolKind::Shell { command: "rm x".into(), description: "remove".into() },
+                tool_name: "Bash".into(),
+                questions: vec![]
+            }
+        );
     }
 }

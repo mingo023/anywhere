@@ -81,7 +81,9 @@ impl Desktop {
         if !setting.allowed(&self.store) {
             return None;
         }
-        let add = ui::button("sound-add", ui::Variant::Secondary, Some("plus"), "Add custom audio").h(px(28.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_sounds(window, cx)));
+        let add = ui::button("sound-add", ui::Variant::Secondary, Some("plus"), "Add custom audio")
+            .h(px(28.))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_sounds(window, cx)));
         let text = div()
             .flex_1()
             .min_w_0()
@@ -108,7 +110,14 @@ impl Desktop {
             .gap(px(6.))
             .child(div().truncate().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(name))
             .children(length.map(|l| div().flex_none().text_size(px(12.)).text_color(TEXT_4).child(l)));
-        let text = div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(title).child(div().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(hint));
+        let text = div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .gap(px(1.))
+            .child(title)
+            .child(div().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(hint));
         let remove = match &sound {
             Sound::Custom(path) => {
                 let path = path.clone();
@@ -248,6 +257,9 @@ mod tests {
     fn every_file_not_added_is_named() {
         let s = |v: &[&str]| v.iter().map(|n| n.to_string()).collect::<Vec<_>>();
         assert_eq!(not_added(&[], &[]), None);
-        assert_eq!(not_added(&s(&["a.flac", "b.txt"]), &s(&["c.mp3"])).as_deref(), Some("a.flac, b.txt isn\u{2019}t .mp3, .wav or .ogg. Couldn\u{2019}t add c.mp3"));
+        assert_eq!(
+            not_added(&s(&["a.flac", "b.txt"]), &s(&["c.mp3"])).as_deref(),
+            Some("a.flac, b.txt isn\u{2019}t .mp3, .wav or .ogg. Couldn\u{2019}t add c.mp3")
+        );
     }
 }

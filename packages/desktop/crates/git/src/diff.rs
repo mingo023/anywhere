@@ -132,11 +132,7 @@ pub struct Line {
 }
 
 pub fn hunk_start(header: &str, sign: char) -> usize {
-    header
-        .split_whitespace()
-        .find_map(|w| w.strip_prefix(sign))
-        .and_then(|w| w.split(',').next()?.parse().ok())
-        .unwrap_or(1)
+    header.split_whitespace().find_map(|w| w.strip_prefix(sign)).and_then(|w| w.split(',').next()?.parse().ok()).unwrap_or(1)
 }
 
 pub fn parse(diff: &str) -> Vec<Line> {
@@ -161,12 +157,7 @@ pub fn parse(diff: &str) -> Vec<Line> {
             None => (Kind::Context, ""),
             _ => continue,
         };
-        let line = Line {
-            kind,
-            old: (kind != Kind::Add).then_some(old),
-            new: (kind != Kind::Del).then_some(new),
-            text: text.into(),
-        };
+        let line = Line { kind, old: (kind != Kind::Add).then_some(old), new: (kind != Kind::Del).then_some(new), text: text.into() };
         old += (kind != Kind::Add) as usize;
         new += (kind != Kind::Del) as usize;
         out.push(line);
@@ -310,7 +301,8 @@ mod tests {
     fn context_lines_widen_or_narrow_each_hunk() {
         let old = numbered(20);
         let new = old.replace("l10\n", "L10\n");
-        let around = |context| diff_texts(&old, &new, &HashSet::new(), Options { context, ..Options::default() }).iter().filter(|l| l.kind == Kind::Context).count();
+        let around =
+            |context| diff_texts(&old, &new, &HashSet::new(), Options { context, ..Options::default() }).iter().filter(|l| l.kind == Kind::Context).count();
         assert_eq!((around(0), around(3), around(5)), (0, 6, 10));
     }
 

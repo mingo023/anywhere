@@ -243,13 +243,25 @@ impl Desktop {
                 cx.notify();
             }
         });
-        let body = div().id("open-in-box").flex().flex_row_reverse().items_start().gap(px(GAP)).occlude().on_mouse_down_out(close).child(main).children(panel).children(nested);
+        let body = div()
+            .id("open-in-box")
+            .flex()
+            .flex_row_reverse()
+            .items_start()
+            .gap(px(GAP))
+            .occlude()
+            .on_mouse_down_out(close)
+            .child(main)
+            .children(panel)
+            .children(nested);
         ui::dropdown_right(32., ui::menu_in("open-in-menu-in", body))
     }
 
     fn opener_row(&self, app: &'static Opener, to: Flyouts, cx: &mut Context<Self>) -> Stateful<Div> {
         let chosen = app.id == self.selected_opener().id;
-        ui::menu_pick(format!("open-in-{}", app.id), self.opener_icon(app, 14.), app.label, chosen).on_hover(Self::hover_open_in(to, cx)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_opener(app, cx)))
+        ui::menu_pick(format!("open-in-{}", app.id), self.opener_icon(app, 14.), app.label, chosen)
+            .on_hover(Self::hover_open_in(to, cx))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_opener(app, cx)))
     }
 
     fn submenu_row(id: String, lead: impl IntoElement, label: &str, open: bool, to: Flyouts, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -257,14 +269,23 @@ impl Desktop {
     }
 
     fn group_row(group: &Group, flyouts: Flyouts, cx: &mut Context<Self>) -> Stateful<Div> {
-        Self::submenu_row(format!("open-in-{}", group.id), icon(group.icon, 14., TEXT_2), group.label, flyouts.group == Some(group.id), Flyouts { group: Some(group.id), sub: None }, cx)
+        Self::submenu_row(
+            format!("open-in-{}", group.id),
+            icon(group.icon, 14., TEXT_2),
+            group.label,
+            flyouts.group == Some(group.id),
+            Flyouts { group: Some(group.id), sub: None },
+            cx,
+        )
     }
 
     fn entry_row(&self, entry: &Entry, group: &'static str, flyouts: Flyouts, cx: &mut Context<Self>) -> Stateful<Div> {
         let to = |sub| Flyouts { group: Some(group), sub };
         match entry {
             Entry::App(app) => self.opener_row(app, to(None), cx),
-            Entry::Editions { id, label, apps } => Self::submenu_row(format!("open-in-{id}"), self.opener_icon(apps[0], 14.), label, flyouts.sub == Some(*id), to(Some(*id)), cx),
+            Entry::Editions { id, label, apps } => {
+                Self::submenu_row(format!("open-in-{id}"), self.opener_icon(apps[0], 14.), label, flyouts.sub == Some(*id), to(Some(*id)), cx)
+            }
         }
     }
 }
@@ -279,7 +300,8 @@ mod tests {
 
     #[test]
     fn flyouts_show_only_a_group_and_editions_that_are_installed() {
-        let groups = [Group { id: "ide", label: "IDE", icon: "code", entries: vec![Entry::Editions { id: "vscode-editions", label: "VS Code", apps: vec![&FINDER] }] }];
+        let groups =
+            [Group { id: "ide", label: "IDE", icon: "code", entries: vec![Entry::Editions { id: "vscode-editions", label: "VS Code", apps: vec![&FINDER] }] }];
         let (group, editions) = Flyouts { group: Some("ide"), sub: Some("vscode-editions") }.shown(&groups);
         assert_eq!((group.map(|g| g.id), editions.map(|apps| apps.len())), (Some("ide"), Some(1)));
         assert_eq!(Flyouts { group: Some("terminal"), sub: None }.shown(&groups), (None, None));

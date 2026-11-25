@@ -38,16 +38,11 @@ impl Desktop {
             .gap(px(8.))
             .border_t(px(0.5))
             .border_color(SEPARATOR)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .child(div().truncate().font_family(MONO).text_size(px(12.5)).child(path))
-                    .children(hint.map(|(glyph, text, tint)| div().flex().items_center().gap(px(5.)).text_size(px(12.)).text_color(tint).child(icon(glyph, 12., tint)).child(text))),
-            )
+            .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(div().truncate().font_family(MONO).text_size(px(12.5)).child(path)).children(
+                hint.map(|(glyph, text, tint)| {
+                    div().flex().items_center().gap(px(5.)).text_size(px(12.)).text_color(tint).child(icon(glyph, 12., tint)).child(text)
+                }),
+            ))
             .child(cancel)
             .child(choose)
     }

@@ -18,7 +18,15 @@ impl Desktop {
         let selected = !drafting && self.automations.selected.as_deref() == Some(auto.id.as_str());
         let last = a.last_run(&auto.id);
         let status = if !auto.enabled {
-            ui::tag("Paused").text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).bg(FILL_3).rounded(px(5.)).px(px(6.)).py(px(1.)).into_any_element()
+            ui::tag("Paused")
+                .text_size(px(11.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(TEXT_3)
+                .bg(FILL_3)
+                .rounded(px(5.))
+                .px(px(6.))
+                .py(px(1.))
+                .into_any_element()
         } else if let Some(r) = last {
             let color = match r.status {
                 RunStatus::Waiting => WAITING_TEXT,

@@ -45,7 +45,15 @@ impl Desktop {
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(div().relative().flex_1().min_w_0().flex().child(switch).when(open, |d| d.child(ui::dropdown(28., ui::menu_in("compare-menu-in", self.scope_menu(scope, cx))))))
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .child(switch)
+                    .when(open, |d| d.child(ui::dropdown(28., ui::menu_in("compare-menu-in", self.scope_menu(scope, cx))))),
+            )
             .children(totals)
     }
 
@@ -62,14 +70,17 @@ impl Desktop {
                 Choice::Branch(b) => (b.clone(), None),
             };
             let chosen = scope.compare && choice.against() == scope.against;
-            let row = ui::pick_row(("compare-ref", n), chosen, Some(icon("branch", 13., TEXT_3)), div().font_family(MONO).text_size(px(12.5)).child(label), meta)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_compare(choice.clone(), cx)));
+            let row =
+                ui::pick_row(("compare-ref", n), chosen, Some(icon("branch", 13., TEXT_3)), div().font_family(MONO).text_size(px(12.5)).child(label), meta)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_compare(choice.clone(), cx)));
             rows.push(row.into_any_element());
         }
-        let uncommitted = ui::menu_pick("compare-uncommitted", icon("list-flat", 13., TEXT_3), "Uncommitted", !scope.compare).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.compare.menu = false;
-            this.change_scope(|s| s.compare = false, cx);
-        }));
+        let uncommitted = ui::menu_pick("compare-uncommitted", icon("list-flat", 13., TEXT_3), "Uncommitted", !scope.compare).on_click(cx.listener(
+            |this, _: &ClickEvent, _, cx| {
+                this.compare.menu = false;
+                this.change_scope(|s| s.compare = false, cx);
+            },
+        ));
         ui::pop(div().id("compare-menu"))
             .w(px(320.))
             .flex()

@@ -28,8 +28,12 @@ impl Desktop {
                 let to = space.clone();
                 rail_slot(SharedString::from(format!("{prefix}-space-{i}")), on)
                     .child(icon(self.space_glyph(space), 16., if on { TEXT } else { TEXT_2 }))
-                    .when(space.host().is_some(), |d| d.child(div().absolute().right(px(3.)).bottom(px(4.)).p(px(1.5)).rounded_full().bg(nav_fill()).child(ui::dot(6., link_color(link)))))
-                    .when_some(tint.filter(|_| on), |d, c| d.child(div().absolute().left(px(10.)).bottom(px(1.)).w(px(12.)).h(px(2.5)).rounded(px(2.)).bg(rgb(c))))
+                    .when(space.host().is_some(), |d| {
+                        d.child(div().absolute().right(px(3.)).bottom(px(4.)).p(px(1.5)).rounded_full().bg(nav_fill()).child(ui::dot(6., link_color(link))))
+                    })
+                    .when_some(tint.filter(|_| on), |d, c| {
+                        d.child(div().absolute().left(px(10.)).bottom(px(1.)).w(px(12.)).h(px(2.5)).rounded(px(2.)).bg(rgb(c)))
+                    })
                     .when(count > 0 && !on, |d| d.child(ui::count_badge(count).top(px(-1.)).right(px(-1.))))
                     .when(self.spaces.flashed(&flash_key(space), Instant::now()), |d| d.bg(ACCENT_BG))
                     .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
@@ -60,7 +64,15 @@ impl Desktop {
             .border_color(SEPARATOR)
             .child(
                 // With many hosts the buttons scroll, so Add and Settings stay in reach.
-                div().id("aside-spaces").flex().items_center().gap(px(2.)).min_w_0().p(px(1.)).overflow_x_scroll().children(self.space_buttons("aside", order, current, cx)),
+                div()
+                    .id("aside-spaces")
+                    .flex()
+                    .items_center()
+                    .gap(px(2.))
+                    .min_w_0()
+                    .p(px(1.))
+                    .overflow_x_scroll()
+                    .children(self.space_buttons("aside", order, current, cx)),
             )
             .child(add)
             .child(div().flex_1())

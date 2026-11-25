@@ -31,7 +31,10 @@ pub(super) fn bar(percent: u32, w: f32, h: f32) -> Div {
 
 /// Slides a page in from `from` px beside it.
 fn slide(id: &'static str, from: f32, page: Div) -> AnyElement {
-    page.with_animation(id, Animation::new(Duration::from_millis(240)).with_easing(ease_out_quint()), move |e, t| e.relative().left(px(from * (1. - t))).opacity(t)).into_any_element()
+    page.with_animation(id, Animation::new(Duration::from_millis(240)).with_easing(ease_out_quint()), move |e, t| {
+        e.relative().left(px(from * (1. - t))).opacity(t)
+    })
+    .into_any_element()
 }
 
 impl Desktop {
@@ -78,12 +81,16 @@ impl Desktop {
             Some(Menu::Usage { back: true }) => slide("chat-account-usage-back", -SLIDE, self.chat_account_usage(agent, host, a, switch, cx)),
             _ => self.chat_account_usage(agent, host, a, switch, cx).into_any_element(),
         };
-        let pop = ui::pop(div().id("chat-account-menu")).w(px(WIDTH)).overflow_hidden().occlude().child(page).on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-            this.chats.composer.draft.menu = None;
-            cx.notify();
-        }));
+        let pop = ui::pop(div().id("chat-account-menu")).w(px(WIDTH)).overflow_hidden().occlude().child(page).on_mouse_down_out(cx.listener(
+            |this, _: &MouseDownEvent, _, cx| {
+                this.chats.composer.draft.menu = None;
+                cx.notify();
+            },
+        ));
         // It opens upward, as the composer sits at the bottom.
-        div().absolute().top(px(-6.)).left(px(-6.)).child(deferred(anchored().anchor(Anchor::BottomLeft).snap_to_window_with_margin(px(8.)).child(ui::menu_in("chat-account-menu-in", pop))).with_priority(1))
+        div().absolute().top(px(-6.)).left(px(-6.)).child(
+            deferred(anchored().anchor(Anchor::BottomLeft).snap_to_window_with_margin(px(8.)).child(ui::menu_in("chat-account-menu-in", pop))).with_priority(1),
+        )
     }
 
     pub(crate) fn escape_composer_menu(&mut self) -> bool {

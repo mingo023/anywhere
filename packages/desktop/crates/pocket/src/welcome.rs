@@ -71,8 +71,13 @@ pub(crate) fn greets(store: &store::Store) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Phase {
     /// Out of sight above, until frames come smoothly.
-    Waiting { since: Option<Instant>, calm: u8 },
-    Falling { bounced: bool },
+    Waiting {
+        since: Option<Instant>,
+        calm: u8,
+    },
+    Falling {
+        bounced: bool,
+    },
     Landed(Instant),
     /// Words shown and Get started offered, since this instant.
     Ready(Instant),

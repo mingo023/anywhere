@@ -24,9 +24,13 @@ pub fn themes_url(version: &str) -> String {
 pub enum Update {
     Idle,
     /// Downloaded and verified; installs at quit, or now on "Restart to update".
-    Ready { version: String },
+    Ready {
+        version: String,
+    },
     /// The app relaunched on `version`.
-    WhatsNew { version: String },
+    WhatsNew {
+        version: String,
+    },
 }
 
 impl Update {

@@ -55,7 +55,15 @@ fn title_and_body(question: &str) -> (&str, Option<&str>) {
 impl Wizard {
     pub(super) fn new(ask: &Ask) -> Self {
         let n = ask.questions.len();
-        Self { request_id: ask.request_id.clone(), questions: ask.questions.clone(), page: 0, picked: vec![Vec::new(); n], typed: vec![String::new(); n], forward: true, sent: false }
+        Self {
+            request_id: ask.request_id.clone(),
+            questions: ask.questions.clone(),
+            page: 0,
+            picked: vec![Vec::new(); n],
+            typed: vec![String::new(); n],
+            forward: true,
+            sent: false,
+        }
     }
 
     fn last(&self) -> bool {
@@ -137,7 +145,8 @@ impl Wizard {
     fn answers(&self) -> HashMap<String, String> {
         let answer = |(ix, q): (usize, &Question)| {
             let typed = self.typed[ix].trim();
-            let text = if typed.is_empty() { self.picked[ix].iter().map(|&p| q.options[p].label.as_str()).collect::<Vec<_>>().join(", ") } else { typed.to_string() };
+            let text =
+                if typed.is_empty() { self.picked[ix].iter().map(|&p| q.options[p].label.as_str()).collect::<Vec<_>>().join(", ") } else { typed.to_string() };
             (q.question.clone(), text)
         };
         self.questions.iter().enumerate().map(answer).collect()
@@ -360,12 +369,11 @@ impl Desktop {
                 let (this, (agent, cwd)) = (cx.weak_entity(), self.summary(terminal).map(|a| (a.id.clone(), a.cwd.clone())).unwrap_or_default());
                 Arc::new(move |link, press, window, cx| this.update(cx, |d, cx| d.chat_link(&agent, link, &cwd, press, window, cx)).unwrap_or_default())
             };
-            div()
-                .id(id(format!("chat-question-body:{terminal}")))
-                .mt(px(6.))
-                .max_h(px(BODY_MAX_HEIGHT))
-                .overflow_y_scroll()
-                .child(markdown::block(TextView::markdown(id(format!("chat-question-md:{}:{}", ask.request_id, w.page)), SharedString::from(text.to_string())), open).text_size(px(13.5)).line_height(px(21.)))
+            div().id(id(format!("chat-question-body:{terminal}"))).mt(px(6.)).max_h(px(BODY_MAX_HEIGHT)).overflow_y_scroll().child(
+                markdown::block(TextView::markdown(id(format!("chat-question-md:{}:{}", ask.request_id, w.page)), SharedString::from(text.to_string())), open)
+                    .text_size(px(13.5))
+                    .line_height(px(21.)),
+            )
         });
         let other = answerable.then(|| {
             // The textarea pads itself 8 × 10, so the row adds no vertical padding and the pencil drops to its first line.
@@ -390,9 +398,11 @@ impl Desktop {
             .children(body)
             .when(q.multi, |el| el.child(div().mt(px(4.)).text_size(px(12.)).text_color(TEXT_3).child("Select one or more.")))
             .child(div().mt(px(12.)).flex().flex_col().gap(px(4.)).children(options))
-            .with_animation(id(format!("chat-question-page:{}:{}", ask.request_id, w.page)), Animation::new(Duration::from_millis(220)).with_easing(ease_out_quint()), move |e, t| {
-                e.opacity(t).ml(px(slide * (1. - t))).mr(px(-slide * (1. - t)))
-            });
+            .with_animation(
+                id(format!("chat-question-page:{}:{}", ask.request_id, w.page)),
+                Animation::new(Duration::from_millis(220)).with_easing(ease_out_quint()),
+                move |e, t| e.opacity(t).ml(px(slide * (1. - t))).mr(px(-slide * (1. - t))),
+            );
         let (skip, back, next, keys) = (terminal.to_string(), terminal.to_string(), terminal.to_string(), terminal.to_string());
         let footer = answerable.then(|| {
             div()

@@ -201,7 +201,14 @@ fn offered(p: Prompt, provider: &str, listed: &[agents::Command], text: &str, at
 
 /// Where the command a space just ended goes as a pill, and its name: one the list would offer there, outside code and
 /// not one already; `/mcp` gives way to a tag instead.
-fn typed_pill<'a>(p: Prompt, provider: &str, listed: &[agents::Command], text: &'a str, cursor: usize, pills: &[Range<usize>]) -> Option<(Range<usize>, &'a str)> {
+fn typed_pill<'a>(
+    p: Prompt,
+    provider: &str,
+    listed: &[agents::Command],
+    text: &'a str,
+    cursor: usize,
+    pills: &[Range<usize>],
+) -> Option<(Range<usize>, &'a str)> {
     let (at, name) = ended_command(text, cursor)?;
     let range = at..at + 1 + name.len();
     let free = chat::marks_outside_code(text).0.commands.contains(&range) && !pills.contains(&range);
@@ -337,10 +344,20 @@ impl Desktop {
 
     fn suggest_target(&self, p: Prompt) -> Option<Target> {
         match p {
-            Prompt::Chat => self.chats.drafts.owner().and_then(|id| self.agents.get(id)).map(|a| Target { key: a.id.clone(), provider: a.provider.clone(), account: a.account.clone(), cwd: a.cwd.clone() }),
+            Prompt::Chat => self.chats.drafts.owner().and_then(|id| self.agents.get(id)).map(|a| Target {
+                key: a.id.clone(),
+                provider: a.provider.clone(),
+                account: a.account.clone(),
+                cwd: a.cwd.clone(),
+            }),
             Prompt::Launch => {
                 let pick = self.new_form_pick();
-                self.new_form.project().map(|cwd| Target { key: launch_key(&pick.provider, &pick.account, cwd), provider: pick.provider, account: pick.account, cwd: cwd.into() })
+                self.new_form.project().map(|cwd| Target {
+                    key: launch_key(&pick.provider, &pick.account, cwd),
+                    provider: pick.provider,
+                    account: pick.account,
+                    cwd: cwd.into(),
+                })
             }
         }
     }
@@ -407,7 +424,8 @@ impl Desktop {
             }
             let root = format!("{}/", hosts::split(&t.cwd).1.trim_end_matches('/'));
             let views = (p == Prompt::Chat).then(|| self.chats.views.get(&t.key)).flatten();
-            let touched: Vec<String> = views.map(|v| touched(&v.session.transcript)).unwrap_or_default().iter().filter_map(|p| p.strip_prefix(&root).map(String::from)).collect();
+            let touched: Vec<String> =
+                views.map(|v| touched(&v.session.transcript)).unwrap_or_default().iter().filter_map(|p| p.strip_prefix(&root).map(String::from)).collect();
             let changed: HashSet<&str> = self.repos.get(&t.cwd).map(|r| r.files.iter().map(|f| f.path.as_str()).collect()).unwrap_or_default();
             let files = s.files.get(&t.cwd).map_or(&[][..], Vec::as_slice);
             Some(Rows::Files { at, query: query.into(), paths: rank(query, &touched, &changed, files) })
@@ -601,7 +619,9 @@ impl Desktop {
                 .map(|i| {
                     let c = &rows[i];
                     r(i).child(div().flex_none().font_family(code_font()).child(marked(format!("/{}", c.name), &[query.to_lowercase()])))
-                        .when(!c.hint.is_empty(), |r| r.child(div().min_w_0().truncate().font_family(code_font()).text_size(px(12.)).text_color(TEXT_3).child(c.hint.clone())))
+                        .when(!c.hint.is_empty(), |r| {
+                            r.child(div().min_w_0().truncate().font_family(code_font()).text_size(px(12.)).text_color(TEXT_3).child(c.hint.clone()))
+                        })
                         .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_3).child(c.description.clone()))
                 })
                 .collect(),
@@ -640,7 +660,13 @@ impl Desktop {
                 this.suggest_state_mut(p).list = None;
                 cx.notify();
             }));
-        Some(div().absolute().top(px(-6.)).left_0().child(deferred(anchored().anchor(Anchor::BottomLeft).snap_to_window_with_margin(px(8.)).child(pop)).with_priority(1)))
+        Some(
+            div()
+                .absolute()
+                .top(px(-6.))
+                .left_0()
+                .child(deferred(anchored().anchor(Anchor::BottomLeft).snap_to_window_with_margin(px(8.)).child(pop)).with_priority(1)),
+        )
     }
 }
 

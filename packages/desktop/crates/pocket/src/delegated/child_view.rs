@@ -47,7 +47,13 @@ impl Desktop {
 
     pub(crate) fn delegated_by(&self, agent: &str) -> Option<(String, String)> {
         let parent = self.delegated_parent(agent)?;
-        let at = self.agents.delegations.of(&parent.id).iter().find(|d| d.child_id == agent).map_or_else(|| self.agents.get(agent).map_or(0, |a| a.created_at), |d| d.created_at);
+        let at = self
+            .agents
+            .delegations
+            .of(&parent.id)
+            .iter()
+            .find(|d| d.child_id == agent)
+            .map_or_else(|| self.agents.get(agent).map_or(0, |a| a.created_at), |d| d.created_at);
         Some((parent.provider.clone(), by_label(provider_name(&parent.provider), at, &Local)))
     }
 
@@ -56,7 +62,13 @@ impl Desktop {
         let parent = self.crumb_parent(agent)?;
         let child = self.agents.get(agent)?;
         let to = parent.id.clone();
-        let down = self.agents.delegations.of(&parent.id).iter().find(|d| d.child_id == agent).and_then(|d| super::unreachable_host(d, &self.fleet.hosts.list, &self.fleet.hosts.links));
+        let down = self
+            .agents
+            .delegations
+            .of(&parent.id)
+            .iter()
+            .find(|d| d.child_id == agent)
+            .and_then(|d| super::unreachable_host(d, &self.fleet.hosts.list, &self.fleet.hosts.links));
         let solid: Hsla = if is_dark() { window_fill() } else { SURFACE_SUNKEN.into() };
         let back = div()
             .id("delegated-back")
@@ -103,7 +115,9 @@ impl Desktop {
                         .text_color(TEXT)
                         .child(provider_icon(&child.provider, 13., TEXT))
                         .child(div().min_w_0().truncate().child(status::title(child)))
-                        .children(down.map(|host| div().flex_none().font_weight(FontWeight::NORMAL).text_color(WAITING_TEXT).child(super::unreachable_label(&host)))),
+                        .children(
+                            down.map(|host| div().flex_none().font_weight(FontWeight::NORMAL).text_color(WAITING_TEXT).child(super::unreachable_label(&host))),
+                        ),
                 )
                 .child(div().flex_1())
                 .child(ui::kbd("esc")),
@@ -144,7 +158,11 @@ mod tests {
     fn a_delegated_session_goes_back_to_the_chat_that_delegated_it_while_that_is_listed() {
         let list = [session("p", "", ""), session("c", "p", "subagent"), session("f", "p", "fork"), session("o", "gone", "subagent")];
         assert_eq!(parent_of(&list, "c").map(|p| p.id.as_str()), Some("p"));
-        assert_eq!([parent_of(&list, "p").is_none(), parent_of(&list, "f").is_none(), parent_of(&list, "o").is_none()], [true, true, true], "a fork, an orphan and a plain chat have none");
+        assert_eq!(
+            [parent_of(&list, "p").is_none(), parent_of(&list, "f").is_none(), parent_of(&list, "o").is_none()],
+            [true, true, true],
+            "a fork, an orphan and a plain chat have none"
+        );
     }
 
     #[test]

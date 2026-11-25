@@ -80,7 +80,14 @@ pub(super) struct Panel {
 
 impl Panel {
     pub(super) fn new() -> Self {
-        Self { spread: Glide::from(0.).response(SPREAD_RESPONSE), shown: Glide::from(0.).response(SHOW_RESPONSE), open: false, leaving: false, watch: Watch::default(), collapse: None }
+        Self {
+            spread: Glide::from(0.).response(SPREAD_RESPONSE),
+            shown: Glide::from(0.).response(SHOW_RESPONSE),
+            open: false,
+            leaving: false,
+            watch: Watch::default(),
+            collapse: None,
+        }
     }
 
     /// Where the list and the panel as a whole are heading.
@@ -134,7 +141,12 @@ fn material(reduce_transparency: bool, macos: bool) -> Material {
 }
 
 fn shell(material: Material) -> Div {
-    let shell = div().rounded(px(R_POPOVER)).shadow(vec![BoxShadow { inset: true, ..ui::shadow(GLASS_HIGHLIGHT, 0.5, 0.) }, ui::ring(SEPARATOR, 0.5), ui::shadow(SHADOW, 18., 50.), ui::shadow(rgba(0x0000000f), 2., 6.)]);
+    let shell = div().rounded(px(R_POPOVER)).shadow(vec![
+        BoxShadow { inset: true, ..ui::shadow(GLASS_HIGHLIGHT, 0.5, 0.) },
+        ui::ring(SEPARATOR, 0.5),
+        ui::shadow(SHADOW, 18., 50.),
+        ui::shadow(rgba(0x0000000f), 2., 6.),
+    ]);
     match material {
         Material::Glass => shell.bg(GLASS).backdrop_blur(px(GLASS_BLUR)),
         Material::Solid => shell.bg(POPOVER),
@@ -316,8 +328,10 @@ impl Desktop {
         let full_h = if spread > 0. { full_height(list.clone(), |d| text_lines(&d.question, QUESTION_SIZE, QUESTION_W, window)) } else { 0. };
         let scale = lerp(ENTER_SCALE, 1., appeared);
         let parent = agent.to_string();
-        let capsule = (capsule_opacity(spread) > 0.).then(|| capsule(&parent, list.clone(), &counts, logos, summary, spread < 0.5, cx).opacity(capsule_opacity(spread)));
-        let full = (list_opacity(spread) > 0.).then(|| full(&parent, list, counts.total, settled, spread >= 0.5, &self.fleet.hosts, cx).opacity(list_opacity(spread)));
+        let capsule =
+            (capsule_opacity(spread) > 0.).then(|| capsule(&parent, list.clone(), &counts, logos, summary, spread < 0.5, cx).opacity(capsule_opacity(spread)));
+        let full =
+            (list_opacity(spread) > 0.).then(|| full(&parent, list, counts.total, settled, spread >= 0.5, &self.fleet.hosts, cx).opacity(list_opacity(spread)));
         let material = material(reduce_transparency, cfg!(target_os = "macos"));
         let open = self.delegated.panels[agent].open;
         Some(
@@ -337,8 +351,21 @@ impl Desktop {
     }
 }
 
-fn capsule<'a>(parent: &str, list: impl Iterator<Item = &'a Delegation> + Clone, counts: &Counts, logos: Vec<&str>, summary: String, live: bool, cx: &mut Context<Desktop>) -> Stateful<Div> {
-    let shown = list.clone().find(|d| d.phase() == Phase::Asking).or_else(|| list.clone().find(|d| !d.phase().settled())).or(list.last()).map_or(Phase::Working, Delegation::phase);
+fn capsule<'a>(
+    parent: &str,
+    list: impl Iterator<Item = &'a Delegation> + Clone,
+    counts: &Counts,
+    logos: Vec<&str>,
+    summary: String,
+    live: bool,
+    cx: &mut Context<Desktop>,
+) -> Stateful<Div> {
+    let shown = list
+        .clone()
+        .find(|d| d.phase() == Phase::Asking)
+        .or_else(|| list.clone().find(|d| !d.phase().settled()))
+        .or(list.last())
+        .map_or(Phase::Working, Delegation::phase);
     let colour = if counts.asking > 0 { WAITING_TEXT } else { TEXT_2 };
     let to = parent.to_string();
     let capsule = div()
@@ -373,10 +400,20 @@ fn capsule<'a>(parent: &str, list: impl Iterator<Item = &'a Delegation> + Clone,
     if live { capsule.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.delegated_set_open(&to, true, cx))) } else { capsule }
 }
 
-fn full<'a>(parent: &str, list: impl Iterator<Item = &'a Delegation>, total: usize, settled: bool, live: bool, hosts: &Hosts, cx: &mut Context<Desktop>) -> Div {
+fn full<'a>(
+    parent: &str,
+    list: impl Iterator<Item = &'a Delegation>,
+    total: usize,
+    settled: bool,
+    live: bool,
+    hosts: &Hosts,
+    cx: &mut Context<Desktop>,
+) -> Div {
     let now = now_ms();
     let (clear, shut) = (parent.to_string(), parent.to_string());
-    let button = |id: &'static str| div().id(id).h(px(24.)).px(px(8.)).rounded(px(7.)).flex().items_center().text_size(px(12.)).text_color(TEXT_3).hover(|s| s.bg(FILL_3).text_color(TEXT));
+    let button = |id: &'static str| {
+        div().id(id).h(px(24.)).px(px(8.)).rounded(px(7.)).flex().items_center().text_size(px(12.)).text_color(TEXT_3).hover(|s| s.bg(FILL_3).text_color(TEXT))
+    };
     let head = div()
         .h(px(HEAD_H))
         .pl(px(14.))
@@ -387,8 +424,17 @@ fn full<'a>(parent: &str, list: impl Iterator<Item = &'a Delegation>, total: usi
         .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_2).child("Delegated"))
         .child(div().text_size(px(12.)).text_color(TEXT_4).child(total.to_string()))
         .child(div().flex_1())
-        .when(settled && live, |d| d.child(button("delegated-clear").cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.delegated_clear(&clear, cx))).child("Clear")))
-        .child(button("delegated-collapse").w(px(24.)).px_0().justify_center().when(live, |d| d.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.delegated_set_open(&shut, false, cx)))).child(icon("chevron-up", 12., TEXT_3)));
+        .when(settled && live, |d| {
+            d.child(button("delegated-clear").cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.delegated_clear(&clear, cx))).child("Clear"))
+        })
+        .child(
+            button("delegated-collapse")
+                .w(px(24.))
+                .px_0()
+                .justify_center()
+                .when(live, |d| d.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.delegated_set_open(&shut, false, cx))))
+                .child(icon("chevron-up", 12., TEXT_3)),
+        );
     let rows = div().px(px(6.)).pb(px(6.)).flex().flex_col().children(list.map(|d| row(d, now, live, hosts, cx)));
     div().absolute().top_0().right_0().w(px(FULL_W)).flex().flex_col().child(head).child(rows)
 }
@@ -414,7 +460,13 @@ fn row(d: &Delegation, now: i64, live: bool, hosts: &Hosts, cx: &mut Context<Des
         .items_center()
         .justify_center()
         .child(div().when(opens, |d| d.group_hover("delegated-row", |s| s.invisible())).child(glyph(&d.task_id, phase)))
-        .when(opens, |d| d.child(div().absolute().inset_0().flex().items_center().justify_center().invisible().group_hover("delegated-row", |s| s.visible()).child(icon("chevron-right", 12., TEXT_3))));
+        .when(opens, |d| {
+            d.child(div().absolute().inset_0().flex().items_center().justify_center().invisible().group_hover("delegated-row", |s| s.visible()).child(icon(
+                "chevron-right",
+                12.,
+                TEXT_3,
+            )))
+        });
     let top = div()
         .flex()
         .items_start()
@@ -427,13 +479,45 @@ fn row(d: &Delegation, now: i64, live: bool, hosts: &Hosts, cx: &mut Context<Des
                 .flex()
                 .flex_col()
                 .child(div().h(px(18.)).truncate().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(title))
-                .child(div().h(px(16.)).flex().items_center().gap(px(5.)).text_size(px(12.)).text_color(TEXT_3).child(div().min_w_0().truncate().text_color(colour).child(status)).child("\u{b7}").child(clock(d.elapsed_ms(now)))),
+                .child(
+                    div()
+                        .h(px(16.))
+                        .flex()
+                        .items_center()
+                        .gap(px(5.))
+                        .text_size(px(12.))
+                        .text_color(TEXT_3)
+                        .child(div().min_w_0().truncate().text_color(colour).child(status))
+                        .child("\u{b7}")
+                        .child(clock(d.elapsed_ms(now))),
+                ),
         )
         .child(end);
-    let asks = question(d).map(|q| div().ml(px(26.)).mt(px(6.)).text_size(px(QUESTION_SIZE)).line_height(px(QUESTION_LINE)).text_color(TEXT_2).line_clamp(QUESTION_LINES).child(q.to_string()));
-    let row = div().id(SharedString::from(format!("delegated-{}", d.task_id))).group("delegated-row").px(px(8.)).py(px(7.)).flex().flex_col().rounded(px(9.)).child(top).children(asks);
+    let asks = question(d).map(|q| {
+        div()
+            .ml(px(26.))
+            .mt(px(6.))
+            .text_size(px(QUESTION_SIZE))
+            .line_height(px(QUESTION_LINE))
+            .text_color(TEXT_2)
+            .line_clamp(QUESTION_LINES)
+            .child(q.to_string())
+    });
+    let row = div()
+        .id(SharedString::from(format!("delegated-{}", d.task_id)))
+        .group("delegated-row")
+        .px(px(8.))
+        .py(px(7.))
+        .flex()
+        .flex_col()
+        .rounded(px(9.))
+        .child(top)
+        .children(asks);
     if opens {
-        row.cursor_pointer().hover(|s| s.bg(FILL_2)).active(|s| s.bg(FILL_3)).on_click(cx.listener(move |this, _, window, cx| this.delegated_open(&open, window, cx)))
+        row.cursor_pointer()
+            .hover(|s| s.bg(FILL_2))
+            .active(|s| s.bg(FILL_3))
+            .on_click(cx.listener(move |this, _, window, cx| this.delegated_open(&open, window, cx)))
     } else {
         row
     }
@@ -441,7 +525,10 @@ fn row(d: &Delegation, now: i64, live: bool, hosts: &Hosts, cx: &mut Context<Des
 
 #[cfg(test)]
 mod tests {
-    use super::{Act, Counts, Delegation, HEAD_H, Material, Panel, QUESTION_LINE, ROW_H, Watch, capsule_opacity, clock, full_height, headline, list_opacity, material, still};
+    use super::{
+        Act, Counts, Delegation, HEAD_H, Material, Panel, QUESTION_LINE, ROW_H, Watch, capsule_opacity, clock, full_height, headline, list_opacity, material,
+        still,
+    };
     use std::time::Instant;
 
     fn counts(starting: usize, working: usize, asking: usize, done: usize, failed: usize) -> Counts {
@@ -491,7 +578,11 @@ mod tests {
         assert_eq!(full_height([task("")].iter(), lines(5)), HEAD_H + ROW_H + 6.);
         assert_eq!(full_height([asking("Which runner?")].iter(), lines(1)), HEAD_H + ROW_H + 6. + QUESTION_LINE + 6.);
         assert_eq!(full_height([asking("Which runner?")].iter(), lines(2)), HEAD_H + ROW_H + 6. + 2. * QUESTION_LINE + 6.);
-        assert_eq!(full_height([asking("Which runner?")].iter(), lines(9)), HEAD_H + ROW_H + 6. + 2. * QUESTION_LINE + 6., "a question shows two lines at most");
+        assert_eq!(
+            full_height([asking("Which runner?")].iter(), lines(9)),
+            HEAD_H + ROW_H + 6. + 2. * QUESTION_LINE + 6.,
+            "a question shows two lines at most"
+        );
     }
 
     #[test]
@@ -567,6 +658,9 @@ mod tests {
 
     #[test]
     fn glass_gives_way_to_a_solid_panel_where_blur_is_not_drawn_or_transparency_is_reduced() {
-        assert_eq!([material(false, true), material(true, true), material(false, false), material(true, false)], [Material::Glass, Material::Solid, Material::Solid, Material::Solid]);
+        assert_eq!(
+            [material(false, true), material(true, true), material(false, false), material(true, false)],
+            [Material::Glass, Material::Solid, Material::Solid, Material::Solid]
+        );
     }
 }

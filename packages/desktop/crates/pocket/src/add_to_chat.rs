@@ -33,9 +33,20 @@ pub struct Quote {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Body {
     /// `lines` count on the new side, unless the pick only removes lines (`removed`).
-    Diff { lines: (usize, usize), removed: bool, text: String },
-    Code { lines: (usize, usize), language: &'static str, text: String },
-    Prose { section: Option<String>, text: String },
+    Diff {
+        lines: (usize, usize),
+        removed: bool,
+        text: String,
+    },
+    Code {
+        lines: (usize, usize),
+        language: &'static str,
+        text: String,
+    },
+    Prose {
+        section: Option<String>,
+        text: String,
+    },
 }
 
 fn lines_text((lo, hi): (usize, usize)) -> String {
@@ -362,7 +373,22 @@ mod tests {
     }
 
     fn card(id: &str, status: Status, kind: Kind) -> Card {
-        Card { id: id.into(), provider: "claude".into(), model: String::new(), title: format!("{id} title"), cwd: "/p".into(), local: String::new(), at: 0, created: 0, status, kind, notice: None, pinned: false, account: String::new(), child: false }
+        Card {
+            id: id.into(),
+            provider: "claude".into(),
+            model: String::new(),
+            title: format!("{id} title"),
+            cwd: "/p".into(),
+            local: String::new(),
+            at: 0,
+            created: 0,
+            status,
+            kind,
+            notice: None,
+            pinned: false,
+            account: String::new(),
+            child: false,
+        }
     }
 
     fn choice(id: &str, note: &str, ready: bool) -> Choice {

@@ -145,7 +145,12 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
             t(request);
             t(agent);
         }
-        Event::PromptFailed { agent, .. } | Event::InterruptFailed { agent, .. } | Event::Commands { agent, .. } | Event::Mcp { agent, .. } | Event::McpActFailed { agent, .. } | Event::RemoteControl { agent, .. } => t(agent),
+        Event::PromptFailed { agent, .. }
+        | Event::InterruptFailed { agent, .. }
+        | Event::Commands { agent, .. }
+        | Event::Mcp { agent, .. }
+        | Event::McpActFailed { agent, .. }
+        | Event::RemoteControl { agent, .. } => t(agent),
         Event::Queue { agent, .. } | Event::QueueFailed { agent, .. } => t(agent),
         Event::Delegations { agent, items } => {
             t(agent);
@@ -473,7 +478,14 @@ mod tests {
 
     #[test]
     fn a_hosts_agent_events_are_tagged_and_its_phone_and_pairing_news_dropped() {
-        let mut list = Event::Agents(vec![Summary { id: "a1".into(), terminal_id: "7f3a".into(), cwd: "/home/me/app".into(), tree: "/home/me/app".into(), project_id: "p1".into(), ..Summary::default() }]);
+        let mut list = Event::Agents(vec![Summary {
+            id: "a1".into(),
+            terminal_id: "7f3a".into(),
+            cwd: "/home/me/app".into(),
+            tree: "/home/me/app".into(),
+            project_id: "p1".into(),
+            ..Summary::default()
+        }]);
         assert!(tag_event("devbox", &mut list));
         let Event::Agents(list) = list else { unreachable!() };
         assert_eq!((list[0].id.as_str(), list[0].terminal_id.as_str(), list[0].cwd.as_str()), ("devbox/a1", "devbox/7f3a", "//devbox/home/me/app"));
@@ -512,7 +524,9 @@ mod tests {
         let task = agents::delegations::Delegation { parent_id: "a1".into(), child_id: "a2".into(), ..Default::default() };
         let mut update = Event::Delegated { agent: "a1".into(), delegation: task };
         assert!(tag_event("devbox", &mut update));
-        assert!(matches!(update, Event::Delegated { agent, delegation } if agent == "devbox/a1" && delegation.parent_id == "devbox/a1" && delegation.child_id == "devbox/a2"));
+        assert!(
+            matches!(update, Event::Delegated { agent, delegation } if agent == "devbox/a1" && delegation.parent_id == "devbox/a1" && delegation.child_id == "devbox/a2")
+        );
     }
 
     #[test]
@@ -574,7 +588,10 @@ mod tests {
         let request = out.create(spec).unwrap();
         let sent = there.try_iter().next().unwrap();
         assert_eq!(request, tag("devbox", sent["requestId"].as_str().unwrap()));
-        assert_eq!((sent["spec"]["project"].as_str(), sent["spec"]["checkout"]["worktree"].as_str()), (Some("/home/me/app"), Some("/home/me/.worktrees/app/fox")));
+        assert_eq!(
+            (sent["spec"]["project"].as_str(), sent["spec"]["checkout"]["worktree"].as_str()),
+            (Some("/home/me/app"), Some("/home/me/.worktrees/app/fox"))
+        );
         assert!(here.try_iter().next().is_none());
 
         let mine = out.create(json!({"project": "/src/app"})).unwrap();
@@ -607,7 +624,10 @@ mod tests {
         let mut list = Event::Registry(agents::registry::List { projects: vec![project], tracked: vec!["/home/me/wt/fox".into()], ..Default::default() });
         assert!(tag_event("devbox", &mut list));
         let Event::Registry(list) = list else { unreachable!() };
-        assert_eq!((list.projects[0].path.as_str(), list.projects[0].id.as_str(), list.tracked[0].as_str()), ("//devbox/home/me/app", "p1", "//devbox/home/me/wt/fox"));
+        assert_eq!(
+            (list.projects[0].path.as_str(), list.projects[0].id.as_str(), list.tracked[0].as_str()),
+            ("//devbox/home/me/app", "p1", "//devbox/home/me/wt/fox")
+        );
     }
 
     #[test]

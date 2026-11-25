@@ -115,7 +115,10 @@ impl Desktop {
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_up(MouseButton::Left, cx.listener(move |this, _, window, cx| this.open_composer(pane, i, window, cx))),
             )
-            .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, window, cx| this.select_line(pane, i, ev.modifiers.shift, window, cx)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, ev: &MouseDownEvent, window, cx| this.select_line(pane, i, ev.modifiers.shift, window, cx)),
+            )
             .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, window, cx| this.drag_to(pane, i, ev.dragging(), window, cx)))
     }
 

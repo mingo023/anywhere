@@ -17,7 +17,10 @@ fn lead(said: &str) -> &str {
 }
 
 fn chip_bg(fg: Token) -> Token {
-    [(SUCCESS_TEXT, SUCCESS_BG), (FAILED_TEXT, FAILED_BG), (WAITING_TEXT, WAITING_BG), (MERGED, MERGED_BG)].into_iter().find(|(t, _)| *t == fg).map_or(FILL_3, |(_, bg)| bg)
+    [(SUCCESS_TEXT, SUCCESS_BG), (FAILED_TEXT, FAILED_BG), (WAITING_TEXT, WAITING_BG), (MERGED, MERGED_BG)]
+        .into_iter()
+        .find(|(t, _)| *t == fg)
+        .map_or(FILL_3, |(_, bg)| bg)
 }
 
 fn chip_glyph(fg: Token, pr: &Pr) -> AnyElement {
@@ -33,7 +36,20 @@ fn chip_glyph(fg: Token, pr: &Pr) -> AnyElement {
 
 fn label_pill(l: &Label) -> Div {
     let c = |a: u32| Token::fixed((l.color << 8) | a);
-    div().h(px(20.)).px(px(8.)).flex().flex_none().items_center().rounded(px(10.)).bg(c(0x24)).border_1().border_color(c(0x66)).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(c(0xff)).child(l.name.clone())
+    div()
+        .h(px(20.))
+        .px(px(8.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .rounded(px(10.))
+        .bg(c(0x24))
+        .border_1()
+        .border_color(c(0x66))
+        .text_size(px(11.5))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(c(0xff))
+        .child(l.name.clone())
 }
 
 fn reviewer(face: Div, verdict: Review) -> Div {
@@ -42,7 +58,18 @@ fn reviewer(face: Div, verdict: Review) -> Div {
         Review::ChangesRequested => (FAILED, "x"),
         _ => (TEXT_4, "clock"),
     };
-    let badge = div().absolute().right(px(-3.)).bottom(px(-3.)).size(px(11.)).flex().items_center().justify_center().rounded_full().bg(bg).shadow(vec![ui::ring(SIDE, 1.5)]).child(icon(mark, 7., ON_PRIMARY));
+    let badge = div()
+        .absolute()
+        .right(px(-3.))
+        .bottom(px(-3.))
+        .size(px(11.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(bg)
+        .shadow(vec![ui::ring(SIDE, 1.5)])
+        .child(icon(mark, 7., ON_PRIMARY));
     div().relative().child(face).child(badge)
 }
 
@@ -51,7 +78,10 @@ impl Desktop {
     pub(crate) fn pr_hero(&self, tree: &str, pr: &Pr, repo: &Repo, cx: &mut Context<Self>) -> Div {
         let (fg, said) = self.pr_verdict(tree, pr);
         let num = format!("#{}", pr.number);
-        let title = StyledText::new(format!("{} {num}", pr.title)).with_highlights([(pr.title.len() + 1..pr.title.len() + 1 + num.len(), HighlightStyle { color: Some(TEXT_3.into()), font_weight: Some(FontWeight::MEDIUM), ..Default::default() })]);
+        let title = StyledText::new(format!("{} {num}", pr.title)).with_highlights([(
+            pr.title.len() + 1..pr.title.len() + 1 + num.len(),
+            HighlightStyle { color: Some(TEXT_3.into()), font_weight: Some(FontWeight::MEDIUM), ..Default::default() },
+        )]);
         let chip = div()
             .id("pr-chip")
             .h(px(28.))
@@ -74,7 +104,8 @@ impl Desktop {
                 cx.notify();
             }));
         let state = div().flex().items_center().gap(px(8.)).child(chip).child(div().flex_1()).children(self.pr_action(tree, pr, cx));
-        let branch = |name: String| div().min_w_0().flex().items_center().gap(px(4.)).child(icon("branch", 12., TEXT_4)).child(div().min_w_0().truncate().child(name));
+        let branch =
+            |name: String| div().min_w_0().flex().items_center().gap(px(4.)).child(icon("branch", 12., TEXT_4)).child(div().min_w_0().truncate().child(name));
         let branches = div()
             .flex()
             .items_center()
@@ -91,17 +122,28 @@ impl Desktop {
         let mut seen: Vec<(String, Review)> = pr.reviews.clone();
         seen.extend(pr.requested.iter().filter(|r| !pr.reviews.iter().any(|(w, _)| w == *r)).map(|r| (r.clone(), Review::Required)));
         let opened = (!pr.author.is_empty()).then(|| {
+            div().min_w_0().flex().items_center().gap(px(6.)).child(self.face(&pr.author, 20.)).child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .flex()
+                    .gap(px(4.))
+                    .child(div().font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(pr.author.clone()))
+                    .child(format!("opened {}", ago(pr.opened as i64, now_ms()))),
+            )
+        });
+        let reviewers = (!seen.is_empty()).then(|| {
             div()
-                .min_w_0()
                 .flex()
+                .flex_none()
                 .items_center()
                 .gap(px(6.))
-                .child(self.face(&pr.author, 20.))
-                .child(div().min_w_0().truncate().flex().gap(px(4.)).child(div().font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(pr.author.clone())).child(format!("opened {}", ago(pr.opened as i64, now_ms()))))
+                .child(div().w(px(1.)).h(px(14.)).bg(SEPARATOR_STRONG))
+                .children(seen.iter().map(|(w, r)| reviewer(self.face(w, 20.), *r)))
         });
-        let reviewers = (!seen.is_empty()).then(|| div().flex().flex_none().items_center().gap(px(6.)).child(div().w(px(1.)).h(px(14.)).bg(SEPARATOR_STRONG)).children(seen.iter().map(|(w, r)| reviewer(self.face(w, 20.), *r))));
         let people = div().min_h(px(22.)).flex().items_center().gap(px(8.)).text_size(px(12.5)).text_color(TEXT_3).children(opened).children(reviewers);
-        let labels = (!pr.labels.is_empty()).then(|| div().min_h(px(22.)).flex().flex_wrap().items_center().gap(px(6.)).children(pr.labels.iter().map(label_pill)));
+        let labels =
+            (!pr.labels.is_empty()).then(|| div().min_h(px(22.)).flex().flex_wrap().items_center().gap(px(6.)).children(pr.labels.iter().map(label_pill)));
         div()
             .flex_none()
             .px(px(16.))
@@ -146,11 +188,21 @@ impl Desktop {
         match gate {
             Gate::Conflicts => {
                 let b = button("pr-resolve", format!("Resolve with {agent}"));
-                Some(if resolving || self.agents.observe_only() { b.opacity(0.5).cursor_default() } else { b.on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.send_conflict(cx))) }.into_any_element())
+                Some(
+                    if resolving || self.agents.observe_only() {
+                        b.opacity(0.5).cursor_default()
+                    } else {
+                        b.on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.send_conflict(cx)))
+                    }
+                    .into_any_element(),
+                )
             }
             Gate::Draft => {
                 let b = button("pr-ready", busy.unwrap_or("Ready for review").to_string());
-                Some(if busy.is_some() { b.opacity(0.5).cursor_default() } else { b.on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.mark_ready(cx))) }.into_any_element())
+                Some(
+                    if busy.is_some() { b.opacity(0.5).cursor_default() } else { b.on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.mark_ready(cx))) }
+                        .into_any_element(),
+                )
             }
             _ => Some(div().w(px(116.)).child(self.pr_merge(tree, gate == Gate::Ready && busy.is_none(), busy, cx)).into_any_element()),
         }
@@ -164,11 +216,13 @@ impl Desktop {
         }
         let lead = icon("merge", 14., ON_PRIMARY);
         let methods = Method::ALL.into_iter().enumerate().map(|(i, m)| {
-            ui::menu_row(("merge-method", i), "merge", m.label(), None).children((m == method).then(|| icon("check", 13., TEXT_2))).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.pr.track.method = m;
-                this.pr.merge_menu = false;
-                cx.notify();
-            }))
+            ui::menu_row(("merge-method", i), "merge", m.label(), None).children((m == method).then(|| icon("check", 13., TEXT_2))).on_click(cx.listener(
+                move |this, _: &ClickEvent, _, cx| {
+                    this.pr.track.method = m;
+                    this.pr.merge_menu = false;
+                    cx.notify();
+                },
+            ))
         });
         let after = self.deletable(tree).then(|| {
             let on = self.pr.track.delete_after;
@@ -188,7 +242,15 @@ impl Desktop {
                 .line_height(px(16.))
                 .text_color(TEXT)
                 .child(ui::checkbox(on).mt(px(1.)))
-                .child(div().flex_1().min_w_0().flex().flex_col().child("Delete the worktree after merging").child(div().text_size(px(11.5)).text_color(TEXT_4).child("Keeps the branch")))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child("Delete the worktree after merging")
+                        .child(div().text_size(px(11.5)).text_color(TEXT_4).child("Keeps the branch")),
+                )
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.pr.track.delete_after = !this.pr.track.delete_after;
                     cx.notify();
@@ -221,18 +283,17 @@ impl Desktop {
     /// What the agent is doing for the PR, or, once merged, whether to keep its worktree.
     fn pr_banner(&self, tree: &str, pr: &Pr, cx: &mut Context<Self>) -> Option<Div> {
         let banner = |lead: AnyElement, bg: Token, title: String, sub: String| {
-            div()
-                .px(px(10.))
-                .py(px(8.))
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .rounded(px(9.))
-                .bg(bg)
-                .text_size(px(12.))
-                .line_height(px(16.))
-                .text_color(TEXT_2)
-                .child(div().flex().items_center().gap(px(9.)).child(lead).child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title)).child(sub)))
+            div().px(px(10.)).py(px(8.)).flex().flex_col().gap(px(8.)).rounded(px(9.)).bg(bg).text_size(px(12.)).line_height(px(16.)).text_color(TEXT_2).child(
+                div().flex().items_center().gap(px(9.)).child(lead).child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(div().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title))
+                        .child(sub),
+                ),
+            )
         };
         if pr.state == PrState::Merged && self.deletable(tree) && !self.pr.track.kept(tree) {
             let branch = self.repo().map(|r| r.branch.clone()).unwrap_or_default();
@@ -241,8 +302,17 @@ impl Desktop {
                 this.pr.track.keep(&keep_tree);
                 cx.notify();
             }));
-            let delete = small("pr-delete-tree", Variant::Primary, "Delete").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.delete_merged(&delete_tree, cx)));
-            return Some(banner(icon("merge", 15., MERGED).into_any_element(), FILL_2, format!("Delete the worktree {branch}?"), "Its terminals close; the branch stays.".into()).child(div().flex().justify_end().gap(px(4.)).child(keep).child(delete)));
+            let delete = small("pr-delete-tree", Variant::Primary, "Delete")
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.delete_merged(&delete_tree, cx)));
+            return Some(
+                banner(
+                    icon("merge", 15., MERGED).into_any_element(),
+                    FILL_2,
+                    format!("Delete the worktree {branch}?"),
+                    "Its terminals close; the branch stays.".into(),
+                )
+                .child(div().flex().justify_end().gap(px(4.)).child(keep).child(delete)),
+            );
         }
         let fixing = self.pr.track.fixing(tree, pr)?;
         let agent = self.fix_agent();

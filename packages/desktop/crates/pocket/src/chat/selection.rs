@@ -92,7 +92,10 @@ impl Desktop {
                 cx.defer_in(window, move |this, window, cx| this.offer_pill(agent, at, window, cx));
             }))
             // On release, so a link under the pointer, whose handler stops the event, opens its own menu instead.
-            .on_mouse_up(MouseButton::Right, cx.listener(move |this, ev: &MouseUpEvent, window, cx| this.offer_menu(right.clone(), ev.position, None, window, cx)))
+            .on_mouse_up(
+                MouseButton::Right,
+                cx.listener(move |this, ev: &MouseUpEvent, window, cx| this.offer_menu(right.clone(), ev.position, None, window, cx)),
+            )
             .on_scroll(cx.listener(|this, _: &ScrollEvent, _, cx| {
                 if this.chats.select.offer.take().is_some() {
                     cx.notify();
@@ -107,7 +110,8 @@ impl Desktop {
         }
         let text = TextSelection::selected_text(window, cx).trim().to_string();
         let shown = self.chats.select.offer.is_some();
-        self.chats.select.offer = (!text.is_empty() && !self.agents.observe_only()).then(|| Offer { agent, at: pill_at(self.chats.select.drag_from, up), text, kind: Kind::Pill });
+        self.chats.select.offer =
+            (!text.is_empty() && !self.agents.observe_only()).then(|| Offer { agent, at: pill_at(self.chats.select.drag_from, up), text, kind: Kind::Pill });
         if shown || self.chats.select.offer.is_some() {
             cx.notify();
         }
@@ -166,7 +170,12 @@ impl Desktop {
 
     pub(crate) fn chat_select_offer(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         // Nothing else drops the offer when a key or the app leaves its chat.
-        let offer = self.chats.select.offer.as_ref().filter(|o| self.screen == Screen::Sessions && self.overlay.is_none() && self.session() == Some(o.agent.as_str()))?;
+        let offer = self
+            .chats
+            .select
+            .offer
+            .as_ref()
+            .filter(|o| self.screen == Screen::Sessions && self.overlay.is_none() && self.session() == Some(o.agent.as_str()))?;
         let close = cx.listener(|this, _: &MouseDownEvent, _, cx| {
             this.chats.select.offer = None;
             cx.notify();
@@ -190,7 +199,12 @@ impl Desktop {
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.pick_offer(Item::AddToChat, window, cx)))
                     .on_mouse_down_out(close);
-                anchored().anchor(Anchor::BottomLeft).position(offer.at).snap_to_window_with_margin(px(8.)).child(ui::pop(pill).rounded(px(10.))).into_any_element()
+                anchored()
+                    .anchor(Anchor::BottomLeft)
+                    .position(offer.at)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(ui::pop(pill).rounded(px(10.)))
+                    .into_any_element()
             }
             Kind::Menu { link } => {
                 let mut menu = ui::pop(div().id("chat-select-menu")).w(px(220.)).p(px(6.)).flex().flex_col().occlude().on_mouse_down_out(close);

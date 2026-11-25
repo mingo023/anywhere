@@ -143,7 +143,8 @@ impl ExplorerState {
             let moved = workspace::moved(&p.to_string_lossy(), &from, &to);
             moved.map_or(p, PathBuf::from)
         };
-        self.tree = std::mem::take(&mut self.tree).into_iter().map(|(dir, listing)| (swap(dir), listing.into_iter().map(|(d, p)| (d, swap(p))).collect())).collect();
+        self.tree =
+            std::mem::take(&mut self.tree).into_iter().map(|(dir, listing)| (swap(dir), listing.into_iter().map(|(d, p)| (d, swap(p))).collect())).collect();
     }
 
     /// Why the name typed so far can't be saved.
@@ -279,7 +280,9 @@ impl Desktop {
         let field = if edit.shakes == 0 {
             field.into_any_element()
         } else {
-            field.with_animation(("tree-edit-shake", edit.shakes), Animation::new(SHAKE).with_easing(ease_out_quint()), |d, t| d.left(px(shake_x(t)))).into_any_element()
+            field
+                .with_animation(("tree-edit-shake", edit.shakes), Animation::new(SHAKE).with_easing(ease_out_quint()), |d, t| d.left(px(shake_x(t))))
+                .into_any_element()
         };
         let row = div()
             .id("tree-edit")
@@ -383,10 +386,8 @@ mod tests {
 
     #[test]
     fn a_new_row_goes_first_in_its_folder() {
-        let rows = [
-            Row { path: "/r/src".into(), depth: 0, is_dir: true, open: true },
-            Row { path: "/r/src/a.rs".into(), depth: 1, is_dir: false, open: false },
-        ];
+        let rows =
+            [Row { path: "/r/src".into(), depth: 0, is_dir: true, open: true }, Row { path: "/r/src/a.rs".into(), depth: 1, is_dir: false, open: false }];
         assert_eq!(new_row_at(&rows, Path::new("/r"), Path::new("/r")), Some((0, 0)));
         assert_eq!(new_row_at(&rows, Path::new("/r/src"), Path::new("/r")), Some((1, 1)));
         assert_eq!(new_row_at(&rows, Path::new("/r/docs"), Path::new("/r")), None);

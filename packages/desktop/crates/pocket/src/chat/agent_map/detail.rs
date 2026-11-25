@@ -8,7 +8,20 @@ use std::time::Instant;
 use theme::*;
 
 fn button(key: String, label: &str) -> Stateful<Div> {
-    div().id(id(key)).h(px(30.)).px(px(12.)).flex().items_center().rounded(px(9.)).bg(FILL_3).hover(|s| s.bg(FILL_4)).cursor_pointer().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(label.to_string())
+    div()
+        .id(id(key))
+        .h(px(30.))
+        .px(px(12.))
+        .flex()
+        .items_center()
+        .rounded(px(9.))
+        .bg(FILL_3)
+        .hover(|s| s.bg(FILL_4))
+        .cursor_pointer()
+        .text_size(px(12.5))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(TEXT)
+        .child(label.to_string())
 }
 
 impl Desktop {
@@ -45,11 +58,22 @@ impl Desktop {
         let Some(view) = self.chats.views.get(agent) else { return div() };
         let links = self.chat_links(agent, cx);
         let detail = Detail { key, call: s.call, agent: s.agent, now, all_steps: self.chats.map.nav.all_steps, brief_open: self.chats.map.nav.brief_open };
-        let body = agent_detail::view(detail, Some(agent_detail::action(format!("chat-map-back:{agent}"), "back", back)), vec![agent_detail::action(format!("chat-map-close2:{agent}"), "x", close)], on_brief, on_more, &view.tools, &links, cx);
-        let foot = div().flex_none().flex().gap(px(8.)).pt(px(10.)).pb(px(14.)).px(px(16.)).border_t(px(0.5)).border_color(HAIRLINE).child(button(format!("chat-map-reveal:{agent}"), "Show in chat").when(live, |d| {
-            let agent = agent.to_string();
-            d.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.chat_map_reveal(&agent, ix, window, cx)))
-        }));
+        let body = agent_detail::view(
+            detail,
+            Some(agent_detail::action(format!("chat-map-back:{agent}"), "back", back)),
+            vec![agent_detail::action(format!("chat-map-close2:{agent}"), "x", close)],
+            on_brief,
+            on_more,
+            &view.tools,
+            &links,
+            cx,
+        );
+        let foot = div().flex_none().flex().gap(px(8.)).pt(px(10.)).pb(px(14.)).px(px(16.)).border_t(px(0.5)).border_color(HAIRLINE).child(
+            button(format!("chat-map-reveal:{agent}"), "Show in chat").when(live, |d| {
+                let agent = agent.to_string();
+                d.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.chat_map_reveal(&agent, ix, window, cx)))
+            }),
+        );
         div().absolute().top_0().bottom_0().w_full().flex().flex_col().child(div().flex_1().min_h_0().child(body)).child(foot)
     }
 }

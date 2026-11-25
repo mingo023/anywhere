@@ -163,7 +163,8 @@ impl Gh {
 
 /// The account with the most access to the repo in `dir`, asking `gh` as each in turn.
 fn detect(dir: &str, accounts: &[Gh], active: &str) -> Option<String> {
-    let ranks: Vec<(&str, u8)> = accounts.iter().filter_map(|gh| Some((gh.account.as_deref()?, github::permission(gh.run(github::PERMISSION, dir, ""))))).collect();
+    let ranks: Vec<(&str, u8)> =
+        accounts.iter().filter_map(|gh| Some((gh.account.as_deref()?, github::permission(gh.run(github::PERMISSION, dir, ""))))).collect();
     github::best(&ranks, active).map(str::to_string)
 }
 
@@ -183,7 +184,8 @@ impl Desktop {
         let (dir, base) = (project.clone(), self.gh_accounts.gh(None));
         let task = cx.background_executor().spawn(async move {
             let read = known.is_none();
-            let signed = known.unwrap_or_else(|| (&github::status(crate::util::run_login(github::VERSION, &dir, ""), crate::util::run_login(github::AUTH, &dir, ""))).into());
+            let signed = known
+                .unwrap_or_else(|| (&github::status(crate::util::run_login(github::VERSION, &dir, ""), crate::util::run_login(github::AUTH, &dir, ""))).into());
             let accounts: Vec<Gh> = signed.accounts.iter().map(|a| Gh { account: Some(a.clone()), ..base.clone() }).collect();
             let found = (accounts.len() > 1).then(|| detect(&dir, &accounts, &signed.active)).flatten();
             (read.then_some(signed), found)

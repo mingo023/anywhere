@@ -38,7 +38,10 @@ mod tests {
     #[test]
     fn a_summary_names_the_branch_the_last_request_and_where_it_got_to() {
         let k = Known { title: "Fix stale reveal", branch: "fix/reveal", files: 3, asked: Some("Fix it"), replied: Some("Moved the reveal.") };
-        assert_eq!(draft(&k), "We're continuing “Fix stale reveal” on branch fix/reveal, with 3 changed files.\n\nLast request:\nFix it\n\nWhere it got to:\nMoved the reveal.\n\nPick up from here.");
+        assert_eq!(
+            draft(&k),
+            "We're continuing “Fix stale reveal” on branch fix/reveal, with 3 changed files.\n\nLast request:\nFix it\n\nWhere it got to:\nMoved the reveal.\n\nPick up from here."
+        );
     }
 
     #[test]

@@ -19,11 +19,7 @@ fn run(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Result<String, St
     let mut cmd = crate::command(program);
     cmd.args(args);
     let out = cmd.output().map_err(|e| e.to_string())?;
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-    } else {
-        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
-    }
+    if out.status.success() { Ok(String::from_utf8_lossy(&out.stdout).into_owned()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
 }
 
 /// Runs `pocketd service <action>` for the app's own label, apart from a host install's.

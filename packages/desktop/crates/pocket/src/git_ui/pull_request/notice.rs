@@ -7,9 +7,7 @@ impl Desktop {
     pub(crate) fn pr_notice(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let notice = self.pr.notice.as_ref().filter(|_| self.error.is_none())?;
         let raised = self.removals.label().is_some() || self.chat.added.is_some();
-        let undo = notice.undo.is_some().then(|| {
-            ui::link("pr-undo", "Undo").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.undo_pr(cx)))
-        });
+        let undo = notice.undo.is_some().then(|| ui::link("pr-undo", "Undo").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.undo_pr(cx))));
         let toast = self
             .float(ui::pop(div()), if raised { 56. } else { 16. })
             .h(px(32.))

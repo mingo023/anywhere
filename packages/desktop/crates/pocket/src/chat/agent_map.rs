@@ -227,7 +227,11 @@ impl Desktop {
         let map = chat::spawned(t);
         let now = now_ms();
         let (graph, graph_height) = self.chat_map_graph(agent, t, &map, open && nav.detail.is_none(), now, cx);
-        let detail = nav.shown.as_ref().and_then(|call| map.iter().position(|s| &s.call.id == call)).map(|ix| self.chat_map_detail(&agent.id, &map, ix, open && nav.detail.is_some(), now, cx));
+        let detail = nav
+            .shown
+            .as_ref()
+            .and_then(|call| map.iter().position(|s| &s.call.id == call))
+            .map(|ix| self.chat_map_detail(&agent.id, &map, ix, open && nav.detail.is_some(), now, cx));
         let on_detail = nav.detail.is_some() && detail.is_some();
         let height = if on_detail { DETAIL_HEIGHT } else { HEADER + graph_height + FOOTER }.min(MAX_HEIGHT);
 
@@ -248,16 +252,10 @@ impl Desktop {
                 this.chats.input.update(cx, |s, cx| s.focus(window, cx));
                 cx.notify();
             })));
-        let list = div()
-            .absolute()
-            .top_0()
-            .bottom_0()
-            .w_full()
-            .flex()
-            .flex_col()
-            .child(header)
-            .child(graph)
-            .child(div().h(px(FOOTER)).flex_none().px(px(18.)).text_size(px(11.5)).text_color(TEXT_4).child("Click an agent for its prompt, steps and report"));
+        let list =
+            div().absolute().top_0().bottom_0().w_full().flex().flex_col().child(header).child(graph).child(
+                div().h(px(FOOTER)).flex_none().px(px(18.)).text_size(px(11.5)).text_color(TEXT_4).child("Click an agent for its prompt, steps and report"),
+            );
         // One spring slides the graph out to the left as the details come in from the right, and back.
         let pages = div().id(id(format!("chat-map-pages:{}", agent.id))).relative().flex_1().min_h_0().overflow_hidden().with_spring(
             id(format!("chat-map-page:{}", agent.id)),
@@ -316,7 +314,11 @@ fn summary(map: &[Spawned]) -> String {
     let count = |status| map.iter().filter(|s| s.call.status == status).count();
     let (working, failed) = (count(ToolStatus::Running), count(ToolStatus::Failed));
     let all = format!("{} agent{}", map.len(), if map.len() == 1 { "" } else { "s" });
-    [Some(all), (working > 0).then(|| format!("{working} working")), (failed > 0).then(|| format!("{failed} failed"))].into_iter().flatten().collect::<Vec<_>>().join(" · ")
+    [Some(all), (working > 0).then(|| format!("{working} working")), (failed > 0).then(|| format!("{failed} failed"))]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 fn close_button(key: String) -> Stateful<Div> {
@@ -350,11 +352,27 @@ mod tests {
     use std::time::Instant;
 
     fn agent(id: &str, status: ToolStatus) -> Block {
-        Block::Tool(ToolCall { id: id.into(), name: "Agent".into(), kind: ToolKind::Agent(SubAgent::default()), status, output: None, duration_ms: Some(27_000), at: 1_000 })
+        Block::Tool(ToolCall {
+            id: id.into(),
+            name: "Agent".into(),
+            kind: ToolKind::Agent(SubAgent::default()),
+            status,
+            output: None,
+            duration_ms: Some(27_000),
+            at: 1_000,
+        })
     }
 
     fn shell(id: &str) -> Block {
-        Block::Tool(ToolCall { id: id.into(), name: "Bash".into(), kind: ToolKind::Shell { command: "cargo test".into(), description: String::new() }, status: ToolStatus::Ok, output: None, duration_ms: None, at: 0 })
+        Block::Tool(ToolCall {
+            id: id.into(),
+            name: "Bash".into(),
+            kind: ToolKind::Shell { command: "cargo test".into(), description: String::new() },
+            status: ToolStatus::Ok,
+            output: None,
+            duration_ms: None,
+            at: 0,
+        })
     }
 
     fn turn(blocks: Vec<Block>, ended: bool) -> Turn {
@@ -448,7 +466,10 @@ mod tests {
     #[test]
     fn a_nested_agent_shows_in_the_chat_at_the_call_its_ancestor_was_spawned_under() {
         let inner = Transcript { turns: vec![turn(vec![agent("inner", ToolStatus::Ok)], true)] };
-        let outer = Block::Tool(ToolCall { kind: ToolKind::Agent(SubAgent { transcript: inner, ..Default::default() }), ..call(&agent("outer", ToolStatus::Ok)).clone() });
+        let outer = Block::Tool(ToolCall {
+            kind: ToolKind::Agent(SubAgent { transcript: inner, ..Default::default() }),
+            ..call(&agent("outer", ToolStatus::Ok)).clone()
+        });
         let t = Transcript { turns: vec![turn(vec![shell("s")], true), turn(vec![shell("x"), outer], true)] };
         let map = chat::spawned(&t);
         assert_eq!(place(&t, &map, 1), Some((1, 1)));

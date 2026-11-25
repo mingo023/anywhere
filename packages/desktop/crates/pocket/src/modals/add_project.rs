@@ -117,9 +117,9 @@ fn project_changes(cfg: &RepoConfig, offered: &[&str]) -> Vec<(&'static str, Str
         ("When a worktree is created", script(&cfg.setup), script("")),
         ("When a worktree is deleted", script(&cfg.teardown), script("")),
     ]
-        .into_iter()
-        .filter(|(_, now, default)| now != default)
-        .collect()
+    .into_iter()
+    .filter(|(_, now, default)| now != default)
+    .collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -248,7 +248,13 @@ impl RepoForm {
 }
 
 impl Desktop {
-    pub(crate) fn pick_path(&self, dirs: bool, window: &mut Window, cx: &mut Context<Self>, then: impl FnOnce(&mut Self, Vec<PathBuf>, &mut Window, &mut Context<Self>) + 'static) {
+    pub(crate) fn pick_path(
+        &self,
+        dirs: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        then: impl FnOnce(&mut Self, Vec<PathBuf>, &mut Window, &mut Context<Self>) + 'static,
+    ) {
         let rx = cx.prompt_for_paths(PathPromptOptions { files: !dirs, directories: dirs, multiple: !dirs, prompt: None });
         cx.spawn_in(window, async move |this, cx| {
             let Ok(Ok(Some(paths))) = rx.await else { return };
@@ -450,15 +456,18 @@ impl Desktop {
                 .child(div().flex_1().text_size(px(13.)).text_color(color).child(label.to_string()))
                 .child(div().text_size(px(12.)).text_color(TEXT_4).child(aside))
         };
-        let reset = row("repo-reset", "discard", "Reset to defaults\u{2026}", TEXT, changed).rounded_t(px(12.)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.repo_form.draft.resetting ^= true;
-            cx.notify();
-        }));
+        let reset =
+            row("repo-reset", "discard", "Reset to defaults\u{2026}", TEXT, changed).rounded_t(px(12.)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.repo_form.draft.resetting ^= true;
+                cx.notify();
+            }));
         let p = path.to_string();
-        let remove = row("repo-remove", "trash", "Remove from Anywhere\u{2026}", FAILED, "Files and worktrees stay on disk".into()).rounded_b(px(12.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            (this.confirm, this.overlay) = (Some(Confirm::RemoveProject(p.clone())), Some(Overlay::Confirm));
-            cx.notify();
-        }));
+        let remove = row("repo-remove", "trash", "Remove from Anywhere\u{2026}", FAILED, "Files and worktrees stay on disk".into())
+            .rounded_b(px(12.))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                (this.confirm, this.overlay) = (Some(Confirm::RemoveProject(p.clone())), Some(Overlay::Confirm));
+                cx.notify();
+            }));
         let mut rows = vec![reset.into_any_element()];
         if self.repo_form.draft.resetting {
             rows.push(div().p(px(12.)).child(self.reset_confirm(path, name, cx)).into_any_element());
@@ -476,13 +485,22 @@ impl Desktop {
             n => format!("Only this project changes. {n} settings will go back:"),
         };
         let lines = changes.into_iter().map(|(label, now, default)| {
-            div().py(px(5.)).flex().justify_between().gap(px(12.)).border_t(px(0.5)).border_color(SEPARATOR).child(div().text_color(TEXT).child(label)).child(div().flex_none().text_color(TEXT_3).child(format!("{now} \u{2192} {default}")))
+            div()
+                .py(px(5.))
+                .flex()
+                .justify_between()
+                .gap(px(12.))
+                .border_t(px(0.5))
+                .border_color(SEPARATOR)
+                .child(div().text_color(TEXT).child(label))
+                .child(div().flex_none().text_color(TEXT_3).child(format!("{now} \u{2192} {default}")))
         });
         let cancel = ui::button("repo-reset-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.repo_form.draft.resetting = false;
             cx.notify();
         }));
-        let reset = ui::button("repo-reset-go", Variant::Primary, None, "Reset").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.reset_repo(window, cx)));
+        let reset =
+            ui::button("repo-reset-go", Variant::Primary, None, "Reset").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.reset_repo(window, cx)));
         div()
             .p(px(12.))
             .flex()
@@ -540,17 +558,19 @@ impl Desktop {
                 .child(if copied { icon("check", 12., SUCCESS_TEXT) } else { icon("copy", 12., TEXT_4) })
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.copy_repo_path(path.clone(), cx)))
         });
-        let name_field = div()
-            .mt(px(10.))
-            .w(px(360.))
-            .h(px(40.))
-            .px(px(10.))
+        let name_field =
+            div().mt(px(10.)).w(px(360.)).h(px(40.)).px(px(10.)).flex().items_center().rounded(px(8.)).hover(|d| d.bg(FILL_1)).child(div().flex_1().child(
+                Input::new(&f.name).appearance(false).p_0().h(px(36.)).line_height(px(30.)).text_size(px(22.)).font_weight(FontWeight::BOLD).text_center(),
+            ));
+        let path = div()
             .flex()
             .items_center()
-            .rounded(px(8.))
-            .hover(|d| d.bg(FILL_1))
-            .child(div().flex_1().child(Input::new(&f.name).appearance(false).p_0().h(px(36.)).line_height(px(30.)).text_size(px(22.)).font_weight(FontWeight::BOLD).text_center()));
-        let path = div().flex().items_center().gap(px(4.)).font_family(MONO).text_size(px(12.)).text_color(TEXT_3).child(div().max_w(px(480.)).truncate().child(title)).children(copy);
+            .gap(px(4.))
+            .font_family(MONO)
+            .text_size(px(12.))
+            .text_color(TEXT_3)
+            .child(div().max_w(px(480.)).truncate().child(title))
+            .children(copy);
         let facts = div().pt(px(6.)).flex().flex_wrap().justify_center().gap(px(6.)).children(folder_facts(f.draft.probe.as_ref()).into_iter().map(fact_chip));
         div().pb(px(4.)).flex().flex_col().items_center().gap(px(6.)).child(self.mark_picker(name, cx)).child(name_field).child(path).child(facts)
     }
@@ -573,7 +593,10 @@ impl Desktop {
         }
         let f = &self.repo_form;
         if !f.draft.plain_folder() {
-            let scripts = vec![script_row("When one is created", "Runs in the new worktree", &f.setup), script_row("When one is deleted", "Runs before it\u{2019}s removed", &f.teardown)];
+            let scripts = vec![
+                script_row("When one is created", "Runs in the new worktree", &f.setup),
+                script_row("When one is deleted", "Runs before it\u{2019}s removed", &f.teardown),
+            ];
             body.push(group(Some("Worktrees"), scripts, Some("Leave empty to skip.")).into_any_element());
         }
         if let Some(p) = &editing {
@@ -594,10 +617,21 @@ impl Desktop {
             .when(!ready, |d| d.opacity(0.5).cursor_default());
         let close = ui::icon_button("repo-close", "x").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
         let title = if editing.is_some() { "Project settings" } else { "Add project" };
-        let header = div().flex().items_center().child(div().flex_1().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(title)).child(close);
+        let header =
+            div().flex().items_center().child(div().flex_1().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(title)).child(close);
         // The settings scroll between a fixed header and footer when the window is too short for them.
         let max_h = window.viewport_size().height - px(2. * SHEET_TOP);
-        let scroll = div().id("repo-scroll").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.repo_form.scroll).px(px(24.)).flex().flex_col().gap(px(20.)).children(body);
+        let scroll = div()
+            .id("repo-scroll")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .track_scroll(&self.repo_form.scroll)
+            .px(px(24.))
+            .flex()
+            .flex_col()
+            .gap(px(20.))
+            .children(body);
         let handle = &self.repo_form.scroll;
         // The scrollbar hides at rest, so a line over the footer shows the settings run on below it. A sheet just
         // opened has no layout to tell by until its next frame.
@@ -605,7 +639,16 @@ impl Desktop {
             window.request_animation_frame();
         }
         let more = more_below(f32::from(handle.offset().y), f32::from(handle.max_offset().y));
-        let scroll = div().relative().flex_1().min_h_0().flex().flex_col().border_b(px(0.5)).border_color(if more { SEPARATOR.into() } else { transparent_black() }).child(scroll).vertical_scrollbar(handle);
+        let scroll = div()
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .border_b(px(0.5))
+            .border_color(if more { SEPARATOR.into() } else { transparent_black() })
+            .child(scroll)
+            .vertical_scrollbar(handle);
         div().absolute().top(px(SHEET_TOP)).left_0().right_0().flex().justify_center().child(
             ui::pop(div().w(px(600.)).max_h(max_h).pt(px(14.)).pb(px(20.)).flex().flex_col().gap(px(14.)))
                 .rounded(px(R_DIALOG))
@@ -647,7 +690,10 @@ mod tests {
     fn a_repository_reads_as_its_branch_whether_it_has_changes_and_its_remotes() {
         let labels = |probe: Probe| folder_facts(Some(&probe)).into_iter().map(|f: Fact| (f.label, f.tone)).collect::<Vec<_>>();
         let plain = |l: &str| (l.to_string(), Tone::Plain);
-        assert_eq!(labels(Probe::Git { branch: "develop".into(), clean: false, remotes: 1 }), [plain("develop"), ("Uncommitted changes".into(), Tone::Dirty), plain("1 remote")]);
+        assert_eq!(
+            labels(Probe::Git { branch: "develop".into(), clean: false, remotes: 1 }),
+            [plain("develop"), ("Uncommitted changes".into(), Tone::Dirty), plain("1 remote")]
+        );
         assert_eq!(labels(Probe::Git { branch: "main".into(), clean: true, remotes: 0 }), [plain("main"), ("Clean".into(), Tone::Good), plain("No remote")]);
         assert_eq!(labels(Probe::NotGit), [plain("Not a git repository")]);
     }

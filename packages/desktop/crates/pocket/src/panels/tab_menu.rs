@@ -35,11 +35,17 @@ impl Desktop {
                 .children(keys.map(|k| div().text_size(px(11.5)).text_color(TEXT_4).child(k.to_string())))
         };
         let agent = |provider: &'static str, cx: &mut Context<Self>| {
-            item(format!("tab-menu-{provider}").into(), provider_icon(provider, 14., TEXT).into_any_element(), self.agent_name(provider), self.model_hint(provider), None)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.panels.menu = None;
-                    this.new_agent_tab(provider, place, cx);
-                }))
+            item(
+                format!("tab-menu-{provider}").into(),
+                provider_icon(provider, 14., TEXT).into_any_element(),
+                self.agent_name(provider),
+                self.model_hint(provider),
+                None,
+            )
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.panels.menu = None;
+                this.new_agent_tab(provider, place, cx);
+            }))
         };
         ui::pop(div().id("tab-menu"))
             .w(px(264.))
@@ -59,27 +65,24 @@ impl Desktop {
                     .child("New tab in ")
                     .child(div().font_family(MONO).font_weight(FontWeight::MEDIUM).child(branch)),
             )
-            .child(
-                item("tab-menu-shell".into(), icon("prompt", 14., TEXT_2).into_any_element(), "New shell".into(), None, Some("⌘T"))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.panels.menu = None;
-                        this.new_shell(place, cx);
-                    })),
-            )
-            .child(
-                item("tab-menu-browser".into(), icon("globe", 14., TEXT_2).into_any_element(), "New browser".into(), None, Some("⌘⇧B"))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        this.close_menus();
-                        this.open_browser_at(place, None, window, cx);
-                    })),
-            )
-            .child(
-                item("tab-menu-chat".into(), icon("comment", 14., TEXT_2).into_any_element(), "New chat".into(), None, None)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.panels.menu = None;
-                        this.new_chat_tab(place, cx);
-                    })),
-            )
+            .child(item("tab-menu-shell".into(), icon("prompt", 14., TEXT_2).into_any_element(), "New shell".into(), None, Some("⌘T")).on_click(cx.listener(
+                move |this, _: &ClickEvent, _, cx| {
+                    this.panels.menu = None;
+                    this.new_shell(place, cx);
+                },
+            )))
+            .child(item("tab-menu-browser".into(), icon("globe", 14., TEXT_2).into_any_element(), "New browser".into(), None, Some("⌘⇧B")).on_click(
+                cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.close_menus();
+                    this.open_browser_at(place, None, window, cx);
+                }),
+            ))
+            .child(item("tab-menu-chat".into(), icon("comment", 14., TEXT_2).into_any_element(), "New chat".into(), None, None).on_click(cx.listener(
+                move |this, _: &ClickEvent, _, cx| {
+                    this.panels.menu = None;
+                    this.new_chat_tab(place, cx);
+                },
+            )))
             .child(div().h(px(0.5)).my(px(4.)).mx(px(6.)).bg(SEPARATOR))
             .children(self.offered().into_iter().map(|p| agent(p, cx)))
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {

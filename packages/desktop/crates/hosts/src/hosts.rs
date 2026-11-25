@@ -168,13 +168,23 @@ mod tests {
         assert_eq!(target("10.0.4.12", "ssh", "", None, &[]), Err("The port is a number, usually 22"));
         assert_eq!(target("-oProxyCommand=x", "", "", None, &[]), Err("Enter an address like 10.0.4.12 or devbox.example.com"));
         assert_eq!(target("10.0.4.12", "", "-x", None, &[]), Err("Enter a username without spaces"));
-        assert_eq!(target("10.0.4.12", "2222", "", Some("~/.ssh/k"), &[]), Ok(Target::Address { addr: "10.0.4.12".into(), port: 2222, user: String::new(), key_file: Some("~/.ssh/k".into()) }));
+        assert_eq!(
+            target("10.0.4.12", "2222", "", Some("~/.ssh/k"), &[]),
+            Ok(Target::Address { addr: "10.0.4.12".into(), port: 2222, user: String::new(), key_file: Some("~/.ssh/k".into()) })
+        );
     }
 
     #[test]
     fn a_host_entry_from_the_wire_keeps_its_target() {
         let target = Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "dev".into(), key_file: Some("~/.ssh/id_ed25519".into()) };
-        let entry = Entry { id: "10-0-4-12".into(), name: "build box".into(), target: target.clone(), windows: true, socket: "/h/10-0-4-12.sock".into(), link: agents::hosts::Link::Connecting };
+        let entry = Entry {
+            id: "10-0-4-12".into(),
+            name: "build box".into(),
+            target: target.clone(),
+            windows: true,
+            socket: "/h/10-0-4-12.sock".into(),
+            link: agents::hosts::Link::Connecting,
+        };
         assert_eq!(Host::from(&entry), Host { id: "10-0-4-12".into(), name: "build box".into(), target, windows: true, socket: "/h/10-0-4-12.sock".into() });
     }
 
@@ -183,7 +193,14 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("host-endpoint-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("win.token"), r#"{"token":"t0k","port":7}"#).unwrap();
-        let entry = |id: &str| Entry { id: id.into(), name: id.into(), target: address("10.0.4.12"), windows: true, socket: dir.join(format!("{id}.sock")).to_string_lossy().into_owned(), link: agents::hosts::Link::Connecting };
+        let entry = |id: &str| Entry {
+            id: id.into(),
+            name: id.into(),
+            target: address("10.0.4.12"),
+            windows: true,
+            socket: dir.join(format!("{id}.sock")).to_string_lossy().into_owned(),
+            link: agents::hosts::Link::Connecting,
+        };
         let with_token = Host::from(&entry("win")).endpoint();
         assert_eq!((with_token.path, with_token.token), (dir.join("win.sock"), Some("t0k".to_string())));
         let without = Host::from(&entry("mac")).endpoint();

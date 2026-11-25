@@ -16,7 +16,8 @@ pub(super) fn hidden() -> HighlightStyle {
 /// `rich::highlight` has it.
 pub(crate) fn decorations(text: &str) -> Vec<TextDecoration> {
     let (marks, code) = chat::marks_outside_code(text);
-    let mentions = marks.mentions.into_iter().flat_map(|r| [TextDecoration::new(r.start..r.start + 1, hidden()), TextDecoration::new(r.start + 1..r.end, tint(MENTION))]);
+    let mentions =
+        marks.mentions.into_iter().flat_map(|r| [TextDecoration::new(r.start..r.start + 1, hidden()), TextDecoration::new(r.start + 1..r.end, tint(MENTION))]);
     let code = code.into_iter().flat_map(|c| match c {
         chat::Code::Inline(r) => vec![TextDecoration::new(r.start..r.start + 1, hidden()), TextDecoration::new(r.end - 1..r.end, hidden())],
         chat::Code::Block { open, close, .. } => vec![TextDecoration::new(open, tint(TEXT_4)), TextDecoration::new(close, tint(TEXT_4))],

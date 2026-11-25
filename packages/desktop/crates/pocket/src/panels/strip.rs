@@ -165,7 +165,11 @@ impl Desktop {
             Tab::Doc(doc) => {
                 let path = match doc {
                     Doc::File(p) | Doc::Diff(p) | Doc::CommitFile { path: p, .. } | Doc::PrFile { path: p, .. } | Doc::CompareFile { path: p, .. } => p,
-                    Doc::Commit(_) => return row.child(lead(icon("diff-multiple", 14., ink).into_any_element())).child(label(self.tab_text(tab)).when(preview, |d| d.italic())),
+                    Doc::Commit(_) => {
+                        return row
+                            .child(lead(icon("diff-multiple", 14., ink).into_any_element()))
+                            .child(label(self.tab_text(tab)).when(preview, |d| d.italic()));
+                    }
                 };
                 let text = self.tab_text(tab);
                 let totals = match doc {
@@ -173,7 +177,11 @@ impl Desktop {
                     _ => None,
                 };
                 let unsaved = matches!(doc, Doc::File(p) if self.preview.dirty(p)).then(|| dot(6., TEXT_2));
-                return row.child(lead(file_icon(path, false, false, 14.).into_any_element())).child(label(text).when(preview, |d| d.italic())).children(totals).children(unsaved);
+                return row
+                    .child(lead(file_icon(path, false, false, 14.).into_any_element()))
+                    .child(label(text).when(preview, |d| d.italic()))
+                    .children(totals)
+                    .children(unsaved);
             }
         };
         if let Some(a) = self.summary(term) {
@@ -366,7 +374,11 @@ impl Desktop {
                     .child(tab)
                     .when(closable, |d| d.child(close));
                 // The slot holds the tab's place while it slides, so the strip can measure where tabs sit; deferred, the held tab draws over the rest.
-                div().w(px(224.)).min_w(px(112.)).flex_shrink(1.).h_full().child(if lifted { deferred(visual).into_any_element() } else { visual.into_any_element() })
+                div().w(px(224.)).min_w(px(112.)).flex_shrink(1.).h_full().child(if lifted {
+                    deferred(visual).into_any_element()
+                } else {
+                    visual.into_any_element()
+                })
             })
             .collect();
         // As f32: Pixels orders -0 below 0, so a strip that can't scroll would show its right fade.
@@ -375,7 +387,11 @@ impl Desktop {
             let solid: Hsla = SURFACE_SUNKEN.into();
             let (solid, clear) = (solid, solid.opacity(0.));
             let (from, to) = if left { (solid, clear) } else { (clear, solid) };
-            div().absolute().top_0().bottom_0().w(px(24.)).when(left, |d| d.left_0()).when(!left, |d| d.right_0()).bg(linear_gradient(90., linear_color_stop(from, 0.), linear_color_stop(to, 1.)))
+            div().absolute().top_0().bottom_0().w(px(24.)).when(left, |d| d.left_0()).when(!left, |d| d.right_0()).bg(linear_gradient(
+                90.,
+                linear_color_stop(from, 0.),
+                linear_color_stop(to, 1.),
+            ))
         };
         let strip = div()
             .id("tab-strip")

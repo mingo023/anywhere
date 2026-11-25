@@ -125,7 +125,9 @@ impl Workspace {
         if self.tree.focused().tabs.is_empty() {
             return Some(focused);
         }
-        self.tree.nearest(focused, |p| p.tabs.iter().any(|t| matches!(t, Tab::Doc(_)))).or_else(|| (!self.tree.can_split(focused, Edge::Right, bounds)).then_some(focused))
+        self.tree
+            .nearest(focused, |p| p.tabs.iter().any(|t| matches!(t, Tab::Doc(_))))
+            .or_else(|| (!self.tree.can_split(focused, Edge::Right, bounds)).then_some(focused))
     }
 
     /// Shows `doc` and returns its tab. A doc shown in any pane is selected there. Otherwise it takes over the preview tab if that is in `pane` and `pin` is off, else gets a tab in `pane`, else, with no `pane`, a new pane right of the focused one.

@@ -49,7 +49,20 @@ pub(super) fn flush_textarea(field: Div) -> Div {
 }
 
 pub(super) fn prop_chip() -> Div {
-    div().h(px(22.)).px(px(6.)).flex().flex_none().items_center().gap(px(5.)).max_w(px(170.)).rounded(px(11.)).border_1().border_color(SEPARATOR).text_size(px(12.)).text_color(TEXT_2).whitespace_nowrap()
+    div()
+        .h(px(22.))
+        .px(px(6.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(5.))
+        .max_w(px(170.))
+        .rounded(px(11.))
+        .border_1()
+        .border_color(SEPARATOR)
+        .text_size(px(12.))
+        .text_color(TEXT_2)
+        .whitespace_nowrap()
 }
 
 /// A column's mark, name and count.
@@ -63,7 +76,16 @@ pub(super) fn choice(id: impl Into<ElementId>, label: &'static str, on: bool) ->
 }
 
 pub(super) fn key_chip(keys: &str, fill: impl Into<Fill>) -> Div {
-    div().px(px(4.)).py(px(3.)).rounded(px(4.)).bg(fill).opacity(0.85).text_size(px(10.5)).line_height(px(11.)).font_weight(FontWeight::MEDIUM).child(ui::os_keys(keys))
+    div()
+        .px(px(4.))
+        .py(px(3.))
+        .rounded(px(4.))
+        .bg(fill)
+        .opacity(0.85)
+        .text_size(px(10.5))
+        .line_height(px(11.))
+        .font_weight(FontWeight::MEDIUM)
+        .child(ui::os_keys(keys))
 }
 
 pub(super) fn start_kbd() -> Div {

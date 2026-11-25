@@ -5,10 +5,10 @@ use crate::desktop::Desktop;
 use crate::util::now_ms;
 use agents::automations::Automation;
 use chrono::Local;
-use std::time::{Duration, Instant};
 use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::time::{Duration, Instant};
 use store::LaunchPick;
 use store::prefs::automations::ACCESSES;
 use theme::*;
@@ -24,34 +24,78 @@ const STARTING: Duration = Duration::from_secs(20);
 const WEEK: [(u8, &str); 7] = [(1, "M"), (2, "T"), (3, "W"), (4, "T"), (5, "F"), (6, "S"), (0, "S")];
 
 pub(super) const ROWS: &[Setting] = &[
-    Setting::choice("automation-agent", DEFAULTS, "Agent", &PROVIDER_NAMES, Look::Dropdown, |s| {
-        agents::providers::index(&s.automations.agent).unwrap_or(0)
-    }, |s, i| s.automations.agent = LaunchPick::PROVIDERS[i].into())
+    Setting::choice(
+        "automation-agent",
+        DEFAULTS,
+        "Agent",
+        &PROVIDER_NAMES,
+        Look::Dropdown,
+        |s| agents::providers::index(&s.automations.agent).unwrap_or(0),
+        |s, i| s.automations.agent = LaunchPick::PROVIDERS[i].into(),
+    )
     .hint("The agent a new automation starts with")
     .offers(super::agents::offered_provider),
     Setting::custom("automation-schedule", DEFAULTS, "Schedule", |d, s, cx| d.schedule_row(s, cx))
-        .resets(|s| format!("{}, {} days", s.automations.time, s.automations.days.len()), |s, d| (s.automations.time, s.automations.days) = (d.automations.time.clone(), d.automations.days.clone())).hint("For automations that run at a time of day"),
-    Setting::stepper("automation-every", DEFAULTS, "Repeat interval", (5, 10080, 5), " min", |s| s.automations.every as i32, |s, n| s.automations.every = n as u32)
-        .hint("For automations that repeat through the day"),
-    Setting::choice("automation-access", DEFAULTS, "Permission mode", &["Ask", "Edits", "Auto"], Look::Segmented, |s| {
-        ACCESSES.iter().position(|a| *a == s.automations.access).unwrap_or(1)
-    }, |s, i| s.automations.access = ACCESSES[i].into())
+        .resets(
+            |s| format!("{}, {} days", s.automations.time, s.automations.days.len()),
+            |s, d| (s.automations.time, s.automations.days) = (d.automations.time.clone(), d.automations.days.clone()),
+        )
+        .hint("For automations that run at a time of day"),
+    Setting::stepper(
+        "automation-every",
+        DEFAULTS,
+        "Repeat interval",
+        (5, 10080, 5),
+        " min",
+        |s| s.automations.every as i32,
+        |s, n| s.automations.every = n as u32,
+    )
+    .hint("For automations that repeat through the day"),
+    Setting::choice(
+        "automation-access",
+        DEFAULTS,
+        "Permission mode",
+        &["Ask", "Edits", "Auto"],
+        Look::Segmented,
+        |s| ACCESSES.iter().position(|a| *a == s.automations.access).unwrap_or(1),
+        |s, i| s.automations.access = ACCESSES[i].into(),
+    )
     .hint("Ask pauses the run until you approve it from the Mac or phone"),
     Setting::switch("automation-worktree", DEFAULTS, "Run in a new worktree", |s| s.automations.new_worktree, |s, on| s.automations.new_worktree = on)
         .hint("Each run gets its own worktree and branch"),
-    Setting::switch("catch-up", "Missed runs", "Catch up after sleep", |s| s.automations.grace_hours > 0, |s, on| s.automations.grace_hours = if on { CATCH_UP } else { 0 })
-        .hint("Runs a missed schedule once when the Mac wakes")
-        .effect(set_grace),
-    Setting::choice("missed-grace", "Missed runs", "Run late if missed by less than", &["1 hour", "6 hours", "12 hours", "24 hours"], Look::Dropdown, |s| {
-        grace_index(s.automations.grace_hours)
-    }, |s, i| s.automations.grace_hours = GRACE[i])
+    Setting::switch(
+        "catch-up",
+        "Missed runs",
+        "Catch up after sleep",
+        |s| s.automations.grace_hours > 0,
+        |s, on| s.automations.grace_hours = if on { CATCH_UP } else { 0 },
+    )
+    .hint("Runs a missed schedule once when the Mac wakes")
+    .effect(set_grace),
+    Setting::choice(
+        "missed-grace",
+        "Missed runs",
+        "Run late if missed by less than",
+        &["1 hour", "6 hours", "12 hours", "24 hours"],
+        Look::Dropdown,
+        |s| grace_index(s.automations.grace_hours),
+        |s, i| s.automations.grace_hours = GRACE[i],
+    )
     .hint("Older missed runs are skipped, as when the Mac was asleep")
     .under(|s| s.automations.grace_hours > 0)
     .effect(set_grace),
-    Setting::stepper("run-history", "History", "Keep run history", (10, 500, 10), " runs", |s| s.automations.history as i32, |s, n| s.automations.history = n as u32)
-        .hint("Per automation; older runs leave the list")
-        .advanced()
-        .effect(|d, cx| d.set_host("automations.history", d.store.automations.history.to_string(), cx)),
+    Setting::stepper(
+        "run-history",
+        "History",
+        "Keep run history",
+        (10, 500, 10),
+        " runs",
+        |s| s.automations.history as i32,
+        |s, n| s.automations.history = n as u32,
+    )
+    .hint("Per automation; older runs leave the list")
+    .advanced()
+    .effect(|d, cx| d.set_host("automations.history", d.store.automations.history.to_string(), cx)),
 ];
 
 fn grace_index(hours: u32) -> usize {
@@ -105,7 +149,8 @@ impl Desktop {
             let missed = missed(&self.agents.automations.items, now_ms());
             ("Anywhere\u{2019}s background service is off".to_string(), off_line(missed, self.store.automations.grace_hours > 0))
         };
-        let start = (!starting).then(|| action("settings-start-service", "Start service").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.start_service(cx))));
+        let start =
+            (!starting).then(|| action("settings-start-service", "Start service").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.start_service(cx))));
         let text = div()
             .flex_1()
             .min_w_0()

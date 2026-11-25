@@ -1,8 +1,8 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Column, HEADER, SEAM, Side, drag_area};
 use crate::git_ui::pull_request::pr_wants_you;
-use crate::region;
 use crate::git_ui::pull_requests::glyph;
+use crate::region;
 use crate::sidebar::column::changes_badge;
 use crate::sidebar::rail::{rail_button, rail_slot};
 use crate::status::Status;
@@ -146,7 +146,11 @@ mod tests {
 
     #[test]
     fn a_rail_icon_opens_its_side_and_the_shown_sides_icon_closes_the_panel() {
-        let got = [rail_pick(Side::Sessions, true, Side::Explorer), rail_pick(Side::Explorer, true, Side::Explorer), rail_pick(Side::Explorer, false, Side::Explorer)];
+        let got = [
+            rail_pick(Side::Sessions, true, Side::Explorer),
+            rail_pick(Side::Explorer, true, Side::Explorer),
+            rail_pick(Side::Explorer, false, Side::Explorer),
+        ];
         assert_eq!(got, [(Side::Explorer, true), (Side::Explorer, false), (Side::Explorer, true)]);
     }
 }

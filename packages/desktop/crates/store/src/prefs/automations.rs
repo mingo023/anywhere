@@ -24,7 +24,16 @@ pub struct Automations {
 
 impl Default for Automations {
     fn default() -> Self {
-        Self { agent: "claude".into(), time: "09:00".into(), days: vec![1, 2, 3, 4, 5], every: 60, access: "edits".into(), new_worktree: true, grace_hours: 12, history: 50 }
+        Self {
+            agent: "claude".into(),
+            time: "09:00".into(),
+            days: vec![1, 2, 3, 4, 5],
+            every: 60,
+            access: "edits".into(),
+            new_worktree: true,
+            grace_hours: 12,
+            history: 50,
+        }
     }
 }
 

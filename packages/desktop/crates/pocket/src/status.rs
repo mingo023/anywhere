@@ -270,7 +270,8 @@ mod tests {
 
     #[test]
     fn a_delegated_session_is_hidden_while_the_chat_that_delegated_it_is_listed() {
-        let list = [lineage("p", "", ""), lineage("c", "p", "subagent"), lineage("g", "c", "subagent"), lineage("f", "p", "fork"), lineage("o", "gone", "subagent")];
+        let list =
+            [lineage("p", "", ""), lineage("c", "p", "subagent"), lineage("g", "c", "subagent"), lineage("f", "p", "fork"), lineage("o", "gone", "subagent")];
         let mut hidden: Vec<&str> = hidden_children(&list).into_iter().collect();
         hidden.sort();
         assert_eq!(hidden, ["c", "g"], "a fork, a plain chat and a child of a chat no longer listed stay in view");
@@ -281,15 +282,22 @@ mod tests {
 
     #[test]
     fn a_session_reads_as_its_model_else_as_its_agent() {
-        let of = |provider: &str, model: Option<&str>| model_or_agent(&Summary { provider: provider.into(), model: model.map(Into::into), ..Default::default() });
+        let of =
+            |provider: &str, model: Option<&str>| model_or_agent(&Summary { provider: provider.into(), model: model.map(Into::into), ..Default::default() });
         assert_eq!((of("claude", Some("claude-opus-4-5")), of("opencode", Some("opencode/big-pickle"))), ("Opus 4.5".to_string(), "Big Pickle".to_string()));
-        assert_eq!([of("claude", None), of("codex", Some("")), of("opencode", None), of("omp", None), of("gemini", None)], ["Claude", "Codex", "OpenCode", "omp", "Gemini"]);
+        assert_eq!(
+            [of("claude", None), of("codex", Some("")), of("opencode", None), of("omp", None), of("gemini", None)],
+            ["Claude", "Codex", "OpenCode", "omp", "Gemini"]
+        );
     }
 
     #[test]
     fn maps_the_wire_status() {
         let failed = Summary { failed: true, ..agent("t", "done") };
-        let got: Vec<_> = [agent("t", "needsYou"), failed, agent("t", "done"), agent("t", "working"), agent("t", "idle"), agent("t", "closed")].iter().map(Status::of).collect();
+        let got: Vec<_> = [agent("t", "needsYou"), failed, agent("t", "done"), agent("t", "working"), agent("t", "idle"), agent("t", "closed")]
+            .iter()
+            .map(Status::of)
+            .collect();
         assert_eq!(got, vec![Some(Status::NeedsYou), Some(Status::Failed), Some(Status::Done), Some(Status::Working), Some(Status::Idle), None]);
     }
 
@@ -300,7 +308,9 @@ mod tests {
 
     #[test]
     fn sessions_sort_newest_first_by_status_by_activity_or_by_name() {
-        let at = |title: &str, status: &str, created: i64, updated: i64| card(&Summary { title: title.into(), created_at: created, updated_at: updated, ..agent(title, status) }, "/w");
+        let at = |title: &str, status: &str, created: i64, updated: i64| {
+            card(&Summary { title: title.into(), created_at: created, updated_at: updated, ..agent(title, status) }, "/w")
+        };
         let cards = vec![at("b", "idle", 1, 9), at("C", "needsYou", 2, 5), at("a", "working", 3, 1)];
         let order = |by| {
             let mut c = cards.clone();
@@ -324,12 +334,17 @@ mod tests {
     fn a_card_is_its_agent_in_its_terminals_folder() {
         let a = Summary { title: "Fix".into(), cwd: "/elsewhere".into(), created_at: 2, updated_at: 5, ..agent("t1", "working") };
         let c = card(&a, "/w");
-        assert_eq!((c.id.as_str(), c.title.as_str(), c.cwd.as_str(), c.created, c.at, c.status, c.kind), ("agent-t1", "Fix", "/w", 2, 5, Status::Working, Kind::Agent));
+        assert_eq!(
+            (c.id.as_str(), c.title.as_str(), c.cwd.as_str(), c.created, c.at, c.status, c.kind),
+            ("agent-t1", "Fix", "/w", 2, 5, Status::Working, Kind::Agent)
+        );
     }
 
     #[test]
     fn a_card_names_its_model_and_effort_else_its_provider() {
-        let named = |model: Option<&str>, effort: Option<&str>| card(&Summary { provider: "claude".into(), model: model.map(Into::into), effort: effort.map(Into::into), ..agent("t1", "idle") }, "/w").model;
+        let named = |model: Option<&str>, effort: Option<&str>| {
+            card(&Summary { provider: "claude".into(), model: model.map(Into::into), effort: effort.map(Into::into), ..agent("t1", "idle") }, "/w").model
+        };
         assert_eq!(named(Some("claude-opus-5-5"), Some("high")), "Opus 5.5 · high");
         assert_eq!(named(Some("claude-opus-5-5"), None), "Opus 5.5");
         assert_eq!(named(None, Some("high")), "Claude Code · high");
@@ -349,7 +364,11 @@ mod tests {
 
     #[test]
     fn sections_put_failed_with_done_and_split_idle_by_day() {
-        let got: Vec<_> = [(Status::NeedsYou, false), (Status::Failed, false), (Status::Done, true), (Status::Working, true), (Status::Idle, true), (Status::Idle, false)].iter().map(|(s, t)| section(*s, *t)).collect();
+        let got: Vec<_> =
+            [(Status::NeedsYou, false), (Status::Failed, false), (Status::Done, true), (Status::Working, true), (Status::Idle, true), (Status::Idle, false)]
+                .iter()
+                .map(|(s, t)| section(*s, *t))
+                .collect();
         assert_eq!(got, vec![0, 1, 1, 2, 3, 4]);
     }
 
@@ -427,8 +446,25 @@ mod tests {
 
     #[test]
     fn alerts_when_an_unseen_agent_enters_needs_you_or_done() {
-        let before = statuses(&[("a", Status::Working), ("b", Status::Working), ("c", Status::Idle), ("d", Status::Done), ("f", Status::Working), ("g", Status::Working), ("h", Status::Done)]);
-        let now = statuses(&[("a", Status::Done), ("b", Status::Done), ("c", Status::Working), ("d", Status::Done), ("e", Status::NeedsYou), ("f", Status::NeedsYou), ("g", Status::Failed), ("h", Status::Failed)]);
+        let before = statuses(&[
+            ("a", Status::Working),
+            ("b", Status::Working),
+            ("c", Status::Idle),
+            ("d", Status::Done),
+            ("f", Status::Working),
+            ("g", Status::Working),
+            ("h", Status::Done),
+        ]);
+        let now = statuses(&[
+            ("a", Status::Done),
+            ("b", Status::Done),
+            ("c", Status::Working),
+            ("d", Status::Done),
+            ("e", Status::NeedsYou),
+            ("f", Status::NeedsYou),
+            ("g", Status::Failed),
+            ("h", Status::Failed),
+        ]);
         let mut show = alerts(&before, &now, &["b".into()]);
         show.sort();
         assert_eq!(show, vec!["a", "f", "g", "h"]);
@@ -441,14 +477,24 @@ mod tests {
     #[test]
     fn up_next_ranks_needs_you_then_failed_then_done_oldest_first() {
         let failed = card(&Summary { id: "failed".into(), failed: true, updated_at: 9, ..agent("f", "done") }, "/w");
-        let cards = [at("done-new", "done", 8), at("ask-new", "needsYou", 7), failed, at("busy", "working", 1), at("done-old", "done", 2), at("ask-old", "needsYou", 3), at("idle", "idle", 0)];
+        let cards = [
+            at("done-new", "done", 8),
+            at("ask-new", "needsYou", 7),
+            failed,
+            at("busy", "working", 1),
+            at("done-old", "done", 2),
+            at("ask-old", "needsYou", 3),
+            at("idle", "idle", 0),
+        ];
         let ids: Vec<&str> = up_next(&cards).into_iter().map(|c| c.id.as_str()).collect();
         assert_eq!(ids, vec!["ask-old", "ask-new", "failed", "done-old", "done-new"]);
     }
 
     #[test]
     fn a_delegated_sessions_done_stays_out_of_up_next_but_its_question_and_failure_stay_in() {
-        let child = |id: &str, status: &str, failed: bool| card(&Summary { id: id.into(), parent: "p".into(), relationship: "subagent".into(), failed, ..agent(id, status) }, "/w");
+        let child = |id: &str, status: &str, failed: bool| {
+            card(&Summary { id: id.into(), parent: "p".into(), relationship: "subagent".into(), failed, ..agent(id, status) }, "/w")
+        };
         let cards = [child("done", "done", false), child("ask", "needsYou", false), child("fail", "done", true), at("plain-done", "done", 5)];
         let ids: Vec<&str> = up_next(&cards).into_iter().map(|c| c.id.as_str()).collect();
         assert_eq!(ids, vec!["ask", "fail", "plain-done"]);
@@ -458,7 +504,10 @@ mod tests {
     fn a_fork_is_no_delegated_session_and_a_delegated_done_does_not_alert() {
         let fork = Summary { parent: "p".into(), relationship: "fork".into(), ..agent("f", "done") };
         let child = Summary { parent: "p".into(), relationship: "subagent".into(), ..agent("c", "done") };
-        assert_eq!((alert_status(&fork), alert_status(&child), alert_status(&Summary { status: "needsYou".into(), ..child })), (Some(Status::Done), Some(Status::Idle), Some(Status::NeedsYou)));
+        assert_eq!(
+            (alert_status(&fork), alert_status(&child), alert_status(&Summary { status: "needsYou".into(), ..child })),
+            (Some(Status::Done), Some(Status::Idle), Some(Status::NeedsYou))
+        );
     }
 
     #[test]

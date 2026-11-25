@@ -45,7 +45,8 @@ pub fn worktree(host: &dyn Host, project: &str, repo: &str, name: &str, bundle: 
     let head = format!("refs/heads/{}", pack.branch);
     let made_branch = run(host, project, &["git", "rev-parse", "-q", "--verify", &head]).is_err();
     let mut placed = Placed { path: String::new(), project: project.into(), branch: pack.branch.clone(), made_branch };
-    let made = run(host, project, &["git", "fetch", "-q", bundle, &format!("{head}:{head}"), &format!("+{}:{}", pack.carry, pack.carry)]).and_then(|_| add(host, repo, name, pack, &mut placed));
+    let made = run(host, project, &["git", "fetch", "-q", bundle, &format!("{head}:{head}"), &format!("+{}:{}", pack.carry, pack.carry)])
+        .and_then(|_| add(host, repo, name, pack, &mut placed));
     _ = run(host, project, &["git", "update-ref", "-d", &pack.carry]);
     _ = host.remove(bundle);
     match made {

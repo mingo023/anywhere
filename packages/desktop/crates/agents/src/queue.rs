@@ -154,7 +154,10 @@ mod tests {
     fn a_reorder_comes_back_as_the_new_order_and_the_move_names_what_it_goes_ahead_of() {
         let mut q = Queues::default();
         q.replace("a1", vec![entry("a", 1., "pending"), entry("b", 2., "pending"), entry("c", 3., "pending")]);
-        assert_eq!([q.before_move("a1", "b", true), q.before_move("a1", "a", false), q.before_move("a1", "b", false)], [Some("a".into()), Some("c".into()), Some(String::new())]);
+        assert_eq!(
+            [q.before_move("a1", "b", true), q.before_move("a1", "a", false), q.before_move("a1", "b", false)],
+            [Some("a".into()), Some("c".into()), Some(String::new())]
+        );
         assert_eq!([q.before_move("a1", "a", true), q.before_move("a1", "c", false), q.before_move("a1", "gone", true)], [None, None, None]);
         q.replace("a1", vec![entry("a", 1., "pending"), entry("b", 4., "pending"), entry("c", 3., "pending")]);
         assert_eq!(ids(&q), ["a", "c", "b"]);

@@ -45,7 +45,8 @@ pub fn notes(agents: &Agents) -> Vec<Note> {
     out
 }
 
-pub(crate) const FILTERS: [(InboxFilter, &str); 4] = [(InboxFilter::All, "All"), (InboxFilter::NeedsYou, "Needs you"), (InboxFilter::Failed, "Failed"), (InboxFilter::Done, "Done")];
+pub(crate) const FILTERS: [(InboxFilter, &str); 4] =
+    [(InboxFilter::All, "All"), (InboxFilter::NeedsYou, "Needs you"), (InboxFilter::Failed, "Failed"), (InboxFilter::Done, "Done")];
 
 /// The notes `filter` keeps, in `sort`'s order; Most urgent first is the order `notes` gives.
 pub fn arrange(mut notes: Vec<Note>, sort: InboxSort, filter: InboxFilter) -> Vec<Note> {
@@ -165,12 +166,20 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::{Note, arrange, count, heading, notes, readable, reselect, select, step};
-    use store::prefs::sidebar::{InboxFilter, InboxSort};
     use crate::status::Status;
     use agents::{Agents, Item, Permission, Summary};
+    use store::prefs::sidebar::{InboxFilter, InboxSort};
 
     fn agent(id: &str, status: &str, at: i64) -> Summary {
-        Summary { id: id.into(), terminal_id: format!("t-{id}"), title: id.to_uppercase(), status: status.into(), attached: true, updated_at: at, ..Default::default() }
+        Summary {
+            id: id.into(),
+            terminal_id: format!("t-{id}"),
+            title: id.to_uppercase(),
+            status: status.into(),
+            attached: true,
+            updated_at: at,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -184,21 +193,38 @@ mod tests {
     #[test]
     fn lists_agents_that_need_you_then_failed_then_done() {
         let mut agents = Agents {
-            list: vec![agent("done", "done", 3), Summary { failed: true, ..agent("fail", "done", 1) }, agent("ask", "needsYou", 0), agent("busy", "working", 9), Summary { attached: false, ..agent("blind", "done", 9) }],
+            list: vec![
+                agent("done", "done", 3),
+                Summary { failed: true, ..agent("fail", "done", 1) },
+                agent("ask", "needsYou", 0),
+                agent("busy", "working", 9),
+                Summary { attached: false, ..agent("blind", "done", 9) },
+            ],
             pending: vec![Permission { agent_id: "ask".into(), tool_name: "Bash".into(), ..Default::default() }],
             ..Default::default()
         };
         agents.timelines.insert("done".into(), vec![Item { kind: "assistant".into(), text: "\nTagged v2\nmore".into(), ..Default::default() }]);
         agents.timelines.insert("fail".into(), vec![Item { kind: "result".into(), error: "exit 1".into(), ..Default::default() }]);
         let got: Vec<(String, Status, String, String)> = notes(&agents).into_iter().map(|n| (n.terminal, n.status, n.title, n.subtitle)).collect();
-        let want = [("t-ask", Status::NeedsYou, "Wants to use Bash", "ASK"), ("t-fail", Status::Failed, "FAIL failed", "exit 1"), ("t-done", Status::Done, "DONE", "Tagged v2")];
+        let want = [
+            ("t-ask", Status::NeedsYou, "Wants to use Bash", "ASK"),
+            ("t-fail", Status::Failed, "FAIL failed", "exit 1"),
+            ("t-done", Status::Done, "DONE", "Tagged v2"),
+        ];
         assert_eq!(got, want.map(|(t, s, a, b)| (t.to_string(), s, a.to_string(), b.to_string())));
     }
 
     #[test]
     fn the_bell_counts_the_agents_that_need_you_and_the_unseen_failed_and_done() {
         let agents = Agents {
-            list: vec![agent("done", "done", 3), Summary { failed: true, ..agent("fail", "done", 1) }, agent("ask", "needsYou", 0), agent("busy", "working", 9), agent("idle", "idle", 9), Summary { attached: false, ..agent("blind", "done", 9) }],
+            list: vec![
+                agent("done", "done", 3),
+                Summary { failed: true, ..agent("fail", "done", 1) },
+                agent("ask", "needsYou", 0),
+                agent("busy", "working", 9),
+                agent("idle", "idle", 9),
+                Summary { attached: false, ..agent("blind", "done", 9) },
+            ],
             ..Default::default()
         };
         assert_eq!(count(&agents), 3);

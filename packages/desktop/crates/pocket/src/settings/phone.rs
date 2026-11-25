@@ -14,9 +14,17 @@ use theme::*;
 pub(super) const ROWS: &[Setting] = &[
     Setting::custom("pair-phone", "Devices", "Pair a new phone", |d, s, cx| d.pair_row(s, cx)).hint("Shows a QR code that expires after 5 minutes"),
     Setting::custom("phones", "Devices", "Paired phones", |d, _, cx| d.devices_rows(cx)),
-    Setting::choice("reachable-from", "Network", "Reachable from", &["This Mac", "Tailnet"], Look::Segmented, |s| s.phone.tailnet as usize, |s, i| s.phone.tailnet = i == 1)
-        .hint("Tailnet lets the phone connect from anywhere over Tailscale")
-        .effect(|d, cx| d.set_reach("listen", if d.store.phone.tailnet { "auto" } else { "loopback" }.into(), cx)),
+    Setting::choice(
+        "reachable-from",
+        "Network",
+        "Reachable from",
+        &["This Mac", "Tailnet"],
+        Look::Segmented,
+        |s| s.phone.tailnet as usize,
+        |s, i| s.phone.tailnet = i == 1,
+    )
+    .hint("Tailnet lets the phone connect from anywhere over Tailscale")
+    .effect(|d, cx| d.set_reach("listen", if d.store.phone.tailnet { "auto" } else { "loopback" }.into(), cx)),
     Setting::custom("tailscale", "Network", "Tailscale", |d, s, cx| d.tailscale_row(s, cx)).under(|s| s.phone.tailnet),
     Setting::custom("phone-port", "Network", "Port", |d, s, _| d.port_row(s))
         .note(|_| Some(format!("Change it only if another app already uses {}", channel::phone_port())))
@@ -50,7 +58,15 @@ impl Desktop {
         let value = match self.agents.host.as_ref().map(|h| h.tailnet) {
             Some(true) => {
                 let listen = self.settings.host.status.as_ref().map(|s| s.listen.as_slice()).unwrap_or_default();
-                div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(TEXT_2).child(ui::dot(7., SUCCESS)).child(tailnet_line(listen)).into_any_element()
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .text_size(px(13.))
+                    .text_color(TEXT_2)
+                    .child(ui::dot(7., SUCCESS))
+                    .child(tailnet_line(listen))
+                    .into_any_element()
             }
             Some(false) => action("settings-get-tailscale", "Set up Tailscale")
                 .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.open_url(crate::sidebar::host::TAILSCALE)))
@@ -61,7 +77,11 @@ impl Desktop {
     }
 
     fn port_row(&mut self, setting: &'static Setting) -> Div {
-        row(setting.label, setting.hint, field_box().w(px(72.)).child(Input::new(&self.settings.host.port).appearance(false).p_0().font_family(MONO).text_size(px(12.))))
+        row(
+            setting.label,
+            setting.hint,
+            field_box().w(px(72.)).child(Input::new(&self.settings.host.port).appearance(false).p_0().font_family(MONO).text_size(px(12.))),
+        )
     }
 
     fn devices_rows(&mut self, cx: &mut Context<Self>) -> Div {
@@ -78,7 +98,15 @@ impl Desktop {
                 .gap(px(6.))
                 .child(div().size(px(36.)).mb(px(4.)).flex().items_center().justify_center().rounded(px(9.)).bg(FILL_2).child(icon("phone", 16., TEXT_2)))
                 .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child("No phones paired yet"))
-                .child(div().max_w(px(380.)).text_center().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child("Pair the Anywhere iPhone app to approve requests, read output and start sessions when you're away from the Mac."));
+                .child(
+                    div()
+                        .max_w(px(380.))
+                        .text_center()
+                        .text_size(px(12.))
+                        .line_height(px(16.))
+                        .text_color(TEXT_3)
+                        .child("Pair the Anywhere iPhone app to approve requests, read output and start sessions when you're away from the Mac."),
+                );
         }
         let now = now_ms();
         let renaming = self.settings.host.renaming.as_ref().map(|r| (r.id.clone(), r.field.clone()));
@@ -92,7 +120,10 @@ impl Desktop {
                 .flex_col()
                 .gap(px(1.))
                 .child(match editing.clone() {
-                    Some(field) => field_box().w(px(240.)).child(div().flex_1().min_w_0().child(Input::new(&field).appearance(false).p_0().text_size(px(13.)))).into_any_element(),
+                    Some(field) => field_box()
+                        .w(px(240.))
+                        .child(div().flex_1().min_w_0().child(Input::new(&field).appearance(false).p_0().text_size(px(13.))))
+                        .into_any_element(),
                     None => div().truncate().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(d.name.clone()).into_any_element(),
                 })
                 .child(div().truncate().text_size(px(12.)).text_color(TEXT_3).child(device_line(&d, now)));
@@ -107,7 +138,17 @@ impl Desktop {
                     cx.notify();
                 }))
             });
-            div().px(px(14.)).py(px(9.)).flex().items_center().gap(px(12.)).when(i > 0, |r| r.border_t(px(0.5)).border_color(SEPARATOR)).child(tile).child(text).children(rename).children(revoke)
+            div()
+                .px(px(14.))
+                .py(px(9.))
+                .flex()
+                .items_center()
+                .gap(px(12.))
+                .when(i > 0, |r| r.border_t(px(0.5)).border_color(SEPARATOR))
+                .child(tile)
+                .child(text)
+                .children(rename)
+                .children(revoke)
         });
         div().flex().flex_col().children(rows)
     }

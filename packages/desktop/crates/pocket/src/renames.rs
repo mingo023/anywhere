@@ -66,7 +66,15 @@ impl Renames {
     }
 
     /// `source`'s `feed` went from `before` to `after`; `unnamed` is what a tree reads while it has no name.
-    pub(crate) fn named(&mut self, feed: Feed, source: Option<&str>, before: &HashMap<String, String>, after: &HashMap<String, String>, unnamed: impl Fn(&str) -> Option<String>, now: Instant) {
+    pub(crate) fn named(
+        &mut self,
+        feed: Feed,
+        source: Option<&str>,
+        before: &HashMap<String, String>,
+        after: &HashMap<String, String>,
+        unnamed: impl Fn(&str) -> Option<String>,
+        now: Instant,
+    ) {
         if self.heard.insert((feed, source.map(str::to_string))) {
             return;
         }
@@ -82,7 +90,12 @@ impl Renames {
     }
 
     /// Worktrees were relisted. A branch moving off its folder's name is pocketd renaming a new tree's placeholder; other switches aren't renames.
-    pub(crate) fn relisted<'a>(&mut self, before: impl IntoIterator<Item = &'a git::Worktree>, after: impl IntoIterator<Item = &'a git::Worktree>, now: Instant) {
+    pub(crate) fn relisted<'a>(
+        &mut self,
+        before: impl IntoIterator<Item = &'a git::Worktree>,
+        after: impl IntoIterator<Item = &'a git::Worktree>,
+        now: Instant,
+    ) {
         let was: HashMap<&str, &str> = before.into_iter().map(|w| (w.path.as_str(), w.branch.as_str())).collect();
         for w in after {
             if let Some(&from) = was.get(w.path.as_str())

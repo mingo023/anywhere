@@ -6,11 +6,11 @@ use crate::modals::new_session::picker::machine_rows;
 use crate::settings::ssh_hosts::link_color;
 use crate::spaces::{Reach, Space};
 use crate::util::{tilde_in, untilde_in};
-use hosts::remote;
-use std::collections::HashMap;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use hosts::remote;
+use std::collections::HashMap;
 use theme::*;
 use ui::Variant;
 
@@ -178,7 +178,11 @@ impl Desktop {
             let host = self.clone_form.machine.host().map(str::to_string);
             let root = self.clone_form.root.clone().or_else(|| home.as_deref().map(|h| default_root(host.as_deref(), h, &self.store.clone_root(h))));
             let shown = |path: &str| tilde_in(path, home.as_deref().unwrap_or_default());
-            let dest = root.as_deref().zip(parse_repo(&self.clone_form.url.read(cx).value())).map(|(root, r)| shown(&format!("{root}/{}", r.name))).unwrap_or_default();
+            let dest = root
+                .as_deref()
+                .zip(parse_repo(&self.clone_form.url.read(cx).value()))
+                .map(|(root, r)| shown(&format!("{root}/{}", r.name)))
+                .unwrap_or_default();
             let placeholder = root.map_or_else(String::new, |root| format!("{}/repo", shown(&root)));
             self.clone_form.path.update(cx, |s, cx| {
                 s.set_value(dest, window, cx);
@@ -312,10 +316,14 @@ impl Desktop {
         let chip = if f.busy {
             chip
         } else {
-            ui::popover_trigger(chip, open, cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.clone_form.machine_menu = true;
-                cx.notify();
-            }))
+            ui::popover_trigger(
+                chip,
+                open,
+                cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                    this.clone_form.machine_menu = true;
+                    cx.notify();
+                }),
+            )
         };
         let menu = open.then(|| {
             let rows = machine_rows(self, "clone-machine", &f.machine, Self::pick_clone_machine, cx);
@@ -345,16 +353,18 @@ impl Desktop {
             .child(icon("globe", 13., TEXT_3))
             .child(div().flex_1().font_family(MONO).child(Input::new(&f.url).appearance(false).p_0().text_size(px(13.))));
         let host = f.machine.host().map(str::to_string);
-        let choose = ui::button("clone-choose", Variant::Secondary, None, "Choose…").h(px(26.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| match this.clone_form.machine.host().map(str::to_string) {
-            Some(host) => {
-                let start = this.clone_form.root.clone();
-                this.open_host_finder(host, start, Opener::CloneInto, window, cx);
+        let choose = ui::button("clone-choose", Variant::Secondary, None, "Choose…").h(px(26.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+            match this.clone_form.machine.host().map(str::to_string) {
+                Some(host) => {
+                    let start = this.clone_form.root.clone();
+                    this.open_host_finder(host, start, Opener::CloneInto, window, cx);
+                }
+                None => this.pick_path(true, window, cx, |d, paths, window, cx| {
+                    let Some(dir) = paths.into_iter().next() else { return };
+                    (d.clone_form.root, d.clone_form.path_edited) = (Some(dir.to_string_lossy().trim_end_matches('/').to_string()), false);
+                    d.clone_url_changed(window, cx);
+                }),
             }
-            None => this.pick_path(true, window, cx, |d, paths, window, cx| {
-                let Some(dir) = paths.into_iter().next() else { return };
-                (d.clone_form.root, d.clone_form.path_edited) = (Some(dir.to_string_lossy().trim_end_matches('/').to_string()), false);
-                d.clone_url_changed(window, cx);
-            }),
         }));
         let path = ui::field_box()
             .pr(px(6.))
@@ -378,7 +388,8 @@ impl Desktop {
         });
         let field = |label: &str, body: Div| div().flex().flex_col().gap(px(6.)).child(ui::field_label(label.to_string())).child(body);
         let label = if f.busy { "Cloning…" } else { "Clone" };
-        let cancel = ui::large(ui::button("clone-cancel", Variant::Secondary, None, "Cancel")).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
+        let cancel = ui::large(ui::button("clone-cancel", Variant::Secondary, None, "Cancel"))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
         let submit = ui::large(ui::button("clone-submit", Variant::Primary, None, label))
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_clone(window, cx))))
             .when(!ready, |d| d.opacity(0.5).cursor_default());
@@ -442,7 +453,10 @@ mod tests {
         let url = "https://github.com/org/app";
         assert_eq!(check(url, "/home/dev/code/app", Some("devbox"), &projects), Check::Taken);
         assert_eq!(check(url, "/home/dev/code/app", Some("build"), &projects), Check::Ready(repo("github.com", "org", "app").unwrap()));
-        assert_eq!(check("https://github.com/org/web", "/home/dev/code/web", Some("devbox"), &projects), Check::Ready(repo("github.com", "org", "web").unwrap()));
+        assert_eq!(
+            check("https://github.com/org/web", "/home/dev/code/web", Some("devbox"), &projects),
+            Check::Ready(repo("github.com", "org", "web").unwrap())
+        );
         assert_eq!(check(url, "C:/src/app", Some("win"), &projects), Check::Ready(repo("github.com", "org", "app").unwrap()));
     }
 

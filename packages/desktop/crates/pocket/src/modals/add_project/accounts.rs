@@ -78,18 +78,35 @@ impl Desktop {
                     cx.notify();
                 })
             };
-            let first = option(SharedString::from(format!("repo-account-{provider}-default")), chosen.is_none(), "Default".into(), format!("{default} now"), true).on_click(pick(None));
+            let first =
+                option(SharedString::from(format!("repo-account-{provider}-default")), chosen.is_none(), "Default".into(), format!("{default} now"), true)
+                    .on_click(pick(None));
             let keep = [chosen.map_or("", |c| c.id.as_str())];
             let rows = accounts::choices(list, provider, &keep).enumerate().map(|(i, a)| {
                 let aside = if a.signed_in { a.email.clone() } else { "Signed out".into() };
-                let row = option((SharedString::from(format!("repo-account-{provider}-option")), i), chosen.is_some_and(|c| c.id == a.id), accounts::name(a).to_string(), aside, a.signed_in);
+                let row = option(
+                    (SharedString::from(format!("repo-account-{provider}-option")), i),
+                    chosen.is_some_and(|c| c.id == a.id),
+                    accounts::name(a).to_string(),
+                    aside,
+                    a.signed_in,
+                );
                 if a.signed_in { row.on_click(pick(Some(a.id.clone()))) } else { row }
             });
             let close = cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 (this.settings.menu, this.repo_form.draft.account_menu) = (None, None);
                 cx.notify();
             });
-            let menu = ui::pop(div()).min_w(px(260.)).p(px(4.)).flex().flex_col().child(first).child(ui::menu_divider()).children(rows.collect::<Vec<_>>()).occlude().on_mouse_down_out(close);
+            let menu = ui::pop(div())
+                .min_w(px(260.))
+                .p(px(4.))
+                .flex()
+                .flex_col()
+                .child(first)
+                .child(ui::menu_divider())
+                .children(rows.collect::<Vec<_>>())
+                .occlude()
+                .on_mouse_down_out(close);
             ui::dropdown_right(34., ui::menu_in(SharedString::from(format!("repo-account-{provider}-menu-in")), menu))
         });
         super::agent_row(provider, self.agent_name(provider)).child(div().relative().flex_none().child(button).children(menu))

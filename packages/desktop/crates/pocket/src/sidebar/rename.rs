@@ -2,8 +2,8 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 
 use crate::desktop::Desktop;
-use agents::locals::is_local;
 use crate::sidebar::SidebarState;
+use agents::locals::is_local;
 
 /// A worktree's or Local's row name, edited in place; leaving it saves, as Enter does.
 pub(crate) struct Rename {
@@ -25,7 +25,12 @@ impl SidebarState {
 }
 
 /// A field holding `text`, focused and all selected, that calls `done` on Enter or blur.
-pub(crate) fn rename_field(text: String, window: &mut Window, cx: &mut Context<Desktop>, done: fn(&mut Desktop, &mut Context<Desktop>)) -> (Entity<InputState>, Subscription) {
+pub(crate) fn rename_field(
+    text: String,
+    window: &mut Window,
+    cx: &mut Context<Desktop>,
+    done: fn(&mut Desktop, &mut Context<Desktop>),
+) -> (Entity<InputState>, Subscription) {
     let input = cx.new(|cx| InputState::new(window, cx));
     input.update(cx, |s, cx| {
         s.set_value(text, window, cx);

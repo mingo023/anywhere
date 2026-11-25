@@ -2,11 +2,11 @@ use super::Menu;
 use super::form::{TEMPLATES, Values};
 use super::logic::{DEFAULT_EVERY, DEFAULT_TIME, Tab};
 use super::parts::{crumbs, section};
-use crate::desktop::chrome::pill;
 use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, frame};
 use crate::composer::Composer;
 use crate::composer::launch::access_row;
 use crate::desktop::Desktop;
+use crate::desktop::chrome::pill;
 use crate::modals::new_session::picker::{menu_input, pick_head};
 use crate::modals::new_session::{default_first, listed_branches};
 use crate::util::{LOCAL_ICON, WORKTREE_ICON, ago_long, now_ms};
@@ -57,7 +57,8 @@ impl Form {
         let every = cx.new(|cx| InputState::new(window, cx).placeholder(DEFAULT_EVERY));
         let models = cx.new(|cx| InputState::new(window, cx).placeholder("Search models"));
         let branch_search = cx.new(|cx| InputState::new(window, cx).placeholder("Search branches…"));
-        let mut subs: Vec<_> = [&title, &time, &every, &models, &branch_search].into_iter().map(|input| cx.subscribe(input, |_, _, _: &InputEvent, cx| cx.notify())).collect();
+        let mut subs: Vec<_> =
+            [&title, &time, &every, &models, &branch_search].into_iter().map(|input| cx.subscribe(input, |_, _, _: &InputEvent, cx| cx.notify())).collect();
         subs.push(cx.subscribe(&prompt, |_, _, _: &InputEvent, cx| cx.notify()));
         let composer = Composer::new(prompt, models, slot, |d| d.automations.menu = None, |_, _| {});
         (Self { title, time, every, composer, branch_search, branches: None, v: Values::new(String::new()), open: false }, subs)
@@ -107,7 +108,12 @@ impl Desktop {
     pub(crate) fn edit_automation(&mut self, id: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
         self.close_menus();
         let existing = id.and_then(|id| self.agents.automations.items.iter().find(|a| a.id == id));
-        let folder = self.project.clone().filter(|p| !self.store.is_scratch(p)).or_else(|| self.store.without_scratch(self.projects()).into_iter().next()).unwrap_or_default();
+        let folder = self
+            .project
+            .clone()
+            .filter(|p| !self.store.is_scratch(p))
+            .or_else(|| self.store.without_scratch(self.projects()).into_iter().next())
+            .unwrap_or_default();
         let f = &mut self.automations.form;
         f.v = existing.map_or_else(|| Values::from_defaults(folder, &self.store.automations), Values::of);
         f.open = true;
@@ -184,7 +190,8 @@ impl Desktop {
         let v = self.automations.form.values(cx);
         let draft = v.draft();
         let editing = v.id.is_some();
-        let crumb = if editing { format!("Edit · {}", if v.title.trim().is_empty() { "Untitled" } else { v.title.trim() }) } else { "New automation".to_string() };
+        let crumb =
+            if editing { format!("Edit · {}", if v.title.trim().is_empty() { "Untitled" } else { v.title.trim() }) } else { "New automation".to_string() };
         let ready = draft.is_ok();
         let right = div()
             .flex()
@@ -296,26 +303,45 @@ impl Desktop {
             .children((!folder.is_empty()).then(|| self.repo_tile_for(folder, 16.)))
             .child(div().font_weight(FontWeight::MEDIUM).child(name))
             .child(icon("chevron-down", 12., TEXT_4));
-        let rows: Vec<_> = self.folder_choices(folder).into_iter().enumerate().map(|(i, p)| {
-            let chosen = p == folder;
-            ui::menu_pick(("editor-project-row", i), self.repo_tile_for(&p, 14.), &self.repo_name(&p), chosen).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_folder(p.clone(), cx)))
-        }).collect();
-        let none = rows.is_empty().then(|| div().h(px(30.)).px(px(8.)).flex().items_center().text_size(px(13.)).text_color(TEXT_3).child("Add a project from the sidebar"));
-        let menu = open.then(|| ui::dropdown(36., ui::menu_in("editor-project-in", self.popup("editor-project-menu", 260., cx).gap(px(2.)).children(rows).children(none))));
+        let rows: Vec<_> = self
+            .folder_choices(folder)
+            .into_iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let chosen = p == folder;
+                ui::menu_pick(("editor-project-row", i), self.repo_tile_for(&p, 14.), &self.repo_name(&p), chosen)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_folder(p.clone(), cx)))
+            })
+            .collect();
+        let none = rows
+            .is_empty()
+            .then(|| div().h(px(30.)).px(px(8.)).flex().items_center().text_size(px(13.)).text_color(TEXT_3).child("Add a project from the sidebar"));
+        let menu = open.then(|| {
+            ui::dropdown(36., ui::menu_in("editor-project-in", self.popup("editor-project-menu", 260., cx).gap(px(2.)).children(rows).children(none)))
+        });
         div().relative().child(self.menu_toggle(chip, Menu::Project, open, cx)).children(menu)
     }
 
     fn checkout_chip(&self, worktree: bool, cx: &mut Context<Self>) -> Div {
         let open = self.automations.menu == Some(Menu::Checkout);
         let (_, glyph, label, _) = CHECKOUTS[!worktree as usize];
-        let chip = ui::menu_chip("editor-checkout", open).child(icon(glyph, 14., TEXT_3)).child(div().font_weight(FontWeight::MEDIUM).child(label)).child(icon("chevron-down", 12., TEXT_4));
-        let rows: Vec<_> = CHECKOUTS.iter().enumerate().map(|(i, &(on, glyph, label, hint))| {
-            access_row(("editor-checkout-row", i), on == worktree, Some(glyph), label, hint, TEXT).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.automations.form.v.new_worktree = on;
-                this.close_menus();
-                cx.notify();
-            }))
-        }).collect();
+        let chip = ui::menu_chip("editor-checkout", open)
+            .child(icon(glyph, 14., TEXT_3))
+            .child(div().font_weight(FontWeight::MEDIUM).child(label))
+            .child(icon("chevron-down", 12., TEXT_4));
+        let rows: Vec<_> = CHECKOUTS
+            .iter()
+            .enumerate()
+            .map(|(i, &(on, glyph, label, hint))| {
+                access_row(("editor-checkout-row", i), on == worktree, Some(glyph), label, hint, TEXT).on_click(cx.listener(
+                    move |this, _: &ClickEvent, _, cx| {
+                        this.automations.form.v.new_worktree = on;
+                        this.close_menus();
+                        cx.notify();
+                    },
+                ))
+            })
+            .collect();
         let menu = open.then(|| ui::dropdown(36., ui::menu_in("editor-checkout-in", self.popup("editor-checkout-menu", 300., cx).gap(px(2.)).children(rows))));
         div().relative().child(self.menu_toggle(chip, Menu::Checkout, open, cx)).children(menu)
     }
@@ -330,15 +356,19 @@ impl Desktop {
             .child(icon("branch", 14., TEXT_3))
             .child(div().font_family(MONO).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(label.clone().unwrap_or_else(|| "Default branch".into())))
             .child(icon("chevron-down", 12., TEXT_4));
-        let chip = ui::popover_trigger(chip, open, cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-            this.toggle_menu(Menu::Branch, cx);
-            if this.automations.menu == Some(Menu::Branch) {
-                search_input.update(cx, |s, cx| {
-                    s.set_value("", window, cx);
-                    s.focus(window, cx);
-                });
-            }
-        }));
+        let chip = ui::popover_trigger(
+            chip,
+            open,
+            cx.listener(move |this, _: &MouseDownEvent, window, cx| {
+                this.toggle_menu(Menu::Branch, cx);
+                if this.automations.menu == Some(Menu::Branch) {
+                    search_input.update(cx, |s, cx| {
+                        s.set_value("", window, cx);
+                        s.focus(window, cx);
+                    });
+                }
+            }),
+        );
         let menu = open.then(|| {
             let search = f.branch_search.read(cx).value().to_string();
             let now = now_ms();
@@ -357,21 +387,42 @@ impl Desktop {
                 }
                 let meta = local.and_then(|i| branches[i].1).map(|s| ago_long(s * 1000, now));
                 let branch = name.to_string();
-                let row = ui::pick_row(("editor-branch-row", n), label.as_deref() == Some(name), Some(icon("branch", 13., TEXT_3)), div().font_family(MONO).text_size(px(12.5)).child(branch.clone()), meta)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.automations.form.v.base = branch.clone();
-                        this.close_menus();
-                        cx.notify();
-                    }));
+                let row = ui::pick_row(
+                    ("editor-branch-row", n),
+                    label.as_deref() == Some(name),
+                    Some(icon("branch", 13., TEXT_3)),
+                    div().font_family(MONO).text_size(px(12.5)).child(branch.clone()),
+                    meta,
+                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.automations.form.v.base = branch.clone();
+                    this.close_menus();
+                    cx.notify();
+                }));
                 rows.push(row.into_any_element());
             }
             let empty = rows.is_empty().then(|| {
                 let why = if f.branches.as_ref().is_some_and(|(folder, _)| *folder == f.v.folder) { "No branches found" } else { "Reading branches…" };
                 div().h(px(36.)).px(px(10.)).flex().items_center().text_size(px(13.)).text_color(TEXT_3).child(why)
             });
-            let note = label.as_ref().map(|b| div().px(px(12.)).py(px(8.)).border_t(px(0.5)).border_color(SEPARATOR).text_size(px(12.)).text_color(TEXT_3).child(format!("Each run starts a new branch off {b}.")));
+            let note = label.as_ref().map(|b| {
+                div()
+                    .px(px(12.))
+                    .py(px(8.))
+                    .border_t(px(0.5))
+                    .border_color(SEPARATOR)
+                    .text_size(px(12.))
+                    .text_color(TEXT_3)
+                    .child(format!("Each run starts a new branch off {b}."))
+            });
             let list = div().id("editor-branch-list").max_h(px(316.)).overflow_y_scroll().p(px(5.)).flex().flex_col().children(empty).children(rows);
-            ui::dropdown(36., ui::menu_in("editor-branch-in", self.popup("editor-branch-menu", 340., cx).p_0().overflow_hidden().child(menu_input("search", &f.branch_search)).child(list).children(note)))
+            ui::dropdown(
+                36.,
+                ui::menu_in(
+                    "editor-branch-in",
+                    self.popup("editor-branch-menu", 340., cx).p_0().overflow_hidden().child(menu_input("search", &f.branch_search)).child(list).children(note),
+                ),
+            )
         });
         div().relative().child(chip).children(menu)
     }

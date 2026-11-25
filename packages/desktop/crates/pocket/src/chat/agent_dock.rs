@@ -280,9 +280,15 @@ mod tests {
 
     #[test]
     fn a_chats_sub_agents_are_its_agent_calls_across_every_turn() {
-        let call = |id: &str, kind| Block::Tool(ToolCall { id: id.into(), name: "x".into(), kind, status: ToolStatus::Ok, output: None, duration_ms: None, at: 0 });
+        let call =
+            |id: &str, kind| Block::Tool(ToolCall { id: id.into(), name: "x".into(), kind, status: ToolStatus::Ok, output: None, duration_ms: None, at: 0 });
         let turn = |blocks| Turn { id: "t".into(), prompt: None, blocks, end: None };
-        let t = Transcript { turns: vec![turn(vec![call("a1", ToolKind::Agent(SubAgent::default())), call("s", ToolKind::Shell { command: "ls".into(), description: String::new() })]), turn(vec![call("a2", ToolKind::Agent(SubAgent::default()))])] };
+        let t = Transcript {
+            turns: vec![
+                turn(vec![call("a1", ToolKind::Agent(SubAgent::default())), call("s", ToolKind::Shell { command: "ls".into(), description: String::new() })]),
+                turn(vec![call("a2", ToolKind::Agent(SubAgent::default()))]),
+            ],
+        };
         assert_eq!(agent_calls(&t).iter().map(|(c, _)| c.id.as_str()).collect::<Vec<_>>(), ["a1", "a2"]);
     }
 }

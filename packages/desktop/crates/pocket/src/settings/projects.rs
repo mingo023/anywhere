@@ -12,14 +12,34 @@ fn worktree_count(n: usize) -> String {
 }
 
 pub(super) const ROWS: &[Setting] = &[
-    Setting::path("worktree-folder", "Locations", "Worktree folder", |s| s.worktree_root(&home()), |s, p| s.worktree.root = p).hint("New worktrees go in <folder>/<project>/<name>"),
-    Setting::path("clone-folder", "Locations", "Clone folder", |s| s.clone_root(&home()), |s, p| s.worktree.clone_root = p).hint("Where Add project › Clone puts new repositories"),
-    Setting::custom("projects", "Projects", "Projects", |d, _, cx| d.project_list(cx)).hint("Open one to edit its icon, accounts, agents and setup script, or remove it"),
-    Setting::switch("delete-branch", "Deleting a worktree", "Also delete its branch", |s| s.worktree.delete_branch, |s, on| s.worktree.delete_branch = on).hint("Local branch only. Remote branches are never deleted"),
-    Setting::choice("worktree-files", "Deleting a worktree", "Worktree files", &["Move to Trash", "Delete permanently"], Look::Segmented, |s| usize::from(!s.worktree.trash), |s, i| s.worktree.trash = i == 0),
-    Setting::stepper("teardown-timeout", "Deleting a worktree", "Teardown script timeout", (10, 600, 10), " s", |s| s.worktree.teardown_secs as i32, |s, n| s.worktree.teardown_secs = n as u32)
-        .hint("Stops the project's teardown script if it runs longer")
-        .advanced(),
+    Setting::path("worktree-folder", "Locations", "Worktree folder", |s| s.worktree_root(&home()), |s, p| s.worktree.root = p)
+        .hint("New worktrees go in <folder>/<project>/<name>"),
+    Setting::path("clone-folder", "Locations", "Clone folder", |s| s.clone_root(&home()), |s, p| s.worktree.clone_root = p)
+        .hint("Where Add project › Clone puts new repositories"),
+    Setting::custom("projects", "Projects", "Projects", |d, _, cx| d.project_list(cx))
+        .hint("Open one to edit its icon, accounts, agents and setup script, or remove it"),
+    Setting::switch("delete-branch", "Deleting a worktree", "Also delete its branch", |s| s.worktree.delete_branch, |s, on| s.worktree.delete_branch = on)
+        .hint("Local branch only. Remote branches are never deleted"),
+    Setting::choice(
+        "worktree-files",
+        "Deleting a worktree",
+        "Worktree files",
+        &["Move to Trash", "Delete permanently"],
+        Look::Segmented,
+        |s| usize::from(!s.worktree.trash),
+        |s, i| s.worktree.trash = i == 0,
+    ),
+    Setting::stepper(
+        "teardown-timeout",
+        "Deleting a worktree",
+        "Teardown script timeout",
+        (10, 600, 10),
+        " s",
+        |s| s.worktree.teardown_secs as i32,
+        |s, n| s.worktree.teardown_secs = n as u32,
+    )
+    .hint("Stops the project's teardown script if it runs longer")
+    .advanced(),
 ];
 
 impl Desktop {
@@ -31,9 +51,18 @@ impl Desktop {
         let rows = self.store.without_scratch(self.store.projects.clone()).into_iter().enumerate().map(|(i, p)| {
             let name = self.repo_name(&p);
             let tile = self.project_tile(&p, 24.);
-            let picks = self.store.repos.get(&p).map(|r| accounts::project_picks(self.accounts.list(&accounts::host_of(Some(&p))), &r.accounts)).unwrap_or_default();
+            let picks =
+                self.store.repos.get(&p).map(|r| accounts::project_picks(self.accounts.list(&accounts::host_of(Some(&p))), &r.accounts)).unwrap_or_default();
             let picks = picks.into_iter().map(|(provider, name)| {
-                div().flex().flex_none().items_center().gap(px(3.)).font_family(SANS).text_color(TEXT_2).child(provider_icon(&provider, 10., TEXT_3)).child(name)
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(3.))
+                    .font_family(SANS)
+                    .text_color(TEXT_2)
+                    .child(provider_icon(&provider, 10., TEXT_3))
+                    .child(name)
             });
             let text = div()
                 .flex_1()

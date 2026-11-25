@@ -132,7 +132,13 @@ impl Meta {
 /// Reads the switch it was before Left and Right: on is both keys.
 fn meta<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Meta, D::Error> {
     Ok(match serde_json::Value::deserialize(d)? {
-        serde_json::Value::Bool(on) => if on { Meta::Both } else { Meta::Off },
+        serde_json::Value::Bool(on) => {
+            if on {
+                Meta::Both
+            } else {
+                Meta::Off
+            }
+        }
         v => serde_json::from_value(v).unwrap_or_default(),
     })
 }
@@ -164,13 +170,16 @@ impl Scheme {
     fn colors(self) -> [u32; 16] {
         match self {
             Scheme::Default | Scheme::Custom => [
-                0x1d1f21, 0xcc6666, 0xb5bd68, 0xf0c674, 0x81a2be, 0xb294bb, 0x8abeb7, 0xc5c8c6, 0x666666, 0xd54e53, 0xb9ca4a, 0xe7c547, 0x7aa6da, 0xc397d8, 0x70c0b1, 0xeaeaea,
+                0x1d1f21, 0xcc6666, 0xb5bd68, 0xf0c674, 0x81a2be, 0xb294bb, 0x8abeb7, 0xc5c8c6, 0x666666, 0xd54e53, 0xb9ca4a, 0xe7c547, 0x7aa6da, 0xc397d8,
+                0x70c0b1, 0xeaeaea,
             ],
             Scheme::Graphite => [
-                0x1c1c1f, 0xe5484d, 0x30a46c, 0xe8a317, 0x3e63dd, 0x8e4ec6, 0x0e7c86, 0xd4d4d8, 0x6f6f78, 0xff6369, 0x4cc38a, 0xffc53d, 0x8da4ff, 0xc18af5, 0x3dd6c8, 0xffffff,
+                0x1c1c1f, 0xe5484d, 0x30a46c, 0xe8a317, 0x3e63dd, 0x8e4ec6, 0x0e7c86, 0xd4d4d8, 0x6f6f78, 0xff6369, 0x4cc38a, 0xffc53d, 0x8da4ff, 0xc18af5,
+                0x3dd6c8, 0xffffff,
             ],
             Scheme::Solarized => [
-                0x073642, 0xdc322f, 0x859900, 0xb58900, 0x268bd2, 0xd33682, 0x2aa198, 0xeee8d5, 0x002b36, 0xcb4b16, 0x586e75, 0x657b83, 0x839496, 0x6c71c4, 0x93a1a1, 0xfdf6e3,
+                0x073642, 0xdc322f, 0x859900, 0xb58900, 0x268bd2, 0xd33682, 0x2aa198, 0xeee8d5, 0x002b36, 0xcb4b16, 0x586e75, 0x657b83, 0x839496, 0x6c71c4,
+                0x93a1a1, 0xfdf6e3,
             ],
         }
     }

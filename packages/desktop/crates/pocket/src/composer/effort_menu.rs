@@ -44,7 +44,15 @@ pub(crate) struct Effort {
 
 /// A row headed `word`, a model's setting, naming the value in use, `on` unless `menu` holds a newer one, that opens
 /// `levels`, each value it takes and what the list calls it, beside the panel. Picking one hands it to `pick`.
-pub(crate) fn choice_menu(id: impl Into<ElementId>, word: SharedString, (levels, on): (&[(String, String)], Option<&String>), menu: &EffortMenu, draft: impl Fn(&mut Desktop) -> &mut Draft + Copy + 'static, pick: launch::Pick, cx: &mut Context<Desktop>) -> Effort {
+pub(crate) fn choice_menu(
+    id: impl Into<ElementId>,
+    word: SharedString,
+    (levels, on): (&[(String, String)], Option<&String>),
+    menu: &EffortMenu,
+    draft: impl Fn(&mut Desktop) -> &mut Draft + Copy + 'static,
+    pick: launch::Pick,
+    cx: &mut Context<Desktop>,
+) -> Effort {
     let at = menu.shown(&word, levels, on);
     let name = at.map_or_else(|| "Default".to_string(), |i| levels[i].1.clone());
     let open = menu.open.as_ref() == Some(&word);
@@ -63,11 +71,13 @@ pub(crate) fn choice_menu(id: impl Into<ElementId>, word: SharedString, (levels,
         let rows = levels.iter().enumerate().map(|(i, (level, label))| {
             let (pick, level, word) = (pick.clone(), level.clone(), word.clone());
             let on = at == Some(i);
-            row(("effort-level", i), on).pr(px(6.)).child(div().flex_1().font_weight(FontWeight::MEDIUM).child(label.clone())).child(check(on)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                draft(this).effort.pick(word.clone(), level.clone());
-                pick(this, level.clone(), cx);
-                cx.notify();
-            }))
+            row(("effort-level", i), on).pr(px(6.)).child(div().flex_1().font_weight(FontWeight::MEDIUM).child(label.clone())).child(check(on)).on_click(
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    draft(this).effort.pick(word.clone(), level.clone());
+                    pick(this, level.clone(), cx);
+                    cx.notify();
+                }),
+            )
         });
         ui::pop(div()).w(px(LIST_WIDTH)).flex_none().p(px(PAD)).flex().flex_col().gap(px(GAP)).children(rows.collect::<Vec<_>>())
     });

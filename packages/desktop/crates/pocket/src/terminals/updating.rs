@@ -77,8 +77,16 @@ fn mascot(look: Look) -> Div {
         .relative()
         .flex_none()
         .size(px(MASCOT))
-        .child(div().absolute().left(px((MASCOT - glow) / 2.)).top(px(MASCOT * 0.58 - glow / 2.)).size(px(glow)).rounded_full().shadow(vec![ui::shadow(shade(GLOW_COLOR, 0.4), 0., 40.)]))
-        .child(div().absolute().top(px(MASCOT * 0.84)).left(px(MASCOT * 0.25)).w(px(MASCOT * 0.5)).h(px(4.)).rounded_full().shadow(vec![ui::shadow(shade(0x000000, 0.25), 0., 6.)]))
+        .child(div().absolute().left(px((MASCOT - glow) / 2.)).top(px(MASCOT * 0.58 - glow / 2.)).size(px(glow)).rounded_full().shadow(vec![ui::shadow(
+            shade(GLOW_COLOR, 0.4),
+            0.,
+            40.,
+        )]))
+        .child(div().absolute().top(px(MASCOT * 0.84)).left(px(MASCOT * 0.25)).w(px(MASCOT * 0.5)).h(px(4.)).rounded_full().shadow(vec![ui::shadow(
+            shade(0x000000, 0.25),
+            0.,
+            6.,
+        )]))
         .children(rings)
         .when(look.lit, |d| d.child(layer("halo", shade(LIGHT_ON, 0.35))))
         .child(layer("body", rgb(BODY).into()))
@@ -121,7 +129,9 @@ impl Desktop {
             None => el,
         };
         let face = match update {
-            Update::Waiting(_) if !reduce => div().with_animation("updating-mascot", Animation::new(BEAT).repeat_synced().with_max_fps(10.), |d, t| d.child(mascot(waiting(t)))).into_any_element(),
+            Update::Waiting(_) if !reduce => div()
+                .with_animation("updating-mascot", Animation::new(BEAT).repeat_synced().with_max_fps(10.), |d, t| d.child(mascot(waiting(t))))
+                .into_any_element(),
             Update::Waiting(_) => mascot(STILL).into_any_element(),
             Update::Stuck => mascot(Look { eyes: DOWN, lit: false, ..STILL }).into_any_element(),
             Update::Back(_) => mascot(Look { eyes: (0., 0.), happy: true, ..STILL }).into_any_element(),
@@ -130,7 +140,8 @@ impl Desktop {
         let note = |el: Div| el.pl(px(26.)).text_size(px(13.)).line_height(px(19.)).text_color(TEXT_3);
         let (title, steps): (&str, Vec<Div>) = match update {
             Update::Waiting(waited) => {
-                let updating = step(spinner("updating-spin", 14., TEXT_3), "Updating the background service", TEXT_2).child(div().ml_auto().pl(px(16.)).font_family(MONO).text_size(px(12.)).text_color(TEXT_4).child(format!("{}s", waited.as_secs())));
+                let updating = step(spinner("updating-spin", 14., TEXT_3), "Updating the background service", TEXT_2)
+                    .child(div().ml_auto().pl(px(16.)).font_family(MONO).text_size(px(12.)).text_color(TEXT_4).child(format!("{}s", waited.as_secs())));
                 let tip = (!tip.is_empty()).then(|| note(div().flex().flex_col().gap(px(6.)).items_start()).children(tip));
                 let resume = step(div().size(px(6.)).rounded_full().bg(TEXT_5), "Sessions resume when it's back", TEXT_4);
                 ("Updating Anywhere", [Some(installed), Some(updating), tip, Some(resume)].into_iter().flatten().collect())
@@ -142,7 +153,10 @@ impl Desktop {
                     step(icon("warning", 14., WAITING_DOT), "Couldn't update the background service in place", TEXT_2),
                     note(div().flex().flex_col().gap(px(10.)).items_start())
                         .child(format!("It's still on {stale}. Restarting it interrupts open sessions, which then resume."))
-                        .child(ui::button("restart-service", Variant::Primary, None, "Restart service").on_click(cx.listener(|this, _, _, cx| this.relaunch_or_restart_service(cx)))),
+                        .child(
+                            ui::button("restart-service", Variant::Primary, None, "Restart service")
+                                .on_click(cx.listener(|this, _, _, cx| this.relaunch_or_restart_service(cx))),
+                        ),
                 ],
             ),
             Update::Back(_) => ("Updating Anywhere", vec![installed, done("Background service updated")]),
@@ -154,12 +168,25 @@ impl Desktop {
             .flex_col()
             .gap(px(12.))
             .child(rising(div().text_size(px(15.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title), TITLE_IN))
-            .child(div().flex().flex_col().gap(px(9.)).children(steps.into_iter().enumerate().map(|(i, s)| rising(s, (STEP_IN.0 + STAGGER * i as f32, STEP_IN.1)))));
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(9.))
+                    .children(steps.into_iter().enumerate().map(|(i, s)| rising(s, (STEP_IN.0 + STAGGER * i as f32, STEP_IN.1)))),
+            );
         let face = rising(div().mt(px(-4.)).child(face), MASCOT_IN);
         if moving {
             window.request_animation_frame();
         }
-        div().flex_1().flex().items_center().justify_center().pb(px(40.)).opacity(opacity).child(div().flex().items_start().gap(px(22.)).child(face).child(text))
+        div()
+            .flex_1()
+            .flex()
+            .items_center()
+            .justify_center()
+            .pb(px(40.))
+            .opacity(opacity)
+            .child(div().flex().items_start().gap(px(22.)).child(face).child(text))
     }
 }
 

@@ -30,7 +30,14 @@ pub(crate) struct Models {
 
 impl Default for Models {
     fn default() -> Self {
-        let fallback = |i: usize| providers::ALL[i].models.fallback.iter().map(|m| ListedModel { value: m.to_string(), name: model_or_default(m), resolved: m.to_string(), ..ListedModel::default() }).collect();
+        let fallback = |i: usize| {
+            providers::ALL[i]
+                .models
+                .fallback
+                .iter()
+                .map(|m| ListedModel { value: m.to_string(), name: model_or_default(m), resolved: m.to_string(), ..ListedModel::default() })
+                .collect()
+        };
         Self { lists: Default::default(), fallback: std::array::from_fn(fallback), revision: 0 }
     }
 }
@@ -236,7 +243,8 @@ impl Desktop {
         let catalog = &providers::known(provider).models;
         let (argv, input) = (self.store.agents.catalog_argv(provider), catalog.input_in(&home()));
         cx.spawn(async move |this, cx| {
-            let read = cx.background_executor().spawn(async move { list_models(&argv, &input, catalog.answer).and_then(|printed| catalog.read(&printed)) }).await;
+            let read =
+                cx.background_executor().spawn(async move { list_models(&argv, &input, catalog.answer).and_then(|printed| catalog.read(&printed)) }).await;
             this.update(cx, |d, cx| {
                 if d.models.answer(provider, asked, read) {
                     cx.notify();
@@ -282,7 +290,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{ListedModel, Models, by_upstream, couldnt_list, effort_label, listed_agents, model_or_default, model_options, not_found};
+    use super::{ListedModel, Models, by_upstream, couldnt_list, effort_label, listed_agents, model_options, model_or_default, not_found};
 
     #[test]
     fn a_list_that_names_nobody_has_no_groups() {
@@ -377,7 +385,10 @@ mod tests {
     fn a_stored_model_the_list_lacks_stays_choosable() {
         assert_eq!(options(&[], "gpt-5"), [("gpt-5", "gpt-5")]);
         assert_eq!(options(&[listed("gpt-5", "GPT 5")], "gpt-5"), [("gpt-5", "GPT 5")]);
-        assert_eq!((model_or_default(""), model_or_default("opus"), model_or_default("gpt-5")), ("Agent default".to_string(), "Opus".to_string(), "gpt-5".to_string()));
+        assert_eq!(
+            (model_or_default(""), model_or_default("opus"), model_or_default("gpt-5")),
+            ("Agent default".to_string(), "Opus".to_string(), "gpt-5".to_string())
+        );
     }
 
     #[test]
@@ -411,7 +422,10 @@ mod tests {
 
     #[test]
     fn a_read_that_listed_nothing_says_so_with_its_first_line() {
-        assert_eq!(couldnt_list("Hermes Agent", "\n Authentication required \nrun hermes model"), "Couldn't list Hermes Agent's models: Authentication required");
+        assert_eq!(
+            couldnt_list("Hermes Agent", "\n Authentication required \nrun hermes model"),
+            "Couldn't list Hermes Agent's models: Authentication required"
+        );
         assert_eq!(couldnt_list("omp", ""), "Couldn't list omp's models");
     }
 }

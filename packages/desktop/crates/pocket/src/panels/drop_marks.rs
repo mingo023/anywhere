@@ -47,13 +47,23 @@ impl Desktop {
         Some(match target {
             Target::Into { pane, index } if rect_of(pane).is_some_and(|r| y - r.y < drop::STRIP_H) => {
                 let r = rect_of(pane)?;
-                let caret = drop::caret(self.panels.slots.get(&pane).map_or(&[][..], Vec::as_slice), index).unwrap_or(r.x + 12.).min(r.x + r.w - 12.).max(r.x + 12.);
+                let caret =
+                    drop::caret(self.panels.slots.get(&pane).map_or(&[][..], Vec::as_slice), index).unwrap_or(r.x + 12.).min(r.x + r.w - 12.).max(r.x + 12.);
                 div().absolute().left(px(caret - 1. - o.x)).top(px(r.y + 8. - o.y)).w(px(2.)).h(px(20.)).rounded(px(1.)).bg(ACCENT)
             }
             Target::Into { pane, .. } | Target::Split { pane, .. } => {
                 let edge = if let Target::Split { edge, .. } = target { Some(edge) } else { None };
                 let h = drop::highlight(rect_of(pane)?, edge);
-                div().absolute().left(px(h.x - o.x)).top(px(h.y - o.y)).w(px(h.w)).h(px(h.h)).rounded(px(8.)).border_1().border_color(ACCENT).bg(Hsla::from(ACCENT).opacity(0.12))
+                div()
+                    .absolute()
+                    .left(px(h.x - o.x))
+                    .top(px(h.y - o.y))
+                    .w(px(h.w))
+                    .h(px(h.h))
+                    .rounded(px(8.))
+                    .border_1()
+                    .border_color(ACCENT)
+                    .bg(Hsla::from(ACCENT).opacity(0.12))
             }
         })
     }

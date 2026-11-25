@@ -1,8 +1,8 @@
 use crate::desktop::Desktop;
-use term::{Cell, Frame, Pointer, WIDE_SPACER_TAIL};
-use theme::{ON_TEXT, SELECTION, SYMBOLS, TEXT};
 use gpui_kit::*;
 use std::sync::Arc;
+use term::{Cell, Frame, Pointer, WIDE_SPACER_TAIL};
+use theme::{ON_TEXT, SELECTION, SYMBOLS, TEXT};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Metrics {
@@ -224,10 +224,7 @@ pub fn screen(f: &Frame, cells: &[Cell], m: &Metrics) -> Div {
             };
             match runs.last_mut() {
                 Some(last)
-                    if last.font == run.font
-                        && last.color == run.color
-                        && last.background_color == run.background_color
-                        && last.underline == run.underline =>
+                    if last.font == run.font && last.color == run.color && last.background_color == run.background_color && last.underline == run.underline =>
                 {
                     last.len += run.len
                 }

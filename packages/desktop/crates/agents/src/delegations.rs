@@ -76,7 +76,10 @@ pub enum Headline {
     Asking(usize),
     Working(usize),
     /// All settled: how many ended well and how many failed.
-    Settled { done: usize, failed: usize },
+    Settled {
+        done: usize,
+        failed: usize,
+    },
 }
 
 impl Counts {
@@ -170,7 +173,17 @@ mod tests {
     #[test]
     fn a_working_task_with_a_question_is_asking() {
         let asks = Delegation { question: "Which runner?".into(), ..task("a", "working", 1) };
-        assert_eq!([task("a", "queued", 1).phase(), task("a", "working", 1).phase(), asks.phase(), task("a", "completed", 1).phase(), task("a", "failed", 1).phase(), task("a", "cancelled", 1).phase()], [Phase::Starting, Phase::Working, Phase::Asking, Phase::Done, Phase::Failed, Phase::Stopped]);
+        assert_eq!(
+            [
+                task("a", "queued", 1).phase(),
+                task("a", "working", 1).phase(),
+                asks.phase(),
+                task("a", "completed", 1).phase(),
+                task("a", "failed", 1).phase(),
+                task("a", "cancelled", 1).phase()
+            ],
+            [Phase::Starting, Phase::Working, Phase::Asking, Phase::Done, Phase::Failed, Phase::Stopped]
+        );
     }
 
     #[test]

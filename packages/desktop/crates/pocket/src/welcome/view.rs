@@ -114,10 +114,20 @@ fn view(pose: Pose, cx: &mut Context<Desktop>) -> AnyElement {
         }))
         .child(crate::desktop::chrome::drag_area(div().absolute().top_0().left_0().right_0().h(px(40.))))
         .child(mascot(pose, cx))
-        .child(copy(0, div().mt(px(18.)).text_size(px(30.)).line_height(px(36.)).font_weight(FontWeight::BOLD).text_color(TEXT).child("Hi. Let's get your agents going.")))
+        .child(copy(
+            0,
+            div().mt(px(18.)).text_size(px(30.)).line_height(px(36.)).font_weight(FontWeight::BOLD).text_color(TEXT).child("Hi. Let's get your agents going."),
+        ))
         .child(copy(
             1,
-            div().mt(px(10.)).max_w(px(440.)).text_center().text_size(px(15.)).line_height(px(22.)).text_color(TEXT_2).child("Anywhere keeps every coding agent you run in one window, and tells you which one needs you."),
+            div()
+                .mt(px(10.))
+                .max_w(px(440.))
+                .text_center()
+                .text_size(px(15.))
+                .line_height(px(22.))
+                .text_color(TEXT_2)
+                .child("Anywhere keeps every coding agent you run in one window, and tells you which one needs you."),
         ))
         .child(copy(2, div().child(go)))
         .into_any_element()
@@ -127,8 +137,19 @@ fn view(pose: Pose, cx: &mut Context<Desktop>) -> AnyElement {
 fn mascot(pose: Pose, cx: &mut Context<Desktop>) -> Stateful<Div> {
     let feet = MASCOT * (FEET - 0.5) * (1. - pose.sy);
     let body = Transformation::scale(size(pose.sx, pose.sy)).with_rotation(radians(pose.lean)).with_translation(point(px(0.), px(pose.y + feet)));
-    let eyes = Transformation::scale(size(pose.sx, pose.sy * pose.lid)).with_rotation(radians(pose.lean)).with_translation(point(px(pose.eyes.0), px(pose.y + feet + pose.eyes.1)));
-    let layer = |name: &str, color: Hsla, t: Transformation| svg().path(format!("icons/mascot-{name}.svg")).absolute().left(px((BOX_W - MASCOT) / 2.)).bottom(px(6.)).size(px(MASCOT)).text_color(color).with_transformation(t);
+    let eyes = Transformation::scale(size(pose.sx, pose.sy * pose.lid))
+        .with_rotation(radians(pose.lean))
+        .with_translation(point(px(pose.eyes.0), px(pose.y + feet + pose.eyes.1)));
+    let layer = |name: &str, color: Hsla, t: Transformation| {
+        svg()
+            .path(format!("icons/mascot-{name}.svg"))
+            .absolute()
+            .left(px((BOX_W - MASCOT) / 2.))
+            .bottom(px(6.))
+            .size(px(MASCOT))
+            .text_color(color)
+            .with_transformation(t)
+    };
     let shade = |hex: u32, alpha: f32| Hsla::from(rgb(hex)).opacity(alpha);
     let shadow_w = 116. * (0.4 + 0.6 * pose.near);
     let this = cx.weak_entity();
@@ -150,22 +171,22 @@ fn mascot(pose: Pose, cx: &mut Context<Desktop>) -> Stateful<Div> {
         .cursor_pointer()
         .on_mouse_down(MouseButton::Left, cx.listener(|d, _, _, cx| d.with_welcome(cx, |w| w.press(Instant::now()))))
         .when(!pose.hidden, |d| {
-            d.child(
-                div()
-                    .absolute()
-                    .left(px((BOX_W - GLOW) / 2.))
-                    .top(px((BOX_H - GLOW) / 2.))
-                    .size(px(GLOW))
-                    .rounded_full()
-                    .shadow(vec![BoxShadow { color: shade(GLOW_COLOR, 0.45 * pose.glow), offset: point(px(0.), px(0.)), blur_radius: px(110.), spread_radius: px(0.), inset: false }]),
-            )
-            .child(div().absolute().bottom(px(4. + MASCOT * (1. - FEET))).left(px((BOX_W - shadow_w) / 2.)).w(px(shadow_w)).h(px(4.)).rounded_full().shadow(vec![BoxShadow {
-                color: shade(0x000000, 0.1 + 0.4 * pose.near),
+            d.child(div().absolute().left(px((BOX_W - GLOW) / 2.)).top(px((BOX_H - GLOW) / 2.)).size(px(GLOW)).rounded_full().shadow(vec![BoxShadow {
+                color: shade(GLOW_COLOR, 0.45 * pose.glow),
                 offset: point(px(0.), px(0.)),
-                blur_radius: px(10.),
-                spread_radius: px(2.),
+                blur_radius: px(110.),
+                spread_radius: px(0.),
                 inset: false,
             }]))
+            .child(div().absolute().bottom(px(4. + MASCOT * (1. - FEET))).left(px((BOX_W - shadow_w) / 2.)).w(px(shadow_w)).h(px(4.)).rounded_full().shadow(
+                vec![BoxShadow {
+                    color: shade(0x000000, 0.1 + 0.4 * pose.near),
+                    offset: point(px(0.), px(0.)),
+                    blur_radius: px(10.),
+                    spread_radius: px(2.),
+                    inset: false,
+                }],
+            ))
             .child(layer("halo", shade(LIGHT_ON, pose.halo), body))
             .child(layer("body", rgb(BODY).into(), body))
             .child(layer("sheen", shade(0xffffff, 0.08), body))

@@ -76,32 +76,29 @@ pub(crate) fn dropdown(
     }
     let rows = d.settings.menu_rows.get((id, from), rows);
     let (pick, chosen, widest, count) = (Rc::new(pick), chosen.to_string(), widest(&rows), rows.len());
-    let line = move |_: &mut Desktop, i: usize, cx: &mut Context<Desktop>| {
-        match &rows[i] {
-            Row::Heading(name) => div()
-                .id((id, i))
-                .w_full()
-                .h(px(ROW))
-                .px(px(8.))
-                .flex()
-                .items_end()
-                .pb(px(4.))
-                .text_size(px(10.))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(TEXT_4)
-                .child(div().whitespace_nowrap().child(name.clone())),
-            Row::Pick(Choice { value, label }) => {
-                let (pick, value) = (pick.clone(), value.clone());
-                pick_row((id, i), value == chosen)
-                    .w_full()
-                    .child(div().whitespace_nowrap().child(label.clone()))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.settings.menu = None;
-                        pick(this, value.clone(), cx);
-                        this.save_soon(cx);
-                        cx.notify();
-                    }))
-            }
+    let line = move |_: &mut Desktop, i: usize, cx: &mut Context<Desktop>| match &rows[i] {
+        Row::Heading(name) => div()
+            .id((id, i))
+            .w_full()
+            .h(px(ROW))
+            .px(px(8.))
+            .flex()
+            .items_end()
+            .pb(px(4.))
+            .text_size(px(10.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(TEXT_4)
+            .child(div().whitespace_nowrap().child(name.clone())),
+        Row::Pick(Choice { value, label }) => {
+            let (pick, value) = (pick.clone(), value.clone());
+            pick_row((id, i), value == chosen).w_full().child(div().whitespace_nowrap().child(label.clone())).on_click(cx.listener(
+                move |this, _: &ClickEvent, _, cx| {
+                    this.settings.menu = None;
+                    pick(this, value.clone(), cx);
+                    this.save_soon(cx);
+                    cx.notify();
+                },
+            ))
         }
     };
     let fit = |list: UniformList| list.with_sizing_behavior(ListSizingBehavior::Infer).with_width_from_item(widest).min_w(px(172.)).max_h(px(ROW * ROWS));

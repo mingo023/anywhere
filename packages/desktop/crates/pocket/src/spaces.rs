@@ -449,14 +449,19 @@ fn unadded(projects: Vec<String>, added: &[String]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FLASH, HOST_ICONS, arrival, Heading, Reach, Space, Spaces, SLIDE, Swipe, colour, crumbs, flash_key, glyph, heading, in_space, kept_name, labelled, nth, offline_note, offline_title, on_host, order, reach, resolve, space_of, step, twin, unadded, waiting};
+    use super::{
+        FLASH, HOST_ICONS, Heading, Reach, SLIDE, Space, Spaces, Swipe, arrival, colour, crumbs, flash_key, glyph, heading, in_space, kept_name, labelled, nth,
+        offline_note, offline_title, on_host, order, reach, resolve, space_of, step, twin, unadded, waiting,
+    };
     use agents::hosts::{Failure, Link};
     use std::collections::HashMap;
     use std::time::Instant;
     use theme::ACCENT_SWATCHES;
 
     fn projects() -> Vec<String> {
-        ["/Users/me/code/app-ios", "/Users/me/code/app-android", "//devbox/home/dev/code/app-ios", "//devbox/home/dev/code/api", "//build/src/app-ios"].map(String::from).to_vec()
+        ["/Users/me/code/app-ios", "/Users/me/code/app-android", "//devbox/home/dev/code/app-ios", "//devbox/home/dev/code/api", "//build/src/app-ios"]
+            .map(String::from)
+            .to_vec()
     }
 
     fn host(id: &str) -> Space {
@@ -514,7 +519,10 @@ mod tests {
     #[test]
     fn ctrl_9_past_the_last_space_does_nothing_and_ctrl_1_is_this_mac() {
         let order = spaces();
-        assert_eq!([nth(&order, 1), nth(&order, 3), nth(&order, 4), nth(&order, 9), nth(&order, 0)], [Some(Space::Local), Some(host("build")), None, None, None]);
+        assert_eq!(
+            [nth(&order, 1), nth(&order, 3), nth(&order, 4), nth(&order, 9), nth(&order, 0)],
+            [Some(Space::Local), Some(host("build")), None, None, None]
+        );
     }
 
     #[test]
@@ -570,13 +578,22 @@ mod tests {
     #[test]
     fn a_host_is_unreachable_until_its_link_is_online_and_this_mac_never_is() {
         let online = Link::Online { version: "1".into(), uptime: 0 };
-        let got = [reach(&host("a"), Some(&online)), reach(&host("a"), Some(&Link::Connecting)), reach(&host("a"), Some(&Link::Retrying(Failure::Dropped))), reach(&host("a"), None), reach(&Space::Local, None)];
+        let got = [
+            reach(&host("a"), Some(&online)),
+            reach(&host("a"), Some(&Link::Connecting)),
+            reach(&host("a"), Some(&Link::Retrying(Failure::Dropped))),
+            reach(&host("a"), None),
+            reach(&Space::Local, None),
+        ];
         assert_eq!(got, [Reach::Online, Reach::Connecting, Reach::Offline, Reach::Offline, Reach::Online]);
     }
 
     #[test]
     fn an_offline_card_says_what_the_link_is_doing() {
-        assert_eq!([offline_title(Reach::Offline, "devbox"), offline_title(Reach::Connecting, "devbox")], ["devbox is offline", "devbox is connecting\u{2026}"]);
+        assert_eq!(
+            [offline_title(Reach::Offline, "devbox"), offline_title(Reach::Connecting, "devbox")],
+            ["devbox is offline", "devbox is connecting\u{2026}"]
+        );
         assert_eq!(offline_note(Some(&Link::Connecting), "devbox"), "Signing in over SSH.");
         assert!(offline_note(Some(&Link::Retrying(Failure::TimedOut)), "devbox").starts_with("Lost the connection."));
         assert!(offline_note(Some(&Link::Failed(Failure::Auth)), "devbox").ends_with("Agents there keep going."));

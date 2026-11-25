@@ -30,7 +30,8 @@ fn graph(marks: Vec<Mark>, width: f32, fade: bool) -> impl IntoElement {
                 match mark {
                     Mark::Rect { x, y, w, h, color } => {
                         let c = lane_color(*color);
-                        let bg: Background = if fade { linear_gradient(180., linear_color_stop(c, 0.), linear_color_stop(c.opacity(0.), 1.)) } else { c.into() };
+                        let bg: Background =
+                            if fade { linear_gradient(180., linear_color_stop(c, 0.), linear_color_stop(c.opacity(0.), 1.)) } else { c.into() };
                         win.paint_quad(fill(Bounds::new(at(*x, *y), size(px(*w), px(*h))), bg));
                     }
                     Mark::Curve { from, steps, color } => {
@@ -77,8 +78,14 @@ fn pill(color: LaneColor, tip: &Tip, named: bool) -> Div {
         .items_center()
         .rounded(px(10.))
         .bg(lane_color(color))
-        .child(div().size(px(18.)).flex().flex_none().items_center().justify_center().child(if tip.remote { icon("cloud", 14., CUTOUT) } else { icon("branch", 12., CUTOUT) }))
-        .when(named, |d| d.child(div().max_w(px(100.)).truncate().pr(px(6.)).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(CUTOUT).child(tip.name.clone())))
+        .child(div().size(px(18.)).flex().flex_none().items_center().justify_center().child(if tip.remote {
+            icon("cloud", 14., CUTOUT)
+        } else {
+            icon("branch", 12., CUTOUT)
+        }))
+        .when(named, |d| {
+            d.child(div().max_w(px(100.)).truncate().pr(px(6.)).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(CUTOUT).child(tip.name.clone()))
+        })
 }
 
 fn status_letter(status: char) -> Div {
@@ -130,23 +137,35 @@ impl Desktop {
                     .gap(px(6.))
                     .overflow_hidden()
                     .whitespace_nowrap()
-                    .child(div().flex_none().max_w_full().truncate().text_size(px(13.)).when(head, |d| d.font_weight(FontWeight::SEMIBOLD)).child(commit.subject.clone()))
-                    .child(div().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_3).when(head, |d| d.font_weight(FontWeight::SEMIBOLD)).child(commit.author.clone())),
+                    .child(
+                        div()
+                            .flex_none()
+                            .max_w_full()
+                            .truncate()
+                            .text_size(px(13.))
+                            .when(head, |d| d.font_weight(FontWeight::SEMIBOLD))
+                            .child(commit.subject.clone()),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(12.))
+                            .text_color(TEXT_3)
+                            .when(head, |d| d.font_weight(FontWeight::SEMIBOLD))
+                            .child(commit.author.clone()),
+                    ),
             )
             .when(!pills.is_empty(), |d| d.child(div().ml(px(4.)).flex().flex_none().gap(px(4.)).children(pills)))
             // Collapsed by width, not `hidden()`: gpui panics when a group hover flips `display` between prepaint and paint.
-            .child(
-                div().flex().flex_none().w_0().overflow_hidden().group_hover(ROW_GROUP, |s| s.w_auto()).child(
-                    icon_button_sized(("graph-open", i), "diff-multiple", 20., TEXT_2)
-                        .ml(px(4.))
-                        .flex_none()
-                        .rounded(px(5.))
-                        .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
-                            cx.stop_propagation();
-                            this.open_doc(Doc::Commit(sha.clone()), ev.click_count() > 1, cx);
-                        })),
-                ),
-            )
+            .child(div().flex().flex_none().w_0().overflow_hidden().group_hover(ROW_GROUP, |s| s.w_auto()).child(
+                icon_button_sized(("graph-open", i), "diff-multiple", 20., TEXT_2).ml(px(4.)).flex_none().rounded(px(5.)).on_click(cx.listener(
+                    move |this, ev: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.open_doc(Doc::Commit(sha.clone()), ev.click_count() > 1, cx);
+                    },
+                )),
+            ))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_commit(i, cx)))
     }
 
@@ -197,7 +216,8 @@ impl Desktop {
         let bar = if cx.reduce_motion() {
             bar.opacity(0.5).into_any_element()
         } else {
-            bar.with_animation("graph-more", Animation::new(Duration::from_millis(1500)).repeat().with_easing(pulsating_between(0.3, 0.7)), |d, t| d.opacity(t)).into_any_element()
+            bar.with_animation("graph-more", Animation::new(Duration::from_millis(1500)).repeat().with_easing(pulsating_between(0.3, 0.7)), |d, t| d.opacity(t))
+                .into_any_element()
         };
         div().w_full().h(px(H)).flex().flex_none().items_center().child(graph(marks, width, true)).child(bar)
     }

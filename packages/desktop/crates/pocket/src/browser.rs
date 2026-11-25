@@ -1,5 +1,5 @@
-pub(crate) mod view;
 mod pick;
+pub(crate) mod view;
 
 use crate::actions::{Back, FocusAddress, Forward, NewBrowser, PageEdit, Reload};
 use crate::desktop::Desktop;
@@ -11,8 +11,8 @@ use gpui_kit::*;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
-use workspace::{Place, Tab};
 use workspace::tree::PaneId;
+use workspace::{Place, Tab};
 
 pub(crate) const CONTEXT: &str = "Browser";
 
@@ -148,7 +148,12 @@ impl Desktop {
         if self.browsers.tabs.is_empty() {
             return;
         }
-        let covered = self.overlay.is_some() || self.host_finder.finder.is_some() || self.menu_open() || self.sidebar.menu_at.is_some() || self.shown_create().is_some() || self.panels.parks_pages();
+        let covered = self.overlay.is_some()
+            || self.host_finder.finder.is_some()
+            || self.menu_open()
+            || self.sidebar.menu_at.is_some()
+            || self.shown_create().is_some()
+            || self.panels.parks_pages();
         let shown: Vec<u64> = match self.session_tree().and_then(|t| self.workspaces.get(&t)) {
             Some(w) if !covered => w.shown().into_iter().filter_map(|(_, t)| web(t)).collect(),
             _ => Vec::new(),

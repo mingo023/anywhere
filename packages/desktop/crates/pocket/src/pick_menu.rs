@@ -63,7 +63,8 @@ pub(crate) fn pick_list<R: IntoElement>(
     line: impl Fn(&mut Desktop, usize, &mut Context<Desktop>) -> R + 'static,
     cx: &mut Context<Desktop>,
 ) -> Div {
-    let list = uniform_list(id, count, cx.processor(move |this, range: Range<usize>, _, cx| range.map(|i| line(this, i, cx)).collect::<Vec<_>>())).track_scroll(scroll);
+    let list = uniform_list(id, count, cx.processor(move |this, range: Range<usize>, _, cx| range.map(|i| line(this, i, cx)).collect::<Vec<_>>()))
+        .track_scroll(scroll);
     frame.relative().child(fit(list)).vertical_scrollbar(scroll)
 }
 

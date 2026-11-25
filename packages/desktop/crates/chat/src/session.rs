@@ -1,5 +1,5 @@
-use crate::rows::{at_work, group_start, rows_from, Span};
-use crate::{splice, Backend, Block, Delivery, Fold, Outgoing, Row, Transcript, Turn};
+use crate::rows::{Span, at_work, group_start, rows_from};
+use crate::{Backend, Block, Delivery, Fold, Outgoing, Row, Transcript, Turn, splice};
 use std::ops::Range;
 
 /// Open/closed choices the user made, by row id: folds, phases and sub-agents.
@@ -137,9 +137,12 @@ fn same_content(old: &[Turn], from: usize, new: &Transcript, row: &Row) -> bool 
         Row::Prompt { .. } => a.prompt == b.prompt,
         Row::Text { block, range, .. } => text(a, *block).get(range.clone()) == text(b, *block).get(range.clone()),
         Row::Phase { blocks, .. } => a.blocks.get(blocks.clone()) == b.blocks.get(blocks.clone()),
-        Row::Tasks { block, .. } | Row::Question { block, .. } | Row::Compacted { block, .. } | Row::Note { block, .. } | Row::Delivery { block, .. } | Row::HostLink { block, .. } => {
-            a.blocks.get(*block) == b.blocks.get(*block)
-        }
+        Row::Tasks { block, .. }
+        | Row::Question { block, .. }
+        | Row::Compacted { block, .. }
+        | Row::Note { block, .. }
+        | Row::Delivery { block, .. }
+        | Row::HostLink { block, .. } => a.blocks.get(*block) == b.blocks.get(*block),
         // One line, whatever the reply it heads does.
         Row::Fold { .. } | Row::Notice { .. } => true,
         Row::Reports { turns, .. } => turns.clone().all(|ix| old.get(ix - from) == new.turns.get(ix)),
@@ -160,7 +163,7 @@ mod tests {
     use super::*;
     use crate::{for_provider, rows};
     use agents::Item;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     fn item(seq: i64, v: Value) -> Item {
         let mut v = v;
@@ -171,7 +174,10 @@ mod tests {
     }
 
     fn bash(seq: i64, id: &str, status: &str) -> Item {
-        item(seq, json!({"kind": "tool", "call": {"toolUseId": id, "name": "Bash", "status": status, "output": "x\n".repeat(40), "detail": {"kind": "shell", "command": "make"}}}))
+        item(
+            seq,
+            json!({"kind": "tool", "call": {"toolUseId": id, "name": "Bash", "status": status, "output": "x\n".repeat(40), "detail": {"kind": "shell", "command": "make"}}}),
+        )
     }
 
     #[test]
@@ -186,7 +192,8 @@ mod tests {
         s.toggle(&s.ids[phase].clone(), false);
         assert_eq!((s.shut_fold_over(phase), s.shut_phase(phase)), (None, false));
 
-        let task = json!({"kind": "tool", "call": {"toolUseId": "tu", "name": "Task", "status": "running", "detail": {"kind": "task", "description": "audit"}}});
+        let task =
+            json!({"kind": "tool", "call": {"toolUseId": "tu", "name": "Task", "status": "running", "detail": {"kind": "task", "description": "audit"}}});
         let mut s = Session::default();
         s.update(backend, 1, &[item(1, json!({"kind": "user", "text": "go"})), item(2, task), item(3, json!({"kind": "result", "ok": true}))], false, 0);
         let agent = s.rows.iter().position(|r| matches!(r, Row::Phase { .. })).unwrap();
@@ -228,7 +235,10 @@ mod tests {
         let streaming: Vec<Item> = [
             vec![item(1, json!({"kind": "user", "text": "split it"})), item(2, json!({"kind": "result", "ok": true, "durationMs": 1}))],
             wake(3, "a2", "One is back."),
-            vec![item(6, json!({"kind": "delivery", "outcome": "done", "childIds": ["a3"], "titles": ["a3"], "agents": ["codex"]})), item(7, json!({"kind": "assistant", "text": "Both"}))],
+            vec![
+                item(6, json!({"kind": "delivery", "outcome": "done", "childIds": ["a3"], "titles": ["a3"], "agents": ["codex"]})),
+                item(7, json!({"kind": "assistant", "text": "Both"})),
+            ],
         ]
         .concat();
         let failed: Vec<Item> = [streaming.clone(), vec![item(8, json!({"kind": "result", "ok": false, "error": "API Error", "durationMs": 1}))]].concat();
@@ -265,7 +275,11 @@ mod tests {
         let mut items = vec![item(1, json!({"kind": "user", "text": "go"})), bash(2, "t1", "running")];
         s.update(backend, 1, &items, false, 0);
         items[1] = bash(2, "t1", "ok");
-        assert_eq!(s.update(backend, 2, &items, false, 0), Some((2..4, 4..4, 0)), "the prompt and fold stay, the phase and the live line under it are measured afresh");
+        assert_eq!(
+            s.update(backend, 2, &items, false, 0),
+            Some((2..4, 4..4, 0)),
+            "the prompt and fold stay, the phase and the live line under it are measured afresh"
+        );
         assert_eq!(s.update(backend, 3, &items, false, 0), None, "a refold that changes nothing splices nothing");
     }
 
@@ -502,7 +516,12 @@ mod tests {
                 10..30 => json!({"kind": "assistant", "text": format!("reply {n}\n\n- one\n- two\n\nthe end of {n}")}),
                 30..35 => json!({"kind": "thinking", "text": format!("thought {n}")}),
                 35..55 => {
-                    let (name, detail) = [("Bash", json!({"kind": "shell", "command": "make"})), ("Read", json!({"kind": "read", "path": "a.rs"})), ("Task", json!({"kind": "task", "description": "audit"}))][roll(3)].clone();
+                    let (name, detail) = [
+                        ("Bash", json!({"kind": "shell", "command": "make"})),
+                        ("Read", json!({"kind": "read", "path": "a.rs"})),
+                        ("Task", json!({"kind": "task", "description": "audit"})),
+                    ][roll(3)]
+                    .clone();
                     if name == "Task" {
                         agents.push(format!("tu{n}"));
                     }

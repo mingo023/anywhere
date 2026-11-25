@@ -24,7 +24,8 @@ impl Desktop {
     }
 
     fn automations_header(&self, cx: &mut Context<Self>) -> Div {
-        let add = icon_button_sized("automation-add", "plus", 28., TEXT_2).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.edit_automation(None, window, cx)));
+        let add = icon_button_sized("automation-add", "plus", 28., TEXT_2)
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.edit_automation(None, window, cx)));
         div()
             .pl(px(past_lights(self.store.appearance.zoom_factor(), self.lead_width(), 18.)))
             .pr(px(12.))
@@ -40,7 +41,19 @@ impl Desktop {
         let tabs = [(Tab::Automations, "Automations"), (Tab::Runs, "Runs")].into_iter().enumerate().map(|(i, (tab, label))| {
             let selected = self.automations.tab == tab;
             let badge = (tab == Tab::Runs && waiting > 0).then(|| {
-                div().min_w(px(16.)).h(px(16.)).px(px(4.)).flex().items_center().justify_center().rounded(px(8.)).bg(WAITING_DOT).text_size(px(10.)).font_weight(FontWeight::BOLD).text_color(WHITE).child(waiting.to_string())
+                div()
+                    .min_w(px(16.))
+                    .h(px(16.))
+                    .px(px(4.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(8.))
+                    .bg(WAITING_DOT)
+                    .text_size(px(10.))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(WHITE)
+                    .child(waiting.to_string())
             });
             div()
                 .id(("automations-tab", i))
@@ -69,9 +82,11 @@ impl Desktop {
         let name = a.items.iter().find(|x| x.id == run.automation_id).map_or("An automation", |x| x.name.as_str());
         let line = self.run_ask(run, "Needs your answer".into());
         let run = run.clone();
-        let answer = ui::button("needs-answer", Variant::Primary, None, "Answer").h(px(26.)).px(px(12.)).rounded(px(13.)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-            this.answer_run(&run, window, cx);
-        }));
+        let answer = ui::button("needs-answer", Variant::Primary, None, "Answer").h(px(26.)).px(px(12.)).rounded(px(13.)).on_click(cx.listener(
+            move |this, _: &ClickEvent, window, cx| {
+                this.answer_run(&run, window, cx);
+            },
+        ));
         Some(
             div()
                 .mt(px(2.))
@@ -113,7 +128,16 @@ impl Desktop {
                 .gap(px(3.))
                 .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(ACCENT).child(if v.id.is_some() { "Editing" } else { "Draft" }))
                 .child(div().truncate().text_size(px(14.5)).font_weight(FontWeight::SEMIBOLD).child(title))
-                .child(div().flex().items_center().gap(px(6.)).text_size(px(12.5)).text_color(TEXT_3).child(icon("clock", 13., TEXT_4)).child(div().truncate().child(when))),
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .text_size(px(12.5))
+                        .text_color(TEXT_3)
+                        .child(icon("clock", 13., TEXT_4))
+                        .child(div().truncate().child(when)),
+                ),
         )
     }
 

@@ -73,7 +73,10 @@ pub fn code(text: &str) -> Vec<Code> {
         found.extend(inline_code(text, from..open));
         let after = open + FENCE.len();
         let Some(close) = text[after..].find(FENCE).map(|i| after + i) else { return found };
-        let language = text[after..close].find('\n').map(|n| after + n).filter(|&end| text[after..end].chars().all(|c| c.is_alphanumeric() || matches!(c, '_' | '+' | '-')));
+        let language = text[after..close]
+            .find('\n')
+            .map(|n| after + n)
+            .filter(|&end| text[after..end].chars().all(|c| c.is_alphanumeric() || matches!(c, '_' | '+' | '-')));
         found.push(Code::Block { open: open..language.unwrap_or(after), close: close..close + FENCE.len() });
         from = close + FENCE.len();
     }

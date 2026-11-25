@@ -3,7 +3,7 @@ use super::effort_slider::{self, effort_slider};
 use super::{Composer, Draft, Menu, Slot, launch};
 use crate::desktop::Desktop;
 use crate::modals::new_session::picker::menu_input;
-use crate::models::{by_upstream, couldnt_list, effort_label, listed_agents, model_or_default, model_options, not_found};
+use crate::models::{by_upstream, couldnt_list, effort_label, listed_agents, model_options, model_or_default, not_found};
 use crate::pick_menu::{Line, Memo, checked, grouped, pick_list};
 use agents::providers;
 use agents::{ListedModel, ModelSetting};
@@ -123,7 +123,14 @@ pub(crate) fn empty_list(note: String) -> Div {
 
 /// The panel's list. An agent can list hundreds of models, so only the lines in view are built: `mixed` is whether each
 /// row names its agent, and `choose` what a click on a model does.
-pub(crate) fn model_list(id: &'static str, listed: Rc<Listed>, mixed: bool, scroll: &UniformListScrollHandle, choose: Choose, cx: &mut Context<Desktop>) -> Div {
+pub(crate) fn model_list(
+    id: &'static str,
+    listed: Rc<Listed>,
+    mixed: bool,
+    scroll: &UniformListScrollHandle,
+    choose: Choose,
+    cx: &mut Context<Desktop>,
+) -> Div {
     let pitch = ROW + GAP;
     let count = listed.lines.len();
     let line = move |this: &mut Desktop, i: usize, cx: &mut Context<Desktop>| {
@@ -182,7 +189,14 @@ pub(crate) fn model_row(id: &'static str, i: usize, entry: &Entry, on: bool, mix
         let why = not_found(&entry.provider);
         // Only the name dims: the star still takes the favorite off.
         let dimmed = div().flex_1().min_w_0().flex().items_center().gap(px(8.)).opacity(0.3).children(lead).child(label);
-        return row((id, i), on).group(ROW_GROUP).pr(px(6.)).cursor_default().child(dimmed).child(check(on)).children(star).tooltip(move |window, cx| Tooltip::new(why.clone()).build(window, cx));
+        return row((id, i), on)
+            .group(ROW_GROUP)
+            .pr(px(6.))
+            .cursor_default()
+            .child(dimmed)
+            .child(check(on))
+            .children(star)
+            .tooltip(move |window, cx| Tooltip::new(why.clone()).build(window, cx));
     }
     row((id, i), on).group(ROW_GROUP).pr(px(6.)).children(lead).child(label).child(check(on)).children(star)
 }
@@ -213,7 +227,15 @@ fn matching(entries: Vec<Entry>, query: &str, mixed: bool) -> Vec<Entry> {
 
 /// `provider`'s `models` as the panel lists them, after a `current` one the list lacks.
 fn entries(provider: &str, models: &[ListedModel], current: &str) -> Vec<Entry> {
-    model_options(models, current).map(|(value, label, upstream)| Entry { provider: provider.into(), value: value.into(), label: label.into(), upstream: upstream.into(), missing: false }).collect()
+    model_options(models, current)
+        .map(|(value, label, upstream)| Entry {
+            provider: provider.into(),
+            value: value.into(),
+            label: label.into(),
+            upstream: upstream.into(),
+            missing: false,
+        })
+        .collect()
 }
 
 /// The `saved` models of the agents `shown`, under the names their agents' `models` give them.
@@ -345,7 +367,15 @@ impl Desktop {
 
     /// Favorites over the agents `project` shows and `current`, the one in use; pointing at one lists its models, and
     /// only picking a model acts on it. More agents than fit scroll.
-    pub(crate) fn model_rail(&self, viewed: &str, current: &str, project: Option<&str>, scroll: &ScrollHandle, draft: impl Fn(&mut Desktop) -> &mut Draft + Copy + 'static, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn model_rail(
+        &self,
+        viewed: &str,
+        current: &str,
+        project: Option<&str>,
+        scroll: &ScrollHandle,
+        draft: impl Fn(&mut Desktop) -> &mut Draft + Copy + 'static,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let tab = |id: &'static str, glyph: Svg, name: String, cx: &mut Context<Self>| {
             let over = id != viewed;
             div()
@@ -369,15 +399,35 @@ impl Desktop {
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.view_models(draft, id, cx)))
         };
         let favorites = tab(FAVORITES, icon("star", 16., TEXT_2), "Favorites and recent".into(), cx);
-        let agents: Vec<_> = listed_agents(&self.offered_in(project), &[current]).into_iter().map(|p| tab(p, provider_icon(p, 16., TEXT), self.agent_name(p), cx).when(!self.installed(p), |d| d.opacity(0.4))).collect();
+        let agents: Vec<_> = listed_agents(&self.offered_in(project), &[current])
+            .into_iter()
+            .map(|p| tab(p, provider_icon(p, 16., TEXT), self.agent_name(p), cx).when(!self.installed(p), |d| d.opacity(0.4)))
+            .collect();
         let extent = rail_extent(agents.len() + 1);
         // The rail's height is fixed, so how far it scrolls is known before its first layout.
         let (offset, max) = (-f32::from(scroll.offset().y), (extent - RAIL_HEIGHT).max(0.));
         let bar = if extent > RAIL_HEIGHT { RAIL_BAR } else { 0. };
-        let column = div().id("model-rail").size_full().overflow_y_scroll().track_scroll(scroll).p(px(RAIL_PAD)).pr(px(RAIL_PAD + bar)).flex().flex_col().gap(px(TAB_GAP)).child(favorites).children(agents);
+        let column = div()
+            .id("model-rail")
+            .size_full()
+            .overflow_y_scroll()
+            .track_scroll(scroll)
+            .p(px(RAIL_PAD))
+            .pr(px(RAIL_PAD + bar))
+            .flex()
+            .flex_col()
+            .gap(px(TAB_GAP))
+            .child(favorites)
+            .children(agents);
         // Whole tabs only, and a line at an edge past which more of them scroll.
         let line = |more: bool| more.then(|| div().absolute().left_0().right_0().h(px(0.5)).bg(SEPARATOR));
-        let tabs = div().relative().h(px(extent.min(RAIL_HEIGHT))).child(column).children(line(offset > 0.).map(|l| l.top_0())).children(line(offset < max).map(|l| l.bottom_0())).vertical_scrollbar(scroll);
+        let tabs = div()
+            .relative()
+            .h(px(extent.min(RAIL_HEIGHT)))
+            .child(column)
+            .children(line(offset > 0.).map(|l| l.top_0()))
+            .children(line(offset < max).map(|l| l.bottom_0()))
+            .vertical_scrollbar(scroll);
         div().flex_none().w(px(TAB + 2. * RAIL_PAD + bar)).border_r(px(0.5)).border_color(SEPARATOR).child(tabs)
     }
 
@@ -410,14 +460,23 @@ impl Desktop {
     /// What `model_lines` reads besides what it's given; lines built from it are stale once it changes.
     pub(crate) fn lines_from(&self, project: Option<&str>) -> impl Hash + '_ {
         let agents = &self.store.agents;
-        (self.models.revision, &agents.favorites, &agents.recent, &agents.disabled, self.store.hidden(project), LaunchPick::PROVIDERS.map(|p| self.installed(p)))
+        (
+            self.models.revision,
+            &agents.favorites,
+            &agents.recent,
+            &agents.disabled,
+            self.store.hidden(project),
+            LaunchPick::PROVIDERS.map(|p| self.installed(p)),
+        )
     }
 
     /// What `viewed` lists that holds `query`: an agent's models after `current`, one of its own the list lacks, each
     /// under who serves it where `viewed` names them; or the favorite and recent models of the agents `project` shows,
     /// under the names their agents give them.
     pub(crate) fn model_lines(&self, viewed: &str, current: &str, query: &str, project: Option<&str>) -> Vec<Line<Entry>> {
-        let found = |entries: Vec<Entry>| matching(entries.into_iter().map(|e| Entry { missing: !self.installed(&e.provider), ..e }).collect(), query, viewed == FAVORITES);
+        let found = |entries: Vec<Entry>| {
+            matching(entries.into_iter().map(|e| Entry { missing: !self.installed(&e.provider), ..e }).collect(), query, viewed == FAVORITES)
+        };
         if viewed != FAVORITES {
             return lines(viewed, found(entries(viewed, self.offered_models(viewed), current)));
         }
@@ -477,7 +536,15 @@ impl Desktop {
             let (current, project, id) = (pick.clone(), project.clone(), s.id.clone());
             let choose: launch::Pick = Rc::new(move |this, value, cx| this.adjust_launch(slot, project.clone(), current.with_option(&id, value), cx));
             let on = pick.options.get(&s.id).unwrap_or(&s.default);
-            choice_menu(("composer-setting", i), s.name.clone().into(), (&s.choices, Some(on)), &c.draft.effort, move |d: &mut Desktop| &mut slot(d).draft, choose, cx)
+            choice_menu(
+                ("composer-setting", i),
+                s.name.clone().into(),
+                (&s.choices, Some(on)),
+                &c.draft.effort,
+                move |d: &mut Desktop| &mut slot(d).draft,
+                choose,
+                cx,
+            )
         });
         panel(rail, &c.search, list, self.models_note(viewed), effort, settings.collect()).children(hidden)
     }
@@ -485,7 +552,10 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, FAVORITES, Line, RAIL_HEIGHT, RAIL_PAD, TAB, TAB_GAP, empty_note, entries, favorite_lines, launching_line, lines, matching, pill_label, rail_offset, rail_tab, saved_entries, settings_shown};
+    use super::{
+        Entry, FAVORITES, Line, RAIL_HEIGHT, RAIL_PAD, TAB, TAB_GAP, empty_note, entries, favorite_lines, launching_line, lines, matching, pill_label,
+        rail_offset, rail_tab, saved_entries, settings_shown,
+    };
     use agents::ListedModel;
     use store::LaunchPick;
     use store::prefs::agents::Provider;
@@ -505,7 +575,8 @@ mod tests {
 
     #[test]
     fn favorites_list_only_enabled_agents_under_their_own_names() {
-        let favorites = [("claude".to_string(), "opus".to_string()), ("codex".to_string(), "sol".to_string()), ("claude".to_string(), "claude-gone-9".to_string())];
+        let favorites =
+            [("claude".to_string(), "opus".to_string()), ("codex".to_string(), "sol".to_string()), ("claude".to_string(), "claude-gone-9".to_string())];
         let models = [listed("", "opus", "Opus")];
         let found = |query: &str| labels(matching(saved_entries(&favorites, &["claude"], |_| &models), query, true));
         assert_eq!(found(""), [("Opus".to_string()), super::model_or_default("claude-gone-9")]);
@@ -529,7 +600,8 @@ mod tests {
     #[test]
     fn a_codex_pill_shows_the_listed_name_and_no_effort() {
         let settings = Provider { effort: "high".into(), ..Provider::default() };
-        let names = [agents::ListedModel { value: "gpt-6-astra".into(), name: "GPT-6-Astra".into(), resolved: "gpt-6-astra".into(), ..agents::ListedModel::default() }];
+        let names =
+            [agents::ListedModel { value: "gpt-6-astra".into(), name: "GPT-6-Astra".into(), resolved: "gpt-6-astra".into(), ..agents::ListedModel::default() }];
         assert_eq!(pill_label("Codex", &pick("codex", "gpt-6-astra", ""), &settings, &[], &names), ("GPT-6-Astra".into(), None));
         assert_eq!(pill_label("Codex", &pick("codex", "gpt-5", ""), &settings, &[], &names).0, "gpt-5");
     }
@@ -537,7 +609,8 @@ mod tests {
     #[test]
     fn with_no_effort_picked_the_pill_shows_the_models_own() {
         let efforts = ["low".to_string(), "high".to_string()];
-        let names = [agents::ListedModel { value: "gpt-6-sol".into(), name: "GPT-6-Sol".into(), default_effort: "low".into(), ..agents::ListedModel::default() }];
+        let names =
+            [agents::ListedModel { value: "gpt-6-sol".into(), name: "GPT-6-Sol".into(), default_effort: "low".into(), ..agents::ListedModel::default() }];
         let none = Provider::default();
         assert_eq!(pill_label("Codex", &pick("codex", "gpt-6-sol", ""), &none, &efforts, &names), ("GPT-6-Sol".into(), Some("Low".into())));
         assert_eq!(pill_label("Codex", &pick("codex", "gpt-6-sol", "high"), &none, &efforts, &names).1.as_deref(), Some("High"));
@@ -548,12 +621,30 @@ mod tests {
 
     #[test]
     fn the_pill_names_the_settings_picked_off_the_models_own() {
-        let setting = |id: &str, name: &str, choices: &[(&str, &str)]| agents::ModelSetting { id: id.into(), name: name.into(), choices: choices.iter().map(|(v, l)| (v.to_string(), l.to_string())).collect(), default: choices[0].0.into() };
-        let settings = [setting("fast", "Fast", &[("false", "Off"), ("true", "On")]), setting("thinking", "Thinking", &[("true", "On"), ("false", "Off")]), setting("mode", "Agent", &[("build", "Build"), ("review", "Review")])];
-        let picked = |options: &[(&str, &str)]| settings_shown(&LaunchPick { options: options.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(), ..pick("cursor", "gpt-5.4", "") }, &settings);
+        let setting = |id: &str, name: &str, choices: &[(&str, &str)]| agents::ModelSetting {
+            id: id.into(),
+            name: name.into(),
+            choices: choices.iter().map(|(v, l)| (v.to_string(), l.to_string())).collect(),
+            default: choices[0].0.into(),
+        };
+        let settings = [
+            setting("fast", "Fast", &[("false", "Off"), ("true", "On")]),
+            setting("thinking", "Thinking", &[("true", "On"), ("false", "Off")]),
+            setting("mode", "Agent", &[("build", "Build"), ("review", "Review")]),
+        ];
+        let picked = |options: &[(&str, &str)]| {
+            settings_shown(
+                &LaunchPick { options: options.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(), ..pick("cursor", "gpt-5.4", "") },
+                &settings,
+            )
+        };
         assert_eq!(picked(&[]), Vec::<String>::new());
         assert_eq!(picked(&[("fast", "true"), ("thinking", "false"), ("mode", "review")]), ["Fast", "Thinking off", "Review"]);
-        assert_eq!(picked(&[("fast", "false"), ("thinking", "true"), ("mode", "build"), ("gone", "x"), ("mode", "nope")]), Vec::<String>::new(), "its own, or one it lacks");
+        assert_eq!(
+            picked(&[("fast", "false"), ("thinking", "true"), ("mode", "build"), ("gone", "x"), ("mode", "nope")]),
+            Vec::<String>::new(),
+            "its own, or one it lacks"
+        );
     }
 
     #[test]
@@ -565,7 +656,14 @@ mod tests {
 
     #[test]
     fn a_search_also_finds_a_model_by_its_agent_or_by_who_serves_it() {
-        let mixed = || vec![entry("claude", "opus", "Opus"), entry("opencode", "anthropic/claude-sonnet-4-6", "Sonnet 4.6"), entry("opencode", "zai/glm-5", "GLM 5"), entry("hermes", "kimi", "Kimi K2.5")];
+        let mixed = || {
+            vec![
+                entry("claude", "opus", "Opus"),
+                entry("opencode", "anthropic/claude-sonnet-4-6", "Sonnet 4.6"),
+                entry("opencode", "zai/glm-5", "GLM 5"),
+                entry("hermes", "kimi", "Kimi K2.5"),
+            ]
+        };
         assert_eq!(labels(matching(mixed(), "anthropic", true)), ["Sonnet 4.6"]);
         assert_eq!(labels(matching(mixed(), "OpenCode", true)), ["Sonnet 4.6", "GLM 5"]);
         assert_eq!(labels(matching(mixed(), "hermes agent", true)), ["Kimi K2.5"]);
@@ -574,7 +672,13 @@ mod tests {
 
     #[test]
     fn in_an_agent_s_own_list_its_name_matches_no_model() {
-        let omp = || vec![entry("omp", "anthropic/claude-opus-4-5", "Claude Opus 4.5"), entry("omp", "zai/glm-5", "GLM 5"), entry("omp", "google/gemini-3-pro", "Gemini 3 Pro")];
+        let omp = || {
+            vec![
+                entry("omp", "anthropic/claude-opus-4-5", "Claude Opus 4.5"),
+                entry("omp", "zai/glm-5", "GLM 5"),
+                entry("omp", "google/gemini-3-pro", "Gemini 3 Pro"),
+            ]
+        };
         assert_eq!(labels(matching(omp(), "omp", false)), Vec::<String>::new());
         assert_eq!(labels(matching(omp(), "opus", false)), ["Claude Opus 4.5"]);
         assert_eq!(labels(matching(omp(), "zai", false)), ["GLM 5"], "who serves it still does");
@@ -583,9 +687,13 @@ mod tests {
 
     #[test]
     fn a_model_is_listed_under_who_its_agent_says_serves_it() {
-        let hermes = [listed("ChatGPT or Codex Subscription", "openai-codex:gpt-6-sol", "GPT 6 Sol"), listed("DeepSeek", "deepseek:deepseek-flash", "Deepseek Flash")];
+        let hermes =
+            [listed("ChatGPT or Codex Subscription", "openai-codex:gpt-6-sol", "GPT 6 Sol"), listed("DeepSeek", "deepseek:deepseek-flash", "Deepseek Flash")];
         let found = entries("hermes", &hermes, "moa:gone");
-        assert_eq!(found.iter().map(|e| (e.label.as_str(), e.upstream.as_str())).collect::<Vec<_>>(), [("moa:gone", ""), ("GPT 6 Sol", "ChatGPT or Codex Subscription"), ("Deepseek Flash", "DeepSeek")]);
+        assert_eq!(
+            found.iter().map(|e| (e.label.as_str(), e.upstream.as_str())).collect::<Vec<_>>(),
+            [("moa:gone", ""), ("GPT 6 Sol", "ChatGPT or Codex Subscription"), ("Deepseek Flash", "DeepSeek")]
+        );
         assert_eq!(labels(matching(found, "chatgpt", false)), ["GPT 6 Sol"]);
     }
 
@@ -605,7 +713,14 @@ mod tests {
 
     #[test]
     fn the_agents_that_run_other_makers_models_sit_them_under_who_serves_each_and_the_others_list_theirs_flat() {
-        let listed = || vec![entry("opencode", "opencode/big-pickle", "Big Pickle"), entry("opencode", "github-copilot/gpt-5.4", "GPT 5.4"), entry("opencode", "opencode/glm-5", "GLM 5"), entry("opencode", "local", "Local")];
+        let listed = || {
+            vec![
+                entry("opencode", "opencode/big-pickle", "Big Pickle"),
+                entry("opencode", "github-copilot/gpt-5.4", "GPT 5.4"),
+                entry("opencode", "opencode/glm-5", "GLM 5"),
+                entry("opencode", "local", "Local"),
+            ]
+        };
         assert_eq!(shown("opencode", listed()), ["# OPENCODE", "Big Pickle", "GLM 5", "Local", "# GITHUB COPILOT", "GPT 5.4"]);
         assert_eq!(shown("pi", listed()), ["# OPENCODE", "Big Pickle", "GLM 5", "# GITHUB COPILOT", "GPT 5.4", "# PI", "Local"]);
         assert_eq!(shown("cursor", listed()), ["Big Pickle", "GPT 5.4", "GLM 5", "Local"]);
@@ -631,7 +746,11 @@ mod tests {
 
     #[test]
     fn two_models_of_one_name_sit_under_different_makers() {
-        let pi = vec![entry("pi", "amazon-bedrock/claude-opus-4-5", "Claude Opus 4.5"), entry("pi", "anthropic/claude-opus-4-5", "Claude Opus 4.5"), entry("pi", "anthropic/claude-sonnet-4-5", "Claude Sonnet 4.5")];
+        let pi = vec![
+            entry("pi", "amazon-bedrock/claude-opus-4-5", "Claude Opus 4.5"),
+            entry("pi", "anthropic/claude-opus-4-5", "Claude Opus 4.5"),
+            entry("pi", "anthropic/claude-sonnet-4-5", "Claude Sonnet 4.5"),
+        ];
         assert_eq!(shown("pi", pi), ["# AMAZON BEDROCK", "Claude Opus 4.5", "# ANTHROPIC", "Claude Opus 4.5", "Claude Sonnet 4.5"]);
     }
 
@@ -649,7 +768,10 @@ mod tests {
         assert_eq!(note("hermes", true, true, true), "No matching models");
         assert_eq!(note("hermes", true, true, false), "No matching models");
         assert_eq!(note("hermes", false, true, false), "Couldn't list Hermes Agent's models", "nothing was typed, so nothing failed to match");
-        assert_eq!(note("omp", false, false, true), "omp not found (curl -fsSL https://omp.sh/install | sh). Install it, or restart Anywhere if it is already installed.");
+        assert_eq!(
+            note("omp", false, false, true),
+            "omp not found (curl -fsSL https://omp.sh/install | sh). Install it, or restart Anywhere if it is already installed."
+        );
     }
 
     #[test]

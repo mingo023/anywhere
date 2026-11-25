@@ -55,22 +55,17 @@ pub(super) fn card(p: &Peek, open: Open, url: String, desktop: WeakEntity<Deskto
         line(icon("comment", 13., TEXT_3), opening(t)).child(div().flex_none().font_family(MONO).text_size(px(11.5)).text_color(TEXT_4).child(spot(t)))
     });
     let more = (unresolved > THREADS_SHOWN).then(|| line(div(), format!("{} more", plural(unresolved - THREADS_SHOWN, "comment"))).text_color(TEXT_3));
-    let head = div()
-        .flex()
-        .items_start()
-        .gap(px(10.))
-        .child(div().pt(px(1.)).child(icon(name, 16., color)))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .child(div().text_size(px(13.5)).line_height(px(18.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).line_clamp(2).child(pr.title.clone()))
-                .child(div().text_size(px(12.)).text_color(TEXT_3).truncate().child(format!("#{} · {} → {}", pr.number, pr.head, pr.base)))
-                .child(div().text_size(px(12.)).text_color(p.verdict.0).truncate().child(p.verdict.1.clone())),
-        );
+    let head = div().flex().items_start().gap(px(10.)).child(div().pt(px(1.)).child(icon(name, 16., color))).child(
+        div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .child(div().text_size(px(13.5)).line_height(px(18.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).line_clamp(2).child(pr.title.clone()))
+            .child(div().text_size(px(12.)).text_color(TEXT_3).truncate().child(format!("#{} · {} → {}", pr.number, pr.head, pr.base)))
+            .child(div().text_size(px(12.)).text_color(p.verdict.0).truncate().child(p.verdict.1.clone())),
+    );
     let panel = p.here.then(|| {
         let desktop = desktop.clone();
         small("pr-peek-panel", Variant::Secondary, "Open in panel").on_click(move |_, _, cx| {
@@ -83,7 +78,8 @@ pub(super) fn card(p: &Peek, open: Open, url: String, desktop: WeakEntity<Deskto
             desktop.update(cx, |d, cx| d.send_fix(&fix.checks, &fix.threads, cx)).ok();
         })
     });
-    let foot = div().flex().items_center().gap(px(6.)).pt(px(10.)).border_t_1().border_color(SEPARATOR).children(panel).child(web).child(div().flex_1()).children(fix);
+    let foot =
+        div().flex().items_center().gap(px(6.)).pt(px(10.)).border_t_1().border_color(SEPARATOR).children(panel).child(web).child(div().flex_1()).children(fix);
     ui::pop(div())
         .w(px(WIDTH))
         .p(px(12.))

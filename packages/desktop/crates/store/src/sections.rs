@@ -22,7 +22,10 @@ pub struct Group {
 pub enum Pin {
     Project(String),
     /// `tree` is a worktree's path, a Local's id, or the project's main worktree for its own Local.
-    Tree { project: String, tree: String },
+    Tree {
+        project: String,
+        tree: String,
+    },
 }
 
 impl Pin {

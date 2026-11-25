@@ -23,23 +23,84 @@ fn details(s: &Store) -> String {
 }
 
 pub(super) const ROWS: &[Setting] = &[
-    Setting::choice("session-sort", "Session list", "Sort sessions by", &["Newest", "Status", "Last activity", "Name"], Look::Dropdown, |s| s.sidebar.sort as usize, |s, i| s.sidebar.sort = SORTS[i])
-        .hint("Status puts Needs you and Failed first"),
-    Setting::custom("session-details", "Session list", "Details on each row", |d, s, cx| d.details_row(s, cx)).resets(details, |s, d| s.sidebar.details = d.sidebar.details),
-    Setting::switch("external-worktrees", "Session list", "Show worktrees not created by Anywhere", |s| s.sidebar.external_worktrees, |s, on| s.sidebar.external_worktrees = on)
-        .hint("Worktrees you made with git worktree add")
-        .advanced(),
-    Setting::switch("usage-card", "Context bars", "Show context bars on the rail", |s| s.sidebar.usage_card, |s, on| s.sidebar.usage_card = on).hint("Context left in each agent's newest session"),
-    Setting::stepper("usage-warn", "Context bars", "Warn at", (50, 95, 5), "%", |s| s.sidebar.warn_at as i32, |s, n| s.sidebar.set_warn(n as u32)).hint("The bars turn amber").under(|s| s.sidebar.usage_card),
-    Setting::stepper("usage-critical", "Context bars", "Critical at", (60, 99, 1), "%", |s| s.sidebar.critical_at as i32, |s, n| s.sidebar.set_critical(n as u32))
-        .hint("The bars turn red")
+    Setting::choice(
+        "session-sort",
+        "Session list",
+        "Sort sessions by",
+        &["Newest", "Status", "Last activity", "Name"],
+        Look::Dropdown,
+        |s| s.sidebar.sort as usize,
+        |s, i| s.sidebar.sort = SORTS[i],
+    )
+    .hint("Status puts Needs you and Failed first"),
+    Setting::custom("session-details", "Session list", "Details on each row", |d, s, cx| d.details_row(s, cx))
+        .resets(details, |s, d| s.sidebar.details = d.sidebar.details),
+    Setting::switch(
+        "external-worktrees",
+        "Session list",
+        "Show worktrees not created by Anywhere",
+        |s| s.sidebar.external_worktrees,
+        |s, on| s.sidebar.external_worktrees = on,
+    )
+    .hint("Worktrees you made with git worktree add")
+    .advanced(),
+    Setting::switch("usage-card", "Context bars", "Show context bars on the rail", |s| s.sidebar.usage_card, |s, on| s.sidebar.usage_card = on)
+        .hint("Context left in each agent's newest session"),
+    Setting::stepper("usage-warn", "Context bars", "Warn at", (50, 95, 5), "%", |s| s.sidebar.warn_at as i32, |s, n| s.sidebar.set_warn(n as u32))
+        .hint("The bars turn amber")
         .under(|s| s.sidebar.usage_card),
-    Setting::switch("jump-hints", "Jump hints", if cfg!(target_os = "macos") { "Show jump hints while holding Control" } else { "Show jump hints while holding Alt" }, |s| s.sidebar.jump_hints, |s, on| s.sidebar.jump_hints = on).hint(if cfg!(target_os = "macos") { "Numbers appear on sessions; press one with ⌃ to jump" } else { "Numbers appear on sessions; press one with Alt to jump" }),
-    Setting::stepper("jump-delay", "Jump hints", "Delay before hints appear", (0, 1000, 20), " ms", |s| s.sidebar.hint_delay_ms as i32, |s, n| s.sidebar.hint_delay_ms = n as u32)
-        .under(|s| s.sidebar.jump_hints)
-        .advanced(),
-    Setting::choice("inbox-sort", "Inbox", "Sort inbox by", &["Most urgent first", "Newest", "Oldest"], Look::Dropdown, |s| s.sidebar.inbox_sort as usize, |s, i| s.sidebar.inbox_sort = INBOX_SORTS[i]),
-    Setting::choice("inbox-filter", "Inbox", "Open the inbox showing", &["All", "Needs you", "Failed", "Done"], Look::Segmented, |s| s.sidebar.inbox_filter as usize, |s, i| s.sidebar.inbox_filter = INBOX_FILTERS[i]),
+    Setting::stepper(
+        "usage-critical",
+        "Context bars",
+        "Critical at",
+        (60, 99, 1),
+        "%",
+        |s| s.sidebar.critical_at as i32,
+        |s, n| s.sidebar.set_critical(n as u32),
+    )
+    .hint("The bars turn red")
+    .under(|s| s.sidebar.usage_card),
+    Setting::switch(
+        "jump-hints",
+        "Jump hints",
+        if cfg!(target_os = "macos") { "Show jump hints while holding Control" } else { "Show jump hints while holding Alt" },
+        |s| s.sidebar.jump_hints,
+        |s, on| s.sidebar.jump_hints = on,
+    )
+    .hint(if cfg!(target_os = "macos") {
+        "Numbers appear on sessions; press one with ⌃ to jump"
+    } else {
+        "Numbers appear on sessions; press one with Alt to jump"
+    }),
+    Setting::stepper(
+        "jump-delay",
+        "Jump hints",
+        "Delay before hints appear",
+        (0, 1000, 20),
+        " ms",
+        |s| s.sidebar.hint_delay_ms as i32,
+        |s, n| s.sidebar.hint_delay_ms = n as u32,
+    )
+    .under(|s| s.sidebar.jump_hints)
+    .advanced(),
+    Setting::choice(
+        "inbox-sort",
+        "Inbox",
+        "Sort inbox by",
+        &["Most urgent first", "Newest", "Oldest"],
+        Look::Dropdown,
+        |s| s.sidebar.inbox_sort as usize,
+        |s, i| s.sidebar.inbox_sort = INBOX_SORTS[i],
+    ),
+    Setting::choice(
+        "inbox-filter",
+        "Inbox",
+        "Open the inbox showing",
+        &["All", "Needs you", "Failed", "Done"],
+        Look::Segmented,
+        |s| s.sidebar.inbox_filter as usize,
+        |s, i| s.sidebar.inbox_filter = INBOX_FILTERS[i],
+    ),
 ];
 
 impl Desktop {
@@ -57,7 +118,9 @@ impl Desktop {
                 .cursor_pointer()
                 .text_size(px(12.5))
                 .font_weight(FontWeight::MEDIUM)
-                .map(|d| if on { d.bg(TEXT).text_color(ON_TEXT).child(icon("check", 11., ON_TEXT)) } else { d.bg(FILL_2).text_color(TEXT_2).hover(|d| d.bg(FILL_3)) })
+                .map(|d| {
+                    if on { d.bg(TEXT).text_color(ON_TEXT).child(icon("check", 11., ON_TEXT)) } else { d.bg(FILL_2).text_color(TEXT_2).hover(|d| d.bg(FILL_3)) }
+                })
                 .child(label)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     let on = field(&mut this.store.sidebar.details);

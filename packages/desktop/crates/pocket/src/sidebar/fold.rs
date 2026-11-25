@@ -49,7 +49,11 @@ pub(super) fn stacked(heights: impl IntoIterator<Item = f32>, gap: f32) -> f32 {
 
 /// `rows` springing open to `height` and shut to nothing, clipped while they move; wrapped, since a height can't clip its own padding.
 pub(super) fn springing(id: impl Into<ElementId>, open: bool, height: f32, rows: Div) -> SpringAnimationElement<Div> {
-    div().flex().flex_col().child(rows).with_spring(id, SpringAnimation::new(SPRING).to(open), move |d, t| if t.0 < 1. { d.h(px(height * t.0)).overflow_hidden() } else { d })
+    div()
+        .flex()
+        .flex_col()
+        .child(rows)
+        .with_spring(id, SpringAnimation::new(SPRING).to(open), move |d, t| if t.0 < 1. { d.h(px(height * t.0)).overflow_hidden() } else { d })
 }
 
 #[cfg(test)]

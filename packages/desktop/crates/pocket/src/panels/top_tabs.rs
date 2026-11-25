@@ -112,7 +112,10 @@ impl Desktop {
         let lead = match (agent, head) {
             (Some(a), _) => provider_icon(&a.provider, 14., ink).into_any_element(),
             (None, Some(Tab::Doc(Doc::Commit(_)))) => icon("diff-multiple", 14., ink).into_any_element(),
-            (None, Some(Tab::Doc(Doc::File(p) | Doc::Diff(p) | Doc::CommitFile { path: p, .. } | Doc::PrFile { path: p, .. } | Doc::CompareFile { path: p, .. }))) => file_icon(p, false, false, 14.).into_any_element(),
+            (
+                None,
+                Some(Tab::Doc(Doc::File(p) | Doc::Diff(p) | Doc::CommitFile { path: p, .. } | Doc::PrFile { path: p, .. } | Doc::CompareFile { path: p, .. })),
+            ) => file_icon(p, false, false, 14.).into_any_element(),
             (None, Some(Tab::Web(_))) => icon("globe", 14., TEXT_3).into_any_element(),
             _ => icon("prompt", 14., TEXT_3).into_any_element(),
         };
@@ -147,7 +150,14 @@ impl Desktop {
             .flex_col()
             .justify_center()
             .line_height(relative(1.2))
-            .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).truncate().when(italic, |d| d.italic()).child(head.map(|h| self.tab_text(h)).unwrap_or_default()))
+            .child(
+                div()
+                    .text_size(px(12.5))
+                    .font_weight(FontWeight::MEDIUM)
+                    .truncate()
+                    .when(italic, |d| d.italic())
+                    .child(head.map(|h| self.tab_text(h)).unwrap_or_default()),
+            )
             .child(div().text_size(px(11.)).text_color(TEXT_3).truncate().child(meta));
         div()
             .id(("top-tab", i))

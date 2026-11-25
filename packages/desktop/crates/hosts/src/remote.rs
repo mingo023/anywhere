@@ -2,12 +2,12 @@
 
 use crate::split;
 use base64::{Engine, engine::general_purpose::STANDARD};
+use daemon::Endpoint;
+use daemon::UnixStream;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use daemon::Endpoint;
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, ErrorKind, Write};
-use daemon::UnixStream;
 use std::net::Shutdown;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -105,7 +105,16 @@ impl Client {
     }
 
     pub fn to(id: &str, endpoint: Endpoint) -> Self {
-        Self { id: id.into(), endpoint, conn: Mutex::new(None), next: AtomicU64::new(1), root: OnceLock::new(), home: OnceLock::new(), pocket: OnceLock::new(), retired: Mutex::default() }
+        Self {
+            id: id.into(),
+            endpoint,
+            conn: Mutex::new(None),
+            next: AtomicU64::new(1),
+            root: OnceLock::new(),
+            home: OnceLock::new(),
+            pocket: OnceLock::new(),
+            retired: Mutex::default(),
+        }
     }
 
     pub fn id(&self) -> &str {
@@ -396,7 +405,9 @@ mod tests {
                     std::thread::sleep(Duration::from_millis(delay));
                     let reply = match msg["op"].as_str() {
                         Some("exec") if msg["argv"][0] == "fail" => json!({"ev": "error", "id": msg["id"], "error": "no such command"}),
-                        Some("exec") => json!({"ev": "exec", "id": msg["id"], "code": 0, "stdout": STANDARD.encode(format!("{}|{}", msg["argv"][1].as_str().unwrap(), msg["cwd"].as_str().unwrap()))}),
+                        Some("exec") => {
+                            json!({"ev": "exec", "id": msg["id"], "code": 0, "stdout": STANDARD.encode(format!("{}|{}", msg["argv"][1].as_str().unwrap(), msg["cwd"].as_str().unwrap()))})
+                        }
                         // pocketd answers status without the id.
                         Some("status") => json!({"ev": "status", "status": {"userHome": "/home/dev", "caps": ["exec.v1", "fs.v1"]}}),
                         _ => json!({"ev": "fs.stat", "id": msg["id"]}),
@@ -520,7 +531,9 @@ mod tests {
     fn a_trees_subagent_worktrees_come_back_as_keys_and_a_pocketd_without_the_op_names_none() {
         let sock = temp_sock("subagents");
         serve_with(&sock, |m| match (m["op"].as_str(), m["path"].as_str()) {
-            (Some("worktree.subagents"), Some("/wt")) => json!({"ev": "worktree.subagents", "id": m["id"], "trees": [{"path": "/wt-c", "since": 5}, {"host": "lab", "path": "/wt-g", "since": 7}]}),
+            (Some("worktree.subagents"), Some("/wt")) => {
+                json!({"ev": "worktree.subagents", "id": m["id"], "trees": [{"path": "/wt-c", "since": 5}, {"host": "lab", "path": "/wt-g", "since": 7}]})
+            }
             (Some("worktree.subagents"), Some("/wt-c")) => json!({"ev": "worktree.subagents", "id": m["id"]}),
             (Some("worktree.subagents"), Some("/busy")) => json!({"ev": "error", "id": m["id"], "error": "database is locked"}),
             _ => json!({"ev": "error", "id": m["id"], "error": "no such terminal"}),

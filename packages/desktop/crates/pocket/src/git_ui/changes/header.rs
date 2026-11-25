@@ -1,6 +1,6 @@
 use crate::desktop::Desktop;
-use crate::renames;
 use crate::git_ui::pull_requests::{self, PrItem};
+use crate::renames;
 use git::Repo;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -28,7 +28,11 @@ impl Desktop {
         );
         let pr = self.cwd().and_then(|tree| {
             let pr = self.prs.get(&tree)?;
-            Some(pull_requests::chip("changes-pr", pr, self.pr_verdict(&tree, pr).0).cursor_pointer().on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.show_pr_side(cx))))
+            Some(
+                pull_requests::chip("changes-pr", pr, self.pr_verdict(&tree, pr).0)
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.show_pr_side(cx))),
+            )
         });
         div()
             .h(px(40.))
@@ -39,20 +43,12 @@ impl Desktop {
             .items_center()
             .gap(px(8.))
             .child(div().flex_none().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).child("Changes"))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .items_center()
-                    .gap(px(4.))
-                    .text_color(TEXT_3)
-                    .child(icon("branch", 12., TEXT_3))
-                    .child(div().truncate().font_family(MONO).text_size(px(12.)).child(match self.cwd() {
-                        Some(tree) => renames::branch_label(&self.renames, "changes-branch", &tree, &repo.branch, TEXT_3, cx.reduce_motion()),
-                        None => repo.branch.clone().into_any_element(),
-                    })),
-            )
+            .child(div().flex_1().min_w_0().flex().items_center().gap(px(4.)).text_color(TEXT_3).child(icon("branch", 12., TEXT_3)).child(
+                div().truncate().font_family(MONO).text_size(px(12.)).child(match self.cwd() {
+                    Some(tree) => renames::branch_label(&self.renames, "changes-branch", &tree, &repo.branch, TEXT_3, cx.reduce_motion()),
+                    None => repo.branch.clone().into_any_element(),
+                }),
+            ))
             .children(pr)
             .child(view)
             .child(div().relative().child(more).when(open, |d| d.child(ui::dropdown(30., ui::menu_in("changes-menu-in", self.changes_menu_view(repo, cx))))))

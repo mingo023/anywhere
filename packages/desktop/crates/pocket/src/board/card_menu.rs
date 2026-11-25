@@ -93,12 +93,20 @@ impl Desktop {
                 .enumerate()
                 .map(|(i, provider)| {
                     let ids = ids.clone();
-                    self.agent_row(provider, ui::menu_pick(("board-agent", i), theme::provider_icon(provider, 13., TEXT_2), &self.agent_name(provider), all(&|t| t.provider == provider)))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.set_tickets_props(&ids, |v| v.provider = provider.to_string());
-                            settle(this, cx);
-                        }))
-                        .into_any_element()
+                    self.agent_row(
+                        provider,
+                        ui::menu_pick(
+                            ("board-agent", i),
+                            theme::provider_icon(provider, 13., TEXT_2),
+                            &self.agent_name(provider),
+                            all(&|t| t.provider == provider),
+                        ),
+                    )
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.set_tickets_props(&ids, |v| v.provider = provider.to_string());
+                        settle(this, cx);
+                    }))
+                    .into_any_element()
                 })
                 .collect(),
             Field::Project => self
@@ -156,6 +164,14 @@ impl Desktop {
             Menu::Bulk { action, at } => (at, self.prop_rows(action_field(*action)?, self.bulk_ids(*action), cx)),
             _ => return None,
         };
-        (!rows.is_empty()).then(|| deferred(anchored().position(*at).snap_to_window_with_margin(px(8.)).child(ui::menu_in("board-menu-in", self.popup("board-menu", 210., cx).children(rows)))).with_priority(2))
+        (!rows.is_empty()).then(|| {
+            deferred(
+                anchored()
+                    .position(*at)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(ui::menu_in("board-menu-in", self.popup("board-menu", 210., cx).children(rows))),
+            )
+            .with_priority(2)
+        })
     }
 }

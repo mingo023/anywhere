@@ -21,13 +21,35 @@ pub(crate) type Shows = fn(&Store, &agents::Agents) -> usize;
 /// What a row's control reads and writes in the store.
 #[derive(Clone, Copy)]
 pub(crate) enum Control {
-    Switch { get: fn(&Store) -> bool, set: fn(&mut Store, bool) },
-    Choice { options: &'static [&'static str], look: Look, get: fn(&Store) -> usize, set: fn(&mut Store, usize) },
+    Switch {
+        get: fn(&Store) -> bool,
+        set: fn(&mut Store, bool),
+    },
+    Choice {
+        options: &'static [&'static str],
+        look: Look,
+        get: fn(&Store) -> usize,
+        set: fn(&mut Store, usize),
+    },
     /// `unit` follows the number as written, so it carries its own space: " pt", "%".
-    Stepper { min: i32, max: i32, step: i32, unit: &'static str, get: fn(&Store) -> i32, set: fn(&mut Store, i32) },
-    Text { placeholder: &'static str, get: fn(&Store) -> String, set: fn(&mut Store, String) },
+    Stepper {
+        min: i32,
+        max: i32,
+        step: i32,
+        unit: &'static str,
+        get: fn(&Store) -> i32,
+        set: fn(&mut Store, i32),
+    },
+    Text {
+        placeholder: &'static str,
+        get: fn(&Store) -> String,
+        set: fn(&mut Store, String),
+    },
     /// A folder; setting it to "" puts the default back.
-    Path { get: fn(&Store) -> String, set: fn(&mut Store, String) },
+    Path {
+        get: fn(&Store) -> String,
+        set: fn(&mut Store, String),
+    },
     /// Drawn by its section; Reset leaves it alone unless it `resets`.
     Custom(Draw),
 }
@@ -67,15 +89,38 @@ impl Setting {
         Self::new(id, group, label, Control::Switch { get, set })
     }
 
-    pub const fn choice(id: &'static str, group: &'static str, label: &'static str, options: &'static [&'static str], look: Look, get: fn(&Store) -> usize, set: fn(&mut Store, usize)) -> Self {
+    pub const fn choice(
+        id: &'static str,
+        group: &'static str,
+        label: &'static str,
+        options: &'static [&'static str],
+        look: Look,
+        get: fn(&Store) -> usize,
+        set: fn(&mut Store, usize),
+    ) -> Self {
         Self::new(id, group, label, Control::Choice { options, look, get, set })
     }
 
-    pub const fn stepper(id: &'static str, group: &'static str, label: &'static str, (min, max, step): (i32, i32, i32), unit: &'static str, get: fn(&Store) -> i32, set: fn(&mut Store, i32)) -> Self {
+    pub const fn stepper(
+        id: &'static str,
+        group: &'static str,
+        label: &'static str,
+        (min, max, step): (i32, i32, i32),
+        unit: &'static str,
+        get: fn(&Store) -> i32,
+        set: fn(&mut Store, i32),
+    ) -> Self {
         Self::new(id, group, label, Control::Stepper { min, max, step, unit, get, set })
     }
 
-    pub const fn text(id: &'static str, group: &'static str, label: &'static str, placeholder: &'static str, get: fn(&Store) -> String, set: fn(&mut Store, String)) -> Self {
+    pub const fn text(
+        id: &'static str,
+        group: &'static str,
+        label: &'static str,
+        placeholder: &'static str,
+        get: fn(&Store) -> String,
+        set: fn(&mut Store, String),
+    ) -> Self {
         Self::new(id, group, label, Control::Text { placeholder, get, set })
     }
 
@@ -269,7 +314,17 @@ mod tests {
         Setting::switch("banners", "Banners", "Banners", |s| s.notifications.banners, |s, on| s.notifications.banners = on).hint("A macOS banner"),
         Setting::switch("sounds", "Sounds", "Play sounds", |s| s.sounds.all, |s, on| s.sounds.all = on),
         Setting::switch("done", "Sounds", "Done", |s| s.sounds.done, |s, on| s.sounds.done = on).under(|s| s.sounds.all),
-        Setting::choice("mode", "Theme", "Appearance", &["System", "Light", "Dark"], Look::Segmented, |s| s.appearance.mode as usize, |s, i| s.appearance.mode = [store::Mode::System, store::Mode::Light, store::Mode::Dark][i]).effect(noop).advanced(),
+        Setting::choice(
+            "mode",
+            "Theme",
+            "Appearance",
+            &["System", "Light", "Dark"],
+            Look::Segmented,
+            |s| s.appearance.mode as usize,
+            |s, i| s.appearance.mode = [store::Mode::System, store::Mode::Light, store::Mode::Dark][i],
+        )
+        .effect(noop)
+        .advanced(),
         Setting::stepper("lines", "Scrollback", "Lines", (100, 900, 100), " lines", |s| s.sounds.done as i32 * 500 + 400, |s, n| s.sounds.done = n > 400),
         Setting::custom("update", "Software update", "Software update", |_, _, _| div()),
     ];
@@ -279,7 +334,10 @@ mod tests {
         let mut store = Store::default();
         assert_eq!(changed(ROWS, &store), []);
         (store.sounds.all, store.appearance.mode) = (false, store::Mode::Dark);
-        assert_eq!(changed(ROWS, &store), [Change { label: "Play sounds", from: "Off".into(), to: "On".into() }, Change { label: "Appearance", from: "Dark".into(), to: "System".into() }]);
+        assert_eq!(
+            changed(ROWS, &store),
+            [Change { label: "Play sounds", from: "Off".into(), to: "On".into() }, Change { label: "Appearance", from: "Dark".into(), to: "System".into() }]
+        );
     }
 
     #[test]
@@ -294,7 +352,8 @@ mod tests {
 
     #[test]
     fn a_custom_row_that_resets_goes_on_the_sheet_and_back_to_its_default() {
-        const REMOTE: &[Setting] = &[Setting::custom("remote", "Repository", "Default remote", |_, _, _| div()).resets(|s| s.git.remote.clone(), |s, d| s.git.remote = d.git.remote.clone())];
+        const REMOTE: &[Setting] = &[Setting::custom("remote", "Repository", "Default remote", |_, _, _| div())
+            .resets(|s| s.git.remote.clone(), |s, d| s.git.remote = d.git.remote.clone())];
         let mut store = Store::default();
         let default = store.git.remote.clone();
         store.git.remote = "upstream".into();
@@ -328,7 +387,9 @@ mod tests {
     #[test]
     fn a_row_matches_on_its_hint_group_and_options_too() {
         let (store, live) = (Store::default(), agents::Agents::default());
-        let hit = |q: &str| ROWS.iter().filter(|r| crate::palette::matches(&words(q), &r.fields(&store, &live).collect::<Vec<_>>())).map(|r| r.id).collect::<Vec<_>>();
+        let hit = |q: &str| {
+            ROWS.iter().filter(|r| crate::palette::matches(&words(q), &r.fields(&store, &live).collect::<Vec<_>>())).map(|r| r.id).collect::<Vec<_>>()
+        };
         assert_eq!(hit("macos"), ["banners"]);
         assert_eq!(hit("sounds"), ["sounds", "done"]);
         assert_eq!(hit("dark theme"), ["mode"]);
@@ -342,7 +403,8 @@ mod tests {
     #[test]
     fn a_search_finds_an_agent_only_in_the_menus_that_list_it() {
         let store = Store::default();
-        let found = |query: &str, live: &agents::Agents| search(&words(query), &store, live).into_iter().flat_map(|(_, rows)| rows).map(|r| r.id).collect::<Vec<_>>();
+        let found =
+            |query: &str, live: &agents::Agents| search(&words(query), &store, live).into_iter().flat_map(|(_, rows)| rows).map(|r| r.id).collect::<Vec<_>>();
         let two = agents::Agents::default();
         assert!(found("hermes", &two).is_empty(), "pocketd named only Claude Code and Codex");
         assert_eq!(found("codex", &two), ["default-agent", "automation-agent", "ai-agent"]);

@@ -74,7 +74,14 @@ impl ConfirmText {
             many => format!("Discard changes to {} files?", many.len()),
         };
         let deletes = (untracked > 0).then(|| format!("Deletes {untracked} untracked {}", if untracked == 1 { "file" } else { "files" }));
-        Self { title, action: "Discard", facts: std::iter::once("Unstaged edits can't be restored".to_string()).chain(deletes).collect(), dirty: 0, lost: 0, danger: true }
+        Self {
+            title,
+            action: "Discard",
+            facts: std::iter::once("Unstaged edits can't be restored".to_string()).chain(deletes).collect(),
+            dirty: 0,
+            lost: 0,
+            danger: true,
+        }
     }
 
     fn close_terminals(busy: &Busy, worktree: &str, n: usize) -> Self {
@@ -100,7 +107,14 @@ impl ConfirmText {
     }
 
     fn close_file(path: &str) -> Self {
-        Self { title: format!("Save changes to {}?", basename(path)), action: "Save", facts: vec!["Your edits are lost if you don't save them".into()], dirty: 0, lost: 0, danger: false }
+        Self {
+            title: format!("Save changes to {}?", basename(path)),
+            action: "Save",
+            facts: vec!["Your edits are lost if you don't save them".into()],
+            dirty: 0,
+            lost: 0,
+            danger: false,
+        }
     }
 
     fn quit(unsaved: usize) -> Self {
@@ -121,7 +135,14 @@ impl ConfirmText {
     }
 
     fn delete_ticket(title: &str) -> Self {
-        Self { title: format!("Delete {title}?"), action: "Delete", facts: vec!["It hasn't started, so nothing else is affected".to_string()], dirty: 0, lost: 0, danger: true }
+        Self {
+            title: format!("Delete {title}?"),
+            action: "Delete",
+            facts: vec!["It hasn't started, so nothing else is affected".to_string()],
+            dirty: 0,
+            lost: 0,
+            danger: true,
+        }
     }
 
     fn delete_automation(name: &str) -> Self {
@@ -129,7 +150,14 @@ impl ConfirmText {
     }
 
     fn revoke_device(name: &str) -> Self {
-        Self { title: format!("Revoke {name}?"), action: "Revoke", facts: vec!["It disconnects now and has to pair again".into()], dirty: 0, lost: 0, danger: true }
+        Self {
+            title: format!("Revoke {name}?"),
+            action: "Revoke",
+            facts: vec!["It disconnects now and has to pair again".into()],
+            dirty: 0,
+            lost: 0,
+            danger: true,
+        }
     }
 
     /// "Uninstall and remove" sits beside the action.
@@ -157,16 +185,30 @@ impl ConfirmText {
     }
 
     fn remove_account(name: &str, machine: &str) -> Self {
-        Self { title: format!("Remove {name}?"), action: "Remove", facts: vec![format!("Deletes its folder and its sign-in on {machine}")], dirty: 0, lost: 0, danger: true }
+        Self {
+            title: format!("Remove {name}?"),
+            action: "Remove",
+            facts: vec![format!("Deletes its folder and its sign-in on {machine}")],
+            dirty: 0,
+            lost: 0,
+            danger: true,
+        }
     }
 
     fn sign_out_account(name: &str) -> Self {
-        let facts = vec!["Its open sessions keep going until they need to refresh their sign-in".into(), "History stays, so signing back in picks up where you were".into()];
+        let facts = vec![
+            "Its open sessions keep going until they need to refresh their sign-in".into(),
+            "History stays, so signing back in picks up where you were".into(),
+        ];
         Self { title: format!("Sign out of {name}?"), action: "Sign out", facts, dirty: 0, lost: 0, danger: false }
     }
 
     fn switch_agent(to: &str, from: &str) -> Self {
-        let facts = vec!["A chat can't switch to another provider partway through".into(), format!("Start a fresh {to} chat, or fork this conversation into one"), format!("This {from} chat stays open")];
+        let facts = vec![
+            "A chat can't switch to another provider partway through".into(),
+            format!("Start a fresh {to} chat, or fork this conversation into one"),
+            format!("This {from} chat stays open"),
+        ];
         Self { title: format!("Open a new {to} chat?"), action: "Fork conversation", facts, dirty: 0, lost: 0, danger: false }
     }
 
@@ -185,7 +227,16 @@ impl ConfirmText {
 
 /// Whether a key press takes the sheet's action. Only a delete the user just asked for does: a sheet that arrives on its own, like a failed teardown, could catch an Enter meant for something else.
 fn enter_confirms(key: &Keystroke, confirm: &Confirm) -> bool {
-    key.key == "enter" && !key.modifiers.modified() && matches!(confirm, Confirm::DeleteWorktree { requested: true, .. } | Confirm::DeleteLocal(_) | Confirm::DeleteScratch { .. } | Confirm::DeleteAutomation(_) | Confirm::DeleteTicket(_))
+    key.key == "enter"
+        && !key.modifiers.modified()
+        && matches!(
+            confirm,
+            Confirm::DeleteWorktree { requested: true, .. }
+                | Confirm::DeleteLocal(_)
+                | Confirm::DeleteScratch { .. }
+                | Confirm::DeleteAutomation(_)
+                | Confirm::DeleteTicket(_)
+        )
 }
 
 impl Desktop {
@@ -211,13 +262,18 @@ impl Desktop {
     pub(super) fn confirm_view(&mut self, cx: &mut Context<Self>) -> Div {
         let text = match &self.confirm {
             Some(Confirm::ResetSection(section)) => return self.reset_sheet(*section, cx),
-            Some(Confirm::RemoveProject(p)) => ConfirmText::remove_project(&self.repo_name(p), Takes { terminals: self.project_terminals(p).len(), locals: self.agents.locals_removed_with(p).count() }),
+            Some(Confirm::RemoveProject(p)) => ConfirmText::remove_project(
+                &self.repo_name(p),
+                Takes { terminals: self.project_terminals(p).len(), locals: self.agents.locals_removed_with(p).count() },
+            ),
             Some(Confirm::DeleteWorktree { removal, dirty, lost, lost_anyway, subtrees, .. }) => {
                 let terminals = std::iter::once(&removal.tree).chain(subtrees.iter().map(|r| &r.tree)).map(|t| self.tree_terminals(t).len()).sum();
                 ConfirmText::delete_worktree(removal, *dirty, *lost, *lost_anyway, terminals, subtrees.len())
             }
             Some(Confirm::DeleteLocal(id)) => ConfirmText::delete_local(&self.local_name(id), self.tree_terminals(id).len()),
-            Some(Confirm::DeleteScratch { path, dirty, lost }) => ConfirmText::delete_scratch(&self.place_name(path), path, *dirty, *lost, self.tree_terminals(path).len()),
+            Some(Confirm::DeleteScratch { path, dirty, lost }) => {
+                ConfirmText::delete_scratch(&self.place_name(path), path, *dirty, *lost, self.tree_terminals(path).len())
+            }
             Some(Confirm::TeardownFailed { failed, .. }) => ConfirmText::teardown_failed(failed),
             Some(Confirm::Discard(paths)) => ConfirmText::discard(paths, self.repo().map_or(&[], |r| r.files.as_slice())),
             Some(Confirm::CloseSession(id)) => {
@@ -231,7 +287,9 @@ impl Desktop {
             Some(Confirm::Quit(n)) => ConfirmText::quit(*n),
             Some(Confirm::Relaunch(n)) => ConfirmText::relaunch(*n),
             Some(Confirm::OpenExternal(url)) => ConfirmText::open_external(url),
-            Some(Confirm::DeleteAutomation(id)) => ConfirmText::delete_automation(self.agents.automations.items.iter().find(|a| &a.id == id).map_or("this automation", |a| a.name.as_str())),
+            Some(Confirm::DeleteAutomation(id)) => {
+                ConfirmText::delete_automation(self.agents.automations.items.iter().find(|a| &a.id == id).map_or("this automation", |a| a.name.as_str()))
+            }
             Some(Confirm::DeleteTicket(id)) => ConfirmText::delete_ticket(&self.delete_ticket_title(id)),
             Some(Confirm::RevokeDevice { name, .. }) => ConfirmText::revoke_device(name),
             Some(Confirm::RemoveHost { id, name }) => {
@@ -277,15 +335,42 @@ impl Desktop {
         if let Some(warning) = text.warning().filter(|_| worktree) {
             body.push(div().text_size(px(12.5)).text_color(FAILED_TEXT).child(warning).into_any_element());
         } else if let Some(warning) = text.warning() {
-            body.push(div().w_full().mt(px(4.)).px(px(12.)).py(px(8.)).rounded(px(8.)).bg(FAILED_BG).text_size(px(12.5)).text_color(FAILED).child(warning).into_any_element());
+            body.push(
+                div()
+                    .w_full()
+                    .mt(px(4.))
+                    .px(px(12.))
+                    .py(px(8.))
+                    .rounded(px(8.))
+                    .bg(FAILED_BG)
+                    .text_size(px(12.5))
+                    .text_color(FAILED)
+                    .child(warning)
+                    .into_any_element(),
+            );
         }
         if let Some(Confirm::TeardownFailed { tail, .. }) = &self.confirm {
-            body.push(div().w_full().px(px(10.)).py(px(8.)).rounded(px(8.)).bg(FILL_2).text_left().font_family(MONO).text_size(px(11.5)).text_color(TEXT_2).child(tail.clone()).into_any_element());
+            body.push(
+                div()
+                    .w_full()
+                    .px(px(10.))
+                    .py(px(8.))
+                    .rounded(px(8.))
+                    .bg(FILL_2)
+                    .text_left()
+                    .font_family(MONO)
+                    .text_size(px(11.5))
+                    .text_color(TEXT_2)
+                    .child(tail.clone())
+                    .into_any_element(),
+            );
         }
         let variant = if text.danger { Variant::Danger } else { Variant::Primary };
         let action = ui::button("confirm-go", variant, None, text.action).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.confirmed(window, cx)));
-        let dont_save = matches!(self.confirm, Some(Confirm::CloseFile(_)))
-            .then(|| ui::button("confirm-dont-save", Variant::Secondary, None, "Don't save").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_unsaved(window, cx))));
+        let dont_save = matches!(self.confirm, Some(Confirm::CloseFile(_))).then(|| {
+            ui::button("confirm-dont-save", Variant::Secondary, None, "Don't save")
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_unsaved(window, cx)))
+        });
         let uninstall = matches!(self.confirm, Some(Confirm::RemoveHost { .. })).then(|| {
             ui::button("confirm-uninstall", Variant::Danger, None, "Uninstall and remove").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 if let Some(Confirm::RemoveHost { id, .. }) = this.confirm.take() {
@@ -302,7 +387,8 @@ impl Desktop {
                 this.close_overlay(window, cx);
             }))
         });
-        let cancel = ui::button("confirm-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
+        let cancel = ui::button("confirm-cancel", Variant::Secondary, None, "Cancel")
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
         if worktree {
             return ui::dialog(&text.title, body, [cancel, action]);
         }
@@ -420,8 +506,14 @@ mod tests {
         assert_eq!(ConfirmText::remove_project("app", Takes { terminals: 0, locals: 0 }), text("Remove app?", "Remove", &[keeps], 0));
         assert_eq!(ConfirmText::remove_project("app", Takes { terminals: 1, locals: 0 }), text("Remove app?", "Remove", &["Closes 1 terminal", keeps], 0));
         assert_eq!(ConfirmText::remove_project("app", Takes { terminals: 3, locals: 0 }), text("Remove app?", "Remove", &["Closes 3 terminals", keeps], 0));
-        assert_eq!(ConfirmText::remove_project("app", Takes { terminals: 0, locals: 1 }), text("Remove app?", "Remove", &["Deletes its added Local", keeps], 0));
-        assert_eq!(ConfirmText::remove_project("app", Takes { terminals: 0, locals: 2 }), text("Remove app?", "Remove", &["Deletes its 2 added Locals", keeps], 0));
+        assert_eq!(
+            ConfirmText::remove_project("app", Takes { terminals: 0, locals: 1 }),
+            text("Remove app?", "Remove", &["Deletes its added Local", keeps], 0)
+        );
+        assert_eq!(
+            ConfirmText::remove_project("app", Takes { terminals: 0, locals: 2 }),
+            text("Remove app?", "Remove", &["Deletes its 2 added Locals", keeps], 0)
+        );
     }
 
     #[test]
@@ -454,7 +546,11 @@ mod tests {
         let warning = |delete_branch, anyway| ConfirmText::delete_worktree(&removal(Some("feat-x"), delete_branch), 1, 3, anyway, 0, 0).warning();
         assert_eq!(warning(true, 0), Some("1 uncommitted file and 3 commits on no other branch will be lost.".into()));
         assert_eq!(warning(false, 0), Some("1 uncommitted file will be lost.".into()));
-        assert_eq!(warning(false, 2), Some("1 uncommitted file and 2 commits on no other branch will be lost.".into()), "a detached subagent tree's commits go even when branches stay");
+        assert_eq!(
+            warning(false, 2),
+            Some("1 uncommitted file and 2 commits on no other branch will be lost.".into()),
+            "a detached subagent tree's commits go even when branches stay"
+        );
     }
 
     #[test]
@@ -514,7 +610,10 @@ mod tests {
     #[test]
     fn restarting_onto_an_update_with_unsaved_edits_asks_like_quitting() {
         let got = ConfirmText::relaunch(2);
-        assert_eq!((got.title.as_ref(), got.action, got.detail(), got.danger), ("Restart without saving?", "Restart", Some("2 files have unsaved edits.".into()), true));
+        assert_eq!(
+            (got.title.as_ref(), got.action, got.detail(), got.danger),
+            ("Restart without saving?", "Restart", Some("2 files have unsaved edits.".into()), true)
+        );
     }
 
     #[test]

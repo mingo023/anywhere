@@ -35,7 +35,18 @@ pub(super) fn hud(place: u64, level: String, card: bool, on: impl Fn(Act, &mut W
             .on_click(move |_, window, cx| on(act, window, cx))
     };
     let glyph = |name: &str, act: Act| button(name, BUTTON, act).child(icon(name, 13., TEXT));
-    let pill = |buttons: Vec<Stateful<Div>>| div().h(px(32.)).p(px(4.)).flex().items_center().gap(px(2.)).rounded(px(16.)).bg(DIAGRAM_HUD).shadow(vec![ui::ring(SEPARATOR, 0.5), ui::shadow(rgba(0x0000001f), 2., 8.)]).children(buttons);
+    let pill = |buttons: Vec<Stateful<Div>>| {
+        div()
+            .h(px(32.))
+            .p(px(4.))
+            .flex()
+            .items_center()
+            .gap(px(2.))
+            .rounded(px(16.))
+            .bg(DIAGRAM_HUD)
+            .shadow(vec![ui::ring(SEPARATOR, 0.5), ui::shadow(rgba(0x0000001f), 2., 8.)])
+            .children(buttons)
+    };
     let level = button("level", 44., Act::Fit).text_size(px(11.)).text_color(TEXT).child(level);
     let zoom = vec![glyph("minus", Act::Zoom(1. / super::viewport::STEP)), level, glyph("plus", Act::Zoom(super::viewport::STEP))];
     let mut actions = vec![glyph("fit", Act::Fit)];

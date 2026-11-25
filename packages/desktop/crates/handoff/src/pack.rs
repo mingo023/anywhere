@@ -28,7 +28,11 @@ fn git(cwd: &str, env: &[(&str, &str)], args: &[&str]) -> Result<String, String>
         cmd.env(k, v);
     }
     let out = cmd.output().map_err(|e| e.to_string())?;
-    if out.status.success() { Ok(String::from_utf8_lossy(&out.stdout).trim().to_string()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
 }
 
 /// The branch `cwd` is on, its commit, and the commit of its uncommitted changes, made through a scratch index so

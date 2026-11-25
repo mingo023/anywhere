@@ -92,7 +92,10 @@ fn heading(title: &str) -> Div {
 
 fn fact_row(f: Fact) -> Div {
     let bad = f.bad.map(|b| div().flex().child(div().text_color(TEXT_4).child("\u{a0}·\u{a0}")).child(div().text_color(FAILED_TEXT).child(b)));
-    div().flex().child(div().w(px(LABEL_W)).flex_none().text_color(TEXT_4).child(f.label)).child(div().min_w_0().flex().text_color(f.color).child(f.value).children(bad))
+    div()
+        .flex()
+        .child(div().w(px(LABEL_W)).flex_none().text_color(TEXT_4).child(f.label))
+        .child(div().min_w_0().flex().text_color(f.color).child(f.value).children(bad))
 }
 
 /// A step on the details' rail: a call, opening to its output, error or diff as in the chat, beside when into the run
@@ -101,10 +104,26 @@ fn step_row(b: &Block, start: i64, tools: &Entity<Tools>, cx: &App) -> Div {
     let Block::Tool(c) = b else {
         let text = if let Block::Text(m) = b { m.text.trim().to_string() } else { String::new() };
         let dot = div().absolute().left(px(4.)).top(px(11.)).size(px(5.)).rounded_full().bg(TEXT_5);
-        return div().relative().pl(px(20.)).py(px(4.)).whitespace_normal().text_size(px(13.)).line_height(px(19.)).text_color(TEXT_BODY).child(dot).child(text);
+        return div()
+            .relative()
+            .pl(px(20.))
+            .py(px(4.))
+            .whitespace_normal()
+            .text_size(px(13.))
+            .line_height(px(19.))
+            .text_color(TEXT_BODY)
+            .child(dot)
+            .child(text);
     };
     let failed = c.status == ToolStatus::Failed;
-    let dot = div().absolute().left(px(3.)).top(px(11.)).size(px(7.)).rounded_full().border_1().map(|d| if failed { d.border_color(FAILED).bg(FAILED) } else { d.border_color(TEXT_5).bg(window_fill()) });
+    let dot = div()
+        .absolute()
+        .left(px(3.))
+        .top(px(11.))
+        .size(px(7.))
+        .rounded_full()
+        .border_1()
+        .map(|d| if failed { d.border_color(FAILED).bg(FAILED) } else { d.border_color(TEXT_5).bg(window_fill()) });
     div()
         .relative()
         .pl(px(20.))
@@ -121,7 +140,16 @@ fn step_row(b: &Block, start: i64, tools: &Entity<Tools>, cx: &App) -> Div {
 /// and the report or error. `on_brief` shows the whole brief above the facts, or hides it again; `on_more` shows every step, or
 /// only the newest again.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn view(d: Detail, lead: Option<AnyElement>, actions: Vec<AnyElement>, on_brief: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, on_more: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, tools: &Entity<Tools>, links: &markdown::Open, cx: &mut App) -> Div {
+pub(crate) fn view(
+    d: Detail,
+    lead: Option<AnyElement>,
+    actions: Vec<AnyElement>,
+    on_brief: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    on_more: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    tools: &Entity<Tools>,
+    links: &markdown::Open,
+    cx: &mut App,
+) -> Div {
     let Detail { key, call, agent, now, all_steps, brief_open } = d;
     let m = sub_agent::mark(call, agent);
     let brief = sub_agent::brief(agent).map(|b| {
@@ -138,7 +166,11 @@ pub(crate) fn view(d: Detail, lead: Option<AnyElement>, actions: Vec<AnyElement>
             .on_click(on_brief)
             .child(b.to_string())
     });
-    let title = div().flex_1().min_w_0().child(div().truncate().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(sub_agent::name(agent))).children(brief);
+    let title = div()
+        .flex_1()
+        .min_w_0()
+        .child(div().truncate().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(sub_agent::name(agent)))
+        .children(brief);
     let head = div()
         .flex_none()
         .flex()
@@ -176,12 +208,24 @@ pub(crate) fn view(d: Detail, lead: Option<AnyElement>, actions: Vec<AnyElement>
                     .child(if all_steps { "Show fewer".to_string() } else { format!("Show {} more", first) }),
             )
         });
-        div().mt(px(18.)).child(heading("Steps")).child(div().relative().flex().flex_col().child(rail).children(all[first..].iter().map(|b| step_row(b, call.at, tools, cx)))).children(more)
+        div()
+            .mt(px(18.))
+            .child(heading("Steps"))
+            .child(div().relative().flex().flex_col().child(rail).children(all[first..].iter().map(|b| step_row(b, call.at, tools, cx))))
+            .children(more)
     });
 
     let report = match m {
-        Mark::Starting | Mark::Running => Some(div().flex().text_size(px(13.)).text_color(TEXT_4).child(shimmer(SharedString::from(format!("{key}-wait-{}", call.id)), "Working", TEXT_4)).child("\u{a0}· the report lands here when it finishes")),
-        Mark::Failed => sub_agent::report(call, agent).map(|r| div().whitespace_normal().font_family(code_font()).text_size(px(12.)).line_height(px(19.)).text_color(FAILED_TEXT).child(r)),
+        Mark::Starting | Mark::Running => Some(
+            div()
+                .flex()
+                .text_size(px(13.))
+                .text_color(TEXT_4)
+                .child(shimmer(SharedString::from(format!("{key}-wait-{}", call.id)), "Working", TEXT_4))
+                .child("\u{a0}· the report lands here when it finishes"),
+        ),
+        Mark::Failed => sub_agent::report(call, agent)
+            .map(|r| div().whitespace_normal().font_family(code_font()).text_size(px(12.)).line_height(px(19.)).text_color(FAILED_TEXT).child(r)),
         Mark::Done => sub_agent::report(call, agent).map(|r| {
             let doc = tools.update(cx, |t, cx| t.docs.get(&call.id, &r, false, cx));
             div().child(markdown::block(TextView::new(&doc), links.clone()).text_size(px(13.5)).line_height(px(21.)))
@@ -190,7 +234,9 @@ pub(crate) fn view(d: Detail, lead: Option<AnyElement>, actions: Vec<AnyElement>
     let report = report.map(|r| div().mt(px(18.)).child(heading(if m == Mark::Failed { "Error" } else { "Report" })).child(r));
 
     // One flex child: a scroll's height counts from its first child's top, so a first child's margin would cut off the end.
-    let full = sub_agent::brief(agent).filter(|_| brief_open).map(|b| div().mb(px(18.)).whitespace_normal().text_size(px(13.)).line_height(px(20.)).text_color(TEXT_BODY).child(b.to_string()));
+    let full = sub_agent::brief(agent)
+        .filter(|_| brief_open)
+        .map(|b| div().mb(px(18.)).whitespace_normal().text_size(px(13.)).line_height(px(20.)).text_color(TEXT_BODY).child(b.to_string()));
     let content = div().flex().flex_col().children(full).child(facts).children(steps).children(report);
     let body = div().id(SharedString::from(format!("{key}-body"))).flex_1().min_h_0().overflow_y_scroll().pt(px(14.)).pb(px(20.)).px(px(16.)).child(content);
     div().size_full().flex().flex_col().child(head).child(body)
@@ -220,11 +266,24 @@ mod tests {
     use chat::{Block, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
 
     fn tool(id: &str, status: ToolStatus) -> Block {
-        Block::Tool(ToolCall { id: id.into(), name: "Bash".into(), kind: ToolKind::Shell { command: "ls".into(), description: String::new() }, status, output: None, duration_ms: None, at: 0 })
+        Block::Tool(ToolCall {
+            id: id.into(),
+            name: "Bash".into(),
+            kind: ToolKind::Shell { command: "ls".into(), description: String::new() },
+            status,
+            output: None,
+            duration_ms: None,
+            at: 0,
+        })
     }
 
     fn sub(blocks: Vec<Block>, model: &str, tokens: u64) -> SubAgent {
-        SubAgent { description: "Audit".into(), transcript: Transcript { turns: vec![Turn { id: "t".into(), prompt: None, blocks, end: None }] }, model: model.into(), tokens }
+        SubAgent {
+            description: "Audit".into(),
+            transcript: Transcript { turns: vec![Turn { id: "t".into(), prompt: None, blocks, end: None }] },
+            model: model.into(),
+            tokens,
+        }
     }
 
     fn call(status: ToolStatus, duration_ms: Option<u64>) -> ToolCall {
@@ -240,14 +299,27 @@ mod tests {
         let a = sub(vec![tool("a", ToolStatus::Ok), tool("b", ToolStatus::Failed)], "claude-haiku-4-5", 32_900);
         let fs = facts(&call(ToolStatus::Ok, Some(74_000)), &a, 0, |_| "14:02".into());
         let model = agents::model_name("claude-haiku-4-5");
-        assert_eq!(shown(&fs), ["Status: Done".to_string(), format!("Model: {model}"), "Started: 14:02".into(), "Duration: 1m 14s".into(), "Steps: 2 · 1 failed".into(), "Tokens: 32.9k".into()]);
+        assert_eq!(
+            shown(&fs),
+            [
+                "Status: Done".to_string(),
+                format!("Model: {model}"),
+                "Started: 14:02".into(),
+                "Duration: 1m 14s".into(),
+                "Steps: 2 · 1 failed".into(),
+                "Tokens: 32.9k".into()
+            ]
+        );
     }
 
     #[test]
     fn a_fact_not_known_yet_is_left_out() {
         let quiet = sub(vec![], "", 0);
         assert_eq!(shown(&facts(&call(ToolStatus::Ok, None), &quiet, 0, |_| "9:00".into())), ["Status: Done", "Started: 9:00", "Steps: 0"]);
-        assert_eq!(shown(&facts(&call(ToolStatus::Running, None), &quiet, 16_000, |_| "9:00".into())), ["Status: Working", "Started: 9:00", "Duration: 15s", "Steps: 0"]);
+        assert_eq!(
+            shown(&facts(&call(ToolStatus::Running, None), &quiet, 16_000, |_| "9:00".into())),
+            ["Status: Working", "Started: 9:00", "Duration: 15s", "Steps: 0"]
+        );
     }
 
     #[test]

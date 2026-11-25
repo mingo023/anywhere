@@ -145,7 +145,19 @@ fn card(title: String, branch: String, pr: Option<&Pr>, when: Option<String>) ->
             .text_color(TEXT_BODY)
             .child(icon(name, 13., color))
             .child(div().font_family(MONO).child(format!("#{}", pr.number)))
-            .child(div().h(px(20.)).px(px(7.)).flex().items_center().rounded(px(6.)).bg(bg).text_size(px(11.)).font_weight(FontWeight::MEDIUM).text_color(fg).child(detail(pr)))
+            .child(
+                div()
+                    .h(px(20.))
+                    .px(px(7.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(6.))
+                    .bg(bg)
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(fg)
+                    .child(detail(pr)),
+            )
     });
     ui::pop(div())
         .w(px(260.))
@@ -166,8 +178,14 @@ fn card(title: String, branch: String, pr: Option<&Pr>, when: Option<String>) ->
 pub(crate) fn hung(title: String, branch: String, pr: Option<&Pr>, when: Option<String>, fades: bool, slide: Option<(f32, usize)>) -> Div {
     let card = card(title, branch, pr, when);
     let card = match (fades, slide) {
-        (true, _) => card.with_animation("aside-tree-card-in", Animation::new(Duration::from_millis(140)).with_easing(ease_out_quint()), |c, t| c.opacity(t)).into_any_element(),
-        (false, Some((dy, swap))) => card.with_animation(("aside-tree-card-slide", swap), Animation::new(Duration::from_millis(120)).with_easing(ease_out_quint()), move |c, t| c.mt(px(dy * (1. - t)))).into_any_element(),
+        (true, _) => card
+            .with_animation("aside-tree-card-in", Animation::new(Duration::from_millis(140)).with_easing(ease_out_quint()), |c, t| c.opacity(t))
+            .into_any_element(),
+        (false, Some((dy, swap))) => card
+            .with_animation(("aside-tree-card-slide", swap), Animation::new(Duration::from_millis(120)).with_easing(ease_out_quint()), move |c, t| {
+                c.mt(px(dy * (1. - t)))
+            })
+            .into_any_element(),
         (false, None) => card.into_any_element(),
     };
     div().absolute().top(px(-6.)).right(px(-16.)).child(deferred(anchored().snap_to_window_with_margin(px(8.)).child(card)).with_priority(1))

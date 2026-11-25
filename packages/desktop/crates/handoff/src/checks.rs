@@ -15,10 +15,17 @@ pub struct Wanted<'a> {
 /// One thing the host lacks, with the command that fixes it there.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Problem {
-    NoProject { repo: String, origin: Option<String> },
-    NotSignedIn { provider: String },
+    NoProject {
+        repo: String,
+        origin: Option<String>,
+    },
+    NotSignedIn {
+        provider: String,
+    },
     /// The branch is on the host with commits this Mac lacks, or checked out there.
-    BranchTaken { branch: String },
+    BranchTaken {
+        branch: String,
+    },
     /// The host's pocketd didn't answer.
     Offline,
 }

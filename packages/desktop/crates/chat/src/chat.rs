@@ -13,12 +13,15 @@ mod session;
 mod spawned;
 mod timeline;
 
-pub use adapter::{capabilities, for_provider, Backend, Capabilities};
+pub use adapter::{Backend, Capabilities, capabilities, for_provider};
 pub use answers::answers;
-pub use commands::{menu, skips_queue, slash, Builtin, Kind, Local, Slash};
-pub use marks::{code, marks, marks_outside_code, mention_name, Code, Marks};
-pub use outgoing::{action, busy, Action, Delivery, Outgoing, Pending};
-pub use rows::{at_work, at_work_on, fold_of, folded, in_background, is_work, live_tail, markdown_blocks, narrates, phase_title, reply, reported, row_of, rows, running_agent, settled_tail, splice, step_prompt, top_gap, worked, Row, Span};
+pub use commands::{Builtin, Kind, Local, Slash, menu, skips_queue, slash};
+pub use marks::{Code, Marks, code, marks, marks_outside_code, mention_name};
+pub use outgoing::{Action, Delivery, Outgoing, Pending, action, busy};
+pub use rows::{
+    Row, Span, at_work, at_work_on, fold_of, folded, in_background, is_work, live_tail, markdown_blocks, narrates, phase_title, reply, reported, row_of, rows,
+    running_agent, settled_tail, splice, step_prompt, top_gap, worked,
+};
 pub use session::{Folds, Session};
 pub use spawned::{Spawned, spawned};
 pub use timeline::Fold;
@@ -54,16 +57,29 @@ pub enum Block {
     Text(Message),
     Thinking(Message),
     Tool(ToolCall),
-    Todos { id: String, todos: Vec<Todo> },
+    Todos {
+        id: String,
+        todos: Vec<Todo>,
+    },
     /// A plan-mode plan, markdown.
     Plan(Message),
-    Compacted { id: String, auto: bool },
+    Compacted {
+        id: String,
+        auto: bool,
+    },
     /// Why the agent went on without a prompt, as "Stop hook: tests fail", or an `error` it went on after.
-    Notice { message: Message, error: bool },
+    Notice {
+        message: Message,
+        error: bool,
+    },
     /// What pocketd told the chat of the sessions it delegated to.
     Delivered(Delivered),
     /// An agent asks the user to add a host, `hint` naming it.
-    HostLink { id: String, hint: String, reason: String },
+    HostLink {
+        id: String,
+        hint: String,
+        reason: String,
+    },
 }
 
 /// One delivery: how the sessions in it ended, or what one asks.
@@ -115,16 +131,34 @@ pub enum ToolStatus {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToolKind {
     /// `description` is what the agent said the command does, when it said.
-    Shell { command: String, description: String },
-    Read { path: String },
-    Edit { path: String, diff: Option<Diff> },
-    Write { path: String, diff: Option<Diff> },
-    Search { query: String },
-    Fetch { url: String },
+    Shell {
+        command: String,
+        description: String,
+    },
+    Read {
+        path: String,
+    },
+    Edit {
+        path: String,
+        diff: Option<Diff>,
+    },
+    Write {
+        path: String,
+        diff: Option<Diff>,
+    },
+    Search {
+        query: String,
+    },
+    Fetch {
+        url: String,
+    },
     Question(Vec<Question>),
     Agent(SubAgent),
     /// Any other tool; `input` is its JSON input, pretty-printed, and `description` what it is about in words, when known.
-    Other { input: String, description: String },
+    Other {
+        input: String,
+        description: String,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -218,6 +252,12 @@ pub enum Command {
     Compact,
     Allow(String),
     Deny(String),
-    Reply { request: String, text: String },
-    Answer { request: String, answers: std::collections::HashMap<String, String> },
+    Reply {
+        request: String,
+        text: String,
+    },
+    Answer {
+        request: String,
+        answers: std::collections::HashMap<String, String>,
+    },
 }

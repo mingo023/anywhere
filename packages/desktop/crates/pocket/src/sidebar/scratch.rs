@@ -31,15 +31,23 @@ impl Desktop {
         let query = self.sidebar.filter.query(cx);
         let filtering = !query.is_empty();
         let space = self.space();
-        let rows: Vec<String> = self.store.scratches().into_iter().filter(|p| space_of(p) == space && (!filtering || matches(&self.place_name(p), &query))).collect();
-        let loose: Vec<String> = self.loose_folders(&space).into_iter().filter(|p| !filtering || matches(&thread_title(&self.cards(p)), &query) || matches(p, &query)).collect();
+        let rows: Vec<String> =
+            self.store.scratches().into_iter().filter(|p| space_of(p) == space && (!filtering || matches(&self.place_name(p), &query))).collect();
+        let loose: Vec<String> =
+            self.loose_folders(&space).into_iter().filter(|p| !filtering || matches(&thread_title(&self.cards(p)), &query) || matches(p, &query)).collect();
         let rows: Vec<String> = rows.into_iter().chain(loose.iter().cloned()).collect();
         if filtering && rows.is_empty() {
             return None;
         }
         let open = filtering || !self.store.scratch_folded;
-        let roll = (!open).then(|| ui::indicator(id("aside-scratch-roll".to_string()), rolled_state(&rows.iter().flat_map(|p| self.cards(p)).collect::<Vec<_>>()))).flatten();
-        let chevron = div().when(open, |d| d.invisible().group_hover(HEAD, |s| s.visible())).child(icon(if open { "chevron-down" } else { "chevron-right" }, 11., TEXT_4));
+        let roll = (!open)
+            .then(|| ui::indicator(id("aside-scratch-roll".to_string()), rolled_state(&rows.iter().flat_map(|p| self.cards(p)).collect::<Vec<_>>())))
+            .flatten();
+        let chevron = div().when(open, |d| d.invisible().group_hover(HEAD, |s| s.visible())).child(icon(
+            if open { "chevron-down" } else { "chevron-right" },
+            11.,
+            TEXT_4,
+        ));
         let toggle = div()
             .id(HEAD)
             .group(HEAD)
@@ -65,12 +73,17 @@ impl Desktop {
                 this.store.save();
                 cx.notify();
             }));
-        let new = icon_button_sized("aside-scratch-new", "plus", 22., TEXT_3).rounded(px(6.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_session_without_project(window, cx)));
+        let new = icon_button_sized("aside-scratch-new", "plus", 22., TEXT_3)
+            .rounded(px(6.))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_session_without_project(window, cx)));
         let head = section_head().pl(px(6.)).child(toggle).child(new);
         let height = fold::stacked(rows.iter().map(|_| ui::SIDEBAR_ROW_H), 1.).min(ui::SIDEBAR_ROW_H * MAX_ROWS);
         let current = self.place().filter(|_| self.screen == Screen::Sessions && self.project.as_deref().is_some_and(|p| rows.iter().any(|r| r == p)));
         let drawn: Vec<AnyElement> = if self.sidebar.closing.drawn(&Fold::Scratch, open) {
-            rows.iter().enumerate().map(|(ix, p)| if loose.contains(p) { self.loose_row(p, current.as_deref(), cx) } else { self.scratch_row(ix, p, current.as_deref(), cx) }).collect()
+            rows.iter()
+                .enumerate()
+                .map(|(ix, p)| if loose.contains(p) { self.loose_row(p, current.as_deref(), cx) } else { self.scratch_row(ix, p, current.as_deref(), cx) })
+                .collect()
         } else {
             vec![]
         };
@@ -82,7 +95,11 @@ impl Desktop {
         let cards = self.cards(path);
         let (selected, state) = (current == Some(path), rolled_state(&cards));
         let mark = ui::indicator(id(format!("aside-spin:{path}")), state);
-        let label = with_sub(done_name(row_name(&self.renames, path, thread_title(&cards), state, selected, cx.reduce_motion()), state), Some(short_folder(&tilde(path))), false);
+        let label = with_sub(
+            done_name(row_name(&self.renames, path, thread_title(&cards), state, selected, cx.reduce_motion()), state),
+            Some(short_folder(&tilde(path))),
+            false,
+        );
         let key = path.to_string();
         ui::worktree_row(id(format!("aside-tree:{path}")), "terminal", label, selected, mark)
             .pl(px(6.))
@@ -136,7 +153,13 @@ impl Desktop {
         cx.background_executor().spawn(async move {
             let host = hosts::remote::connected(&id).ok_or_else(|| git::NotConnected::error().to_string())?;
             let root = project::scratch::root(&host.home().map_err(|e| e.to_string())?);
-            let path = project::scratch::create_on(&git::Runner::Remote(host.clone()), &root, seed, |p, parents| host.mkdir(p, parents), |p| _ = host.remove(p, true))?;
+            let path = project::scratch::create_on(
+                &git::Runner::Remote(host.clone()),
+                &root,
+                seed,
+                |p, parents| host.mkdir(p, parents),
+                |p| _ = host.remove(p, true),
+            )?;
             Ok(host.key(&path))
         })
     }
@@ -148,7 +171,8 @@ impl Desktop {
         // pocketd starts sessions only in folders it lists.
         self.publish_registry();
         // Its row needs this now; `refresh_git` lists it two seconds from now.
-        self.worktrees.insert(path.to_string(), vec![git::Worktree { path: path.to_string(), branch: git::INIT_BRANCH.into(), main: true, made: false, created: None }]);
+        self.worktrees
+            .insert(path.to_string(), vec![git::Worktree { path: path.to_string(), branch: git::INIT_BRANCH.into(), main: true, made: false, created: None }]);
     }
 
     /// Deletes a folder with nothing to lose straight away, and asks about any other.

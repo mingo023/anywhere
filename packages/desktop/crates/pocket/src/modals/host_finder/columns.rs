@@ -78,7 +78,9 @@ impl Desktop {
                                         .when(row.ignored, |d| d.opacity(0.5))
                                         .child(icon(if row.dir { "folder" } else { "file" }, 14., TEXT_3))
                                         .child(div().flex_1().min_w_0().truncate().child(row.name.clone()))
-                                        .when(project, |d| d.child(div().px(px(5.)).rounded(px(4.)).bg(FILL_3).text_size(px(10.5)).text_color(TEXT_3).child("Project")))
+                                        .when(project, |d| {
+                                            d.child(div().px(px(5.)).rounded(px(4.)).bg(FILL_3).text_size(px(10.5)).text_color(TEXT_3).child("Project"))
+                                        })
                                         .when(row.dir, |d| d.child(icon("chevron-right", 12., TEXT_4))),
                                 )
                                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.finder_select(column.clone(), name.clone(), cx)))

@@ -131,7 +131,8 @@ pub fn model_name(model: &str) -> String {
     let id = id.rsplit_once(':').filter(|(_, m)| !number(m)).map_or(id, |(_, m)| m);
     let (id, window) = id.find('[').map_or((id, ""), |at| id.split_at(at));
     // Bedrock leads with where and who, as "us.anthropic."; the dot of a version, as "v3.2", has no two letters after it.
-    let id = id.rmatch_indices('.').map(|(at, _)| &id[at + 1..]).find(|rest| rest.len() > 1 && rest.bytes().take(2).all(|b| b.is_ascii_alphabetic())).unwrap_or(id);
+    let id =
+        id.rmatch_indices('.').map(|(at, _)| &id[at + 1..]).find(|rest| rest.len() > 1 && rest.bytes().take(2).all(|b| b.is_ascii_alphabetic())).unwrap_or(id);
     let mut name = String::new();
     let mut after_number = false;
     for word in id.strip_prefix("claude-").unwrap_or(id).split('-').filter(|w| !w.is_empty() && !(w.len() >= 8 && number(w))) {
@@ -205,8 +206,22 @@ mod tests {
 
     #[test]
     fn a_model_reads_without_who_serves_it_its_date_or_its_dashes() {
-        let names = ["openai-codex/gpt-5.4", "opencode/big-pickle", "anthropic/claude-sonnet-4-5", "openai-codex:gpt-6-sol", "zai/glm-5.2-fast", "composer-2.5", "gemini-3.8-flash-high", "claude-3-5-sonnet-20241022", "haiku", ""];
-        assert_eq!(names.map(model_name), ["GPT 5.4", "Big Pickle", "Sonnet 4.5", "GPT 6 Sol", "GLM 5.2 Fast", "Composer 2.5", "Gemini 3.8 Flash High", "3.5 Sonnet", "Haiku", ""]);
+        let names = [
+            "openai-codex/gpt-5.4",
+            "opencode/big-pickle",
+            "anthropic/claude-sonnet-4-5",
+            "openai-codex:gpt-6-sol",
+            "zai/glm-5.2-fast",
+            "composer-2.5",
+            "gemini-3.8-flash-high",
+            "claude-3-5-sonnet-20241022",
+            "haiku",
+            "",
+        ];
+        assert_eq!(
+            names.map(model_name),
+            ["GPT 5.4", "Big Pickle", "Sonnet 4.5", "GPT 6 Sol", "GLM 5.2 Fast", "Composer 2.5", "Gemini 3.8 Flash High", "3.5 Sonnet", "Haiku", ""]
+        );
         assert_eq!(model_label(&summary("pi", Some("deepseek/deepseek-v4-pro"))), "Deepseek V4 Pro");
     }
 
@@ -228,7 +243,10 @@ mod tests {
             "amazon-bedrock/moonshotai.kimi-k2.5",
             "amazon-bedrock/qwen.qwen3-32b-v1:0",
         ];
-        assert_eq!(names.map(model_name), ["Opus 5.5", "Sonnet 4.5 V1:0", "Haiku 4.5 V1:0", "Nova Lite V1:0", "GPT Oss 120B 1:0", "GPT 6.1 Sol", "Kimi K2.5", "Qwen3 32B V1:0"]);
+        assert_eq!(
+            names.map(model_name),
+            ["Opus 5.5", "Sonnet 4.5 V1:0", "Haiku 4.5 V1:0", "Nova Lite V1:0", "GPT Oss 120B 1:0", "GPT 6.1 Sol", "Kimi K2.5", "Qwen3 32B V1:0"]
+        );
     }
 
     #[test]
@@ -284,7 +302,10 @@ mod tests {
     #[test]
     fn level_is_low_at_74_warn_at_75_and_89_danger_at_90() {
         let at = |used| level(used, 200_000, 75, 90);
-        assert_eq!([at(148_000), at(149_998), at(150_000), at(179_998), at(180_000), at(400_000)], [Level::Low, Level::Low, Level::Warn, Level::Warn, Level::Danger, Level::Danger]);
+        assert_eq!(
+            [at(148_000), at(149_998), at(150_000), at(179_998), at(180_000), at(400_000)],
+            [Level::Low, Level::Low, Level::Warn, Level::Warn, Level::Danger, Level::Danger]
+        );
     }
 
     #[test]
@@ -314,7 +335,8 @@ mod tests {
 
     #[test]
     fn a_summary_without_restore_decodes() {
-        let f: Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/agent_update_restore_cleared.json")).unwrap();
+        let f: Frame =
+            serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/agent_update_restore_cleared.json")).unwrap();
         assert_eq!(f.agent.unwrap().restore, "");
         let a: Summary = serde_json::from_value(json!({"id": "a1", "restore": "interrupted"})).unwrap();
         assert_eq!(a.restore, "interrupted");

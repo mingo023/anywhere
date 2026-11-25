@@ -29,7 +29,11 @@ impl PrRef {
         let mut parts = rest.trim_start_matches("www.").split(['/', '#', '?']);
         let (host, owner, repo, pull, n) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?, parts.next()?);
         let number = n.parse().ok().filter(|_| n.bytes().all(|b| b.is_ascii_digit()))?;
-        (host.eq_ignore_ascii_case("github.com") && pull == "pull" && !owner.is_empty() && !repo.is_empty()).then(|| Self { owner: owner.into(), repo: repo.into(), number })
+        (host.eq_ignore_ascii_case("github.com") && pull == "pull" && !owner.is_empty() && !repo.is_empty()).then(|| Self {
+            owner: owner.into(),
+            repo: repo.into(),
+            number,
+        })
     }
 
     /// GitHub names are case-insensitive.
@@ -69,7 +73,8 @@ fn fix_offer(pr: &Pr, fixing: Option<&Sent>, here: bool, can_send: bool) -> Opti
         return None;
     }
     let (checks, threads) = to_fix(pr, fixing);
-    (!checks.is_empty() || !threads.is_empty()).then(|| Fix { checks: checks.iter().map(|c| c.name.clone()).collect(), threads: threads.iter().map(|t| t.id.clone()).collect() })
+    (!checks.is_empty() || !threads.is_empty())
+        .then(|| Fix { checks: checks.iter().map(|c| c.name.clone()).collect(), threads: threads.iter().map(|t| t.id.clone()).collect() })
 }
 
 /// A PR a chat message links to, as one of the worktrees knows it.
@@ -197,7 +202,13 @@ mod tests {
     fn a_github_pull_request_url_names_its_repo_and_number() {
         assert_eq!(at("https://github.com/Mingo023/Anywhere/pull/198"), Some(("Mingo023".into(), "Anywhere".into(), 198)));
         assert_eq!(at("https://www.github.com/o/r/pull/7/files#diff-1"), Some(("o".into(), "r".into(), 7)));
-        for url in ["https://github.com/o/r/issues/7", "https://github.com/o/r/pull/", "https://gitlab.com/o/r/pull/7", "https://github.com/o/r/pull/7a", "github.com/o/r/pull/7"] {
+        for url in [
+            "https://github.com/o/r/issues/7",
+            "https://github.com/o/r/pull/",
+            "https://gitlab.com/o/r/pull/7",
+            "https://github.com/o/r/pull/7a",
+            "github.com/o/r/pull/7",
+        ] {
             assert_eq!(at(url), None, "{url}");
         }
     }

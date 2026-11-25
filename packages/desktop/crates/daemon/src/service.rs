@@ -4,10 +4,10 @@
 #[cfg(not(target_os = "macos"))]
 mod bundled;
 
-#[cfg(not(target_os = "macos"))]
-pub use bundled::{bundle_version, open_at_login, open_login_items, register, restart, status};
 #[cfg(windows)]
 pub use bundled::own_token;
+#[cfg(not(target_os = "macos"))]
+pub use bundled::{bundle_version, open_at_login, open_login_items, register, restart, status};
 
 /// What macOS reports for the bundled agent (`SMAppServiceStatus`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,11 +78,7 @@ pub fn restart() -> Result<(), String> {
 
 /// Whether opening at login must register (`Some(true)`) or unregister the app, given what macOS reports. One the user switched off in Login Items stays off.
 pub fn login_step(want: bool, s: Service) -> Option<bool> {
-    if want {
-        should_register(s).then_some(true)
-    } else {
-        (s == Service::Enabled).then_some(false)
-    }
+    if want { should_register(s).then_some(true) } else { (s == Service::Enabled).then_some(false) }
 }
 
 /// Makes the app itself open at login, or not. Blocks on launchd; keep it off the UI thread.
@@ -127,8 +123,12 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("bundle-version-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let plist = dir.join("Info.plist");
-        std::fs::write(&plist, r#"<?xml version="1.0" encoding="UTF-8"?>
-<plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>0.1.61</string></dict></plist>"#).unwrap();
+        std::fs::write(
+            &plist,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>0.1.61</string></dict></plist>"#,
+        )
+        .unwrap();
         let read = plist_version(&plist);
         let missing = plist_version(&dir.join("gone.plist"));
         std::fs::remove_dir_all(&dir).unwrap();

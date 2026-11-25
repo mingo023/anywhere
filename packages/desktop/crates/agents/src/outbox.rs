@@ -1,10 +1,13 @@
+use crate::McpAction;
 use crate::automations::AutomationDraft;
 use crate::hosts;
-use crate::ids::{BTW, COMMANDS, CREATE, DELEGATIONS, INTERRUPT, MCP, MCP_ACT, NEXT, PAIR, PROMPT, QUEUE, REMOTE_CONTROL, SETTINGS, auto_id, board_id, host_id, queue_id, registry_id, request_id};
+use crate::ids::{
+    BTW, COMMANDS, CREATE, DELEGATIONS, INTERRUPT, MCP, MCP_ACT, NEXT, PAIR, PROMPT, QUEUE, REMOTE_CONTROL, SETTINGS, auto_id, board_id, host_id, queue_id,
+    registry_id, request_id,
+};
 use crate::locals::Local;
 use crate::registry::Shared;
 use crate::tickets::{self, TicketDraft};
-use crate::McpAction;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
@@ -417,7 +420,10 @@ mod tests {
         out.automation_delete("au1");
         out.automation_run("au1");
         let sent: Vec<Value> = rx.try_iter().collect();
-        assert_eq!(sent[0]["automation"], json!({"name": "Morning review", "prompt": "Review new PRs", "provider": "claude", "folder": "/app", "schedule": {"kind": "interval", "everyMin": 60}, "enabled": true}));
+        assert_eq!(
+            sent[0]["automation"],
+            json!({"name": "Morning review", "prompt": "Review new PRs", "provider": "claude", "folder": "/app", "schedule": {"kind": "interval", "everyMin": 60}, "enabled": true})
+        );
         let ids: Vec<&str> = sent.iter().map(|m| m["id"].as_str().unwrap()).collect();
         assert!(ids.iter().all(|id| id.starts_with("auto-")) && ids.iter().collect::<std::collections::HashSet<_>>().len() == 4);
         assert_eq!((&sent[1]["type"], &sent[1]["automationId"], &sent[1]["enabled"]), (&json!("automation.enable"), &json!("au1"), &json!(false)));
@@ -429,7 +435,19 @@ mod tests {
     fn board_messages_carry_a_board_request_id() {
         let (tx, rx) = channel();
         let out = Outbox(tx);
-        out.board_save(tickets::TicketDraft { id: None, title: "T".into(), prompt: "P".into(), provider: "claude".into(), folder: "/app".into(), base: String::new(), priority: 0, labels: Vec::new() }, true);
+        out.board_save(
+            tickets::TicketDraft {
+                id: None,
+                title: "T".into(),
+                prompt: "P".into(),
+                provider: "claude".into(),
+                folder: "/app".into(),
+                base: String::new(),
+                priority: 0,
+                labels: Vec::new(),
+            },
+            true,
+        );
         out.board_start("t1");
         out.board_move("t1", tickets::State::Todo, None);
         out.board_limit(3);
@@ -470,9 +488,12 @@ mod tests {
 
     #[test]
     fn prompt_sends_the_golden_agent_prompt_frame_but_its_id() {
-        assert_eq!(sent_but_id(|o| {
-            o.prompt("a1", "hi");
-        }), without_id(golden!("client/agent_prompt.json")));
+        assert_eq!(
+            sent_but_id(|o| {
+                o.prompt("a1", "hi");
+            }),
+            without_id(golden!("client/agent_prompt.json"))
+        );
     }
 
     #[test]

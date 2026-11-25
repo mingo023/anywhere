@@ -145,7 +145,11 @@ mod tests {
     fn an_acp_agent_runs_the_pickers_itself_and_sends_the_commands_it_lists() {
         for provider in ["cursor", "grok", "opencode", "fx", "hermes", "antigravity"] {
             let acp = for_provider(provider);
-            assert_eq!((acp.command("model", ""), acp.command("effort", "high"), acp.command("new", "")), (Kind::Local(Local::Model), Kind::Local(Local::Effort), Kind::Local(Local::New)), "{provider}");
+            assert_eq!(
+                (acp.command("model", ""), acp.command("effort", "high"), acp.command("new", "")),
+                (Kind::Local(Local::Model), Kind::Local(Local::Effort), Kind::Local(Local::New)),
+                "{provider}"
+            );
             assert_eq!((acp.command("compress", ""), acp.command("mcp", "")), (Kind::Send, Kind::Send), "{provider}");
         }
         let rows = menu(for_provider("hermes"), &listed(&["help", "model", "compress"]), "");
@@ -158,7 +162,11 @@ mod tests {
         let terminal = [Kind::Unsupported; 5];
         assert_eq!(kinds("opencode", ["themes", "sessions", "clear", "undo", "export"]), terminal);
         assert_eq!(kinds("hermes", ["skin", "clear", "quit", "snap", "toolsets"]), terminal);
-        assert_eq!(kinds("opencode", ["init", "review", "skin", "snap", "toolsets"]), [Kind::Send; 5], "OpenCode's ACP server lists these, and Hermes's list is not its own");
+        assert_eq!(
+            kinds("opencode", ["init", "review", "skin", "snap", "toolsets"]),
+            [Kind::Send; 5],
+            "OpenCode's ACP server lists these, and Hermes's list is not its own"
+        );
         assert_eq!(kinds("hermes", ["tools", "compress", "help", "sessions", "undo"]), [Kind::Send; 5]);
         for provider in ["cursor", "grok", "fx", "antigravity"] {
             assert_eq!(kinds(provider, ["themes", "sessions", "clear", "skin", "quit"]), [Kind::Send; 5], "{provider}");
@@ -184,7 +192,11 @@ mod tests {
         for provider in ["pi", "omp"] {
             let pi = for_provider(provider);
             assert_eq!((pi.command("thinking", "high"), pi.command("effort", "")), (Kind::Local(Local::Effort), Kind::Local(Local::Effort)), "{provider}");
-            assert_eq!((pi.command("compact", "keep the plan"), pi.command("model", "")), (Kind::Local(Local::Compact), Kind::Local(Local::Model)), "{provider}");
+            assert_eq!(
+                (pi.command("compact", "keep the plan"), pi.command("model", "")),
+                (Kind::Local(Local::Compact), Kind::Local(Local::Model)),
+                "{provider}"
+            );
             assert_eq!(pi.command("skill:review", ""), Kind::Send, "{provider}");
         }
     }

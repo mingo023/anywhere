@@ -70,16 +70,12 @@ impl Desktop {
             closable: self.terminals.may_close(pane, observe),
             owns_screen: term.is_some_and(|t| t.alt_screen()) || self.summary(pane).is_some(),
         };
-        let mut menu = ui::pop(div().id("term-menu"))
-            .w(px(200.))
-            .p(px(6.))
-            .flex()
-            .flex_col()
-            .occlude()
-            .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+        let mut menu = ui::pop(div().id("term-menu")).w(px(200.)).p(px(6.)).flex().flex_col().occlude().on_mouse_down_out(cx.listener(
+            |this, _: &MouseDownEvent, _, cx| {
                 this.terminal.menu = None;
                 cx.notify();
-            }));
+            },
+        ));
         let mut prev = None;
         for item in items(facts) {
             if prev.is_some_and(|p| p != group(item)) {

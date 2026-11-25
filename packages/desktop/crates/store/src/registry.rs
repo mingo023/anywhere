@@ -139,7 +139,11 @@ impl Store {
         }
         let projects: Vec<(String, RepoConfig)> = cached.projects.into_iter().filter(|(p, _)| !list.projects.iter().any(|l| l.path == *p)).collect();
         let tracked: Vec<String> = cached.tracked.into_iter().filter(|t| !list.tracked.contains(t)).collect();
-        list.projects.extend(projects.iter().map(|(path, repo)| Project { id: String::new(), path: path.clone(), repo: serde_json::to_value(repo).unwrap_or_default() }));
+        list.projects.extend(projects.iter().map(|(path, repo)| Project {
+            id: String::new(),
+            path: path.clone(),
+            repo: serde_json::to_value(repo).unwrap_or_default(),
+        }));
         list.tracked.extend(tracked.iter().cloned());
         projects.into_iter().map(|(path, repo)| Change::Add(path, repo)).chain(set).chain(tracked.into_iter().map(|t| Change::Track(t, true))).collect()
     }
@@ -175,7 +179,11 @@ mod tests {
     #[test]
     fn a_list_replaces_its_projects_settings_and_keeps_the_cached_ones_it_cannot_read() {
         let named = |name: &str| RepoConfig { name: name.into(), ..RepoConfig::default() };
-        let mut s = Store { projects: ["/a", "/b"].map(String::from).to_vec(), repos: [("/a".to_string(), named("Old")), ("/b".to_string(), named("Kept"))].into(), ..Store::default() };
+        let mut s = Store {
+            projects: ["/a", "/b"].map(String::from).to_vec(),
+            repos: [("/a".to_string(), named("Old")), ("/b".to_string(), named("Kept"))].into(),
+            ..Store::default()
+        };
         let repo = json!({"name": "App", "setup": "make", "launch": {"provider": "claude", "model": "opus"}});
         s.apply_registry(None, &List { projects: vec![project("p1", "/a", repo), project("p2", "/b", json!(null))], ..List::default() });
         assert_eq!((s.repos["/a"].name.as_str(), s.repos["/a"].setup.as_str(), s.repos["/a"].launch.model.as_str()), ("App", "make", "opus"));
@@ -184,7 +192,11 @@ mod tests {
 
     #[test]
     fn a_hosts_list_leaves_this_macs_projects_alone_and_this_macs_leaves_the_hosts() {
-        let mut s = Store { projects: ["/a", "//devbox/home/me/x", "/b"].map(String::from).to_vec(), tracked: ["/w/a-fox", "//devbox/home/me/w/x-fox"].map(String::from).into(), ..Store::default() };
+        let mut s = Store {
+            projects: ["/a", "//devbox/home/me/x", "/b"].map(String::from).to_vec(),
+            tracked: ["/w/a-fox", "//devbox/home/me/w/x-fox"].map(String::from).into(),
+            ..Store::default()
+        };
         let mut there = list(&[("h1", "//devbox/home/me/y")]);
         there.tracked = vec!["//devbox/home/me/w/y-owl".into()];
         s.apply_registry(Some("devbox"), &there);
@@ -200,11 +212,19 @@ mod tests {
     fn only_this_macs_list_sets_the_shared_settings_and_a_null_commit_all_is_on() {
         let mut s = Store { git: crate::prefs::Git { commit_all: false, ..Default::default() }, ..Store::default() };
         let mut there = list(&[]);
-        there.settings = Shared { git: SharedGit { remote: "fork".into(), commit_all: Some(false), force_with_lease: true }, access: "full".into(), worktree_root: "/w".into(), external_worktrees: true };
+        there.settings = Shared {
+            git: SharedGit { remote: "fork".into(), commit_all: Some(false), force_with_lease: true },
+            access: "full".into(),
+            worktree_root: "/w".into(),
+            external_worktrees: true,
+        };
         s.apply_registry(Some("devbox"), &there);
         assert_eq!((s.git.remote.as_str(), s.git.force_with_lease, s.worktree.root.as_str()), ("origin", false, ""));
         s.apply_registry(None, &there);
-        assert_eq!((s.git.remote.as_str(), s.git.commit_all, s.git.force_with_lease, s.agents.access.as_str(), s.worktree.root.as_str(), s.sidebar.external_worktrees), ("fork", false, true, "full", "/w", true));
+        assert_eq!(
+            (s.git.remote.as_str(), s.git.commit_all, s.git.force_with_lease, s.agents.access.as_str(), s.worktree.root.as_str(), s.sidebar.external_worktrees),
+            ("fork", false, true, "full", "/w", true)
+        );
         s.apply_registry(None, &list(&[]));
         assert_eq!((s.git.remote.as_str(), s.git.commit_all), ("origin", true));
         assert_eq!(s.registry(None).settings, Some(s.shared()));
@@ -221,7 +241,13 @@ mod tests {
         };
         let mut first = list(&[("h2", "//devbox/home/me/y")]);
         let pushed = s.adopt_cached("devbox", &mut first);
-        assert_eq!(pushed, [Change::Add("//devbox/home/me/x".into(), RepoConfig { setup: "make".into(), ..RepoConfig::default() }), Change::Track("//devbox/home/me/w/x-fox".into(), true)]);
+        assert_eq!(
+            pushed,
+            [
+                Change::Add("//devbox/home/me/x".into(), RepoConfig { setup: "make".into(), ..RepoConfig::default() }),
+                Change::Track("//devbox/home/me/w/x-fox".into(), true)
+            ]
+        );
         s.apply_registry(Some("devbox"), &first);
         assert_eq!(s.projects, ["//devbox/home/me/x", "/a", "//devbox/home/me/y"]);
         assert_eq!(s.repos["//devbox/home/me/x"].setup, "make");
@@ -272,7 +298,14 @@ mod tests {
         let b = RepoConfig { dev_url: "http://localhost:3000".into(), ..RepoConfig::default() };
         assert_eq!(
             changes(&before, &s.registry(None)),
-            [Change::Set("/b".into(), b), Change::Add("/c".into(), RepoConfig::default()), Change::Remove("/a".into()), Change::Track("/w/b-owl".into(), true), Change::Track("/w/a-fox".into(), false), Change::Settings(s.shared())]
+            [
+                Change::Set("/b".into(), b),
+                Change::Add("/c".into(), RepoConfig::default()),
+                Change::Remove("/a".into()),
+                Change::Track("/w/b-owl".into(), true),
+                Change::Track("/w/a-fox".into(), false),
+                Change::Settings(s.shared())
+            ]
         );
     }
 }

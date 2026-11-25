@@ -18,26 +18,30 @@ impl Desktop {
         let title = self.agents.get(&n.agent).map(|a| a.title.clone()).unwrap_or_default();
         let secs = (now_ms() - n.at).max(0) / 1000;
         let agent = n.agent.clone();
-        let header = drag_area(div())
-            .h(px(52.))
-            .flex_none()
-            .pl(px(20.))
-            .pr(px(20.))
-            .flex()
-            .items_center()
-            .gap(px(10.))
-            .text_size(px(14.))
-            .child(ui::repo_mark(&self.project_mark(&path, ui::mark_letter(&project)), false, None))
-            .child(div().text_color(TEXT_2).child(project))
-            .child(div().text_color(TEXT_6).child("/"))
-            .child(div().truncate().font_weight(FontWeight::SEMIBOLD).child(title))
-            .when(n.status == Status::NeedsYou, |d| {
-                d.child(ui::status("needs-you", State::NeedsYou)).child(div().font_family(MONO).text_size(px(11.5)).text_color(WAITING_TEXT).child(format!("{}:{:02}", secs / 60, secs % 60)))
-            })
-            .child(div().flex_1())
-            .child(ui::button("open-session", Variant::Secondary, None, "Open session").child(icon("forward", 14., TEXT)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.focus_agent(&agent, window, cx)
-            })));
+        let header =
+            drag_area(div())
+                .h(px(52.))
+                .flex_none()
+                .pl(px(20.))
+                .pr(px(20.))
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .text_size(px(14.))
+                .child(ui::repo_mark(&self.project_mark(&path, ui::mark_letter(&project)), false, None))
+                .child(div().text_color(TEXT_2).child(project))
+                .child(div().text_color(TEXT_6).child("/"))
+                .child(div().truncate().font_weight(FontWeight::SEMIBOLD).child(title))
+                .when(n.status == Status::NeedsYou, |d| {
+                    d.child(ui::status("needs-you", State::NeedsYou))
+                        .child(div().font_family(MONO).text_size(px(11.5)).text_color(WAITING_TEXT).child(format!("{}:{:02}", secs / 60, secs % 60)))
+                })
+                .child(div().flex_1())
+                .child(
+                    ui::button("open-session", Variant::Secondary, None, "Open session")
+                        .child(icon("forward", 14., TEXT))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.focus_agent(&agent, window, cx))),
+                );
         let chat = self.chat_shown(&n.terminal);
         let pane = if chat { self.chat_view(&n.terminal, window, cx) } else { self.pane(&n.terminal, &surface::Metrics::of(&self.store.terminal), cx) };
         let hints = div()
@@ -61,7 +65,19 @@ impl Desktop {
             .flex()
             .flex_col()
             .child(header)
-            .child(div().flex_1().min_h_0().px(px(10.)).pt(px(10.)).flex().flex_col().key_context(keys::CONTEXT).track_focus(&self.terminal.focus).on_key_down(cx.listener(Self::on_term_key)).child(pane))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .px(px(10.))
+                    .pt(px(10.))
+                    .flex()
+                    .flex_col()
+                    .key_context(keys::CONTEXT)
+                    .track_focus(&self.terminal.focus)
+                    .on_key_down(cx.listener(Self::on_term_key))
+                    .child(pane),
+            )
             .child(hints)
     }
 }

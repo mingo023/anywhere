@@ -63,8 +63,16 @@ impl Desktop {
         let link = space.host().and_then(|id| self.fleet.hosts.links.get(id));
         let renaming = self.spaces.rename.as_ref().filter(|r| space.host() == Some(r.id.as_str()));
         let name = match renaming {
-            Some(r) => div().flex_1().min_w_0().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(Input::new(&r.input).appearance(false).p_0().text_size(px(14.))),
-            None => div().min_w_0().max_w(px(120.)).truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(self.space_name(space)),
+            Some(r) => div()
+                .flex_1()
+                .min_w_0()
+                .text_size(px(14.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(TEXT)
+                .child(Input::new(&r.input).appearance(false).p_0().text_size(px(14.))),
+            None => {
+                div().min_w_0().max_w(px(120.)).truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(self.space_name(space))
+            }
         };
         let row = div()
             .id("aside-space")
@@ -95,20 +103,27 @@ impl Desktop {
                 }),
             ),
         };
-        div().relative().flex_none().child(row).when(open, |d| d.child(ui::dropdown(40., ui::menu_in("aside-space-menu-in", self.space_menu(space, order, cx)))))
+        div()
+            .relative()
+            .flex_none()
+            .child(row)
+            .when(open, |d| d.child(ui::dropdown(40., ui::menu_in("aside-space-menu-in", self.space_menu(space, order, cx)))))
     }
 
     fn space_menu(&self, space: &Space, order: &[Space], cx: &mut Context<Self>) -> Stateful<Div> {
         let name = self.space_name(space);
         let usable = self.space_terminal_target(space).is_some() && self.space_reach(space) == Reach::Online;
         let label = if *space == Space::Local { "Open terminal".to_string() } else { format!("Open terminal on {name}") };
-        let terminal = ui::menu_row("space-terminal", "terminal", &label, None).when(!usable, |d| d.opacity(0.5).cursor_default()).when(usable, |d| {
-            d.on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_space_terminal(cx)))
-        });
-        let settings = ui::menu_row("space-settings", "settings", if *space == Space::Local { "Hosts settings\u{2026}" } else { "Host settings\u{2026}" }, None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-            this.spaces.menu = false;
-            this.show_hosts(window, cx);
-        }));
+        let terminal = ui::menu_row("space-terminal", "terminal", &label, None)
+            .when(!usable, |d| d.opacity(0.5).cursor_default())
+            .when(usable, |d| d.on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_space_terminal(cx))));
+        let settings =
+            ui::menu_row("space-settings", "settings", if *space == Space::Local { "Hosts settings\u{2026}" } else { "Host settings\u{2026}" }, None).on_click(
+                cx.listener(|this, _: &ClickEvent, window, cx| {
+                    this.spaces.menu = false;
+                    this.show_hosts(window, cx);
+                }),
+            );
         let menu = ui::pop(div().id("aside-space-menu"))
             .w(px(250.))
             .p(px(6.))
@@ -131,7 +146,8 @@ impl Desktop {
         });
         let rename = {
             let id = id.clone();
-            ui::menu_row("space-rename", "compose", "Rename\u{2026}", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_host_rename(id.clone(), window, cx)))
+            ui::menu_row("space-rename", "compose", "Rename\u{2026}", None)
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_host_rename(id.clone(), window, cx)))
         };
         let chosen_icon = self.space_glyph(space);
         let icons = HOST_ICONS.map(|g| {

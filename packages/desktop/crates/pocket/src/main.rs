@@ -1,9 +1,9 @@
 // Release builds open no console window beside the app on Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod activity;
 mod accounts;
 mod actions;
+mod activity;
 mod add_to_chat;
 mod automations;
 mod board;
@@ -18,10 +18,10 @@ mod explorer;
 mod field;
 mod fleet;
 mod fs;
-mod host_agents;
 mod git_ui;
-mod handoff;
 mod glide;
+mod handoff;
+mod host_agents;
 mod inbox;
 mod modals;
 mod models;
@@ -100,9 +100,11 @@ fn main() {
         cx.bind_keys(keys::bindings());
         cx.on_action(|_: &actions::Quit, cx| cx.quit());
         let check = channel::is_release().then(|| [MenuItem::action("Check for Updates…", actions::CheckForUpdates), MenuItem::separator()]);
-        cx.set_menus([Menu::new("Anywhere").items(
-            check.into_iter().flatten().chain([MenuItem::os_submenu("Services", SystemMenuType::Services), MenuItem::separator(), MenuItem::action("Quit Anywhere", actions::Quit)]),
-        )]);
+        cx.set_menus([Menu::new("Anywhere").items(check.into_iter().flatten().chain([
+            MenuItem::os_submenu("Services", SystemMenuType::Services),
+            MenuItem::separator(),
+            MenuItem::action("Quit Anywhere", actions::Quit),
+        ]))]);
         let primary = cx.primary_display().map(|d| d.id());
         let mut displays = cx.displays();
         displays.sort_by_key(|d| Some(d.id()) != primary);
@@ -125,70 +127,71 @@ fn main() {
         if capture.is_some() {
             capture::Capture::hide(&mut opts);
         }
-        let window = cx.open_window(opts, move |window, cx| {
-            let view = cx.new(|cx| {
-                cx.spawn_in(window, async move |this, cx| {
-                    while let Some(m) = rx.next().await {
-                        if this.update_in(cx, |d: &mut Desktop, window, cx| d.on_msg(m, window, cx)).is_err() {
-                            break;
-                        }
-                    }
-                })
-                .detach();
-                cx.spawn_in(window, async move |this, cx| {
-                    while let Some(ev) = agent_rx.next().await {
-                        let mut events = vec![ev];
-                        while let Ok(ev) = agent_rx.try_recv() {
-                            events.push(ev);
-                        }
-                        let events = agents::coalesce(events);
-                        if this.update_in(cx, |d: &mut Desktop, window, cx| events.into_iter().for_each(|ev| d.on_agents(ev, window, cx))).is_err() {
-                            break;
-                        }
-                    }
-                })
-                .detach();
-                let poll = daemon.clone();
-                cx.spawn(async move |this, cx| {
-                    for tick in 0u64.. {
-                        poll.send(json!({"op": "list"}));
-                        let refresh = |d: &mut Desktop, cx: &mut Context<Desktop>| {
-                            if tick % d.store.general.git_every() == 0 && d.git_done == d.git_run && !desktop::close::hidden() {
-                                d.refresh_git(cx);
+        let window = cx
+            .open_window(opts, move |window, cx| {
+                let view = cx.new(|cx| {
+                    cx.spawn_in(window, async move |this, cx| {
+                        while let Some(m) = rx.next().await {
+                            if this.update_in(cx, |d: &mut Desktop, window, cx| d.on_msg(m, window, cx)).is_err() {
+                                break;
                             }
-                            if tick % accounts::CHECK_EVERY == 0 {
-                                d.refresh_accounts(cx);
-                            }
-                        };
-                        if this.update(cx, refresh).is_err() {
-                            break;
                         }
-                        cx.background_executor().timer(Duration::from_secs(1)).await;
+                    })
+                    .detach();
+                    cx.spawn_in(window, async move |this, cx| {
+                        while let Some(ev) = agent_rx.next().await {
+                            let mut events = vec![ev];
+                            while let Ok(ev) = agent_rx.try_recv() {
+                                events.push(ev);
+                            }
+                            let events = agents::coalesce(events);
+                            if this.update_in(cx, |d: &mut Desktop, window, cx| events.into_iter().for_each(|ev| d.on_agents(ev, window, cx))).is_err() {
+                                break;
+                            }
+                        }
+                    })
+                    .detach();
+                    let poll = daemon.clone();
+                    cx.spawn(async move |this, cx| {
+                        for tick in 0u64.. {
+                            poll.send(json!({"op": "list"}));
+                            let refresh = |d: &mut Desktop, cx: &mut Context<Desktop>| {
+                                if tick % d.store.general.git_every() == 0 && d.git_done == d.git_run && !desktop::close::hidden() {
+                                    d.refresh_git(cx);
+                                }
+                                if tick % accounts::CHECK_EVERY == 0 {
+                                    d.refresh_accounts(cx);
+                                }
+                            };
+                            if this.update(cx, refresh).is_err() {
+                                break;
+                            }
+                            cx.background_executor().timer(Duration::from_secs(1)).await;
+                        }
+                    })
+                    .detach();
+                    let handle = window.window_handle();
+                    let this = cx.weak_entity();
+                    cx.on_system_notification_response(move |r, cx| match r.action_id {
+                        Some(action) => {
+                            let _ = this.update(cx, |d, cx| d.answer_banner(&r.tag, &action, cx));
+                        }
+                        None => {
+                            desktop::close::show(cx);
+                            let _ = handle.update(cx, |_, window, cx| this.update(cx, |d, cx| d.focus_agent(&r.tag, window, cx)));
+                        }
+                    });
+                    let mut desktop = Desktop::new(daemon, hosts::session::Outboxes::new(outbox), store, themes::Themes::new(custom), window, cx);
+                    desktop.list_worktrees(cx);
+                    if !capturing {
+                        desktop.load_models(cx);
                     }
-                })
-                .detach();
-                let handle = window.window_handle();
-                let this = cx.weak_entity();
-                cx.on_system_notification_response(move |r, cx| match r.action_id {
-                    Some(action) => {
-                        let _ = this.update(cx, |d, cx| d.answer_banner(&r.tag, &action, cx));
-                    }
-                    None => {
-                        desktop::close::show(cx);
-                        let _ = handle.update(cx, |_, window, cx| this.update(cx, |d, cx| d.focus_agent(&r.tag, window, cx)));
-                    }
+                    desktop
                 });
-                let mut desktop = Desktop::new(daemon, hosts::session::Outboxes::new(outbox), store, themes::Themes::new(custom), window, cx);
-                desktop.list_worktrees(cx);
-                if !capturing {
-                    desktop.load_models(cx);
-                }
-                desktop
-            });
-            // Root paints gpui-kit's opaque background, which would hide the blurred desktop in dark.
-            cx.new(|cx| Root::new(view, window, cx).bg(transparent_black()))
-        })
-        .expect("open window");
+                // Root paints gpui-kit's opaque background, which would hide the blurred desktop in dark.
+                cx.new(|cx| Root::new(view, window, cx).bg(transparent_black()))
+            })
+            .expect("open window");
         match capture {
             Some(c) => c.run(window, cx),
             None => cx.activate(true),

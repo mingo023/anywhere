@@ -16,31 +16,31 @@ mod update;
 mod usage;
 
 use crate::desktop::Desktop;
-use crate::desktop::project::Placement;
-use crate::desktop::pages;
 use crate::desktop::chrome::{Column, Layout, Overlay, RAIL, RowMenu, Screen, Side, drag_area, id, state};
+use crate::desktop::pages;
+use crate::desktop::project::Placement;
+use crate::git_ui::pull_requests;
 use crate::glide::Glide;
+use crate::modals::host_finder::Opener;
 use crate::region;
-use crate::sidebar::project_picker::ProjectPicker;
-use crate::sidebar::rename::Rename;
+use crate::renames::{self, Renames, Slot};
 use crate::sidebar::filter::Filter;
 use crate::sidebar::fold::{Closing, Fold};
+use crate::sidebar::project_picker::ProjectPicker;
+use crate::sidebar::rename::Rename;
 use crate::sidebar::sections::{Kind, Organize, Section, TreeRow};
 use crate::sidebar::tree_card::Hover;
-use crate::modals::host_finder::Opener;
 use crate::spaces::{SLIDE_MS, on_host};
-use crate::renames::{self, Renames, Slot};
 use crate::status::{self, Card};
-use crate::git_ui::pull_requests;
 use crate::util::{LOCAL_ICON, WORKTREE_ICON, ago_long, basename, now_ms};
 use agents::Agents;
-use store::sections::Sort;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
+use store::sections::Sort;
 use theme::*;
 use ui::{self, icon_button_sized};
 
@@ -139,7 +139,8 @@ fn row_name(renames: &Renames, tree: &str, label: String, state: Option<ui::Stat
     let now = Instant::now();
     // An unnamed tree shows its branch, so a branch rename renames it too.
     let was = [Slot::Name, Slot::Branch].into_iter().find_map(|slot| renames.was(tree, slot, &label, now));
-    renames::decoding(format!("aside-rename:{tree}:{label}"), was, &label, label_color(selected), reduce_motion).unwrap_or_else(|| tree_name(tree, label, sweep_base(state, selected, reduce_motion)))
+    renames::decoding(format!("aside-rename:{tree}:{label}"), was, &label, label_color(selected), reduce_motion)
+        .unwrap_or_else(|| tree_name(tree, label, sweep_base(state, selected, reduce_motion)))
 }
 
 /// `label` bright and semibold while its tree is done, which lasts until it is viewed.
@@ -196,7 +197,24 @@ impl SidebarState {
         let mut subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
         subs.extend(picker_subs);
         subs.extend(filter_subs);
-        (Self { search, menu_at: None, picker, add_menu: false, panel_open, rename: None, hover: Hover::default(), filter, organize: Organize::default(), closing: Closing::default(), placement: RefCell::default(), lead: Glide::default(), panel: Glide::default() }, subs)
+        (
+            Self {
+                search,
+                menu_at: None,
+                picker,
+                add_menu: false,
+                panel_open,
+                rename: None,
+                hover: Hover::default(),
+                filter,
+                organize: Organize::default(),
+                closing: Closing::default(),
+                placement: RefCell::default(),
+                lead: Glide::default(),
+                panel: Glide::default(),
+            },
+            subs,
+        )
     }
 
     /// Steps the lead column toward `layout` and the panel toward open or shut; true while either still moves.
@@ -227,8 +245,10 @@ impl Desktop {
         );
         div().relative().child(button).when(open, |d| {
             let host = self.space_host_name(&self.space());
-            let add = ui::menu_row("aside-add-project", "folder", &on_host("Open folder", host.as_deref()), None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_folder(Opener::Sidebar, window, cx)));
-            let clone = ui::menu_row("aside-add-clone", "branch", &on_host("Clone from URL", host.as_deref()), None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clone_project(window, cx)));
+            let add = ui::menu_row("aside-add-project", "folder", &on_host("Open folder", host.as_deref()), None)
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_folder(Opener::Sidebar, window, cx)));
+            let clone = ui::menu_row("aside-add-clone", "branch", &on_host("Clone from URL", host.as_deref()), None)
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clone_project(window, cx)));
             let menu = ui::pop(div().id("aside-add-menu"))
                 .w(px(238.))
                 .p(px(6.))
@@ -261,7 +281,15 @@ impl Desktop {
         let shown = aside_shown(at);
         let rail = div().absolute().top_0().left_0().h_full().opacity(1. - shown).child(region::cached(&self.regions.nav, region::column(RAIL)));
         let aside = div().flex_none().h_full().opacity(shown).child(region::cached(&self.regions.aside, region::column(wide)));
-        div().relative().flex().flex_none().h_full().w(px(lead_width(at, wide))).overflow_hidden().when(at > 0. && shown < 1., |d| d.child(rail)).when(shown > 0., |d| d.child(aside))
+        div()
+            .relative()
+            .flex()
+            .flex_none()
+            .h_full()
+            .w(px(lead_width(at, wide)))
+            .overflow_hidden()
+            .when(at > 0. && shown < 1., |d| d.child(rail))
+            .when(shown > 0., |d| d.child(aside))
     }
 
     /// The expanded sidebar: projects with their worktrees.
@@ -307,10 +335,14 @@ impl Desktop {
         let slide = self.spaces.sliding(Instant::now()).filter(|_| !cx.reduce_motion() && !self.capturing);
         let list = match slide {
             Some((n, heading)) => list
-                .with_animation(("aside-space-slide", n as usize), Animation::new(Duration::from_millis(SLIDE_MS)).with_easing(ease_out_quint()), move |d, t| {
-                    let off = 24. * heading.sign() * (1. - t);
-                    d.opacity(t).ml(px(off)).mr(px(-off))
-                })
+                .with_animation(
+                    ("aside-space-slide", n as usize),
+                    Animation::new(Duration::from_millis(SLIDE_MS)).with_easing(ease_out_quint()),
+                    move |d, t| {
+                        let off = 24. * heading.sign() * (1. - t);
+                        d.opacity(t).ml(px(off)).mr(px(-off))
+                    },
+                )
                 .into_any_element(),
             None => list.into_any_element(),
         };
@@ -350,7 +382,15 @@ impl Desktop {
     }
 
     /// `row`'s element under `p`; pinned, it names its project `sub`.
-    fn place_row(&self, p: &str, row: &TreeRow, current: Option<&str>, setups: &HashMap<String, String>, sub: Option<String>, cx: &mut Context<Self>) -> AnyElement {
+    fn place_row(
+        &self,
+        p: &str,
+        row: &TreeRow,
+        current: Option<&str>,
+        setups: &HashMap<String, String>,
+        sub: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         match row.kind {
             Kind::Worktree => self.worktree_row(p, row, current, setups, sub, cx),
             Kind::Own | Kind::Local => self.local_row(p, row, current, sub, cx),
@@ -376,7 +416,9 @@ impl Desktop {
             None => done_name(self.scrolling(key, name.clone(), row_name(&self.renames, key, name.clone(), state, selected, cx.reduce_motion()), cx), state),
         };
         let label = with_sub(label, sub.clone(), self.sidebar.renaming(key));
-        let trail = (pins || renames).then(|| ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(key)));
+        let trail = (pins || renames).then(|| {
+            ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(key))
+        });
         let lit = self.sidebar.filter.lit(p, Some(key));
         let (target, path) = (p.to_string(), key.to_string());
         let glyph = if hosts::split(p).0.is_some() { "globe" } else { LOCAL_ICON };
@@ -554,7 +596,12 @@ impl Desktop {
         }
         // The rows are fixed-height, so the open height is known without measuring: top pad, rows, gaps between them, bottom pad.
         let height = if out.is_empty() { 0. } else { 1. + fold::stacked(vec![ui::SIDEBAR_ROW_H; out.len()], 1.) + 6. };
-        let rows = fold::springing(id(format!("aside-fold:{p}")), open, height, div().flex().flex_col().gap(px(1.)).when(!out.is_empty(), |d| d.pt(px(1.)).pb(px(6.))).children(out));
+        let rows = fold::springing(
+            id(format!("aside-fold:{p}")),
+            open,
+            height,
+            div().flex().flex_col().gap(px(1.)).when(!out.is_empty(), |d| d.pt(px(1.)).pb(px(6.))).children(out),
+        );
         let to = p.to_string();
         let manual = self.store.sections.sort == Sort::Manual;
         let block = div()
@@ -574,7 +621,15 @@ impl Desktop {
     }
 
     /// A worktree's row under its project; pinned, it names its project `sub`.
-    fn worktree_row(&self, p: &str, row: &TreeRow, current: Option<&str>, setups: &HashMap<String, String>, sub: Option<String>, cx: &mut Context<Self>) -> AnyElement {
+    fn worktree_row(
+        &self,
+        p: &str,
+        row: &TreeRow,
+        current: Option<&str>,
+        setups: &HashMap<String, String>,
+        sub: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let (tree, title, tip) = (&row.key, &row.label, &row.tip);
         let menu = RowMenu::Tree { project: p.to_string(), tree: tree.clone() };
         let selected = current == Some(tree.as_str());
@@ -590,13 +645,19 @@ impl Desktop {
         // The row's own click picks the tree; this only opens Changes on top of it.
         let diff = self.repos.get(tree).filter(|r| !r.files.is_empty()).map(|r| {
             let (added, removed) = r.totals();
-            ui::meta_diff(added, removed, 11.).id(id(format!("aside-diff:{tree}"))).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.pick_side(Side::Changes, cx))).into_any_element()
+            ui::meta_diff(added, removed, 11.)
+                .id(id(format!("aside-diff:{tree}")))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.pick_side(Side::Changes, cx)))
+                .into_any_element()
         });
-        let trail = ui::row_trail(diff, vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(tree));
+        let trail =
+            ui::row_trail(diff, vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(tree));
         let (target, path) = (p.to_string(), tree.clone());
         let label = match self.sidebar.rename.as_ref().filter(|r| &r.tree == tree) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
-            None => done_name(self.scrolling(tree, title.clone(), row_name(&self.renames, tree, title.clone(), state, selected, cx.reduce_motion()), cx), state),
+            None => {
+                done_name(self.scrolling(tree, title.clone(), row_name(&self.renames, tree, title.clone(), state, selected, cx.reduce_motion()), cx), state)
+            }
         };
         let (pinned, ix) = (sub.is_some(), row.ix);
         let row = ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, with_sub(label, sub, self.sidebar.renaming(tree)), selected, mark)
@@ -624,7 +685,14 @@ impl Desktop {
 /// `label`, then `sub` dimmed after it. An `editing` field has no width of its own, so it takes the room `sub` leaves.
 fn with_sub(label: AnyElement, sub: Option<String>, editing: bool) -> AnyElement {
     match sub {
-        Some(sub) => div().flex().items_center().gap(px(6.)).min_w_0().child(div().min_w_0().truncate().when(editing, |d| d.flex_1()).child(label)).child(div().flex_none().text_size(px(12.)).text_color(TEXT_3).child(sub)).into_any_element(),
+        Some(sub) => div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .min_w_0()
+            .child(div().min_w_0().truncate().when(editing, |d| d.flex_1()).child(label))
+            .child(div().flex_none().text_size(px(12.)).text_color(TEXT_3).child(sub))
+            .into_any_element(),
         None => label,
     }
 }
@@ -730,7 +798,13 @@ mod tests {
 
     #[test]
     fn only_a_working_trees_label_sweeps_and_never_with_motion_reduced() {
-        let got = [sweep_base(Some(ui::State::Working), false, false), sweep_base(Some(ui::State::Working), true, false), sweep_base(Some(ui::State::NeedsYou), false, false), sweep_base(None, false, false), sweep_base(Some(ui::State::Working), false, true)];
+        let got = [
+            sweep_base(Some(ui::State::Working), false, false),
+            sweep_base(Some(ui::State::Working), true, false),
+            sweep_base(Some(ui::State::NeedsYou), false, false),
+            sweep_base(None, false, false),
+            sweep_base(Some(ui::State::Working), false, true),
+        ];
         assert_eq!(got, [Some(theme::TEXT_BODY), Some(theme::TEXT), None, None, None]);
     }
 

@@ -151,7 +151,8 @@ pub(crate) fn resolving_text(agent: &str) -> String {
 
 /// Whether the open PR holds something for someone to fix: a conflict, a failed check, asked-for changes or an unresolved thread, draft or not.
 pub(crate) fn pr_wants_you(pr: &Pr) -> bool {
-    pr.state == PrState::Open && (pr.mergeable == Mergeable::Conflicting || pr.checks.failed > 0 || pr.review == Review::ChangesRequested || pr.unresolved().next().is_some())
+    pr.state == PrState::Open
+        && (pr.mergeable == Mergeable::Conflicting || pr.checks.failed > 0 || pr.review == Review::ChangesRequested || pr.unresolved().next().is_some())
 }
 
 /// What `tree`'s card says while `gh` works for it; its open composer says it instead.
@@ -175,7 +176,9 @@ pub(crate) fn verdict(pr: &Pr, fixing: Option<&Sent>, busy: Option<&str>, agent:
                 Gate::Draft => (TEXT_4, "Draft".into()),
                 Gate::Ready => (SUCCESS_TEXT, "Ready to merge".into()),
                 Gate::Conflicts => (FAILED_TEXT, gate_text(gate, &pr.base)),
-                Gate::ChecksFailed if pr.review == Review::ChangesRequested => (FAILED_TEXT, format!("{} failed · changes requested", plural(c.failed.into(), "check"))),
+                Gate::ChecksFailed if pr.review == Review::ChangesRequested => {
+                    (FAILED_TEXT, format!("{} failed · changes requested", plural(c.failed.into(), "check")))
+                }
                 Gate::ChecksFailed => (FAILED_TEXT, format!("{} failed", plural(c.failed.into(), "check"))),
                 Gate::ChecksRunning => (WAITING_TEXT, format!("{} in progress", plural(c.pending.into(), "check"))),
                 Gate::ChangesRequested => (FAILED_TEXT, "Changes requested".into()),
@@ -304,7 +307,20 @@ pub(crate) fn about(pr: &Pr) -> String {
 
 impl Default for Track {
     fn default() -> Self {
-        Self { sent: HashMap::new(), kept: HashSet::new(), method: Method::default(), delete_after: true, tab: PrTab::default(), all: false, expanded: HashSet::new(), folded: HashSet::new(), closing: Closing::default(), opening: Closing::default(), whole: HashSet::new(), heights: Rc::default() }
+        Self {
+            sent: HashMap::new(),
+            kept: HashSet::new(),
+            method: Method::default(),
+            delete_after: true,
+            tab: PrTab::default(),
+            all: false,
+            expanded: HashSet::new(),
+            folded: HashSet::new(),
+            closing: Closing::default(),
+            opening: Closing::default(),
+            whole: HashSet::new(),
+            heights: Rc::default(),
+        }
     }
 }
 
@@ -1055,11 +1071,14 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{CLIP, Length, Ship, Status, Track, card_busy, check_rows, conflict_prompt, fix_prompt, fix_summary, from_commits, gate_text, hunk_tail, pr_wants_you, record_height, review_lines, ship, tally, to_fix, verdict};
+    use super::{
+        CLIP, Length, Ship, Status, Track, card_busy, check_rows, conflict_prompt, fix_prompt, fix_summary, from_commits, gate_text, hunk_tail, pr_wants_you,
+        record_height, review_lines, ship, tally, to_fix, verdict,
+    };
     use crate::git_ui::pull_requests::PrItem;
     use git::github::{Check, Checks, Comment, Gate, Mergeable, Outcome, Pr, PrState, Review, Thread};
-    use theme::{FAILED_TEXT, MERGED, SUCCESS_TEXT, TEXT_4, WAITING_TEXT};
     use git::{Commit, FileStat, Repo};
+    use theme::{FAILED_TEXT, MERGED, SUCCESS_TEXT, TEXT_4, WAITING_TEXT};
 
     fn repo(files: usize, ahead: usize, unpushed: Option<usize>) -> Repo {
         let file = |i: usize| FileStat { path: format!("{i}.rs"), added: 1, removed: 0, staged: false, unstaged: true, status: 'M', old_path: None };
@@ -1121,12 +1140,27 @@ mod tests {
         assert!(pr_wants_you(&Pr { threads: vec![thread("T1")], ..pr() }));
         assert!(!pr_wants_you(&Pr { threads: vec![thread("T1")], state: PrState::Merged, ..pr() }));
         assert!(pr_wants_you(&Pr { draft: true, checks: Checks { failed: 1, ..Checks::default() }, ..pr() }), "a draft's failure still wants you");
-        assert!(pr_wants_you(&Pr { review: Review::ChangesRequested, checks: Checks { pending: 1, ..Checks::default() }, ..pr() }), "asked-for changes while checks run");
+        assert!(
+            pr_wants_you(&Pr { review: Review::ChangesRequested, checks: Checks { pending: 1, ..Checks::default() }, ..pr() }),
+            "asked-for changes while checks run"
+        );
     }
 
     fn thread(id: &str) -> Thread {
-        let said = |author: &str, body: &str| Comment { author: author.into(), body: body.into(), at: 0, hunk: "@@ -1,4 +1,4 @@\n a\n b\n-c\n+d\n e".into(), ..Comment::default() };
-        Thread { id: id.into(), path: "src/a.rs".into(), line: Some(42), comments: vec![said("mira", "Handle None here."), said("bo", "Agreed.")], ..Thread::default() }
+        let said = |author: &str, body: &str| Comment {
+            author: author.into(),
+            body: body.into(),
+            at: 0,
+            hunk: "@@ -1,4 +1,4 @@\n a\n b\n-c\n+d\n e".into(),
+            ..Comment::default()
+        };
+        Thread {
+            id: id.into(),
+            path: "src/a.rs".into(),
+            line: Some(42),
+            comments: vec![said("mira", "Handle None here."), said("bo", "Agreed.")],
+            ..Thread::default()
+        }
     }
 
     #[test]
@@ -1178,7 +1212,12 @@ mod tests {
 
     #[test]
     fn what_github_shows_done_stops_being_fixed_without_a_push() {
-        let pr = Pr { runs: vec![check("lint", Outcome::Failed), check("test", Outcome::Failed)], threads: vec![thread("T1")], mergeable: Mergeable::Conflicting, ..pr() };
+        let pr = Pr {
+            runs: vec![check("lint", Outcome::Failed), check("test", Outcome::Failed)],
+            threads: vec![thread("T1")],
+            mergeable: Mergeable::Conflicting,
+            ..pr()
+        };
         let mut track = Track::default();
         track.send("/a", "agent", &pr, &[&pr.threads[0]], &[&pr.runs[0], &pr.runs[1]], true);
         assert_eq!(track.fixing("/a", &pr).map(|s| s.items()), Some(3));
@@ -1235,7 +1274,11 @@ mod tests {
     #[test]
     fn what_is_left_to_fix_leaves_out_what_the_agent_already_has_and_threads_someone_answered() {
         let open = |id: &str| Thread { comments: thread(id).comments[..1].to_vec(), ..thread(id) };
-        let pr = Pr { runs: vec![check("lint", Outcome::Failed), check("test", Outcome::Failed), check("build", Outcome::Passed)], threads: vec![open("T1"), thread("T2"), open("T3")], ..pr() };
+        let pr = Pr {
+            runs: vec![check("lint", Outcome::Failed), check("test", Outcome::Failed), check("build", Outcome::Passed)],
+            threads: vec![open("T1"), thread("T2"), open("T3")],
+            ..pr()
+        };
         let mut track = Track::default();
         track.send("/a", "agent", &pr, &[&pr.threads[0]], &[&pr.runs[0]], false);
         let (checks, threads) = to_fix(&pr, track.fixing("/a", &pr).as_ref());
@@ -1251,7 +1294,16 @@ mod tests {
 
     #[test]
     fn failed_checks_are_named_before_running_ones_and_the_rest_are_only_counted() {
-        let pr = Pr { runs: vec![check("a", Outcome::Passed), check("b", Outcome::Pending), check("c", Outcome::Failed), check("d", Outcome::Skipped), check("e", Outcome::Passed)], ..pr() };
+        let pr = Pr {
+            runs: vec![
+                check("a", Outcome::Passed),
+                check("b", Outcome::Pending),
+                check("c", Outcome::Failed),
+                check("d", Outcome::Skipped),
+                check("e", Outcome::Passed),
+            ],
+            ..pr()
+        };
         let rows = check_rows(&pr);
         assert_eq!(rows.named.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["c", "b"]);
         assert_eq!(rows.passed, 2);
@@ -1259,7 +1311,10 @@ mod tests {
 
     #[test]
     fn counted_checks_leave_out_what_is_none() {
-        assert_eq!([tally([(5, "passed"), (1, "skipped")]), tally([(3, "passed"), (0, "skipped")]), tally([(0, "passed"), (2, "skipped")])], ["5 passed · 1 skipped", "3 passed", "2 skipped"]);
+        assert_eq!(
+            [tally([(5, "passed"), (1, "skipped")]), tally([(3, "passed"), (0, "skipped")]), tally([(0, "passed"), (2, "skipped")])],
+            ["5 passed · 1 skipped", "3 passed", "2 skipped"]
+        );
     }
 
     fn open(checks: Checks, review: Review) -> Pr {
@@ -1270,7 +1325,10 @@ mod tests {
     fn a_folded_card_says_what_holds_the_pr_back_in_its_colour() {
         let failed = Checks { passed: 5, failed: 2, pending: 1 };
         assert_eq!(verdict(&open(failed, Review::ChangesRequested), None, None, "Claude"), (FAILED_TEXT, "2 checks failed · changes requested".into()));
-        assert_eq!(verdict(&open(Checks { pending: 1, ..Checks::default() }, Review::None), None, None, "Claude"), (WAITING_TEXT, "1 check in progress".into()));
+        assert_eq!(
+            verdict(&open(Checks { pending: 1, ..Checks::default() }, Review::None), None, None, "Claude"),
+            (WAITING_TEXT, "1 check in progress".into())
+        );
         assert_eq!(verdict(&open(Checks { passed: 3, ..Checks::default() }, Review::Approved), None, None, "Claude"), (SUCCESS_TEXT, "Ready to merge".into()));
         let conflicting = Pr { mergeable: Mergeable::Conflicting, ..open(failed, Review::None) };
         assert_eq!(verdict(&conflicting, None, None, "Claude"), (FAILED_TEXT, "Conflicts with main".into()));
@@ -1297,7 +1355,11 @@ mod tests {
 
     #[test]
     fn the_review_lists_verdicts_then_who_is_still_asked() {
-        let pr = Pr { reviews: vec![("mira".into(), Review::Approved), ("bo".into(), Review::None), ("li".into(), Review::ChangesRequested)], requested: vec!["kai".into(), "jo".into()], ..pr() };
+        let pr = Pr {
+            reviews: vec![("mira".into(), Review::Approved), ("bo".into(), Review::None), ("li".into(), Review::ChangesRequested)],
+            requested: vec!["kai".into(), "jo".into()],
+            ..pr()
+        };
         let lines: Vec<String> = review_lines(&pr).into_iter().map(|(_, t)| t).collect();
         assert_eq!(lines, ["mira approved", "li requested changes", "Review requested from kai, jo"]);
         assert_eq!(review_lines(&super::Pr::default()), [(Review::None, "No review yet".to_string())]);

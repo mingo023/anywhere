@@ -3,7 +3,17 @@ use std::ffi::c_void;
 
 unsafe extern "C" {
     fn pt_kitty_keyboard(p: *mut c_void) -> u8;
-    fn pt_key(p: *mut c_void, name: *const u8, name_len: usize, mods: Mods, text: *const u8, text_len: usize, unshifted: u32, out: *mut u8, cap: usize) -> usize;
+    fn pt_key(
+        p: *mut c_void,
+        name: *const u8,
+        name_len: usize,
+        mods: Mods,
+        text: *const u8,
+        text_len: usize,
+        unshifted: u32,
+        out: *mut u8,
+        cap: usize,
+    ) -> usize;
 }
 
 #[repr(C)]

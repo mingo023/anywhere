@@ -35,10 +35,12 @@ pub(crate) fn access_shown(picked: &str, app: &str) -> &'static str {
 /// The access menu's (value, label, hint): Settings' first as "", then each of `ACCESSES`.
 pub(crate) fn access_choices(app: &str) -> Vec<(String, String, String)> {
     let default = (String::new(), format!("Default · {}", access_text(app).0), "Settings › Permission mode".to_string());
-    std::iter::once(default).chain(ACCESSES.iter().map(|a| {
-        let (label, hint) = access_text(a);
-        (a.to_string(), label.to_string(), hint.to_string())
-    })).collect()
+    std::iter::once(default)
+        .chain(ACCESSES.iter().map(|a| {
+            let (label, hint) = access_text(a);
+            (a.to_string(), label.to_string(), hint.to_string())
+        }))
+        .collect()
 }
 
 /// What a running agent switches between: each of `ACCESSES` but its own settings, which only a launch reads.
@@ -57,12 +59,31 @@ pub(crate) fn full_access_chip(id: &'static str, agent: String) -> Stateful<Div>
 }
 
 /// A composer chip led by `glyph`; `toggle` opens or closes its menu.
-pub(crate) fn chip(id: &'static str, open: bool, glyph: &str, label: impl Into<SharedString>, color: Token, toggle: impl Fn(&mut Desktop, &mut Context<Desktop>) + 'static, cx: &mut Context<Desktop>) -> Stateful<Div> {
-    let chip = super::picker(super::pill().child(icon(glyph, 14., TEXT_2)).child(div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(color).child(label.into())), id, open);
+pub(crate) fn chip(
+    id: &'static str,
+    open: bool,
+    glyph: &str,
+    label: impl Into<SharedString>,
+    color: Token,
+    toggle: impl Fn(&mut Desktop, &mut Context<Desktop>) + 'static,
+    cx: &mut Context<Desktop>,
+) -> Stateful<Div> {
+    let chip = super::picker(
+        super::pill().child(icon(glyph, 14., TEXT_2)).child(div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(color).child(label.into())),
+        id,
+        open,
+    );
     ui::popover_trigger(chip, open, cx.listener(move |this, _: &MouseDownEvent, _, cx| toggle(this, cx)))
 }
 
-pub(crate) fn access_chip(id: &'static str, open: bool, picked: &str, app: &str, toggle: impl Fn(&mut Desktop, &mut Context<Desktop>) + 'static, cx: &mut Context<Desktop>) -> Stateful<Div> {
+pub(crate) fn access_chip(
+    id: &'static str,
+    open: bool,
+    picked: &str,
+    app: &str,
+    toggle: impl Fn(&mut Desktop, &mut Context<Desktop>) + 'static,
+    cx: &mut Context<Desktop>,
+) -> Stateful<Div> {
     let access = if picked.is_empty() { app } else { picked };
     chip(id, open, "shield", access_shown(picked, app), access_color(access), toggle, cx)
 }
@@ -126,6 +147,9 @@ mod tests {
 
     #[test]
     fn a_running_agent_switches_between_ask_edits_auto_and_full() {
-        assert_eq!(switch_choices().into_iter().map(|(v, l, _)| (v, l)).collect::<Vec<_>>(), [("ask", "Ask"), ("edits", "Edits"), ("auto", "Auto"), ("full", "Full")].map(|(v, l)| (v.to_string(), l.to_string())));
+        assert_eq!(
+            switch_choices().into_iter().map(|(v, l, _)| (v, l)).collect::<Vec<_>>(),
+            [("ask", "Ask"), ("edits", "Edits"), ("auto", "Auto"), ("full", "Full")].map(|(v, l)| (v.to_string(), l.to_string()))
+        );
     }
 }

@@ -6,11 +6,11 @@ pub mod automations;
 pub mod catalogs;
 pub mod delegations;
 pub mod hosts;
-pub mod tickets;
 pub mod locals;
 pub mod providers;
 pub mod queue;
 pub mod registry;
+pub mod tickets;
 
 mod ask;
 mod caps;
@@ -32,15 +32,17 @@ pub use outbox::{CreateReply, Decision, Outbox};
 pub use summary::{Goal, GoalStatus, Level, ListedModel, ModelSetting, Summary, level, model_label, model_name, percent};
 
 use automations::Automations;
-use caps::{ACCESS_CAP, AUTOMATIONS_CAP, BOARD_CAP, FORK_CAP, HOSTS_CAP, LOCALS_CAP, NAMES_CAP, OPEN_CAP, ORCHESTRATOR_CAP, PAIR_CAP, REGISTRY_CAP, SETTINGS_CAP};
+use caps::{
+    ACCESS_CAP, AUTOMATIONS_CAP, BOARD_CAP, FORK_CAP, HOSTS_CAP, LOCALS_CAP, NAMES_CAP, OPEN_CAP, ORCHESTRATOR_CAP, PAIR_CAP, REGISTRY_CAP, SETTINGS_CAP,
+};
 use delegations::Delegations;
-use tickets::Board;
+#[cfg(test)]
+use event::Frame;
 use locals::Local;
 use providers::ProviderInfo;
 use queue::Queues;
 use std::collections::{HashMap, HashSet};
-#[cfg(test)]
-use event::Frame;
+use tickets::Board;
 
 #[derive(Default)]
 pub struct Agents {
@@ -173,7 +175,12 @@ impl Agents {
             Event::Host(h) => self.host = Some(h),
             Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) => {}
             Event::Providers { providers } => self.providers = providers,
-            Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } | Event::SettingsFailed(_) | Event::NamingFailed(_) => {}
+            Event::Creating { .. }
+            | Event::Progress { .. }
+            | Event::Created { .. }
+            | Event::CreateFailed { .. }
+            | Event::SettingsFailed(_)
+            | Event::NamingFailed(_) => {}
             Event::Names(names) => {
                 self.names.retain(|path, _| !my_name(path));
                 self.names.extend(names);
@@ -185,7 +192,17 @@ impl Agents {
             Event::Delegations { agent, items } => self.delegations.replace(&agent, items),
             Event::Delegated { agent, delegation } => self.delegations.update(&agent, delegation),
             Event::Queue { agent, entries } => self.queues.replace(&agent, entries),
-            Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::QueueFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } => {}
+            Event::AutomationError(_)
+            | Event::BoardError(_)
+            | Event::PromptFailed { .. }
+            | Event::InterruptFailed { .. }
+            | Event::QueueFailed { .. }
+            | Event::Commands { .. }
+            | Event::Skills { .. }
+            | Event::Btw { .. }
+            | Event::RemoteControl { .. }
+            | Event::Mcp { .. }
+            | Event::McpActFailed { .. } => {}
             Event::Hosts(_) | Event::HostUpdate { .. } | Event::HostProgress { .. } | Event::HostError { .. } | Event::HostDone(_) => {}
         }
         if lineage {
@@ -374,7 +391,9 @@ impl Agents {
     /// The agent whose timeline last edited or wrote `path`, and when; tool paths may be absolute or relative to its cwd.
     pub fn last_edit(&self, path: &str) -> Option<(&Summary, i64)> {
         let touches = |d: &Detail, cwd: &str| {
-            (d.kind == "edit" || d.kind == "write") && !d.path.is_empty() && (d.path == path || path.strip_prefix(cwd).and_then(|p| p.strip_prefix('/')).is_some_and(|rel| rel == d.path))
+            (d.kind == "edit" || d.kind == "write")
+                && !d.path.is_empty()
+                && (d.path == path || path.strip_prefix(cwd).and_then(|p| p.strip_prefix('/')).is_some_and(|rel| rel == d.path))
         };
         self.list
             .iter()
@@ -399,7 +418,8 @@ mod tests {
 
     #[test]
     fn only_a_pocketd_with_the_orchestrator_holds_its_sessions_queues() {
-        let connected = |caps: &[&str]| Event::Connected { scopes: vec!["owner".into()], caps: caps.iter().map(|c| c.to_string()).collect(), version: String::new() };
+        let connected =
+            |caps: &[&str]| Event::Connected { scopes: vec!["owner".into()], caps: caps.iter().map(|c| c.to_string()).collect(), version: String::new() };
         let mut a = Agents::default();
         assert!(!a.holds_queue("a1"));
         a.apply_from(Some("new"), connected(&[ORCHESTRATOR_CAP]));
@@ -416,7 +436,9 @@ mod tests {
         let mut a = Agents::default();
         let Some(Event::Delegations { agent, items }) = delegation_event("agent.delegations", golden_text!("server/agent_delegations.json")) else { panic!() };
         a.apply(Event::Delegations { agent, items });
-        let Some(Event::Delegated { agent, delegation }) = delegation_event("delegation.update", golden_text!("server/delegation_update.json")) else { panic!() };
+        let Some(Event::Delegated { agent, delegation }) = delegation_event("delegation.update", golden_text!("server/delegation_update.json")) else {
+            panic!()
+        };
         a.apply(Event::Delegated { agent, delegation });
         assert_eq!((a.delegations.of("a1").len(), a.delegations.counts("a1").asking), (2, 1));
         a.apply_from(Some("h"), Event::Delegations { agent: "h/a1".into(), items: a.delegations.of("a1").to_vec() });
@@ -457,10 +479,16 @@ mod tests {
 
     #[test]
     fn a_sessions_subagents_reach_down_every_generation_but_leave_forks_out() {
-        let agent = |id: &str, parent: &str, relationship: &str| Summary { id: id.into(), parent: parent.into(), relationship: relationship.into(), ..Default::default() };
+        let agent = |id: &str, parent: &str, relationship: &str| Summary {
+            id: id.into(),
+            parent: parent.into(),
+            relationship: relationship.into(),
+            ..Default::default()
+        };
         let list = vec![agent("p", "", ""), agent("c", "p", "subagent"), agent("g", "c", "subagent"), agent("f", "p", "fork"), agent("o", "", "")];
         let a = Agents { list, ..Default::default() };
-        let ids = |roots: &[&str]| a.subagents_of(&roots.iter().map(|r| r.to_string()).collect::<Vec<_>>()).into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>();
+        let ids =
+            |roots: &[&str]| a.subagents_of(&roots.iter().map(|r| r.to_string()).collect::<Vec<_>>()).into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>();
         assert_eq!(ids(&["p"]), ["c", "g"]);
         assert_eq!(ids(&["p", "c"]), ["g"]);
         assert!(ids(&["o"]).is_empty());
@@ -493,7 +521,11 @@ mod tests {
         let t: Vec<_> = a.timelines["a"].iter().map(|i| i.text.as_str()).collect();
         assert_eq!(t, vec!["a!", "b!"]);
         a.apply(Event::Items("b".into(), (0..6).map(|n| item(&format!("x{n}"), 5, "")).collect()));
-        assert_eq!(a.timelines["b"].iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["x0", "x1", "x2", "x3", "x4", "x5"], "items of one seq keep their order");
+        assert_eq!(
+            a.timelines["b"].iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
+            ["x0", "x1", "x2", "x3", "x4", "x5"],
+            "items of one seq keep their order"
+        );
     }
 
     #[test]
@@ -532,14 +564,24 @@ mod tests {
     #[test]
     fn a_sub_agents_text_is_not_its_parents_last_word() {
         let mut a = Agents::default();
-        let text = |id: &str, seq, parent: Option<&str>| Item { id: id.into(), seq, kind: "assistant".into(), text: id.into(), parent_tool_use_id: parent.map(Into::into), ..Default::default() };
+        let text = |id: &str, seq, parent: Option<&str>| Item {
+            id: id.into(),
+            seq,
+            kind: "assistant".into(),
+            text: id.into(),
+            parent_tool_use_id: parent.map(Into::into),
+            ..Default::default()
+        };
         a.apply(Event::Items("a".into(), vec![text("mine", 1, None), text("theirs", 2, Some("tool"))]));
         assert_eq!(a.last_text("a"), Some("mine"));
     }
 
     #[test]
     fn permissions_stay_pending_until_resolved_or_reconnected() {
-        let f: Frame = serde_json::from_str(r#"{"type":"permission.request","request":{"requestId":"r1","agentId":"a","toolName":"Bash","detail":{"kind":"shell","command":"pnpm test"}}}"#).unwrap();
+        let f: Frame = serde_json::from_str(
+            r#"{"type":"permission.request","request":{"requestId":"r1","agentId":"a","toolName":"Bash","detail":{"kind":"shell","command":"pnpm test"}}}"#,
+        )
+        .unwrap();
         let p = f.request.unwrap();
         assert_eq!(p.ask(), "Wants to run pnpm test");
         let mut a = Agents::default();
@@ -623,7 +665,10 @@ mod tests {
     #[test]
     fn locals_start_over_on_each_connect_and_show_a_rename_at_once() {
         let mut a = Agents::default();
-        let frame = serde_json::from_str::<Frame>(r#"{"type":"local.list","locals":[{"id":"l1","project":"/p","name":"Local 2"},{"id":"l2","project":"/q","name":"Local 2"}]}"#).unwrap();
+        let frame = serde_json::from_str::<Frame>(
+            r#"{"type":"local.list","locals":[{"id":"l1","project":"/p","name":"Local 2"},{"id":"l2","project":"/q","name":"Local 2"}]}"#,
+        )
+        .unwrap();
         a.apply(names_event(&frame).unwrap());
         assert_eq!(a.locals_in("/p").map(|l| l.id.as_str()).collect::<Vec<_>>(), ["l1"]);
         a.rename_local("l1", " Fix ");
@@ -674,7 +719,8 @@ mod tests {
 
     #[test]
     fn only_a_pocketd_that_said_hello_without_registry_v2_needs_updating() {
-        let hello = |caps: &[&str]| Event::Connected { scopes: vec!["owner".into()], caps: caps.iter().map(|c| c.to_string()).collect(), version: String::new() };
+        let hello =
+            |caps: &[&str]| Event::Connected { scopes: vec!["owner".into()], caps: caps.iter().map(|c| c.to_string()).collect(), version: String::new() };
         let mut a = Agents::default();
         assert!(!a.registry_outdated(Some("devbox")), "a host not yet heard from isn't known to be old");
         a.apply_from(Some("devbox"), hello(&["hosts.v1"]));
@@ -691,7 +737,11 @@ mod tests {
     fn an_edit_is_found_by_absolute_path_or_by_one_relative_to_the_agents_cwd() {
         let mut a = Agents::default();
         a.list.push(Summary { id: "a".into(), cwd: "/r".into(), ..Default::default() });
-        let edit = |path: &str| Item { ts: 1, call: Some(Call { detail: Detail { kind: "edit".into(), path: path.into(), ..Default::default() }, ..Default::default() }), ..Default::default() };
+        let edit = |path: &str| Item {
+            ts: 1,
+            call: Some(Call { detail: Detail { kind: "edit".into(), path: path.into(), ..Default::default() }, ..Default::default() }),
+            ..Default::default()
+        };
         a.timelines.insert("a".into(), vec![edit("src/a.rs"), edit("/elsewhere/b.rs")]);
         assert!(a.last_edit("/r/src/a.rs").is_some());
         assert!(a.last_edit("/elsewhere/b.rs").is_some());

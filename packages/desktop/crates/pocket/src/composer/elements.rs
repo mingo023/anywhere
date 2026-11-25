@@ -8,7 +8,17 @@ pub(crate) fn block(elements: &[web::Element]) -> String {
     let sections = elements.iter().enumerate().map(|(i, e)| {
         let fence = fence_for(&e.html);
         let text = if e.text.is_empty() { String::new() } else { format!("Text: {}\n", e.text) };
-        format!("## {} {} › {}\nURL: {}\nSelector: `{}`\nSize: {} × {}\n{text}{fence}html\n{}\n{fence}", i + 1, web::host(&e.url), title(e), e.url, e.selector, e.width, e.height, e.html)
+        format!(
+            "## {} {} › {}\nURL: {}\nSelector: `{}`\nSize: {} × {}\n{text}{fence}html\n{}\n{fence}",
+            i + 1,
+            web::host(&e.url),
+            title(e),
+            e.url,
+            e.selector,
+            e.width,
+            e.height,
+            e.html
+        )
     });
     format!("{TITLE}{}", sections.collect::<Vec<_>>().join("\n\n"))
 }
@@ -64,7 +74,15 @@ mod tests {
     use super::{block, heading_parts, title};
 
     fn element(text: &str, html: &str) -> web::Element {
-        web::Element { url: "https://a.dev/".into(), selector: "div".into(), name: "div.hero".into(), text: text.into(), html: html.into(), width: 1, height: 1 }
+        web::Element {
+            url: "https://a.dev/".into(),
+            selector: "div".into(),
+            name: "div.hero".into(),
+            text: text.into(),
+            html: html.into(),
+            width: 1,
+            height: 1,
+        }
     }
 
     #[test]

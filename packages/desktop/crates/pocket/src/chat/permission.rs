@@ -90,7 +90,15 @@ impl Desktop {
             .text_color(TEXT)
             .child(ui::dot(8., WAITING).shadow(vec![ui::ring(WAITING_BG, 3.)]))
             .child(format!("Allow {}?", ask.tool_name))
-            .child(div().min_w_0().truncate().text_size(px(12.5)).font_weight(FontWeight::NORMAL).text_color(TEXT_3).child(format!("{name} is paused until you answer")));
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(12.5))
+                    .font_weight(FontWeight::NORMAL)
+                    .text_color(TEXT_3)
+                    .child(format!("{name} is paused until you answer")),
+            );
         let body = div()
             .flex()
             .items_start()
@@ -108,18 +116,38 @@ impl Desktop {
         let footer = answerable.then(|| {
             let (deny, allow, send) = (t.clone(), t.clone(), t.clone());
             let request = ask.request_id.clone();
-            let button = |key: &str, v, label: &'static str| ui::button(id(format!("chat-permission-{key}:{terminal}")), v, None, label).h(px(30.)).px(px(14.)).rounded(px(15.));
+            let button = |key: &str, v, label: &'static str| {
+                ui::button(id(format!("chat-permission-{key}:{terminal}")), v, None, label).h(px(30.)).px(px(14.)).rounded(px(15.))
+            };
             div()
                 .flex()
                 .items_center()
                 .gap(px(6.))
                 .child(div().flex_1())
-                .child(button("deny", Variant::Ghost, "Deny").text_color(FAILED).child(ui::button_kbd("esc")).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_resolve(&deny, false, cx))))
+                .child(
+                    button("deny", Variant::Ghost, "Deny")
+                        .text_color(FAILED)
+                        .child(ui::button_kbd("esc"))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_resolve(&deny, false, cx))),
+                )
                 .when(feedback && !replying, |el| {
-                    el.child(button("reply", Variant::Ghost, "Reply").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.chat_start_reply(request.clone(), window, cx))))
+                    el.child(
+                        button("reply", Variant::Ghost, "Reply")
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.chat_start_reply(request.clone(), window, cx))),
+                    )
                 })
-                .when(replying, |el| el.child(button("send-reply", Variant::Secondary, "Send reply").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.chat_reply(&send, window, cx)))))
-                .child(button("allow", Variant::Primary, "Allow once").font_weight(FontWeight::SEMIBOLD).child(ui::button_kbd("⏎")).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_resolve(&allow, true, cx))))
+                .when(replying, |el| {
+                    el.child(
+                        button("send-reply", Variant::Secondary, "Send reply")
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.chat_reply(&send, window, cx))),
+                    )
+                })
+                .child(
+                    button("allow", Variant::Primary, "Allow once")
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(ui::button_kbd("⏎"))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_resolve(&allow, true, cx))),
+                )
         });
         div()
             .when(answerable, |el| {

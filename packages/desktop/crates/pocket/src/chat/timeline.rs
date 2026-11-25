@@ -218,7 +218,14 @@ impl Desktop {
         let ticks = (0..rail.ticks).map(|tick| {
             let glow = glow(pos, tick);
             let colour = if hovered == Some(tick) { Hsla::from(TEXT) } else { Hsla::from(TEXT_6).blend(Hsla::from(TEXT_3).opacity(glow)) };
-            div().absolute().top(px(rail.y(tick) - TICK / 2.)).right(px(TICK_RIGHT)).h(px(TICK)).w(px(width(glow, y.map(|y| y - rail.y(tick))))).rounded(px(TICK / 2.)).bg(colour)
+            div()
+                .absolute()
+                .top(px(rail.y(tick) - TICK / 2.))
+                .right(px(TICK_RIGHT))
+                .h(px(TICK))
+                .w(px(width(glow, y.map(|y| y - rail.y(tick)))))
+                .rounded(px(TICK / 2.))
+                .bg(colour)
         });
 
         let at = move |e: Point<Pixels>| f32::from(e.y) - origin;

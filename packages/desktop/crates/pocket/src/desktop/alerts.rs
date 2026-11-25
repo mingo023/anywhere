@@ -50,7 +50,9 @@ fn who(a: &Summary) -> String {
 fn line(agents: &Agents, a: &Summary, status: Status) -> String {
     let text = match status {
         Status::NeedsYou => agents.pending.iter().find(|p| p.agent_id == a.id).map(Permission::ask),
-        Status::Done => agents.last_text(&a.id).and_then(|t| t.split("\n\n").map(|p| p.split_whitespace().collect::<Vec<_>>().join(" ")).find(|p| !p.is_empty())),
+        Status::Done => {
+            agents.last_text(&a.id).and_then(|t| t.split("\n\n").map(|p| p.split_whitespace().collect::<Vec<_>>().join(" ")).find(|p| !p.is_empty()))
+        }
         _ => None,
     };
     text.unwrap_or_else(|| status.label().to_string())
@@ -66,7 +68,8 @@ impl Alerts {
     /// Shown ones stay until the user clears them or the agent's next one replaces them, as in Superset.
     pub fn sync(&mut self, agents: &Agents, place: impl Fn(&Summary) -> String, wanted: impl Fn(Status) -> bool, on_screen: bool) -> Vec<Notice> {
         let ask = |id: &str| agents.pending.iter().find(|p| p.agent_id == id).map(|p| p.request_id.clone());
-        let now: HashMap<String, Alert> = agents.list.iter().filter_map(|a| Some((a.id.clone(), Alert { status: status::alert_status(a)?, ask: ask(&a.id) }))).collect();
+        let now: HashMap<String, Alert> =
+            agents.list.iter().filter_map(|a| Some((a.id.clone(), Alert { status: status::alert_status(a)?, ask: ask(&a.id) }))).collect();
         let viewing = if on_screen { &[] } else { self.viewing.as_deref().unwrap_or_default() };
         let show = status::alerts(&self.statuses, &now, viewing);
         let mut notices = Vec::new();
@@ -233,7 +236,9 @@ impl Desktop {
     fn on_agent_reply(&mut self, ev: Event, window: &mut Window, cx: &mut Context<Self>) -> Option<Event> {
         match ev {
             ev @ (Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_)) => self.on_pair(ev, cx),
-            ev @ (Event::Hosts(_) | Event::HostUpdate { .. } | Event::HostProgress { .. } | Event::HostError { .. } | Event::HostDone(_)) => self.on_hosts(ev, window, cx),
+            ev @ (Event::Hosts(_) | Event::HostUpdate { .. } | Event::HostProgress { .. } | Event::HostError { .. } | Event::HostDone(_)) => {
+                self.on_hosts(ev, window, cx)
+            }
             ev @ (Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. }) => self.on_launch(ev, window, cx),
             Event::SettingsFailed(message) | Event::AutomationError(message) | Event::BoardError(message) | Event::RegistryFailed(message) => {
                 self.error = Some(message);
@@ -348,7 +353,14 @@ impl Desktop {
         };
         vec![
             answer(ui::quick_button(button("deny"), None, "Deny"), Decision::Deny, cx),
-            answer(ui::quick_button(button("allow"), None, "Allow once").bg(theme::PRIMARY).text_color(theme::ON_PRIMARY).hover(|s| s.bg(theme::PRIMARY).opacity(0.9)), Decision::Allow, cx),
+            answer(
+                ui::quick_button(button("allow"), None, "Allow once")
+                    .bg(theme::PRIMARY)
+                    .text_color(theme::ON_PRIMARY)
+                    .hover(|s| s.bg(theme::PRIMARY).opacity(0.9)),
+                Decision::Allow,
+                cx,
+            ),
         ]
     }
 
@@ -363,7 +375,8 @@ impl Desktop {
     /// The terminals on screen: those of the tabs the drawn panes show.
     fn visible_panes(&mut self) -> Vec<String> {
         let Some(tree) = self.place().filter(|_| self.screen == Screen::Sessions) else { return Vec::new() };
-        let shown: Vec<String> = self.workspace(&tree).shown().into_iter().filter_map(|(_, t)| if let Tab::Term(id) = t { Some(id.clone()) } else { None }).collect();
+        let shown: Vec<String> =
+            self.workspace(&tree).shown().into_iter().filter_map(|(_, t)| if let Tab::Term(id) = t { Some(id.clone()) } else { None }).collect();
         shown.iter().map(|id| self.delegated_term(id)).collect()
     }
 
@@ -406,8 +419,8 @@ pub(crate) fn upgrade_toast(prev: Option<&Host>, next: &Host) -> Option<String> 
 mod tests {
     use super::{ALLOW, Alerts, DENY, Notice, body, exited_terminal, gone, stop_failed, upgrade_toast, wants_banner};
     use crate::status::Status;
-    use store::Notifications;
     use agents::{Agents, Event, Host, Permission, Summary};
+    use store::Notifications;
 
     fn agent(id: &str, status: &str) -> Summary {
         Summary { id: id.into(), terminal_id: format!("t-{id}"), title: id.to_uppercase(), status: status.into(), attached: true, ..Default::default() }
@@ -438,7 +451,10 @@ mod tests {
     }
 
     fn asking(alerts: &mut Alerts, list: &[Summary], asks: &[(&str, &str)], quiet: bool) -> Vec<Notice> {
-        let pending = asks.iter().map(|(agent, q)| Permission { request_id: q.to_string(), agent_id: agent.to_string(), tool_name: "Bash".into(), ..Default::default() }).collect();
+        let pending = asks
+            .iter()
+            .map(|(agent, q)| Permission { request_id: q.to_string(), agent_id: agent.to_string(), tool_name: "Bash".into(), ..Default::default() })
+            .collect();
         alerts.sync(&Agents { list: list.to_vec(), pending, ..Default::default() }, |a| format!("app · {}", a.id), |_| !quiet, false)
     }
 
@@ -516,7 +532,8 @@ mod tests {
         let mut alerts = Alerts::new();
         sync(&mut alerts, &[agent("a", "working"), agent("b", "working")], false);
         let shown = asking(&mut alerts, &[agent("a", "needsYou"), agent("b", "done")], &[("a", "q1")], false);
-        let actions: Vec<Vec<(String, String)>> = shown.iter().map(|n| n.actions().into_iter().map(|x| (x.id.to_string(), x.label.to_string())).collect()).collect();
+        let actions: Vec<Vec<(String, String)>> =
+            shown.iter().map(|n| n.actions().into_iter().map(|x| (x.id.to_string(), x.label.to_string())).collect()).collect();
         let allow_deny = vec![(ALLOW.to_string(), "Allow".to_string()), (DENY.to_string(), "Deny and stop".to_string())];
         let mut got: Vec<_> = shown.iter().map(|n| n.id.as_str()).zip(actions).collect();
         got.sort();

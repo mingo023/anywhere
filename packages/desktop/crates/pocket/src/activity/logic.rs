@@ -113,7 +113,6 @@ pub(crate) fn column(status: Option<Status>, pr_open: bool) -> Col {
     }
 }
 
-
 pub(crate) type Columns = [Vec<usize>; COLS.len()];
 
 /// Where each shown session sits: its column and its place in it.
@@ -170,7 +169,8 @@ pub(crate) struct Filters {
 impl Filters {
     pub(crate) fn keeps(&self, item: &Item) -> bool {
         let text = format!("{} {} {}", item.title, item.project_name, item.branch).to_lowercase();
-        Menu::ALL.iter().all(|&m| self.picks(m).is_empty() || self.picks(m).contains(m.value(item))) && self.query.split_whitespace().all(|w| text.contains(&w.to_lowercase()))
+        Menu::ALL.iter().all(|&m| self.picks(m).is_empty() || self.picks(m).contains(m.value(item)))
+            && self.query.split_whitespace().all(|w| text.contains(&w.to_lowercase()))
     }
 
     pub(crate) fn picks(&self, menu: Menu) -> &BTreeSet<String> {
@@ -357,7 +357,15 @@ mod tests {
     }
 
     fn named(id: &str, project: &str, provider: &str, branch: &str) -> Item {
-        Item { id: id.into(), title: format!("Fix {id}"), project: format!("/repos/{project}"), project_name: project.into(), provider: provider.into(), branch: branch.into(), ..Item::default() }
+        Item {
+            id: id.into(),
+            title: format!("Fix {id}"),
+            project: format!("/repos/{project}"),
+            project_name: project.into(),
+            provider: provider.into(),
+            branch: branch.into(),
+            ..Item::default()
+        }
     }
 
     #[test]

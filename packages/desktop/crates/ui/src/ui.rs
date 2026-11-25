@@ -1,8 +1,8 @@
-use theme::*;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use gpui_kit::component::tooltip::Tooltip;
 use std::path::PathBuf;
+use theme::*;
 
 mod scramble;
 pub use scramble::{scramble, scramble_duration};
@@ -134,7 +134,11 @@ pub fn button(id: impl Into<ElementId>, v: Variant, icon_name: Option<&str>, lab
     let d = match v {
         Variant::Primary => primary(d).font_weight(FontWeight::SEMIBOLD).active(|s| s.opacity(0.85)),
         Variant::Glass => glass(d).font_weight(FontWeight::MEDIUM).active(|s| s.opacity(0.85)),
-        Variant::Accent => d.bg(ACCENT_FILL).font_weight(FontWeight::SEMIBOLD).shadow(vec![highlight(rgba(0xffffff40)), shadow(rgba(0x0000002e), 2., 6.)]).active(|s| s.opacity(0.85)),
+        Variant::Accent => d
+            .bg(ACCENT_FILL)
+            .font_weight(FontWeight::SEMIBOLD)
+            .shadow(vec![highlight(rgba(0xffffff40)), shadow(rgba(0x0000002e), 2., 6.)])
+            .active(|s| s.opacity(0.85)),
         Variant::Secondary => d.bg(FILL_3).font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_4)).active(|s| s.opacity(0.85)),
         Variant::Ghost => d.font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_3)).active(|s| s.bg(FILL_4)),
         Variant::Danger => d.bg(FAILED).font_weight(FontWeight::SEMIBOLD).active(|s| s.opacity(0.85)),
@@ -186,7 +190,17 @@ fn named_keys(mac: &str) -> String {
 }
 
 pub fn glyph_frame(id: impl Into<ElementId>, w: f32, h: f32, radius: f32) -> Stateful<Div> {
-    control(div().id(id)).w(px(w)).h(px(h)).flex_none().flex().items_center().justify_center().rounded(px(radius)).cursor_pointer().hover(|s| s.bg(FILL_3)).active(|s| s.bg(FILL_4))
+    control(div().id(id))
+        .w(px(w))
+        .h(px(h))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(radius))
+        .cursor_pointer()
+        .hover(|s| s.bg(FILL_3))
+        .active(|s| s.bg(FILL_4))
 }
 
 fn glyph_button(id: impl Into<ElementId>, name: &str, w: f32, h: f32, radius: f32, color: Token) -> Stateful<Div> {
@@ -401,7 +415,10 @@ pub enum Mark {
     Letters(String),
     Emoji(String),
     /// Shows `letters` while the picture can't be read.
-    Image { path: PathBuf, letters: String },
+    Image {
+        path: PathBuf,
+        letters: String,
+    },
 }
 
 impl Mark {
@@ -423,7 +440,12 @@ impl Mark {
             Mark::Letters(text) | Mark::Emoji(text) => text.clone().into_any_element(),
             Mark::Image { path, letters } => {
                 let letters = letters.clone();
-                img(path.clone()).size_full().rounded(px(radius)).object_fit(ObjectFit::Cover).with_fallback(move || letters.clone().into_any_element()).into_any_element()
+                img(path.clone())
+                    .size_full()
+                    .rounded(px(radius))
+                    .object_fit(ObjectFit::Cover)
+                    .with_fallback(move || letters.clone().into_any_element())
+                    .into_any_element()
             }
         }
     }
@@ -473,9 +495,7 @@ pub fn repo_tile(mark: &Mark, size: f32, selected: bool, state: Option<State>) -
         .text_size(px((size * scale).round()))
         .font_weight(FontWeight::SEMIBOLD)
         .when(selected, |d| d.bg(TEXT).text_color(ON_TEXT))
-        .when(!selected, |d| {
-            d.bg(SURFACE).text_color(TEXT_2).shadow(vec![BoxShadow { inset: true, ..ring(SEPARATOR_STRONG, 0.5) }])
-        })
+        .when(!selected, |d| d.bg(SURFACE).text_color(TEXT_2).shadow(vec![BoxShadow { inset: true, ..ring(SEPARATOR_STRONG, 0.5) }]))
         .child(mark.fill(radius))
         .children(corner_badges(state))
 }
@@ -513,22 +533,15 @@ pub fn repo_row(id: impl Into<ElementId>, chevron: Option<Stateful<Div>>, name: 
             .child(c.absolute().inset_0().opacity(0.).group_hover(ROW_GROUP, |s| s.opacity(1.))),
         None => mark,
     };
-    sidebar_row(id, selected)
-        .child(lead)
-        .child(div().flex_1().min_w_0().truncate().child(name.to_string()))
+    sidebar_row(id, selected).child(lead).child(div().flex_1().min_w_0().truncate().child(name.to_string()))
 }
 
 pub fn chevron(id: impl Into<ElementId>, open: bool) -> Stateful<Div> {
-    div()
-        .id(id)
-        .size(px(ROW_MARK_SIZE))
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .rounded(px(5.))
-        .hover(|s| s.bg(FILL_3))
-        .child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))
+    div().id(id).size(px(ROW_MARK_SIZE)).flex().flex_none().items_center().justify_center().rounded(px(5.)).hover(|s| s.bg(FILL_3)).child(icon(
+        if open { "chevron-down" } else { "chevron-right" },
+        12.,
+        TEXT_4,
+    ))
 }
 
 /// A row's status mark: its status's glyph.
@@ -594,7 +607,9 @@ pub fn sweep(id: impl Into<ElementId>, text: SharedString, base: Token) -> Anima
         let runs: Vec<_> = text
             .char_indices()
             .enumerate()
-            .map(|(i, (at, c))| (at..at + c.len_utf8(), HighlightStyle { color: Some(base.blend(Hsla { a: lit((i as f32 + 0.5) / n, t), ..peak })), ..Default::default() }))
+            .map(|(i, (at, c))| {
+                (at..at + c.len_utf8(), HighlightStyle { color: Some(base.blend(Hsla { a: lit((i as f32 + 0.5) / n, t), ..peak })), ..Default::default() })
+            })
             .collect();
         d.child(StyledText::new(text.clone()).with_highlights(runs))
     })
@@ -616,7 +631,13 @@ fn marquee_offset(t: f32, overflow: f32) -> f32 {
 
 /// `label` scrolling through its cut-off end and back while `text`, `width` px wide, is `overflow` px wider than its row.
 /// `measured` hears each frame's width and overflow.
-pub fn marquee(id: impl Into<ElementId>, text: SharedString, (width, overflow): (f32, f32), label: impl IntoElement, measured: impl FnOnce(f32, f32, &mut App) + 'static) -> Div {
+pub fn marquee(
+    id: impl Into<ElementId>,
+    text: SharedString,
+    (width, overflow): (f32, f32),
+    label: impl IntoElement,
+    measured: impl FnOnce(f32, f32, &mut App) + 'static,
+) -> Div {
     let measure = canvas(
         move |bounds, window, cx| {
             let style = window.text_style();
@@ -632,13 +653,14 @@ pub fn marquee(id: impl Into<ElementId>, text: SharedString, (width, overflow): 
     let label = if overflow > 0.5 {
         let cycle = Animation::new(std::time::Duration::from_secs_f32(marquee_cycle(overflow))).repeat();
         // 30fps steps 1px a frame at MARQUEE_SPEED; uncapped redraws the whole window every vsync.
-        label.with_animation(id, cycle.with_max_fps(30.), move |d, t| {
-            let offset = marquee_offset(t, overflow);
-            // Nowrap text ellipsizes to whatever width it's given: at rest it keeps its "…", moving it needs its full width, plus a px for rounding.
-            // Shifted, not margined: a margin would shrink a box sized to its content, so each overflow measured grows the next.
-            d.when(offset > 0., |d| d.w(px(width + 1.)).relative().left(px(-offset)))
-        })
-        .into_any_element()
+        label
+            .with_animation(id, cycle.with_max_fps(30.), move |d, t| {
+                let offset = marquee_offset(t, overflow);
+                // Nowrap text ellipsizes to whatever width it's given: at rest it keeps its "…", moving it needs its full width, plus a px for rounding.
+                // Shifted, not margined: a margin would shrink a box sized to its content, so each overflow measured grows the next.
+                d.when(offset > 0., |d| d.w(px(width + 1.)).relative().left(px(-offset)))
+            })
+            .into_any_element()
     } else {
         label.into_any_element()
     };
@@ -651,7 +673,14 @@ pub fn drop_line(below: bool) -> Vec<BoxShadow> {
 }
 
 pub fn provider_label(provider: &str, faded: bool) -> Div {
-    div().flex().flex_none().items_center().gap(px(6.)).when(faded, |d| d.opacity(0.5)).child(provider_icon(provider, 12., TEXT_2)).child(provider_name(provider))
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(6.))
+        .when(faded, |d| d.opacity(0.5))
+        .child(provider_icon(provider, 12., TEXT_2))
+        .child(provider_name(provider))
 }
 
 pub fn agent_label(provider: &str, label: String) -> Div {
@@ -663,7 +692,17 @@ pub const SESSION_ROW: &str = "session-row";
 
 /// A session's card. Needs you fills the whole row; hover and selection tint over that fill. `stats` shows a finished session's diff stats.
 #[allow(clippy::too_many_arguments)]
-pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElement, when: impl IntoElement, title: String, notice: Option<Notice>, branch: Option<String>, state: Option<State>, stats: bool) -> Stateful<Div> {
+pub fn session_row(
+    id: impl Into<ElementId>,
+    selected: bool,
+    lead: impl IntoElement,
+    when: impl IntoElement,
+    title: String,
+    notice: Option<Notice>,
+    branch: Option<String>,
+    state: Option<State>,
+    stats: bool,
+) -> Stateful<Div> {
     let id = id.into();
     session_card(id.clone(), selected, state)
         .child(session_line().child(div().flex_1().min_w_0().flex().child(lead)).child(session_when(when)))
@@ -674,10 +713,27 @@ pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElem
 
 /// A pinned session's card: a pin before its title in place of the agent line.
 #[allow(clippy::too_many_arguments)]
-pub fn pinned_row(id: impl Into<ElementId>, selected: bool, when: impl IntoElement, title: String, notice: Option<Notice>, branch: Option<String>, state: Option<State>, stats: bool) -> Stateful<Div> {
+pub fn pinned_row(
+    id: impl Into<ElementId>,
+    selected: bool,
+    when: impl IntoElement,
+    title: String,
+    notice: Option<Notice>,
+    branch: Option<String>,
+    state: Option<State>,
+    stats: bool,
+) -> Stateful<Div> {
     let id = id.into();
     session_card(id.clone(), selected, state)
-        .child(div().flex().items_center().gap(px(8.)).child(icon("pin", 13., TEXT_2)).child(session_title(title).flex_1().min_w_0()).child(session_when(when).text_size(px(12.)).text_color(TEXT_2)))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(icon("pin", 13., TEXT_2))
+                .child(session_title(title).flex_1().min_w_0())
+                .child(session_when(when).text_size(px(12.)).text_color(TEXT_2)),
+        )
         .children(session_notice(notice))
         .child(session_foot(id, branch, state, stats))
 }
@@ -704,7 +760,14 @@ pub fn group_count(n: usize) -> Div {
 const SECTION_HEAD: &str = "section-head";
 
 /// A folding `group_head` on the sidebar: `lead`, swapped for a chevron while hovered, then `name` and its `trail`, shown while hovered or `held`.
-pub fn section_head(id: impl Into<ElementId>, lead: impl IntoElement, name: impl IntoElement, open: bool, trail: Option<AnyElement>, held: bool) -> Stateful<Div> {
+pub fn section_head(
+    id: impl Into<ElementId>,
+    lead: impl IntoElement,
+    name: impl IntoElement,
+    open: bool,
+    trail: Option<AnyElement>,
+    held: bool,
+) -> Stateful<Div> {
     let chevron = icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_3);
     let lead = div()
         .relative()
@@ -761,7 +824,15 @@ fn session_notice(notice: Option<Notice>) -> Option<Div> {
 
 fn session_foot(id: ElementId, branch: Option<String>, state: Option<State>, stats: bool) -> Div {
     session_line()
-        .child(div().flex_1().min_w_0().flex().items_center().gap(px(6.)).when_some(branch, |d, b| d.child(icon("branch", 12., TEXT_2)).child(div().truncate().child(b))))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .when_some(branch, |d, b| d.child(icon("branch", 12., TEXT_2)).child(div().truncate().child(b))),
+        )
         .children(state.map(|s| status_label(id, s, stats)))
 }
 
@@ -784,7 +855,18 @@ fn session_card(id: ElementId, selected: bool, state: Option<State>) -> Stateful
 
 /// The "⌃n" chip a session row shows in place of its age while ⌃ is held.
 pub fn jump_chip(n: usize) -> Div {
-    div().h(px(16.)).px(px(4.)).flex().items_center().rounded(px(4.)).bg(FILL_4).font_family(MONO).text_size(px(10.)).font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(os_keys(&format!("⌃{n}")))
+    div()
+        .h(px(16.))
+        .px(px(4.))
+        .flex()
+        .items_center()
+        .rounded(px(4.))
+        .bg(FILL_4)
+        .font_family(MONO)
+        .text_size(px(10.))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(TEXT_2)
+        .child(os_keys(&format!("⌃{n}")))
 }
 
 /// A card's status as coloured text: the pill's glyph and label without its background.
@@ -838,7 +920,10 @@ pub fn tree_row(
         .child(file_icon(&label, folder, open, 16.))
         .child(div().flex_1().truncate().when_some(git, |d, g| d.text_color(git_color(g))).child(label))
         .when(touched, |d| d.child(dot(6., AGENT_CODEX)))
-        .children(git.filter(|_| !folder).map(|g| div().font_family(MONO).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(git_color(g)).child(g.to_string())))
+        .children(
+            git.filter(|_| !folder)
+                .map(|g| div().font_family(MONO).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(git_color(g)).child(g.to_string())),
+        )
 }
 
 /// An on/off control that turns green when on. Its knob slides when `on` flips, and sits still when it first shows.
@@ -907,7 +992,9 @@ pub fn change_row(
                 .flex()
                 .flex_col()
                 .gap(px(1.))
-                .child(div().truncate().text_size(px(13.5)).font_weight(if selected { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM }).child(file.to_string()))
+                .child(
+                    div().truncate().text_size(px(13.5)).font_weight(if selected { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM }).child(file.to_string()),
+                )
                 .when(!dir.is_empty(), |d| d.child(div().truncate().font_family(MONO).text_size(px(11.)).text_color(TEXT_4).child(dir.to_string()))),
         )
         .when(comments > 0, |d| {
@@ -985,15 +1072,17 @@ pub fn avatar(initials: &str, size: f32) -> Div {
 /// Crumbs separated by slashes; the last one is the current page and truncates only once the others have. Past that, the first crumbs clip.
 pub fn breadcrumb(crumbs: Vec<String>) -> Div {
     let last = crumbs.len().saturating_sub(1);
-    div().flex().min_w_0().overflow_hidden().justify_end().items_center().gap(px(8.)).text_size(px(13.)).whitespace_nowrap().children(crumbs.into_iter().enumerate().flat_map(|(i, c)| {
-        let crumb = div()
-            .truncate()
-            .when(i == last, |d| d.min_w(px(60.)).text_color(TEXT).font_weight(FontWeight::SEMIBOLD))
-            .when(i != last, |d| d.min_w(px(24.)).flex_shrink(100.).text_color(TEXT_2).font_weight(FontWeight(450.)))
-            .child(c);
-        let slash = (i > 0).then(|| div().flex_none().text_color(TEXT_6).child("/"));
-        slash.into_iter().chain([crumb])
-    }))
+    div().flex().min_w_0().overflow_hidden().justify_end().items_center().gap(px(8.)).text_size(px(13.)).whitespace_nowrap().children(
+        crumbs.into_iter().enumerate().flat_map(|(i, c)| {
+            let crumb = div()
+                .truncate()
+                .when(i == last, |d| d.min_w(px(60.)).text_color(TEXT).font_weight(FontWeight::SEMIBOLD))
+                .when(i != last, |d| d.min_w(px(24.)).flex_shrink(100.).text_color(TEXT_2).font_weight(FontWeight(450.)))
+                .child(c);
+            let slash = (i > 0).then(|| div().flex_none().text_color(TEXT_6).child("/"));
+            slash.into_iter().chain([crumb])
+        }),
+    )
 }
 
 pub fn page_bar() -> Div {
@@ -1007,9 +1096,12 @@ pub fn meta_item() -> Div {
 /// Meta items in the room the breadcrumb leaves; ones that don't fit wrap onto a clipped second line, so none shows half cut.
 pub fn meta_row(items: Vec<AnyElement>) -> Div {
     // The empty lead holds the first line, so even the first item can wrap away.
-    div().ml(px(8.)).flex_1().min_w_0().h(px(22.)).flex().flex_wrap().items_center().overflow_hidden().child(div()).children(items.into_iter().enumerate().map(|(i, item)| {
-        div().flex().flex_none().items_center().gap(px(10.)).when(i > 0, |d| d.pl(px(10.)).child(dot(3., TEXT_6))).child(item)
-    }))
+    div().ml(px(8.)).flex_1().min_w_0().h(px(22.)).flex().flex_wrap().items_center().overflow_hidden().child(div()).children(
+        items
+            .into_iter()
+            .enumerate()
+            .map(|(i, item)| div().flex().flex_none().items_center().gap(px(10.)).when(i > 0, |d| d.pl(px(10.)).child(dot(3., TEXT_6))).child(item)),
+    )
 }
 
 /// "+n −n" in the status colors, as the top bar shows it.
@@ -1053,15 +1145,7 @@ pub fn field_label(label: impl Into<SharedString>) -> Div {
 }
 
 pub fn field_box() -> Div {
-    div()
-        .h(px(38.))
-        .px(px(12.))
-        .flex()
-        .items_center()
-        .gap(px(8.))
-        .rounded(px(11.))
-        .bg(Token::new(0xffffffd9, 0xebebeb14))
-        .shadow(vec![ring(SEPARATOR, 0.5)])
+    div().h(px(38.)).px(px(12.)).flex().items_center().gap(px(8.)).rounded(px(11.)).bg(Token::new(0xffffffd9, 0xebebeb14)).shadow(vec![ring(SEPARATOR, 0.5)])
 }
 
 /// A dim full-window layer behind a sheet; clicking it dismisses.
@@ -1075,13 +1159,7 @@ pub fn modal(title: &str, width: f32, top: f32, close: Stateful<Div>, body: impl
         pop(div().w(px(width)).pt(px(22.)).px(px(24.)).pb(px(20.)).flex().flex_col().gap(px(16.)))
             .rounded(px(R_DIALOG))
             .occlude()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .child(div().flex_1().text_size(px(20.)).font_weight(FontWeight::BOLD).child(title.to_string()))
-                    .child(close),
-            )
+            .child(div().flex().items_center().child(div().flex_1().text_size(px(20.)).font_weight(FontWeight::BOLD).child(title.to_string())).child(close))
             .children(body),
     )
 }
@@ -1111,7 +1189,14 @@ pub fn dialog(title: &str, body: impl IntoIterator<Item = AnyElement>, buttons: 
     )
 }
 
-pub fn palette_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElement, title: impl IntoElement, detail: impl IntoElement, keys: Option<&str>) -> Stateful<Div> {
+pub fn palette_row(
+    id: impl Into<ElementId>,
+    selected: bool,
+    lead: impl IntoElement,
+    title: impl IntoElement,
+    detail: impl IntoElement,
+    keys: Option<&str>,
+) -> Stateful<Div> {
     div()
         .id(id)
         .h(px(40.))
@@ -1202,7 +1287,16 @@ pub fn chip(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
 }
 
 pub fn link(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Stateful<Div> {
-    div().id(id).flex_none().cursor_pointer().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(ACCENT_LINK).underline().whitespace_nowrap().child(label.into())
+    div()
+        .id(id)
+        .flex_none()
+        .cursor_pointer()
+        .text_size(px(12.5))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(ACCENT_LINK)
+        .underline()
+        .whitespace_nowrap()
+        .child(label.into())
 }
 
 /// Rounded search-like field that opens something when clicked.
@@ -1247,7 +1341,6 @@ pub fn nav_row(id: impl Into<ElementId>, icon_name: &str, label: &str, selected:
         .child(mark_slot(icon(icon_name, 15., if selected { TEXT } else { TEXT_3 })))
         .child(div().flex_1().min_w_0().truncate().child(label.to_string()))
 }
-
 
 pub fn menu_chip(id: &'static str, open: bool) -> Stateful<Div> {
     div()
@@ -1311,34 +1404,120 @@ pub fn card(id: impl Into<ElementId>) -> Stateful<Div> {
 
 /// A small outlined tag on a card: its PR, its diff.
 pub fn card_pill() -> Div {
-    div().h(px(20.)).px(px(7.)).flex().flex_none().items_center().gap(px(4.)).rounded(px(10.)).border_1().border_color(SEPARATOR).text_size(px(11.5)).text_color(TEXT_2)
+    div()
+        .h(px(20.))
+        .px(px(7.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(4.))
+        .rounded(px(10.))
+        .border_1()
+        .border_color(SEPARATOR)
+        .text_size(px(11.5))
+        .text_color(TEXT_2)
 }
 
 /// A column's mark, name and count.
 pub fn column_heading(glyph: impl IntoElement, name: &'static str, count: String) -> Div {
-    div().flex().items_center().gap(px(8.)).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(glyph).child(name).child(div().font_weight(FontWeight::NORMAL).text_color(TEXT_3).child(count))
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .text_size(px(12.5))
+        .font_weight(FontWeight::MEDIUM)
+        .child(glyph)
+        .child(name)
+        .child(div().font_weight(FontWeight::NORMAL).text_color(TEXT_3).child(count))
 }
 
 /// What an empty column says in place of its cards.
 pub fn empty_hint(hint: &'static str) -> Div {
-    div().mx(px(8.)).min_h(px(72.)).flex().flex_none().items_center().justify_center().px(px(18.)).py(px(12.)).rounded(px(9.)).border_1().border_dashed().border_color(SEPARATOR).text_center().text_size(px(12.)).line_height(px(18.)).text_color(TEXT_4).child(hint)
+    div()
+        .mx(px(8.))
+        .min_h(px(72.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .px(px(18.))
+        .py(px(12.))
+        .rounded(px(9.))
+        .border_1()
+        .border_dashed()
+        .border_color(SEPARATOR)
+        .text_center()
+        .text_size(px(12.))
+        .line_height(px(18.))
+        .text_color(TEXT_4)
+        .child(hint)
 }
 
 /// The agent on a card, where a person's avatar would go.
 pub fn agent_avatar(id: impl Into<ElementId>, provider: &str, name: String) -> Stateful<Div> {
     let name = SharedString::from(name);
-    div().id(id).size(px(18.)).flex().flex_none().items_center().justify_center().rounded(px(9.)).bg(FILL_2).child(theme::provider_icon(provider, 11., TEXT_2)).tooltip(move |window, cx| Tooltip::new(name.clone()).build(window, cx))
+    div()
+        .id(id)
+        .size(px(18.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(9.))
+        .bg(FILL_2)
+        .child(theme::provider_icon(provider, 11., TEXT_2))
+        .tooltip(move |window, cx| Tooltip::new(name.clone()).build(window, cx))
 }
 
 /// A card's small action button.
 pub fn quick_button(id: impl Into<ElementId>, lead: Option<&'static str>, label: &'static str) -> Stateful<Div> {
-    div().id(id).h(px(20.)).px(px(7.)).flex().flex_none().items_center().gap(px(4.)).rounded(px(6.)).cursor_pointer().bg(FILL_2).hover(|s| s.bg(FILL_3)).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT).whitespace_nowrap().children(lead.map(|n| icon(n, 10., TEXT))).child(label)
+    div()
+        .id(id)
+        .h(px(20.))
+        .px(px(7.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(4.))
+        .rounded(px(6.))
+        .cursor_pointer()
+        .bg(FILL_2)
+        .hover(|s| s.bg(FILL_3))
+        .text_size(px(11.5))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(TEXT)
+        .whitespace_nowrap()
+        .children(lead.map(|n| icon(n, 10., TEXT)))
+        .child(label)
 }
 
 /// A value in a filter menu: its tick, mark, name and how many items have it.
 pub fn value_row(id: impl Into<ElementId>, on: bool, lead: impl IntoElement, name: &str, count: usize) -> Stateful<Div> {
-    let tick = div().size(px(14.)).flex().flex_none().items_center().justify_center().rounded(px(4.)).when(on, |d| d.bg(INDIGO).child(icon("check", 9., ON_INDIGO))).when(!on, |d| d.border_1().border_color(SEPARATOR_STRONG));
-    div().id(id).h(px(28.)).px(px(8.)).flex().flex_none().items_center().gap(px(8.)).rounded(px(6.)).cursor_pointer().text_size(px(12.5)).hover(|s| s.bg(FILL_2)).child(tick).child(div().w(px(14.)).flex().flex_none().justify_center().child(lead)).child(div().flex_1().min_w_0().truncate().child(name.to_string())).child(div().text_size(px(12.)).text_color(TEXT_4).child(count.to_string()))
+    let tick = div()
+        .size(px(14.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(4.))
+        .when(on, |d| d.bg(INDIGO).child(icon("check", 9., ON_INDIGO)))
+        .when(!on, |d| d.border_1().border_color(SEPARATOR_STRONG));
+    div()
+        .id(id)
+        .h(px(28.))
+        .px(px(8.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(8.))
+        .rounded(px(6.))
+        .cursor_pointer()
+        .text_size(px(12.5))
+        .hover(|s| s.bg(FILL_2))
+        .child(tick)
+        .child(div().w(px(14.)).flex().flex_none().justify_center().child(lead))
+        .child(div().flex_1().min_w_0().truncate().child(name.to_string()))
+        .child(div().text_size(px(12.)).text_color(TEXT_4).child(count.to_string()))
 }
 
 #[cfg(test)]
@@ -1354,7 +1533,10 @@ mod tests {
 
     #[test]
     fn mac_key_glyphs_read_as_named_keys_off_macos() {
-        assert_eq!([named_keys("⌘⇧B"), named_keys("⌘ ↵"), named_keys("⌃3"), named_keys("⌘1–9"), named_keys("⌘-click"), named_keys("esc")], ["Ctrl+Shift+B", "Ctrl Enter", "Alt+3", "Ctrl+1–9", "Ctrl-click", "esc"]);
+        assert_eq!(
+            [named_keys("⌘⇧B"), named_keys("⌘ ↵"), named_keys("⌃3"), named_keys("⌘1–9"), named_keys("⌘-click"), named_keys("esc")],
+            ["Ctrl+Shift+B", "Ctrl Enter", "Alt+3", "Ctrl+1–9", "Ctrl-click", "esc"]
+        );
     }
 
     const STATUSES: [State; 4] = [State::NeedsYou, State::Working, State::Done(0, 0), State::Failed];

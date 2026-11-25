@@ -10,11 +10,23 @@ pub fn card() -> Div {
 
 /// A small heading over `body`.
 pub fn section(label: &str, body: impl IntoElement) -> Div {
-    div().flex().flex_col().gap(px(8.)).child(div().pl(px(4.)).text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(label.to_string())).child(body)
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(8.))
+        .child(div().pl(px(4.)).text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(label.to_string()))
+        .child(body)
 }
 
 /// Equal-width choices in a tray; `roomy` is the larger one the trigger card uses.
-pub fn segmented(id: &'static str, labels: &[&'static str], selected: usize, roomy: bool, on: fn(&mut Desktop, usize, &mut Context<Desktop>), cx: &mut Context<Desktop>) -> Div {
+pub fn segmented(
+    id: &'static str,
+    labels: &[&'static str],
+    selected: usize,
+    roomy: bool,
+    on: fn(&mut Desktop, usize, &mut Context<Desktop>),
+    cx: &mut Context<Desktop>,
+) -> Div {
     let (pad, h, gutter, inner, outer, size) = if roomy { (3., 26., 12., 8., 11., 12.5) } else { (2., 24., 9., 7., 9., 12.) };
     div().flex().flex_none().p(px(pad)).gap(px(2.)).rounded(px(outer)).bg(FILL_3).children(labels.iter().enumerate().map(|(i, label)| {
         div()

@@ -1,7 +1,7 @@
 //! A prompt's markdown as it is typed: what of it to style, and the edits that keep a list going, format a selection
 //! and take a paste. The text stays markdown, as the agent reads it.
 
-use crate::marks::{code, in_code, Code};
+use crate::marks::{Code, code, in_code};
 use std::ops::Range;
 
 /// How a span of a prompt reads.
@@ -442,7 +442,10 @@ pub fn spans(text: &str) -> Vec<(Range<usize>, Style)> {
         let linked = found.clone();
         emphasis(&body[from..], base + from, &mut found);
         // An address keeps its `_` and `*`.
-        found.retain(|(r, style)| *style == Style::Link || linked.iter().all(|(l, s)| *s != Style::Link || r.end <= l.start || l.end <= r.start || (l.start >= r.start && l.end <= r.end)));
+        found.retain(|(r, style)| {
+            *style == Style::Link
+                || linked.iter().all(|(l, s)| *s != Style::Link || r.end <= l.start || l.end <= r.start || (l.start >= r.start && l.end <= r.end))
+        });
         out.extend(found);
         base += line.len();
     }
@@ -623,7 +626,10 @@ mod tests {
 
     #[test]
     fn addresses_are_links_without_the_punctuation_around_them() {
-        assert_eq!(styled("see https://a.dev/x_y, (http://b.dev/p?q=1). xhttp://no and https://"), [("https://a.dev/x_y", Style::Link), ("http://b.dev/p?q=1", Style::Link)]);
+        assert_eq!(
+            styled("see https://a.dev/x_y, (http://b.dev/p?q=1). xhttp://no and https://"),
+            [("https://a.dev/x_y", Style::Link), ("http://b.dev/p?q=1", Style::Link)]
+        );
     }
 
     #[test]
@@ -638,7 +644,9 @@ mod tests {
 
     #[test]
     fn a_link_leaves_out_the_marks_and_brackets_around_it() {
-        let linked = |text: &'static str| -> Vec<&'static str> { spans(text).into_iter().filter(|(_, s)| *s == Style::Link).map(|(r, _)| link_target(text, r)).collect() };
+        let linked = |text: &'static str| -> Vec<&'static str> {
+            spans(text).into_iter().filter(|(_, s)| *s == Style::Link).map(|(r, _)| link_target(text, r)).collect()
+        };
         assert_eq!(linked("**https://a.dev** and _https://b.dev_"), ["https://a.dev", "https://b.dev"]);
         assert_eq!(linked("[https://a.dev](https://b.dev)"), ["https://b.dev"]);
         assert_eq!(linked("see https://en.wikipedia.org/wiki/Rust_(programming_language)."), ["https://en.wikipedia.org/wiki/Rust_(programming_language)"]);
@@ -646,7 +654,10 @@ mod tests {
 
     #[test]
     fn emphasis_inside_emphasis_is_styled_too() {
-        assert_eq!(styled("**_x_**"), [("**", Style::Syntax), ("_", Style::Syntax), ("_x_", Style::Bold), ("x", Style::Italic), ("_", Style::Syntax), ("**", Style::Syntax)]);
+        assert_eq!(
+            styled("**_x_**"),
+            [("**", Style::Syntax), ("_", Style::Syntax), ("_x_", Style::Bold), ("x", Style::Italic), ("_", Style::Syntax), ("**", Style::Syntax)]
+        );
     }
 
     #[test]
@@ -670,7 +681,10 @@ mod tests {
 
     #[test]
     fn emphasis_styles_what_its_marks_hold_and_dims_the_marks() {
-        assert_eq!(styled("**bold** and _it_"), [("**", Style::Syntax), ("bold", Style::Bold), ("**", Style::Syntax), ("_", Style::Syntax), ("it", Style::Italic), ("_", Style::Syntax)]);
+        assert_eq!(
+            styled("**bold** and _it_"),
+            [("**", Style::Syntax), ("bold", Style::Bold), ("**", Style::Syntax), ("_", Style::Syntax), ("it", Style::Italic), ("_", Style::Syntax)]
+        );
         assert_eq!(styled("~~gone~~ *it*").iter().map(|(_, s)| *s).filter(|s| *s != Style::Syntax).collect::<Vec<_>>(), [Style::Strike, Style::Italic]);
     }
 

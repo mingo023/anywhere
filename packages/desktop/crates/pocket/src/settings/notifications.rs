@@ -7,8 +7,8 @@ use crate::desktop::Desktop;
 use crate::desktop::sounds::sound_name;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use store::prefs::terminal::Bell;
 use store::DockBadge;
+use store::prefs::terminal::Bell;
 use theme::*;
 
 const BADGES: [DockBadge; 3] = [DockBadge::Off, DockBadge::NeedsYou, DockBadge::Inbox];
@@ -22,7 +22,8 @@ fn show_badge(d: &mut Desktop, _: &mut Context<Desktop>) {
 
 /// By urgency, as the subtitle says.
 pub(super) const ROWS: &[Setting] = &[
-    Setting::switch("banners", "Banners", "Banners", |s| s.notifications.banners, |s, on| s.notifications.banners = on).hint("A macOS banner when a session needs you, fails or is done"),
+    Setting::switch("banners", "Banners", "Banners", |s| s.notifications.banners, |s, on| s.notifications.banners = on)
+        .hint("A macOS banner when a session needs you, fails or is done"),
     Setting::switch("banner-needs-you", "Banners", "Needs you", |s| s.notifications.needs_you, |s, on| s.notifications.needs_you = on)
         .hint("An agent asks for an approval or an answer")
         .under(|s| s.notifications.banners),
@@ -43,13 +44,27 @@ pub(super) const ROWS: &[Setting] = &[
         .hint("Pick a sound or add your own. Custom audio supports .mp3, .wav, and .ogg.")
         .under(|s| s.sounds.all)
         .resets(|s| sound_name(&s.sounds.sound), |s, d| s.sounds.sound = d.sounds.sound.clone()),
-    Setting::choice("dock-badge", "Dock & bell", "Dock badge", &["Off", "Needs you count", "Inbox count"], Look::Dropdown, |s| BADGES.iter().position(|b| *b == s.notifications.badge).unwrap_or(2), |s, i| {
-        s.notifications.badge = BADGES[i]
-    })
+    Setting::choice(
+        "dock-badge",
+        "Dock & bell",
+        "Dock badge",
+        &["Off", "Needs you count", "Inbox count"],
+        Look::Dropdown,
+        |s| BADGES.iter().position(|b| *b == s.notifications.badge).unwrap_or(2),
+        |s, i| s.notifications.badge = BADGES[i],
+    )
     .hint("The number on the app icon")
     .effect(show_badge),
-    Setting::choice("terminal-bell", "Dock & bell", "Terminal bell", &["Off", "Sound", "Flash"], Look::Segmented, |s| s.terminal.bell as usize, |s, i| s.terminal.bell = Bell::ALL[i])
-        .hint("When a program in a terminal rings the bell"),
+    Setting::choice(
+        "terminal-bell",
+        "Dock & bell",
+        "Terminal bell",
+        &["Off", "Sound", "Flash"],
+        Look::Segmented,
+        |s| s.terminal.bell as usize,
+        |s, i| s.terminal.bell = Bell::ALL[i],
+    )
+    .hint("When a program in a terminal rings the bell"),
 ];
 
 impl Desktop {
@@ -70,7 +85,10 @@ impl Desktop {
     }
 
     pub(super) fn notification_settings(&mut self, cx: &mut Context<Self>) -> Div {
-        let groups: Vec<Div> = catalog::groups(ROWS).into_iter().filter_map(|g| if g == SOUND { self.sound_group(cx) } else { self.setting_group(Section::Notifications, g, cx) }).collect();
+        let groups: Vec<Div> = catalog::groups(ROWS)
+            .into_iter()
+            .filter_map(|g| if g == SOUND { self.sound_group(cx) } else { self.setting_group(Section::Notifications, g, cx) })
+            .collect();
         div().flex().flex_col().gap(px(22.)).when(self.settings.banners_denied, |d| d.child(denied_banner())).children(groups)
     }
 }
@@ -88,16 +106,12 @@ fn denied_banner() -> Div {
         .flex_col()
         .gap(px(2.))
         .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child("Notifications are off for Anywhere in macOS"))
-        .child(div().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child("Banners below won\u{2019}t appear until you allow them. Sounds and the Dock badge still work."));
-    div()
-        .px(px(14.))
-        .py(px(12.))
-        .flex()
-        .items_center()
-        .gap(px(12.))
-        .rounded(px(12.))
-        .bg(WAITING_BG)
-        .child(icon("bell", 16., WAITING))
-        .child(text)
-        .child(open)
+        .child(
+            div()
+                .text_size(px(12.))
+                .line_height(px(16.))
+                .text_color(TEXT_3)
+                .child("Banners below won\u{2019}t appear until you allow them. Sounds and the Dock badge still work."),
+        );
+    div().px(px(14.)).py(px(12.)).flex().items_center().gap(px(12.)).rounded(px(12.)).bg(WAITING_BG).child(icon("bell", 16., WAITING)).child(text).child(open)
 }

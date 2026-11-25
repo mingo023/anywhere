@@ -8,9 +8,7 @@ fn main() {
         .filter(|n| n.ends_with(".svg"))
         .collect();
     names.sort();
-    let entries: String = names
-        .iter()
-        .map(|n| format!("(\"icons/material/{n}\", include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/assets/material/{n}\"))),\n"))
-        .collect();
+    let entries: String =
+        names.iter().map(|n| format!("(\"icons/material/{n}\", include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/assets/material/{n}\"))),\n")).collect();
     fs::write(Path::new(&env::var("OUT_DIR").unwrap()).join("material.rs"), format!("&[\n{entries}]")).unwrap();
 }

@@ -98,10 +98,12 @@ impl Highlights {
 
 /// The diff's rows, as the changes view draws them.
 pub(crate) fn body(lines: &[Line], hl: Option<&[Spans]>) -> Div {
-    code_text(div().w_full().min_w_0().flex().flex_col().overflow_hidden().rounded(px(6.)).my(px(4.)), 12).children(lines.iter().enumerate().map(|(i, l)| match l.kind {
-        Kind::Hunk => hunk(&l.text),
-        // Long lines clip, as the rows keep one height.
-        _ => code(l, hl.and_then(|h| h.get(i)), vec![l.old, l.new], false).whitespace_nowrap().overflow_hidden(),
+    code_text(div().w_full().min_w_0().flex().flex_col().overflow_hidden().rounded(px(6.)).my(px(4.)), 12).children(lines.iter().enumerate().map(|(i, l)| {
+        match l.kind {
+            Kind::Hunk => hunk(&l.text),
+            // Long lines clip, as the rows keep one height.
+            _ => code(l, hl.and_then(|h| h.get(i)), vec![l.old, l.new], false).whitespace_nowrap().overflow_hidden(),
+        }
     }))
 }
 
