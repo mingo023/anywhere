@@ -216,7 +216,14 @@ func (c *conn) inspect(path string) ([]proto.InspectedTree, int, int, error) {
 	}
 	line := c.openIn(tree.Path)
 	subtrees = slices.DeleteFunc(subtrees, func(t linkedTree) bool { return c.othersIn(t.Path, line) })
-	out := []proto.InspectedTree{c.inspected(tree)}
+	var out []proto.InspectedTree
+	for _, t := range append([]linkedTree{tree}, subtrees...) {
+		in, err := c.inspected(t)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		out = append(out, in)
+	}
 	lost, anyway := 0, 0
 	branches := map[string][]string{}
 	if tree.Branch == "" {
@@ -232,9 +239,6 @@ func (c *conn) inspect(path string) ([]proto.InspectedTree, int, int, error) {
 	}
 	for project, bs := range branches {
 		lost += worktree.LostCommits(project, bs...)
-	}
-	for _, t := range subtrees {
-		out = append(out, c.inspected(t))
 	}
 	if ask := c.s.Workspace.HostInspect; ask != nil {
 		for _, h := range onHosts {
@@ -266,9 +270,13 @@ func (c *conn) inspect(path string) ([]proto.InspectedTree, int, int, error) {
 	return out, lost, anyway, nil
 }
 
-func (c *conn) inspected(t linkedTree) proto.InspectedTree {
-	dirty, _ := worktree.DirtyFiles(t.Path)
-	return proto.InspectedTree{Path: t.Path, Branch: t.Branch, Dirty: dirty, Terminals: len(c.terminalsIn(t.Path))}
+// inspected fails when git can't say what's uncommitted, so a client never takes that for a clean tree.
+func (c *conn) inspected(t linkedTree) (proto.InspectedTree, error) {
+	dirty, err := worktree.DirtyFiles(t.Path)
+	if err != nil {
+		return proto.InspectedTree{}, fmt.Errorf("reading %s: %w", t.Path, err)
+	}
+	return proto.InspectedTree{Path: t.Path, Branch: t.Branch, Dirty: dirty, Terminals: len(c.terminalsIn(t.Path))}, nil
 }
 
 // removeWorktree closes the terminals opened in the worktree at path, removes
