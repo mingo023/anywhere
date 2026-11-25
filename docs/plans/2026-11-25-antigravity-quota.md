@@ -4,6 +4,15 @@
 
 **Goal:** Settings › Accounts shows Antigravity's built-in login with its Gemini 5-hour and weekly usage. pocketd reads that usage from `agy`'s own `/usage` report in print mode. This is PR 3 of `docs/orchestrators/research/22-antigravity-parity.md` (§2.5, §4 item 3).
 
+**Live check and later changes.** Run against a real agy 1.5.16 (research 23, check 6, and the follow-up PR). Where they disagree with the rest of this plan, they win:
+
+- The free tier's Gemini group has **only a `weekly` bucket**, no `5h`, so `Session` is often empty. An unused bucket's `reset_time` is the Unix epoch, read as no reset. `accounts/testdata/agy-usage.json` is now that live capture.
+- `agy --version` prints `1.5.16`. The flags `--print-timeout`, `--settings`, `--disable-slash-commands` and `--log-file` exist on 1.5.16.
+- Signed out, `--print /usage` prints `Authentication required. Please visit the URL…` on stderr, **runs `open` with the Google sign-in URL** (a browser tab), waits up to 60 s for a pasted code, then prints `{"status":"ERROR","error":"authentication failed or timed out","num_turns":0,…}` and exits 0. The probe stops it at the sign-in line, and puts no-op `open` and `xdg-open` first on its PATH so no tab opens. agy ignores `BROWSER` and has no no-browser flag.
+- A signed-in `/usage` took 3.9–4.4 s.
+- **Antigravity is listed only while agy is found** (`Store.Agy`). With no agy there is no row, rather than a signed-out one.
+- `account.list` still waits at most 5 s (`usageWait`) on the refresh, but the refresh now runs on past that wait, so a slow probe's usage is there for the next list instead of being killed.
+
 **Decisions already made:**
 - Antigravity has **one account, the built-in login**. agy keeps its credential in the OS keyring, so pocketd can't keep other accounts or switch between them. There is no "Add account", and no ⋯ menu on its row on the desktop (Sign out would do nothing: `specCLI.logout` returns nil, `pocketd/internal/launch/agents.go:158`).
 - **No protocol change.** Gemini's `5h` bucket fills `Usage.Session` and its `weekly` bucket fills `Usage.Week`, so it reaches the desktop as `usage.session/week` and iOS as `fiveHour/week`. `proto.Account` and the goldens stay as they are.
@@ -19,7 +28,7 @@
 
   Its name and meters come from pocketd, so no `swift test` is needed.
 
-**Not in scope:** extra quota pools; reading agy's account email (no known source, see Unverified); hiding the rows of providers that aren't installed (Codex's row already shows when Codex is absent).
+**Not in scope:** extra quota pools; reading agy's account email (no known source, see Unverified); hiding the rows of providers that aren't installed (Codex's row already shows when Codex is absent). Antigravity's row was later hidden without agy; see above.
 
 **Hard rule:** never name the third-party product that the research doc calls "a competitor", in any file, comment, test, branch or commit message.
 
@@ -167,7 +176,7 @@ Accept stdout only when all three hold: `status == "SUCCESS"`, `num_turns` is pr
 - `ResetsAt` is `reset_time` parsed as RFC 3339, in unix ms. It is `0` when missing or unparseable.
 - `At = now`. A report with no Gemini group is `ok` with both windows nil, shown as no meters.
 
-Expected JSON (confidence **medium**; research §2.5 [C]/[CT], never captured):
+Expected JSON as first guessed (research §2.5 [C]/[CT]); the live report differs, see "Live check" above:
 
 ```json
 {"status":"SUCCESS","num_turns":0,"command":{"name":"usage","data":{"groups":[
@@ -245,7 +254,8 @@ agy's identity isn't readable, so the row has no label and no email.
 
 | State | Desktop Settings › Accounts | iOS |
 |---|---|---|
-| Not installed / not probed yet | "Not signed in", subline "Antigravity isn't signed in on <machine>", "Sign in…" (which says agy isn't installed when it isn't) | not in the picker (`filter(\.signedIn)`) |
+| Not installed | no Antigravity row | no Antigravity row |
+| Not probed yet | "Not signed in", subline "Antigravity isn't signed in on <machine>", "Sign in…" | not in the picker (`filter(\.signedIn)`) |
 | Signed out | the same, with "Sign in…" running bare `agy` in a terminal | not in the picker |
 | Old CLI, or not its report | "Signed in", no meters, subline note "Update agy to 1.1.11 or later to see its usage" | "Signed in", no percent (indistinguishable from no data) |
 | No data (API key, no Gemini group, every bucket skipped) | "Signed in", no meters | "Signed in", no percent |
@@ -255,6 +265,8 @@ agy's identity isn't readable, so the row has no label and no email.
 Antigravity's usage is at most 5 minutes old, or 10 when the desktop's 300 s poll lands just inside the floor.
 
 ## Unverified without a live, signed-in `agy`
+
+The live check above settled the JSON shape, the version format, the flags, the sign-in output and whether `--print` opens a browser, and timed `/usage`. The rest stays open.
 
 These rest on research evidence only. Run research §3 check 6 before or right after merging:
 
@@ -274,7 +286,7 @@ These rest on research evidence only. Run research §3 check 6 before or right a
 ## Done when
 
 - Every command in the Toolset passes.
-- With no `agy` on PATH, pocketd lists one signed-out Antigravity row and spawns nothing.
+- With no `agy` on PATH, pocketd lists no Antigravity row and spawns nothing (changed after the live check; this plan first listed a signed-out row).
 - The fake-runner tests cover each row of the Outcomes table.
 - The captures show the three Antigravity states with no "Add account" and no ⋯.
 - `git grep -i` for the competitor's name over the diff finds nothing.

@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"pocketd/internal/envdir"
 )
 
 const (
@@ -81,6 +84,14 @@ type agyProbe struct {
 	gate map[string]bool
 	// forgot is when a sign-in last ended.
 	forgot time.Time
+	// found is whether the last probe found agy.
+	found bool
+}
+
+func (p *agyProbe) installed() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.found
 }
 
 func (p *agyProbe) signedIn() bool {
@@ -121,6 +132,9 @@ func (p *agyProbe) probe(ctx context.Context, s *Store) (Usage, error) {
 	if s.Agy != nil {
 		exe, env, found = s.Agy()
 	}
+	p.mu.Lock()
+	p.found = found
+	p.mu.Unlock()
 	if !found {
 		return p.settle(agyMissing, Usage{}, start)
 	}
@@ -354,7 +368,7 @@ func runAgyProcess(ctx context.Context, exe string, env []string, dir string, ar
 	watch, outWatch := &signInWatch{cancel: cancel}, &signInWatch{cancel: cancel}
 	cmd := exec.CommandContext(run, exe, args...)
 	cmd.Dir = dir
-	cmd.Env = append(slices.Clip(env), "AGY_CLI_DISABLE_AUTO_UPDATE=true")
+	cmd.Env = append(noBrowser(env, dir), "AGY_CLI_DISABLE_AUTO_UPDATE=true")
 	cmd.Stdout, cmd.Stderr = io.MultiWriter(out, outWatch), watch
 	cmd.WaitDelay = 2 * time.Second
 	err := cmd.Run()
@@ -367,6 +381,18 @@ func runAgyProcess(ctx context.Context, exe string, env []string, dir string, ar
 		return agyRun{}, err
 	}
 	return agyRun{out: out.buf.Bytes(), code: cmd.ProcessState.ExitCode()}, nil
+}
+
+// noBrowser is env with PATH led by commands that open nothing in place of
+// open and xdg-open, which agy runs signed out to open its sign-in page.
+func noBrowser(env []string, dir string) []string {
+	bin := filepath.Join(dir, "no-browser")
+	os.Mkdir(bin, 0o700)
+	for _, name := range []string{"open", "xdg-open"} {
+		os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o700)
+	}
+	path := cmp.Or(envdir.Value(env, "PATH"), os.Getenv("PATH"))
+	return append(slices.Clip(env), "PATH="+bin+string(os.PathListSeparator)+path)
 }
 
 // cappedBuffer keeps its buffer unexported: an embedded one would lend it

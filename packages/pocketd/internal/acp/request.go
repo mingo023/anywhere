@@ -4,9 +4,12 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"pocketd/internal/broker"
 	"pocketd/internal/proto"
@@ -60,7 +63,7 @@ func (s *Session) permission(id json.RawMessage, params json.RawMessage) {
 	json.Unmarshal(params, &p)
 	asked := call(params)
 	if s.f.elicits && decision(asked, p.Options) {
-		s.decide(id, asked.Title, p.Options)
+		s.decide(id, asked.ID, asked.Title, p.Options)
 		return
 	}
 	kind := strings.ToLower(asked.Kind)
@@ -145,9 +148,10 @@ func distinct(options []questionOption) []questionOption {
 
 // decide asks the user the agent's decision and answers with the choice they
 // pick. A permission request has no room for typed text, so that cancels.
-func (s *Session) decide(id json.RawMessage, title string, options []option) {
+func (s *Session) decide(id json.RawMessage, call, title string, options []option) {
 	q := decisionQuestion(title, options)
-	s.ask(id, s.questionCard([]question{q}), func(a broker.Answer) {
+	s.ask(id, s.asking(id, call, []question{q}), func(a broker.Answer) {
+		s.keep(id, a)
 		chosen := ""
 		if picked := q.picked(a.Answers[q.Prompt]); a.Decision == "allow" && len(picked) == 1 {
 			chosen = picked[0].ID
@@ -268,12 +272,69 @@ func (q question) picked(answer string) []questionOption {
 // has a card for, and answers the agent in its own terms; nil answers skip.
 func (s *Session) question(id json.RawMessage, params json.RawMessage, reply func([]question, map[string]string) any) {
 	qs := questions(params)
-	s.ask(id, s.questionCard(qs), func(a broker.Answer) {
+	s.ask(id, s.asking(id, toolCallID(params), qs), func(a broker.Answer) {
+		s.keep(id, a)
 		if a.Decision != "allow" {
 			a.Answers = nil
 		}
 		s.c.Reply(id, reply(qs, a.Answers))
 	})
+}
+
+func toolCallID(params json.RawMessage) string {
+	var p struct {
+		ToolCallID string `json:"toolCallId"`
+	}
+	json.Unmarshal(params, &p)
+	return p.ToolCallID
+}
+
+type unanswered struct {
+	call string
+	card proto.PermissionRequest
+	qs   []question
+}
+
+// asking is the card that asks qs. call is the agent's id for the question;
+// Grok's has none, so one is made unique.
+func (s *Session) asking(id json.RawMessage, call string, qs []question) proto.PermissionRequest {
+	card := s.questionCard(qs)
+	if call == "" {
+		call = strings.Trim(string(id), `"`) + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	s.waiting[string(id)] = unanswered{"question-" + call, card, qs}
+	return card
+}
+
+// keep records the question asked by id and how the user answered it, ahead
+// of the agent's next words, as Claude's AskUserQuestion call, which the
+// chat shows with its answers.
+func (s *Session) keep(id json.RawMessage, a broker.Answer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.keepLocked(string(id), a)
+}
+
+func (s *Session) keepLocked(key string, a broker.Answer) {
+	u, ok := s.waiting[key]
+	delete(s.waiting, key)
+	// A closing session leaves the question to the pocketd after it, which the agent asks again.
+	if !ok || s.ctx.Err() != nil {
+		return
+	}
+	var said []string
+	for _, q := range u.qs {
+		if answer := a.Answers[q.Prompt]; a.Decision == "allow" && answer != "" {
+			said = append(said, fmt.Sprintf(`"%s"="%s"`, q.Prompt, answer))
+		}
+	}
+	out := "The user doesn't want to proceed with this tool use."
+	if len(said) > 0 {
+		out = "User has answered your questions: " + strings.Join(said, ", ") + ". You can now continue with the user's answers in mind."
+	}
+	s.flush()
+	s.record(timeline.Event{Kind: "tool_start", ToolUseID: u.call, Name: "AskUserQuestion", Input: u.card.Detail.Input})
+	s.record(timeline.Event{Kind: "tool_end", ToolUseID: u.call, OK: len(said) > 0, Output: &out})
 }
 
 // questionCard is the request that shows qs as Claude's AskUserQuestion.
@@ -303,7 +364,10 @@ func (s *Session) elicit(id json.RawMessage, params json.RawMessage) {
 		s.c.Refuse(id, invalidParams, "Anywhere can't show this form")
 		return
 	}
-	s.ask(id, s.questionCard(qs), func(a broker.Answer) { s.c.Reply(id, formAnswer(qs, a)) })
+	s.ask(id, s.asking(id, toolCallID(params), qs), func(a broker.Answer) {
+		s.keep(id, a)
+		s.c.Reply(id, formAnswer(qs, a))
+	})
 }
 
 // property is a form field of the shapes a question card can show.

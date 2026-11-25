@@ -32,8 +32,8 @@ var client = &http.Client{Timeout: 10 * time.Second}
 // It reads tokens and never refreshes them: the CLI that owns a token does that.
 func (s *Store) Refresh(ctx context.Context, id string) {
 	var wg sync.WaitGroup
-	for _, a := range s.List(func(string, string) int { return 0 }) {
-		// Antigravity's sign-in is known only from its probe.
+	// Antigravity's row, and its sign-in, are known only from its probe.
+	for _, a := range s.list(func(string, string) int { return 0 }, true) {
 		if a.Pending || !a.SignedIn && a.Provider != providers.Antigravity.ID || id != "" && a.ID != id {
 			continue
 		}

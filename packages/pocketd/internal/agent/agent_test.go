@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -901,5 +902,30 @@ func TestClearingTheTimelineClearsTheRecap(t *testing.T) {
 	a.ClearTimeline()
 	if got := a.Summary().Recap; got != (proto.Recap{}) {
 		t.Fatalf("%+v", got)
+	}
+}
+
+func TestAPromptSteeredIntoATurnLeavesItsOpenCallsToEnd(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "antigravity", fakeDriver{})
+	a.Record(timeline.Event{Kind: "user", Text: "one"})
+	a.Record(timeline.Event{Kind: "tool_start", ToolUseID: "sa1", Name: "Task", Input: json.RawMessage(`{"description":"Fix the flaky test"}`)})
+	a.Record(timeline.Event{Kind: "assistant_text", Text: "on it"})
+	a.Record(timeline.Event{Kind: "user", Text: "two", Steer: true})
+	a.Record(timeline.Event{Kind: "assistant_text", Text: "re: two"})
+	a.Record(timeline.Event{Kind: "tool_end", ToolUseID: "sa1", OK: true})
+	items, _ := a.Timeline.Page(0, 200)
+	var got []string
+	for _, it := range items {
+		line := it.Kind + ":" + it.Text
+		if it.Call != nil {
+			line += it.Call.Status
+		}
+		got = append(got, line)
+	}
+	if want := []string{"user:one", "tool:ok", "assistant:on it", "user:two", "assistant:re: two"}; !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if s := a.Summary(); s.Title != "one" || s.Epoch != 1 {
+		t.Fatalf("the steer started a run of its own: %+v", s)
 	}
 }
