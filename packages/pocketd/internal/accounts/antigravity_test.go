@@ -130,7 +130,6 @@ func TestADisabledOrUnreadBucketShowsNoMeter(t *testing.T) {
 
 func TestOutputThatIsNotTheCLIsOwnReportIsRejected(t *testing.T) {
 	for name, out := range map[string]string{
-		"an error":       `{"status":"ERROR","num_turns":0,"command":{"name":"usage"}}`,
 		"a model answer": `{"status":"SUCCESS","num_turns":1,"result":"Your usage is fine","command":{"name":"usage"}}`,
 		"no turn count":  `{"status":"SUCCESS","command":{"name":"usage"}}`,
 		"another report": `{"status":"SUCCESS","num_turns":0,"command":{"name":"quota"}}`,
@@ -421,5 +420,60 @@ func TestASignInEndingDuringAProbeStillLetsTheNextRefreshProbe(t *testing.T) {
 	refresh(s)
 	if a := agyRow(t, s); !a.SignedIn || f.count("--print") != 2 {
 		t.Fatalf("%+v, ran %q", a, f.runs)
+	}
+}
+
+// agy-signed-out.json is what a signed-out agy 1.5.16 printed on stdout for /usage, captured live. It exits 0.
+func signedOutReport(t *testing.T) []byte {
+	raw, err := os.ReadFile(filepath.Join("testdata", "agy-signed-out.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func TestASignedOutAgysErrorReportMarksTheRowSignedOut(t *testing.T) {
+	f := &fakeAgy{version: "1.5.16", usage: agyRun{out: signedOutReport(t)}}
+	s, _ := agyStore(t, f)
+	refresh(s)
+	if a := agyRow(t, s); a.SignedIn || a.Error != "" || !noMeters(a) {
+		t.Fatalf("%+v %+v", a, a.Usage)
+	}
+	s.Finish("antigravity", BuiltIn, func() {})
+	f.set(agyRun{out: report(t)}, nil)
+	refresh(s)
+	if a := agyRow(t, s); !a.SignedIn || a.Usage.Session == nil {
+		t.Fatalf("after a sign-in: %+v", a)
+	}
+}
+
+func TestAnErrorReportBeforeAnyTurnIsAFailureTriedAgainAfterTheFloor(t *testing.T) {
+	f := &fakeAgy{version: "1.5.16", usage: agyRun{out: report(t)}}
+	s, _ := agyStore(t, f)
+	refresh(s)
+	floorPassed(s)
+	f.set(agyRun{out: []byte(`{"status":"ERROR","error":"network unreachable","num_turns":0}`)}, nil)
+	refresh(s)
+	if a := agyRow(t, s); !a.SignedIn || a.Error != "" || !a.Usage.Stale || a.Usage.Session.Percent != 100 {
+		t.Fatalf("%+v %+v", a, a.Usage)
+	}
+	floorPassed(s)
+	f.set(agyRun{out: report(t)}, nil)
+	refresh(s)
+	if a := agyRow(t, s); a.Usage.Stale || f.count("--print") != 3 {
+		t.Fatalf("not tried again: %+v, ran %q", a.Usage, f.runs)
+	}
+}
+
+// The sign-in text was seen on a terminal, so which stream carries it is unknown: each must stop agy.
+func TestTheRealRunnerStopsAgyAtTheSignInTextOnEitherStream(t *testing.T) {
+	for _, stream := range []string{"", " >&2"} {
+		exe := fakeAgyScript(t, `echo "Authentication required. Please visit the URL to log in:"`+stream+`; sleep 30`, 0)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		r, err := runAgyProcess(ctx, exe, nil, t.TempDir(), "--print", "/usage")
+		cancel()
+		if err != nil || !r.signIn {
+			t.Errorf("stream %q: %+v, %v", stream, r, err)
+		}
 	}
 }

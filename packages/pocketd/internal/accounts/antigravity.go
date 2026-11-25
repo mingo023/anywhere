@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,7 +26,7 @@ const (
 // agyOldNote is why a signed-in agy shows no usage: older ones send /usage to the model as a prompt.
 const agyOldNote = "Update agy to " + agyMinimum + " or later to see its usage"
 
-// agySignInLine starts what agy prints on stderr when it has no login.
+// agySignInLine starts what agy prints when it has no login.
 const agySignInLine = "Authentication required"
 
 var (
@@ -162,8 +163,8 @@ func (p *agyProbe) probe(ctx context.Context, s *Store) (Usage, error) {
 	case !passed:
 		return p.settle(agyOld, Usage{}, start)
 	}
-	if u, ok := readReport(r.out, start); ok {
-		return p.settle(agyOK, u, start)
+	if o, u := readReport(r.out, start); o != agyUnknown {
+		return p.settle(o, u, start)
 	}
 	switch r.code {
 	case 0:
@@ -277,6 +278,7 @@ func newEnough(out []byte) bool {
 
 type agyReport struct {
 	Status   string `json:"status"`
+	Error    string `json:"error"`
 	NumTurns *int   `json:"num_turns"`
 	Command  struct {
 		Name string `json:"name"`
@@ -296,11 +298,21 @@ type agyBucket struct {
 	Disabled  bool     `json:"disabled"`
 }
 
-// readReport refuses a model's answer to "/usage": that took a turn.
-func readReport(out []byte, now time.Time) (Usage, bool) {
+// readReport reads agy's /usage report, or the error it gave before any
+// turn, which it exits 0 on. agyUnknown is neither, such as a model's answer
+// to "/usage": that took a turn.
+func readReport(out []byte, now time.Time) (agyOutcome, Usage) {
 	var r agyReport
-	if json.Unmarshal(out, &r) != nil || r.Status != "SUCCESS" || r.NumTurns == nil || *r.NumTurns != 0 || r.Command.Name != "usage" {
-		return Usage{}, false
+	if json.Unmarshal(out, &r) != nil || r.NumTurns == nil || *r.NumTurns != 0 {
+		return agyUnknown, Usage{}
+	}
+	switch {
+	case r.Status == "ERROR" && strings.Contains(strings.ToLower(r.Error), "authenticat"):
+		return agySignedOut, Usage{}
+	case r.Status == "ERROR":
+		return agyFailed, Usage{}
+	case r.Status != "SUCCESS" || r.Command.Name != "usage":
+		return agyUnknown, Usage{}
 	}
 	u := Usage{At: now.UnixMilli()}
 	for _, g := range r.Command.Data.Groups {
@@ -320,7 +332,7 @@ func readReport(out []byte, now time.Time) (Usage, bool) {
 			}
 		}
 	}
-	return u, true
+	return agyOK, u
 }
 
 func (b agyBucket) window() *Window {
@@ -337,15 +349,16 @@ func runAgyProcess(ctx context.Context, exe string, env []string, dir string, ar
 	run, cancel := context.WithCancel(ctx)
 	defer cancel()
 	out := &cappedBuffer{max: 1 << 20}
-	watch := &signInWatch{cancel: cancel}
+	// Which stream carries the sign-in text isn't known, so both are watched.
+	watch, outWatch := &signInWatch{cancel: cancel}, &signInWatch{cancel: cancel}
 	cmd := exec.CommandContext(run, exe, args...)
 	cmd.Dir = dir
 	cmd.Env = append(slices.Clip(env), "AGY_CLI_DISABLE_AUTO_UPDATE=true")
-	cmd.Stdout, cmd.Stderr = out, watch
+	cmd.Stdout, cmd.Stderr = io.MultiWriter(out, outWatch), watch
 	cmd.WaitDelay = 2 * time.Second
 	err := cmd.Run()
 	switch {
-	case watch.signIn:
+	case watch.signIn || outWatch.signIn:
 		return agyRun{signIn: true}, nil
 	case ctx.Err() != nil:
 		return agyRun{}, ctx.Err()
@@ -369,7 +382,7 @@ func (c *cappedBuffer) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-// signInWatch reads agy's stderr for the sign-in line and stops agy there,
+// signInWatch reads a stream of agy's for the sign-in line and stops agy there,
 // before it waits on a browser login. It keeps nothing else.
 type signInWatch struct {
 	cancel func()
