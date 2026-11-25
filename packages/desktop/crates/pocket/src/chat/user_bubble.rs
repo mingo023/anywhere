@@ -254,7 +254,7 @@ pub(super) fn send_now(id: &str) -> Stateful<Div> {
 /// `toggle` is set when the prompt collapses; `expanded` says which way it reads. Just after a toggle the height eases between the two.
 /// `lit` brightens its wash and ring, fading back, to show the prompt the timeline landed on.
 /// An image sent to a host shows from this Mac's copy of it in `here`, its attachments folder.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "a view helper takes each part it draws")]
 pub(super) fn bubble(
     id: &str,
     prompt: String,

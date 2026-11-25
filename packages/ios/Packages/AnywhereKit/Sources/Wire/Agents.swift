@@ -226,6 +226,16 @@ public struct AgentBtwAnswer: Codable, Hashable, Sendable {
     }
 }
 
+/// The link a session continues at in the Claude app or claude.ai; absent once Remote Control is off.
+public struct AgentRemoteLink: Codable, Hashable, Sendable {
+    public var agentId: String
+    public var url: String?
+    public init(agentId: String, url: String? = nil) {
+        self.agentId = agentId
+        self.url = url
+    }
+}
+
 /// One new or changed timeline item, pushed live.
 public struct AgentStream: Codable, Hashable, Sendable {
     public var agentId: String
@@ -302,6 +312,15 @@ extension ClientMessage {
             self.agentId = agentId
             self.text = text
             self.queue = queue
+        }
+    }
+
+    public struct AgentRemoteControl: Codable, Hashable, Sendable {
+        public var agentId: String
+        public var enabled: Bool
+        public init(agentId: String, enabled: Bool) {
+            self.agentId = agentId
+            self.enabled = enabled
         }
     }
 

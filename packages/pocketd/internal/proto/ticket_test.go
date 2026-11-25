@@ -34,19 +34,19 @@ func TestATicketNeedsATitleAPromptAKnownAgentAndAFolder(t *testing.T) {
 		t.Fatal("rejected a good ticket")
 	}
 	for name, change := range map[string]func(*Ticket){
-		"blank title":  func(x *Ticket) { x.Title = "  " },
-		"long title":   func(x *Ticket) { x.Title = strings.Repeat("é", MaxTicketTitle+1) },
-		"blank prompt": func(x *Ticket) { x.Prompt = " \n" },
-		"long prompt":  func(x *Ticket) { x.Prompt = strings.Repeat("a", MaxPrompt+1) },
-		"agent":        func(x *Ticket) { x.Provider = "nope" },
-		"folder":       func(x *Ticket) { x.Folder = "" },
-		"priority":     func(x *Ticket) { x.Priority = MaxTicketPriority + 1 },
-		"negative":     func(x *Ticket) { x.Priority = -1 },
+		"blank title":    func(x *Ticket) { x.Title = "  " },
+		"long title":     func(x *Ticket) { x.Title = strings.Repeat("é", MaxTicketTitle+1) },
+		"blank prompt":   func(x *Ticket) { x.Prompt = " \n" },
+		"long prompt":    func(x *Ticket) { x.Prompt = strings.Repeat("a", MaxPrompt+1) },
+		"agent":          func(x *Ticket) { x.Provider = "nope" },
+		"folder":         func(x *Ticket) { x.Folder = "" },
+		"priority":       func(x *Ticket) { x.Priority = MaxTicketPriority + 1 },
+		"negative":       func(x *Ticket) { x.Priority = -1 },
 		"blank label":    func(x *Ticket) { x.Labels = []string{" "} },
 		"unknown label":  func(x *Ticket) { x.Labels = []string{"Perf"} },
 		"spaced label":   func(x *Ticket) { x.Labels = []string{" Bug "} },
 		"repeated label": func(x *Ticket) { x.Labels = []string{"Bug", "Bug"} },
-		"base flag":    func(x *Ticket) { x.Base = "--force" },
+		"base flag":      func(x *Ticket) { x.Base = "--force" },
 	} {
 		bad := ok
 		change(&bad)

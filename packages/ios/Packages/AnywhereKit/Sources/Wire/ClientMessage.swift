@@ -13,6 +13,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
     case skillsList(ClientMessage.SkillsList)
     case agentMcp(ClientMessage.AgentMcp)
     case agentBtw(ClientMessage.AgentText)
+    case agentRemoteControl(ClientMessage.AgentRemoteControl)
     case agentSettings(ClientMessage.AgentSettings)
     case agentPin(ClientMessage.AgentPin)
     case agentView(ClientMessage.AgentView)
@@ -39,6 +40,11 @@ public enum ClientMessage: Codable, Hashable, Sendable {
     case terminalCreate(ClientMessage.TerminalCreate)
     case terminalClose(ClientMessage.TerminalRef)
     case worktreeCreate(ClientMessage.WorktreeCreate)
+    case projectAdd(ClientMessage.ProjectAdd)
+    case projectRemove(ClientMessage.ProjectPath)
+    case projectSet(ClientMessage.ProjectSet)
+    case worktreeTrack(ClientMessage.WorktreeTrack)
+    case settingsShared(ClientMessage.SettingsShared)
     case worktreeDelete(ClientMessage.WorktreeDelete)
     case branchList(ClientMessage.TreeRef)
     case accountList(ClientMessage.AccountList)
@@ -99,6 +105,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case "skills.list": self = .skillsList(try ClientMessage.SkillsList(from: decoder))
         case "agent.mcp": self = .agentMcp(try ClientMessage.AgentMcp(from: decoder))
         case "agent.btw": self = .agentBtw(try ClientMessage.AgentText(from: decoder))
+        case "agent.remote_control": self = .agentRemoteControl(try ClientMessage.AgentRemoteControl(from: decoder))
         case "agent.settings": self = .agentSettings(try ClientMessage.AgentSettings(from: decoder))
         case "agent.pin": self = .agentPin(try ClientMessage.AgentPin(from: decoder))
         case "agent.view": self = .agentView(try ClientMessage.AgentView(from: decoder))
@@ -125,6 +132,11 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case "terminal.create": self = .terminalCreate(try ClientMessage.TerminalCreate(from: decoder))
         case "terminal.close": self = .terminalClose(try ClientMessage.TerminalRef(from: decoder))
         case "worktree.create": self = .worktreeCreate(try ClientMessage.WorktreeCreate(from: decoder))
+        case "project.add": self = .projectAdd(try ClientMessage.ProjectAdd(from: decoder))
+        case "project.remove": self = .projectRemove(try ClientMessage.ProjectPath(from: decoder))
+        case "project.set": self = .projectSet(try ClientMessage.ProjectSet(from: decoder))
+        case "worktree.track": self = .worktreeTrack(try ClientMessage.WorktreeTrack(from: decoder))
+        case "settings.shared": self = .settingsShared(try ClientMessage.SettingsShared(from: decoder))
         case "worktree.delete": self = .worktreeDelete(try ClientMessage.WorktreeDelete(from: decoder))
         case "branch.list": self = .branchList(try ClientMessage.TreeRef(from: decoder))
         case "account.list": self = .accountList(try ClientMessage.AccountList(from: decoder))
@@ -190,6 +202,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .skillsList(let m): try m.encode(to: encoder)
         case .agentMcp(let m): try m.encode(to: encoder)
         case .agentBtw(let m): try m.encode(to: encoder)
+        case .agentRemoteControl(let m): try m.encode(to: encoder)
         case .agentSettings(let m): try m.encode(to: encoder)
         case .agentPin(let m): try m.encode(to: encoder)
         case .agentView(let m): try m.encode(to: encoder)
@@ -216,6 +229,11 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .terminalCreate(let m): try m.encode(to: encoder)
         case .terminalClose(let m): try m.encode(to: encoder)
         case .worktreeCreate(let m): try m.encode(to: encoder)
+        case .projectAdd(let m): try m.encode(to: encoder)
+        case .projectRemove(let m): try m.encode(to: encoder)
+        case .projectSet(let m): try m.encode(to: encoder)
+        case .worktreeTrack(let m): try m.encode(to: encoder)
+        case .settingsShared(let m): try m.encode(to: encoder)
         case .worktreeDelete(let m): try m.encode(to: encoder)
         case .branchList(let m): try m.encode(to: encoder)
         case .accountList(let m): try m.encode(to: encoder)
@@ -276,6 +294,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .skillsList: "skills.list"
         case .agentMcp: "agent.mcp"
         case .agentBtw: "agent.btw"
+        case .agentRemoteControl: "agent.remote_control"
         case .agentSettings: "agent.settings"
         case .agentPin: "agent.pin"
         case .agentView: "agent.view"
@@ -302,6 +321,11 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .terminalCreate: "terminal.create"
         case .terminalClose: "terminal.close"
         case .worktreeCreate: "worktree.create"
+        case .projectAdd: "project.add"
+        case .projectRemove: "project.remove"
+        case .projectSet: "project.set"
+        case .worktreeTrack: "worktree.track"
+        case .settingsShared: "settings.shared"
         case .worktreeDelete: "worktree.delete"
         case .branchList: "branch.list"
         case .accountList: "account.list"

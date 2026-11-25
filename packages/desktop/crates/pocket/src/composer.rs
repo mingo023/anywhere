@@ -542,7 +542,7 @@ pub(crate) fn drop_handler(
 impl Desktop {
     /// The box around `textarea`, as the chat's; `pills` lead the attachments above it, `trailing` comes before the +
     /// and `send`.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "a view helper takes each part it draws")]
     pub(crate) fn composer(
         &self,
         c: &Composer,

@@ -122,7 +122,7 @@ struct NewSessionView: View {
         .onGeometryChange(for: CGSize.self, of: \.size) { fieldSize = $0 }
     }
 
-    private static let fieldSpace = "field"
+    nonisolated private static let fieldSpace = "field"
 
     private var headline: some View {
         VStack(spacing: Space.xs) {
@@ -405,7 +405,7 @@ struct NewSessionView: View {
     /// `makesWorktree`: a `worktree.create` runs first, and the checkout is only a stand-in until it has.
     nonisolated static func key(_ checkout: Checkout, makesWorktree: Bool) -> String? {
         switch checkout {
-        case .worktree(let path): makesWorktree ? nil : path
+        case .worktree(let path, _): makesWorktree ? nil : path
         case .local(let id): id
         case .new: nil
         }

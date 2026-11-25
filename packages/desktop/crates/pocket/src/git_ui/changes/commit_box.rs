@@ -15,7 +15,7 @@ pub(crate) fn primary_pill() -> Div {
 }
 
 /// The primary button with a chevron beside it that opens `menu`; it looks pressable only when `ready`.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "a view helper takes each part it draws")]
 pub(crate) fn split_button(
     id: &'static str,
     lead: impl IntoElement,

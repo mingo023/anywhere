@@ -59,7 +59,9 @@ func ValidArgs(key, text string) error {
 		return err
 	case len(words) > 32 || len(text) > 1024:
 		return errors.New("args are at most 32 words")
-	case slices.ContainsFunc(words, func(w string) bool { return strings.ContainsFunc(w, func(r rune) bool { return r == '\'' || unicode.IsControl(r) }) }):
+	case slices.ContainsFunc(words, func(w string) bool {
+		return strings.ContainsFunc(w, func(r rune) bool { return r == '\'' || unicode.IsControl(r) })
+	}):
 		return errors.New("args can't hold a quote or control character")
 	case key == "forkArgs" && len(words) > 0 && !slices.ContainsFunc(words, func(w string) bool { return strings.Contains(w, SessionID) }):
 		return errors.New("fork args need " + SessionID + " where the session id goes")

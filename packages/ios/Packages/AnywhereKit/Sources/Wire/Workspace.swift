@@ -40,6 +40,29 @@ public struct ProjectList: Codable, Hashable, Sendable {
     public init(projects: [Project]) { self.projects = projects }
 }
 
+/// What a desktop's pocketd keeps: its projects with their settings, the tracked worktrees and the shared settings. The settings stay open JSON, which only desktops read.
+public struct RegistryList: Codable, Hashable, Sendable {
+    public struct Entry: Codable, Hashable, Sendable {
+        public var id: String
+        public var path: String
+        public var repo: JSONValue
+        public init(id: String, path: String, repo: JSONValue) {
+            self.id = id
+            self.path = path
+            self.repo = repo
+        }
+    }
+
+    public var projects: [Entry]
+    public var tracked: [String]
+    public var settings: JSONValue
+    public init(projects: [Entry], tracked: [String], settings: JSONValue) {
+        self.projects = projects
+        self.tracked = tracked
+        self.settings = settings
+    }
+}
+
 /// Every worktree's display name by path, sent whole on hello and on each change.
 public struct WorktreeNames: Codable, Hashable, Sendable {
     public var names: [String: String]
@@ -123,6 +146,43 @@ public struct AccountList: Codable, Hashable, Sendable {
 }
 
 extension ClientMessage {
+    public struct ProjectPath: Codable, Hashable, Sendable {
+        public var path: String
+        public init(path: String) { self.path = path }
+    }
+
+    public struct ProjectAdd: Codable, Hashable, Sendable {
+        public var path: String
+        public var repo: JSONValue?
+        public init(path: String, repo: JSONValue? = nil) {
+            self.path = path
+            self.repo = repo
+        }
+    }
+
+    public struct ProjectSet: Codable, Hashable, Sendable {
+        public var path: String
+        public var repo: JSONValue
+        public init(path: String, repo: JSONValue) {
+            self.path = path
+            self.repo = repo
+        }
+    }
+
+    public struct WorktreeTrack: Codable, Hashable, Sendable {
+        public var path: String
+        public var tracked: Bool
+        public init(path: String, tracked: Bool) {
+            self.path = path
+            self.tracked = tracked
+        }
+    }
+
+    public struct SettingsShared: Codable, Hashable, Sendable {
+        public var settings: JSONValue
+        public init(settings: JSONValue) { self.settings = settings }
+    }
+
     public struct WorktreeRename: Codable, Hashable, Sendable {
         public var path: String
         public var title: String

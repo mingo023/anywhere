@@ -101,7 +101,7 @@ fn step_view(block: &Block, next: Option<i64>, live: bool, shared: bool, picks: 
 /// `next_at` is when whatever follows the phase began; `live` forces it open with its newest steps showing, as a
 /// sub-agent still running does. A sub-agent always shows under a title, which counts the sub-agents and names the
 /// model they share. A click on a sub-agent goes to `picks`.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "a view helper takes each part it draws")]
 pub(super) fn phase(
     id: &str,
     blocks: &[Block],

@@ -502,7 +502,7 @@ fn copy(agent: &str, key: String, text: String, cx: &mut Context<Desktop>) -> im
 
 /// A prompt's bubble with its copy and time, or `under` in their place. A send shows as its echo will, so the echo
 /// replacing it doesn't show.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "a view helper takes each part it draws")]
 fn prompt_bubble(
     view: &View,
     agent: &str,

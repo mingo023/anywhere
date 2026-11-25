@@ -1,4 +1,4 @@
-# Tests pocketd and builds and tests the desktop workspace on every PR to main, each only when the PR touches what it reads.
+# Lints and tests each package on every PR to main, each only when the PR touches what it reads.
 name: CI
 
 on:
@@ -20,6 +20,9 @@ jobs:
       pull-requests: read
     outputs:
       go: ${{ steps.files.outputs.go }}
+      pushrelay: ${{ steps.files.outputs.pushrelay }}
+      protocol: ${{ steps.files.outputs.protocol }}
+      ios: ${{ steps.files.outputs.ios }}
       desktop: ${{ steps.files.outputs.desktop }}
     steps:
       - id: files
@@ -30,6 +33,10 @@ jobs:
           files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[] | .filename, .previous_filename // empty')
           touched() { grep -qE "^(scripts/build-ghostty\.sh|\.github/workflows/ci\.yml)$|$1" <<< "$files" && echo true || echo false; }
           echo "go=$(touched '^packages/pocketd/')" >> "$GITHUB_OUTPUT"
+          echo "pushrelay=$(touched '^packages/pushrelay/')" >> "$GITHUB_OUTPUT"
+          # The protocol and iOS tests decode every golden frame pocketd writes.
+          echo "protocol=$(touched '^((packages/protocol|packages/pocketd/internal/proto/testdata)/|(tsconfig\.base\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)$)')" >> "$GITHUB_OUTPUT"
+          echo "ios=$(touched '^(packages/ios/Packages|packages/pocketd/internal/proto/testdata)/')" >> "$GITHUB_OUTPUT"
           # Desktop tests read pocketd's golden frames and the chat fixture.
           echo "desktop=$(touched '^(packages/desktop|packages/pocketd/internal/proto/testdata|\.ui-review/fixture)/')" >> "$GITHUB_OUTPUT"
 
@@ -61,9 +68,77 @@ jobs:
       - name: Ghostty
         run: scripts/build-ghostty.sh
 
+      - name: Format
+        working-directory: packages/pocketd
+        run: test -z "$(gofmt -l . | tee /dev/stderr)"
+
+      - name: Vet
+        working-directory: packages/pocketd
+        run: go vet ./...
+
+      - name: Staticcheck
+        working-directory: packages/pocketd
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+
       - name: Test
         working-directory: packages/pocketd
         run: go test ./...
+
+  pushrelay:
+    needs: changes
+    if: needs.changes.outputs.pushrelay == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/pushrelay
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: packages/pushrelay/go.mod
+          cache-dependency-path: packages/pushrelay/go.sum
+
+      - name: Format
+        run: test -z "$(gofmt -l . | tee /dev/stderr)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+
+      - name: Test
+        run: go test ./...
+
+  protocol:
+    needs: changes
+    if: needs.changes.outputs.protocol == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Builds that only web needs stay off; strict-dep-builds would fail on them.
+      - name: Install
+        run: npx --yes pnpm@11.9.0 install --frozen-lockfile --filter protocol --config.strict-dep-builds=false
+
+      - name: Test
+        working-directory: packages/protocol
+        run: node_modules/.bin/tsc -b && node --test test/*.test.mjs
+
+  ios:
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Test
+        working-directory: packages/ios/Packages/AnywhereKit
+        run: swift test
 
   desktop:
     needs: changes
@@ -117,6 +192,10 @@ jobs:
       - name: Build
         working-directory: packages/desktop
         run: cargo build --workspace
+
+      - name: Clippy
+        working-directory: packages/desktop
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test
         working-directory: packages/desktop

@@ -155,7 +155,6 @@ type conn struct {
 	terminal  terminalConn
 	workspace workspaceConn
 	git       gitConn
-	gh        ghConn
 	files     filesConn
 	push      pushConn
 	hosts     hostsConn

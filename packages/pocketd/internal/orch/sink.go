@@ -22,12 +22,11 @@ type Sink struct {
 	// Mirrored says a session id belongs to a host's pocketd; such a session may have finished while pocketd was down.
 	Mirrored func(id string) bool
 
-	mu      sync.Mutex
-	wake    *sync.Cond
-	queue   []sinkOp
-	writing bool
-	closed  bool
-	last    map[string]proto.AgentSummary
+	mu     sync.Mutex
+	wake   *sync.Cond
+	queue  []sinkOp
+	closed bool
+	last   map[string]proto.AgentSummary
 }
 
 // TurnChange is a session's turn starting (To = working) or ending.
@@ -48,7 +47,6 @@ type sinkOp struct {
 	released []string
 	session  string
 	epoch    int64
-	closed   bool
 	done     chan struct{}
 }
 

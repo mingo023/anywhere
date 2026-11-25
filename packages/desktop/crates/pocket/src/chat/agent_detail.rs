@@ -139,7 +139,7 @@ fn step_row(b: &Block, start: i64, tools: &Entity<Tools>, cx: &App) -> Div {
 /// The details: a head with `lead` before the mark and `actions` after the name, then the facts, the newest steps,
 /// and the report or error. `on_brief` shows the whole brief above the facts, or hides it again; `on_more` shows every step, or
 /// only the newest again.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "a view helper takes each part it draws")]
 pub(crate) fn view(
     d: Detail,
     lead: Option<AnyElement>,

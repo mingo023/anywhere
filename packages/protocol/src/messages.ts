@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { AgentSummary, Decision, PermissionRequest, TimelineItem } from "./timeline.js";
 import { Delegation, QueueEntry } from "./orchestrator.js";
 import { Automation, AutomationDraft, Run } from "./automation.js";
+import { Ticket } from "./board.js";
 import { LaunchSpec, PhoneAccess, ProviderInfo } from "./launch.js";
 import { Local, LocalId } from "./locals.js";
 import { TerminalClient, TerminalServer } from "./terminal.js";
@@ -299,6 +300,7 @@ export const ServerMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("naming.failed"), agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("local.list"), locals: Schema.Array(Local) }),
   Schema.Struct({ type: Schema.Literal("automations"), automations: Schema.Array(Automation), runs: Schema.Array(Run) }),
+  Schema.Struct({ type: Schema.Literal("board"), tickets: Schema.Array(Ticket), limit: Schema.Int }),
   ProjectList,
   ...TerminalServer,
   ...WorkspaceServer,

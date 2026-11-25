@@ -691,7 +691,7 @@ pub fn agent_label(provider: &str, label: String) -> Div {
 pub const SESSION_ROW: &str = "session-row";
 
 /// A session's card. Needs you fills the whole row; hover and selection tint over that fill. `stats` shows a finished session's diff stats.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "a view helper takes each part it draws")]
 pub fn session_row(
     id: impl Into<ElementId>,
     selected: bool,
@@ -712,7 +712,7 @@ pub fn session_row(
 }
 
 /// A pinned session's card: a pin before its title in place of the agent line.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "a view helper takes each part it draws")]
 pub fn pinned_row(
     id: impl Into<ElementId>,
     selected: bool,
@@ -891,7 +891,7 @@ pub fn git_color(letter: char) -> Token {
 }
 
 /// `git` tints the name; only a file also shows the letter, as a folder's is drawn from what's inside it.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "a view helper takes each part it draws")]
 pub fn tree_row(
     id: impl Into<ElementId>,
     label: String,
@@ -961,7 +961,6 @@ pub fn radio(on: bool) -> Div {
         .when(!on, |d| d.border(px(1.5)).border_color(TEXT_5))
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn change_row(
     id: impl Into<ElementId>,
     check: impl IntoElement,

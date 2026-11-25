@@ -245,7 +245,7 @@ impl From<Token> for Fill {
 /// with `KEYS` naming them as a theme file does.
 macro_rules! themed {
     ($($(#[$doc:meta])* $vis:vis $name:ident $key:literal = $init:expr;)*) => {
-        #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
+        #[expect(non_camel_case_types, clippy::upper_case_acronyms, reason = "each slot is named after its SCREAMING_CASE token")]
         enum Slot { $($name),* }
         $($(#[$doc])* $vis const $name: Token = $init.slot(Slot::$name as u8);)*
         /// Every colour a theme can set, by its name in a theme file. The names are a file format: renaming one breaks users' themes.

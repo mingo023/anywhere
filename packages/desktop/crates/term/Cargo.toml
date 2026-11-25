@@ -9,3 +9,6 @@ path = "src/term.rs"
 
 [build-dependencies]
 cc.workspace = true
+
+[lints]
+workspace = true

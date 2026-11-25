@@ -15,3 +15,6 @@ tungstenite.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 uds_windows.workspace = true
+
+[lints]
+workspace = true

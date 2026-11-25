@@ -6,3 +6,6 @@ publish.workspace = true
 
 [lib]
 path = "src/channel.rs"
+
+[lints]
+workspace = true

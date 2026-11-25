@@ -121,7 +121,7 @@ enum SessionText {
         if let w = plan.worktree { return branch(w.branch, w.name, w.pr.map { "PR #\($0)" }, base: w.base) }
         switch plan.spec.checkout {
         case .new(let new): return branch(new.branch, new.name, base: new.base)
-        case .worktree(let path): return path.split(separator: "/").last.map(String.init) ?? path
+        case .worktree(let path, _): return path.split(separator: "/").last.map(String.init) ?? path
         case .local: return [project, "Local"].compactMap(\.self).joined(separator: " · ")
         }
     }
