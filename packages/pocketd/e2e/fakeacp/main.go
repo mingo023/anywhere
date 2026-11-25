@@ -10,7 +10,8 @@
 //	                more lines go on: "mcp <tool> <json>" again, or "await <name>" until $HOME/.acp-fake/<name> exists
 //	delegate <task> run a sub-agent on task in a session of its own, as OpenCode 2 does, which reports "did <task>";
 //	                as hermes, in the background, telling its work only in a transcript;
-//	                as agy, in an invoke_subagent call that ends as it launches, telling nothing;
+//	                as agy, in an invoke_subagent call that ends as it launches, then the sub-agent's
+//	                "echo <task>" on this session, its id "<sub-agent>:<call>";
 //	                "delegate await <name>" runs its first call until $HOME/.acp-fake/<name> exists
 //	[Anywhere internal background handoff] …
 //	                as hermes, reply "echo: took back <summary>" of each transcript tail it holds
@@ -499,12 +500,18 @@ func (a *agent) delegate(task string) {
 }
 
 // launch runs a sub-agent on task as agy 1.5.16's invoke_subagent does: a call
-// whose input is the one sub-agent, and which ends as it launches with no output.
+// whose input is the one sub-agent, and which ends as it launches with no
+// output. The sub-agent's calls come on this session, named for it.
 func (a *agent) launch(task string) {
 	call := "call_" + hex(4)
 	a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": call, "name": "invoke_subagent", "status": "in_progress", "kind": "other", "title": "Run invoke_subagent",
 		"rawInput": map[string]string{"Model": "inherit", "Prompt": task, "Role": "Runner", "TypeName": "self"}})
 	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "name": "invoke_subagent", "status": "completed"})
+	run := hex(8) + ":call_" + hex(4)
+	command := map[string]string{"CommandLine": "echo " + task}
+	a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": run, "name": "run_command", "status": "in_progress", "kind": "execute", "title": "echo " + task, "rawInput": command})
+	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": run, "name": "run_command", "status": "completed", "kind": "execute", "title": "echo " + task, "rawInput": command,
+		"content": []map[string]any{{"type": "content", "content": textBlock(task)}}})
 	a.say("delegated " + task)
 }
 

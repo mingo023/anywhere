@@ -123,6 +123,10 @@ type Session struct {
 	kids map[string]*kid
 	// calls holds every call shown, to the call whose sub-agent made it: "" for the session's own.
 	calls map[string]string
+	// launches are the Antigravity sub-agent calls held open until the turn ends, oldest first.
+	launches []string
+	// stored is what storedCards read of the timeline.
+	stored map[string]string
 	// handoff is what Hermes's background sub-agents did, for the turn under way to hand it.
 	handoff pendingHandoff
 	// woke is the turn the agent started by itself to take what a sub-agent handed back.
@@ -403,6 +407,11 @@ func (s *Session) loaded(ok bool, left Left) {
 	replayed := len(s.replay)
 	if ok && left != Running {
 		cut := s.interrupt() || left == Cut && len(s.replay) > 0
+		// agy replays no sub-agent's calls, and each launch already ended.
+		if left == Cut && s.Shown {
+			out := "Interrupted"
+			s.endShownLaunches(timeline.Event{Output: &out})
+		}
 		switch {
 		case cut:
 			s.record(timeline.Event{Kind: "result", Error: "interrupted"})
@@ -838,7 +847,7 @@ func (s *Session) finish(res json.RawMessage, err error) {
 	json.Unmarshal(res, &r)
 	s.flush()
 	stopped := s.stopping || err == nil && r.StopReason == "cancelled"
-	runs := s.runs
+	runs, adopted := s.runs, s.adopted
 	s.running, s.adopted, s.stopping, s.stray, s.woke, s.runs = false, false, false, nil, "", ""
 	e := timeline.Event{Kind: "result"}
 	if !s.began.IsZero() {
@@ -860,6 +869,7 @@ func (s *Session) finish(res json.RawMessage, err error) {
 	default:
 		e.Error = fmt.Sprintf("%s ended the turn (%s)", s.name, r.StopReason)
 	}
+	s.endLaunches(e, adopted)
 	s.sink.Apply(e)
 	// The turn goes on until Hermes has been handed what its background sub-agents did.
 	if e.OK && len(s.handoff.calls)+len(s.handoff.tails) > 0 {
@@ -1362,6 +1372,9 @@ func (s *Session) tool(u toolCall, starts bool, parent string) {
 		s.flush()
 		return
 	}
+	if parent == "" && s.f.childCalls {
+		parent = s.launchOf(u.ID)
+	}
 	t := s.tools[u.ID]
 	if t == nil {
 		// Hermes ends each permission check as a call it never started.
@@ -1369,13 +1382,19 @@ func (s *Session) tool(u toolCall, starts bool, parent string) {
 			return
 		}
 		t = &tool{parent: parent}
+		// A pocketd before this one showed it.
+		_, t.started = s.storedCards()[u.ID]
 		s.tools[u.ID] = t
 	}
 	t.merge(u)
 	if !t.started && !t.waits() {
 		s.show(t)
+		if _, ok := t.launch(); ok && s.f.childCalls && parent == "" && !s.opening {
+			s.launches = append(s.launches, t.ID)
+		}
 	}
-	if !t.started || !t.done() {
+	// A sub-agent agy launched runs on past its call, until the turn ends.
+	if !t.started || !t.done() || t.Status == "completed" && slices.Contains(s.launches, t.ID) {
 		return
 	}
 	delete(s.tools, t.ID)
