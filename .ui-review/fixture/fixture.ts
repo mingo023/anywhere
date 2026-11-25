@@ -956,7 +956,11 @@ const ALL_TASKS: [string, Provider, string, string][] = [
   ["Update the docs", "opencode", "opencode/big-pickle", "Update docs/auth.md for the new redirect behaviour."],
 ];
 // FIXTURE_DELEGATE_ONE=1: one task with a long title, which finishes; every task of the chat is settled and its panel offers Clear.
-const TASKS = process.env.FIXTURE_DELEGATE_ONE ? [["Review the diff on this branch and list what could break", ALL_TASKS[1][1], ALL_TASKS[1][2], ALL_TASKS[1][3]] as (typeof ALL_TASKS)[number]] : ALL_TASKS;
+// FIXTURE_DELEGATE_MANY=<n>: n tasks, more than the chat has room for. Past the first three, every third finishes, every fifth asks, and the rest keep working.
+const MANY = Number(process.env.FIXTURE_DELEGATE_MANY ?? 0);
+const MORE = ["Profile the diff highlighter", "Virtualize the Explorer tree", "Port the board verbs", "Fix the sidebar hover flicker", "Bump the tree-sitter grammars", "Audit reduce-transparency fallbacks", "Trace the git refresh on Linux"];
+const many = (i: number): (typeof ALL_TASKS)[number] => (i < 3 ? ALL_TASKS[i] : [`${MORE[i % MORE.length]} ${i}`, ALL_TASKS[i % 3][1], ALL_TASKS[i % 3][2], "Take this one in your own worktree."]);
+const TASKS = process.env.FIXTURE_DELEGATE_ONE ? [["Review the diff on this branch and list what could break", ALL_TASKS[1][1], ALL_TASKS[1][2], ALL_TASKS[1][3]] as (typeof ALL_TASKS)[number]] : MANY ? Array.from({ length: MANY }, (_, i) => many(i)) : ALL_TASKS;
 const announce = () => conns.forEach((c) => c.write(JSON.stringify({ ev: "terminals", items: sessions }) + "\n"));
 const setTask = (ws: Ws, t: Task, patch: Partial<Task>) => {
   Object.assign(t, patch);
@@ -1094,6 +1098,14 @@ const delegate = (ws: Ws, parentId: string) => {
     setTask(ws, list[2], { status: "failed", error: "opencode exited 2: provider returned 401.", settledAt: Date.now() });
     deliver(ws, list[2], "failed");
   });
+  if (MANY)
+    at(400 + TASKS.length * 150, () =>
+      list.slice(3).forEach((t, i) => {
+        if (i % 3 === 0) setTask(ws, t, { status: "completed", summary: "Done", settledAt: Date.now() });
+        else if (i % 5 === 1) setTask(ws, t, { status: "working", question: "Keep the change small, or refactor the module while it's open?" });
+        else setTask(ws, t, { status: "working" });
+      }),
+    );
   if (process.env.FIXTURE_DELEGATE_WAKE)
     at(2800, () => {
       setTask(ws, list[0], { status: "completed", question: undefined, summary: "24 tests pass", settledAt: Date.now() });
