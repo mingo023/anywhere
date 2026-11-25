@@ -81,13 +81,13 @@ func TestAFolderThatIsNotARepoIsItsOwnMainWorktree(t *testing.T) {
 func TestProjectsLeaveOutAFolderThatIsGone(t *testing.T) {
 	p := repo(t)
 	f := registry.File{Projects: []string{filepath.Join(p, "..", "gone"), p}, Repos: map[string]registry.Repo{p: {Name: "Pocket"}}}
-	want := []proto.Project{{Path: p, Name: "Pocket", Worktrees: []proto.Worktree{{Name: "pocket", Path: p, Branch: "main", IsMain: true}}}}
+	want := []proto.Project{{Path: p, Name: "Pocket", Worktrees: []proto.Worktree{{Name: "pocket", Path: p, Branch: "main", IsMain: true, CreatedAt: born(p) / 1e6}}}}
 	if got := Projects(f); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v", got)
 	}
 }
 
-func TestProjectsListTheWorktreesTheDesktopListsAndThoseAnywhereMade(t *testing.T) {
+func TestProjectsListTheWorktreesTrackedAndThoseAPersonMadeInAnywhere(t *testing.T) {
 	p := repo(t)
 	root := filepath.Join(p, "..", "trees")
 	f := registry.File{Projects: []string{p}, Worktree: registry.Worktree{Root: root}}
@@ -109,9 +109,10 @@ func TestProjectsListTheWorktreesTheDesktopListsAndThoseAnywhereMade(t *testing.
 	if got := paths(); !reflect.DeepEqual(got, []string{"pocket", "made", "mine"}) {
 		t.Fatalf("got %v", got)
 	}
-	f.Sidebar.ExternalWorktrees = true
-	if got := paths(); !reflect.DeepEqual(got, []string{"pocket", "made", "stray", "mine", "theirs"}) {
-		t.Fatalf("with external worktrees, got %v", got)
+	made := Projects(f)[0].Worktrees[1].Path
+	f.AgentWorktrees = []string{made, filepath.Clean(mine)}
+	if got := paths(); !reflect.DeepEqual(got, []string{"pocket", "mine"}) {
+		t.Fatalf("with an agent's worktree, got %v", got)
 	}
 }
 
@@ -181,5 +182,35 @@ func TestAMarkGoesWithItsWorktree(t *testing.T) {
 	git(t, p, "worktree", "add", "-q", "-b", "again", c.Path)
 	if got := Projects(f)[0].Worktrees; len(got) != 1 {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestAnAgentMadeTheWorktreesMadeForItsSessionButNotAPersonsItWasSentInto(t *testing.T) {
+	p := repo(t)
+	root := filepath.Join(p, "..", "trees")
+	f := registry.File{Projects: []string{p}, Worktree: registry.Worktree{Root: root}}
+	var made []string
+	for _, name := range []string{"child", "persons", "tracked", "later"} {
+		c, err := Add(f, p, name, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		made = append(made, c.Path)
+	}
+	child, persons, tracked, later := made[0], made[1], made[2], made[3]
+	start := time.Now().Add(-time.Hour)
+	date := func(tree string, at time.Time) {
+		if err := os.Chtimes(markerPath(tree), at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	date(child, start.Add(-2*time.Minute))
+	date(persons, start.Add(-48*time.Hour))
+	date(tracked, start.Add(-time.Minute))
+	f.Tracked = []string{tracked}
+	ms := start.UnixMilli()
+	uses := []Use{{Cwd: filepath.Join(child, "src"), Started: ms}, {Cwd: persons, Started: ms}, {Cwd: tracked, Started: ms}, {Cwd: later, Started: ms}, {Cwd: p, Started: ms}}
+	if got := AgentMade(f, uses); !reflect.DeepEqual(got, []string{child}) {
+		t.Fatalf("got %v, want %v", got, []string{child})
 	}
 }

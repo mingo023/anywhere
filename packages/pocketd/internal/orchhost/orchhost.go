@@ -282,7 +282,7 @@ func (h *Host) launchOn(ctx context.Context, e orch.Effect, p orch.LaunchPayload
 	switch p.Checkout {
 	case "worktree":
 		// The host's default branch: the parent's HEAD may not exist there.
-		spec.Checkout = proto.Checkout{New: &proto.NewWorktree{Name: cmp.Or(launch.Slug(cmp.Or(p.Title, p.Prompt)), "task"), AutoName: true}}
+		spec.Checkout = proto.Checkout{New: &proto.NewWorktree{Name: cmp.Or(launch.Slug(cmp.Or(p.Title, p.Prompt)), "task"), AutoName: true, ForAgent: true}}
 	case "existing_worktree":
 		spec.Checkout = proto.Checkout{Worktree: p.Worktree}
 	default:
@@ -316,7 +316,7 @@ func (h *Host) launch(e orch.Effect, p orch.LaunchPayload) (map[string]any, erro
 			name = "task"
 		}
 		base := h.head(p.Cwd)
-		spec.Checkout = proto.Checkout{New: &proto.NewWorktree{Name: name, Base: base, AutoName: true}}
+		spec.Checkout = proto.Checkout{New: &proto.NewWorktree{Name: name, Base: base, AutoName: true, ForAgent: true}}
 	case "existing_worktree":
 		spec.Checkout = proto.Checkout{Worktree: p.Worktree}
 	case "root":

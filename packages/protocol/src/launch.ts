@@ -29,6 +29,7 @@ export const NewWorktree = Schema.Struct({
   copy: Schema.optional(Schema.Boolean),
   setup: Schema.optional(Schema.Boolean),
   autoName: Schema.optional(Schema.Boolean),
+  forAgent: Schema.optional(Schema.Boolean),
 });
 
 export const Checkout = Schema.Union(

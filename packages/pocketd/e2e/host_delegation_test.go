@@ -519,8 +519,12 @@ func deleteAfterTheChildClosed(t *testing.T, replaced bool) {
 	mac.Ops().Send(ops.Msg{Op: "close", ID: p.TerminalID})
 	host.eventually("the child's terminal on the host to end", func() bool { return !host.lists(child.TerminalID) })
 	if replaced {
+		// The host cleans up the closed child's clean worktree itself; someone makes one at its folder after.
+		host.eventually("the child's worktree on the host to go", func() bool {
+			_, err := os.Stat(child.Cwd)
+			return os.IsNotExist(err)
+		})
 		time.Sleep(50 * time.Millisecond)
-		gitOut(t, host.Repo, "worktree", "remove", "--force", child.Cwd)
 		gitOut(t, host.Repo, "worktree", "add", "-q", "-b", "someone-elses", child.Cwd)
 		os.WriteFile(filepath.Join(host.Repo, ".git", "worktrees", filepath.Base(child.Cwd), "anywhere"), nil, 0o644)
 	}
@@ -608,4 +612,32 @@ func TestAWorktreesSubagentWorktreesOnALinkedHostAreListedWithTheirHost(t *testi
 	if err != nil || r.Ev != "worktree.subagents" || len(r.Trees) != 1 || r.Trees[0].Host != "devbox" || r.Trees[0].Path != child.Cwd || r.Trees[0].Since == 0 {
 		t.Fatalf("got %+v %v, want devbox's %s", r, err, child.Cwd)
 	}
+}
+
+func TestAParentClosedWhileItsHostIsDownClosesTheChildThereAndTakesItsWorktreeOnceTheLinkIsBack(t *testing.T) {
+	mac, host := linkedHost(t)
+	phone, parent := phoneChat(t, mac)
+	phone.Prompt(parent, `mcp delegate_task {"task":"await never","title":"Notes","target":{"environmentId":"devbox"}}`)
+	task := hostTask(mac, phone, parent, 1, "working")
+	child, ok := hostAgent(t, host, task.ChildID)
+	if !ok {
+		t.Fatalf("the host doesn't list %s", task.ChildID)
+	}
+	if child.Cwd == host.Repo {
+		t.Fatal("the child runs in the project's own checkout, not a worktree of its own")
+	}
+	back := dropLink(t, mac, host)
+	p, _ := mac.listed(parent)
+	mac.Ops().Send(ops.Msg{Op: "close", ID: p.TerminalID})
+	mac.eventually("the parent's terminal to end", func() bool { return !mac.lists(p.TerminalID) })
+	if !host.lists(child.TerminalID) {
+		t.Fatal("the child closed though its host was down")
+	}
+
+	back()
+	host.eventually("the child's terminal on the host to end", func() bool { return !host.lists(child.TerminalID) })
+	host.eventually("the child's worktree on the host to go", func() bool {
+		_, err := os.Stat(child.Cwd)
+		return os.IsNotExist(err)
+	})
 }

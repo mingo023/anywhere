@@ -53,6 +53,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
     case worktreeTrack(ClientMessage.WorktreeTrack)
     case settingsShared(ClientMessage.SettingsShared)
     case worktreeDelete(ClientMessage.WorktreeDelete)
+    case worktreeInspect(ClientMessage.ProjectPath)
     case branchList(ClientMessage.TreeRef)
     case accountList(ClientMessage.AccountList)
     case agentAccount(ClientMessage.AgentAccount)
@@ -152,6 +153,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case "worktree.track": self = .worktreeTrack(try ClientMessage.WorktreeTrack(from: decoder))
         case "settings.shared": self = .settingsShared(try ClientMessage.SettingsShared(from: decoder))
         case "worktree.delete": self = .worktreeDelete(try ClientMessage.WorktreeDelete(from: decoder))
+        case "worktree.inspect": self = .worktreeInspect(try ClientMessage.ProjectPath(from: decoder))
         case "branch.list": self = .branchList(try ClientMessage.TreeRef(from: decoder))
         case "account.list": self = .accountList(try ClientMessage.AccountList(from: decoder))
         case "agent.account": self = .agentAccount(try ClientMessage.AgentAccount(from: decoder))
@@ -256,6 +258,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .worktreeTrack(let m): try m.encode(to: encoder)
         case .settingsShared(let m): try m.encode(to: encoder)
         case .worktreeDelete(let m): try m.encode(to: encoder)
+        case .worktreeInspect(let m): try m.encode(to: encoder)
         case .branchList(let m): try m.encode(to: encoder)
         case .accountList(let m): try m.encode(to: encoder)
         case .agentAccount(let m): try m.encode(to: encoder)
@@ -355,6 +358,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .worktreeTrack: "worktree.track"
         case .settingsShared: "settings.shared"
         case .worktreeDelete: "worktree.delete"
+        case .worktreeInspect: "worktree.inspect"
         case .branchList: "branch.list"
         case .accountList: "account.list"
         case .agentAccount: "agent.account"

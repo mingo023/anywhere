@@ -55,7 +55,6 @@
       "force_with_lease": true
     },
     "access": "edits",
-    "worktree_root": "/Users/me/.anywhere/worktrees",
-    "external_worktrees": true
+    "worktree_root": "/Users/me/.anywhere/worktrees"
   }
 }

@@ -118,6 +118,11 @@ type ClientMessage struct {
 	Update     bool
 	Uninstall  bool
 	ArchiveDir string
+
+	// worktree.delete with worktrees.v1: move folders to the Trash, bound each teardown script, or skip it.
+	Trash        bool
+	TeardownSecs int
+	Teardown     *bool
 }
 
 // McpActions are what agent.mcp may do to a server before it lists them.
@@ -436,6 +441,8 @@ type Worktree struct {
 	Path   string `json:"path"`
 	Branch string `json:"branch"`
 	IsMain bool   `json:"isMain"`
+	// CreatedAt is when its folder was made, in Unix milliseconds; 0 when unknown.
+	CreatedAt int64 `json:"createdAt,omitempty"`
 }
 
 type Project struct {
@@ -529,6 +536,8 @@ type Error struct {
 	Detail  string `json:"detail,omitempty"`
 	// Count is how many commits an unpushed_commits refusal would lose.
 	Count int `json:"count,omitempty"`
+	// Path is the worktree a teardown_failed names.
+	Path string `json:"path,omitempty"`
 }
 
 func NewError(id, message string) Error { return Error{Type: "error", ID: id, Message: message} }

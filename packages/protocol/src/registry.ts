@@ -22,7 +22,6 @@ export const SharedSettings = Schema.Struct({
   git: Schema.Struct({ remote: Schema.String, commit_all: Schema.NullOr(Schema.Boolean), force_with_lease: Schema.Boolean }),
   access: Schema.String,
   worktree_root: Schema.String,
-  external_worktrees: Schema.Boolean,
 });
 export type SharedSettings = typeof SharedSettings.Type;
 

@@ -1,0 +1,21 @@
+{
+  "type": "worktree.inspect",
+  "id": "wi",
+  "trees": [
+    {
+      "path": "/Users/me/.worktrees/pocket/calm-otter",
+      "branch": "calm-otter",
+      "dirty": 2,
+      "terminals": 1
+    },
+    {
+      "host": "devbox",
+      "path": "/home/dev/.worktrees/pocket/fix-x",
+      "branch": "",
+      "dirty": 1,
+      "terminals": 0
+    }
+  ],
+  "lost": 3,
+  "lostAnyway": 1
+}

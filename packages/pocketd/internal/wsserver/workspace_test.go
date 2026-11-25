@@ -372,8 +372,8 @@ func TestAHostThatCannotDeleteASubagentsWorktreeRefusesTheDeleteUnlessForced(t *
 		s.Workspace.SubagentTrees = func(string, func(string, int64) string) (orch.Subtrees, error) {
 			return orch.Subtrees{Hosts: []orch.HostTree{{Host: "devbox", Path: "/home/dev/wt/notes", Sessions: []string{"hc"}}}}, nil
 		}
-		s.Workspace.HostDelete = func(_ context.Context, host, path string, subagents []string, _, force bool) error {
-			asked = append(asked, fmt.Sprintf("%s %s %v %v", host, path, subagents, force))
+		s.Workspace.HostDelete = func(_ context.Context, host, path string, subagents []string, d hosts.Deletion) error {
+			asked = append(asked, fmt.Sprintf("%s %s %v %v", host, path, subagents, d.Force))
 			return hosts.Refusal{Reply: proto.Error{Type: "error", Message: "2 commits", Code: proto.CodeUnpushedCommits, Count: 2}}
 		}
 	})

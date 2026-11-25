@@ -44,11 +44,19 @@ func repo(t *testing.T, name string) string {
 	return dir
 }
 
-// registryOf lists every worktree, as the desktop does with external worktrees on.
+// made adds a worktree on a new branch as Anywhere makes one for a person, marked so the list shows it.
+func made(t *testing.T, project, branch, path string) {
+	t.Helper()
+	git(t, project, "worktree", "add", "-q", "-b", branch, path)
+	if err := os.WriteFile(filepath.Join(project, ".git", "worktrees", filepath.Base(path), worktree.Marker), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func registryOf(t *testing.T, projects ...string) *registry.Registry {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "desktop.json")
-	write(path, registry.File{Projects: projects, Sidebar: registry.Sidebar{ExternalWorktrees: true}})
+	write(path, registry.File{Projects: projects})
 	return registry.Open(filepath.Dir(path))
 }
 
@@ -94,7 +102,7 @@ func TestTheProjectListIsPushedOnceThenOnlyWhenAWorktreeComesGoesOrSwitches(t *t
 		t.Fatalf("an unchanged scan pushed %v", got)
 	}
 	wt := filepath.Join(filepath.Dir(p), "calm-otter")
-	git(t, p, "worktree", "add", "-q", "-b", "calm-otter", wt)
+	made(t, p, "calm-otter", wt)
 	ps.Scan()
 	if got := pushed(msgs); len(got) != 1 || !reflect.DeepEqual(paths(got[0]), []string{p + "@main", wt + "@calm-otter"}) {
 		t.Fatalf("after add: %v", got)
@@ -193,7 +201,7 @@ func TestRunScansAtOnceAndAgainWhenToldOfAChange(t *testing.T) {
 	if got := pushed(msgs); got == nil {
 		t.Fatal("no first scan")
 	}
-	git(t, p, "worktree", "add", "-q", "-b", "x", filepath.Join(filepath.Dir(p), "x"))
+	made(t, p, "x", filepath.Join(filepath.Dir(p), "x"))
 	ps.Changed()
 	if got := pushed(msgs); got == nil || len(got[0].Worktrees) != 2 {
 		t.Fatalf("%v", got)

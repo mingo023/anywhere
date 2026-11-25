@@ -174,3 +174,37 @@ func TestAStartClosesTheSessionsItBroughtBackNeitherRestoredNorHandedDown(t *tes
 		t.Fatalf("a host's session was closed: %+v", remote)
 	}
 }
+
+func TestTheIsolatedSessionsAreTheWorktreeDelegationsChildrenHereKeptOrInLineage(t *testing.T) {
+	s := openTest(t)
+	now := time.Now()
+	long, recent := itoa(now.Add(-ClosedKept-time.Hour).UnixMilli()), itoa(now.UnixMilli())
+	execAll(t, s,
+		`INSERT INTO sessions (id, status, cwd, parent_id, relationship, created_at, closed_at) VALUES
+			('p', 'idle', '/main', '', '', 1, 0),
+			('own', 'closed', '/wt-own', 'p', 'subagent', 2, `+recent+`),
+			('shared', 'idle', '/main', 'p', 'subagent', 3, 0),
+			('old', 'closed', '/wt-old', 'p', 'subagent', 4, `+long+`),
+			('devbox/hc', 'closed', '/home/wt', 'p', 'subagent', 5, 5)`,
+		`INSERT INTO delegations (task_id, parent_id, child_id, isolation, created_at) VALUES
+			('t1', 'p', 'own', 'worktree', 1), ('t2', 'p', 'shared', 'shared', 1), ('t3', 'p', 'old', 'worktree', 1), ('t4', 'p', 'devbox/hc', 'worktree', 1)`,
+	)
+	if err := s.Archive(now, func(cwd string) bool { return cwd == "/wt-old" }); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Prune(now); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Isolated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, x := range got {
+		ids = append(ids, x.ID+"@"+x.Cwd)
+	}
+	slices.Sort(ids)
+	if !slices.Equal(ids, []string{"old@/wt-old", "own@/wt-own"}) {
+		t.Fatalf("got %v", ids)
+	}
+}

@@ -69,7 +69,7 @@ Each attach has its own bounded queue (512 KiB) drained by a writer goroutine th
 | Verb | Scope |
 |---|---|
 | `branch.list` | observe |
-| `worktree.create`, `worktree.delete` | spawn |
+| `worktree.create`, `worktree.delete`, `worktree.inspect` | spawn; `worktree.inspect` needs worktrees.v1 too |
 | `local.create/rename/delete`, `worktree.rename` | spawn for a peer that negotiated workspace.v1 (checked as `ws:<verb>.workspace`); owner for everyone else, as before. A non-owner's `worktree.rename` path must be a tree (`not_a_tree`) |
 | `account.list` | observe |
 | `agent.account` | drive |
@@ -87,7 +87,18 @@ Each attach has its own bounded queue (512 KiB) drained by a writer goroutine th
    // a branch already checked out returns that worktree as it is
    // setup runs in a new login-shell terminal of the worktree, which stays open; worktree.created doesn't wait for it
    // the asking conn gets the new project.list before worktree.created
-→ {type:"worktree.delete", id, path, deleteBranch?:bool, force?:bool, subagents?:[id]}  ← ack
+→ {type:"worktree.inspect", id, path}   // worktrees.v1
+← {type:"worktree.inspect", id, trees:[{host?, path, branch, dirty, terminals}], lost, lostAnyway}
+   // what deleting the worktree at path would close and lose: it first, then each worktree its subagents worked in,
+   //   here and on linked hosts (an offline host's are left out); dirty = uncommitted files, untracked included
+   // lost = commits on no other branch, remote or tag once the branches go; lostAnyway = those on subagents' detached HEADs
+   // main_worktree, unknown_worktree, git_failed; a host without worktrees.v1 is code "host_outdated"
+→ {type:"worktree.delete", id, path, deleteBranch?:bool, force?:bool, subagents?:[id], trash?:bool, teardownSecs?:1..3600, teardown?:bool}  ← ack
+   // runs the teardown script first (project settings', the repo's, or .anywhere/teardown.sh) for teardownSecs (default 120);
+   //   a failure deletes nothing on this machine (subagents' worktrees on linked hosts go first):
+   //   error{id, code:"teardown_failed", message, detail: the output's last 20 lines, path};
+   //   teardown:false skips it
+   // trash:true moves the folder to the Trash before git forgets it
    // closes its terminals (not its Locals'), removes the folder and its display name, then `branch -D` when asked
    // the main worktree is refused before anything closes (code "main_worktree"); unknown_worktree; git_failed
    // with deleteBranch and without force, a branch holding commits no other branch, remote or tag holds
@@ -105,9 +116,10 @@ Each attach has its own bounded queue (512 KiB) drained by a writer goroutine th
 ← {type:"project.list", projects}       // pushed without id to workspace.v1 conns once after each hello and whenever the list changes
    // served from a cache pocketd re-reads every 2 s from stats of each project's git folder, and at once after a worktree verb;
    // a workspace.v1 conn's project.list request is answered from it
-   // each project's worktrees are those the desktop's sidebar lists: the main one, those in desktop.json's tracked, those
-   // Anywhere made, from a desktop, a phone or the CLI (it leaves an `anywhere` file in each one's git folder), or all
-   // while sidebar.external_worktrees is on
+   // each project's worktrees are those the desktop's sidebar lists: the main one, those in desktop.json's tracked, and those
+   // Anywhere made, from a desktop, a phone or the CLI (it leaves an `anywhere` file in each one's git folder), except those
+   // made for a session an agent started (agent.create's checkout.new.forAgent from the owner), until one is kept for its
+   // uncommitted work once its session closes; createdAt = the folder's birth, unix ms
 
 → {type:"account.list", id, provider?}
 ← {type:"account.list", id, accounts:[Account]}

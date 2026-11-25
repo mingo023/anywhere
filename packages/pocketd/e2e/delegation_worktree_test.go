@@ -3,8 +3,11 @@
 package e2e
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -146,6 +149,8 @@ func TestAWorktreesSubagentWorktreesAreListedForADesktopOnceItsSessionsClosed(t 
 		}
 	}
 	child := childOf(phone, done.AgentID).Agent
+	// Uncommitted work keeps the child's worktree once its session closes.
+	os.WriteFile(filepath.Join(childTree, "notes.md"), []byte("half done"), 0o644)
 	h.Ops().Send(ops.Msg{Op: "close", ID: done.TerminalID})
 	h.eventually("the parent's and child's terminals to end", func() bool { return !h.lists(done.TerminalID) && !h.lists(child.TerminalID) })
 
@@ -157,5 +162,72 @@ func TestAWorktreesSubagentWorktreesAreListedForADesktopOnceItsSessionsClosed(t 
 	c.Send(ops.Msg{Op: "worktree.subagents", ID: "c", Path: childTree})
 	if r, err := c.Recv(); err != nil || r.Ev != "worktree.subagents" || len(r.Trees) != 0 {
 		t.Fatalf("got %+v %v, want none below the child's", r, err)
+	}
+}
+
+// listedTrees is the worktrees pocketd lists for the harness's project.
+func listedTrees(t *testing.T, p *Phone, id string) []string {
+	t.Helper()
+	p.Send(map[string]any{"type": "project.list", "id": id})
+	var list proto.ProjectList
+	json.Unmarshal([]byte(p.WaitFor("project.list", func(m Message) bool { return m.Type == "project.list" && m.ID == id }).Raw), &list)
+	var out []string
+	for _, w := range list.Projects[0].Worktrees {
+		out = append(out, w.Path)
+	}
+	return out
+}
+
+func childTree(t *testing.T, h *Harness) string {
+	t.Helper()
+	for _, line := range strings.Split(gitOut(t, h.Repo, "worktree", "list", "--porcelain"), "\n") {
+		if path, ok := strings.CutPrefix(line, "worktree "); ok && path != h.Repo {
+			return path
+		}
+	}
+	t.Fatal("no worktree for the child")
+	return ""
+}
+
+func TestAChildsWorktreeStaysOffTheListAndGoesWithItsBranchOnceItsSessionCloses(t *testing.T) {
+	h, phone, term, parent := chatClaude(t)
+	workspace := h.Owner(proto.CapWorkspace)
+	phone.Prompt(parent, `mcp delegate_task {"task":"hello","title":"Notes"}`)
+	child := phone.WaitFor("the child done", func(m Message) bool {
+		return m.Type == "agent.update" && m.Agent.Parent == parent && m.Agent.Status == "done"
+	}).Agent
+	tree := childTree(t, h)
+	if got := listedTrees(t, workspace, "l1"); slices.Contains(got, tree) {
+		t.Fatalf("the child's worktree is listed: %v", got)
+	}
+
+	h.Ops().Send(ops.Msg{Op: "close", ID: term})
+	phone.WaitAll("both closed", statusOf(parent, "closed"), statusOf(child.ID, "closed"))
+	h.eventually("the child's worktree to go", func() bool {
+		_, err := os.Stat(tree)
+		return os.IsNotExist(err)
+	})
+	h.eventually("its branch to go", func() bool { return gitOut(t, h.Repo, "branch", "--format=%(refname:short)") == "main" })
+}
+
+func TestAChildsWorktreeHoldingUncommittedWorkStaysAndComesOnTheListOnceItsSessionCloses(t *testing.T) {
+	h, phone, term, parent := chatClaude(t)
+	workspace := h.Owner(proto.CapWorkspace)
+	phone.Prompt(parent, `mcp delegate_task {"task":"hello","title":"Notes"}`)
+	child := phone.WaitFor("the child done", func(m Message) bool {
+		return m.Type == "agent.update" && m.Agent.Parent == parent && m.Agent.Status == "done"
+	}).Agent
+	tree := childTree(t, h)
+	os.WriteFile(filepath.Join(tree, "notes.md"), []byte("half done"), 0o644)
+
+	h.Ops().Send(ops.Msg{Op: "close", ID: term})
+	phone.WaitAll("both closed", statusOf(parent, "closed"), statusOf(child.ID, "closed"))
+	asked := 0
+	h.eventually("the child's worktree on the list", func() bool {
+		asked++
+		return slices.Contains(listedTrees(t, workspace, "l"+strconv.Itoa(asked)), tree)
+	})
+	if _, err := os.Stat(filepath.Join(tree, "notes.md")); err != nil {
+		t.Fatalf("the unfinished work went: %v", err)
 	}
 }

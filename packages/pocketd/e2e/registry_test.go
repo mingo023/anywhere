@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -123,7 +122,7 @@ func TestTheDesktopWithoutTheRegistryCapIsRefusedAndAPhoneWithoutItIsServedItsPr
 	}
 }
 
-func TestSharedSettingsAnOwnerSendsSetANewSessionsAccessWhereItsWorktreeGoesAndWhichWorktreesAreListed(t *testing.T) {
+func TestSharedSettingsAnOwnerSendsSetANewSessionsAccessAndWhereItsWorktreeGoesButNeverListAWorktreeMadeElsewhere(t *testing.T) {
 	h := Start(t, launchReady(""))
 	home, _ := filepath.EvalSymlinks(h.Home)
 	external, root := filepath.Join(home, "elsewhere"), filepath.Join(home, "trees")
@@ -141,7 +140,7 @@ func TestSharedSettingsAnOwnerSendsSetANewSessionsAccessWhereItsWorktreeGoesAndW
 		return out
 	}
 	if slices.Contains(listed("l1"), external) {
-		t.Fatal("an external worktree listed with the setting off")
+		t.Fatal("an external worktree listed")
 	}
 
 	owner.Send(map[string]any{"type": "settings.shared", "id": "s", "settings": map[string]any{
@@ -154,12 +153,10 @@ func TestSharedSettingsAnOwnerSendsSetANewSessionsAccessWhereItsWorktreeGoesAndW
 	if providers.DefaultAccess != "edits" {
 		t.Errorf("a new session's access %q", providers.DefaultAccess)
 	}
-	// The list is scanned again after the change, not before its ack.
-	asked := 0
-	h.eventually("an external worktree listed with the setting on", func() bool {
-		asked++
-		return slices.Contains(listed("l"+strconv.Itoa(asked+1)), external)
-	})
+	// An older desktop still sends external_worktrees; it's taken and ignored.
+	if slices.Contains(listed("l2"), external) {
+		t.Fatal("an external worktree listed once an older desktop asked for it")
+	}
 	create(phone, "r1", inRepo(h, map[string]any{"chat": true, "checkout": map[string]any{"new": map[string]any{"name": "calm-otter"}}}))
 	if m := reply(phone, "agent.created", "error"); m.Type != "agent.created" {
 		t.Fatalf("got %s", m.Raw)

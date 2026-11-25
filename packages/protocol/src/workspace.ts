@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { ProviderId } from "./launch.js";
 
 export const CAP_WORKSPACE = "workspace.v1";
+export const CAP_WORKTREES = "worktrees.v1";
 
 export const Branch = Schema.Struct({ name: Schema.String, at: Schema.Number });
 export const Usage = Schema.Struct({ pct: Schema.Number, resetsAt: Schema.optional(Schema.Number) });
@@ -30,7 +31,17 @@ export const WorkspaceClient = [
     pr: Schema.optional(Schema.Int.pipe(Schema.positive())),
     setup: Schema.optional(Schema.Boolean),
   }),
-  Schema.Struct({ type: Schema.Literal("worktree.delete"), id: Schema.String, path: Schema.NonEmptyString, deleteBranch: Schema.optional(Schema.Boolean), force: Schema.optional(Schema.Boolean) }),
+  Schema.Struct({
+    type: Schema.Literal("worktree.delete"),
+    id: Schema.String,
+    path: Schema.NonEmptyString,
+    deleteBranch: Schema.optional(Schema.Boolean),
+    force: Schema.optional(Schema.Boolean),
+    trash: Schema.optional(Schema.Boolean),
+    teardownSecs: Schema.optional(Schema.Int.pipe(Schema.between(1, 3600))),
+    teardown: Schema.optional(Schema.Boolean),
+  }),
+  Schema.Struct({ type: Schema.Literal("worktree.inspect"), id: Schema.String, path: Schema.NonEmptyString }),
   Schema.Struct({ type: Schema.Literal("branch.list"), id: Schema.String, tree: Schema.NonEmptyString }),
   Schema.Struct({ type: Schema.Literal("account.list"), id: Schema.String, provider: Schema.optional(ProviderId) }),
   Schema.Struct({ type: Schema.Literal("agent.account"), id: Schema.String, agentId: Schema.String, account: Schema.NonEmptyString }),
@@ -53,4 +64,13 @@ export const WorkspaceServer = [
     remote: Schema.Array(Branch),
   }),
   Schema.Struct({ type: Schema.Literal("account.list"), id: Schema.String, accounts: Schema.Array(Account) }),
+  Schema.Struct({
+    type: Schema.Literal("worktree.inspect"),
+    id: Schema.String,
+    trees: Schema.Array(
+      Schema.Struct({ host: Schema.optional(Schema.String), path: Schema.String, branch: Schema.String, dirty: Schema.Int, terminals: Schema.Int }),
+    ),
+    lost: Schema.Int,
+    lostAnyway: Schema.Int,
+  }),
 ] as const;

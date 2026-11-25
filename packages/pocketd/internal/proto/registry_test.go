@@ -17,7 +17,7 @@ func TestTheRegistryMessagesDecodeTheirFields(t *testing.T) {
 	}
 	m, err = DecodeClient([]byte(`{"type":"settings.shared","id":"1","settings":{"git":{"remote":"fork","commit_all":false},"access":"edits","worktree_root":"/wt","external_worktrees":true}}`))
 	s := m.Settings
-	if err != nil || s == nil || s.Git.Remote != "fork" || s.Git.CommitsAll() || s.Access != "edits" || s.WorktreeRoot != "/wt" || !s.ExternalWorktrees {
+	if err != nil || s == nil || s.Git.Remote != "fork" || s.Git.CommitsAll() || s.Access != "edits" || s.WorktreeRoot != "/wt" {
 		t.Fatalf("%+v %v", m, err)
 	}
 }

@@ -304,12 +304,12 @@ func (l *Launcher) checkout(w Who, f registry.File, s proto.LaunchSpec, env []st
 	if n.Branch != "" {
 		progress(proto.StepFetch, "")
 		o, err := worktree.PrepareBranch(f, s.Project, n.Name, n.Branch, env)
-		return opened(w, f, s, o, err, progress)
+		return l.opened(w, f, s, o, err, progress)
 	}
 	if n.PR != "" {
 		progress(proto.StepFetch, "")
 		o, err := openPR(f, s, env)
-		return opened(w, f, s, o, err, progress)
+		return l.opened(w, f, s, o, err, progress)
 	}
 	if n.AutoName {
 		release, err := l.hold(f, s.Project, n)
@@ -331,7 +331,7 @@ func (l *Launcher) checkout(w Who, f registry.File, s proto.LaunchSpec, env []st
 	if err != nil {
 		return "", "", gitFailure(err)
 	}
-	return filled(w, f, s, c.Path, progress)
+	return l.filled(w, f, s, c.Path, progress)
 }
 
 // hold renames n's placeholder to the first free one, so two creates with the
@@ -367,7 +367,7 @@ func openPR(f registry.File, s proto.LaunchSpec, env []string) (*worktree.Open, 
 
 // opened adds o's Worktree and fills it, or takes the one already on its
 // branch as it is.
-func opened(w Who, f registry.File, s proto.LaunchSpec, o *worktree.Open, err error, progress func(step, note string)) (string, string, *Failure) {
+func (l *Launcher) opened(w Who, f registry.File, s proto.LaunchSpec, o *worktree.Open, err error, progress func(step, note string)) (string, string, *Failure) {
 	if err != nil {
 		return "", "", gitFailure(err)
 	}
@@ -382,16 +382,23 @@ func opened(w Who, f registry.File, s proto.LaunchSpec, o *worktree.Open, err er
 	if err != nil {
 		return "", "", gitFailure(err)
 	}
-	return filled(w, f, s, c.Path, progress)
+	return l.filled(w, f, s, c.Path, progress)
 }
 
 // filled copies into a new Worktree at path and picks its setup, unless the
 // owner turned them off. The setup in the project's settings wins over the
 // one the repo names in its worktree.ConfigFile or keeps as its
 // worktree.SetupScript. A non-owner's comes from the project's own checkout
-// only: a branch or PR it picked could carry any script.
-func filled(w Who, f registry.File, s proto.LaunchSpec, path string, progress func(step, note string)) (string, string, *Failure) {
+// only: a branch or PR it picked could carry any script. One the owner made for
+// an agent is recorded as the agent's; any other drops a record a removal outside
+// pocketd left at its path.
+func (l *Launcher) filled(w Who, f registry.File, s proto.LaunchSpec, path string, progress func(step, note string)) (string, string, *Failure) {
 	n := s.Checkout.New
+	if agents := n.ForAgent && w.Owner; agents || slices.Contains(f.AgentWorktrees, path) {
+		if err := l.reg.AgentWorktree(path, agents); err != nil {
+			log.Printf("launch: recording %s as an agent's: %v", path, err)
+		}
+	}
 	if on(n.Copy) {
 		progress(proto.StepCopy, "")
 		worktree.CopyInto(s.Project, path)

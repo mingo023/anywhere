@@ -25,8 +25,10 @@ public struct NewWorktree: Codable, Hashable, Sendable {
     public var copy: Bool?
     public var setup: Bool?
     public var autoName: Bool?
+    /// An agent started the session: the worktree stays off the sidebar and goes when it closes.
+    public var forAgent: Bool?
 
-    public init(name: String? = nil, base: String? = nil, branch: String? = nil, pr: String? = nil, copy: Bool? = nil, setup: Bool? = nil, autoName: Bool? = nil) {
+    public init(name: String? = nil, base: String? = nil, branch: String? = nil, pr: String? = nil, copy: Bool? = nil, setup: Bool? = nil, autoName: Bool? = nil, forAgent: Bool? = nil) {
         self.name = name
         self.base = base
         self.branch = branch
@@ -34,6 +36,7 @@ public struct NewWorktree: Codable, Hashable, Sendable {
         self.copy = copy
         self.setup = setup
         self.autoName = autoName
+        self.forAgent = forAgent
     }
 }
 

@@ -84,7 +84,7 @@ func TestADesktopJSONIsImportedWithoutTheOtherHostsProjects(t *testing.T) {
 		t.Fatalf("tracked %v", l.Tracked)
 	}
 	s := l.Settings
-	if s.Git.Remote != "fork" || s.Git.CommitsAll() || !s.Git.ForceWithLease || s.Access != "edits" || s.WorktreeRoot != "/wt" || !s.ExternalWorktrees {
+	if s.Git.Remote != "fork" || s.Git.CommitsAll() || !s.Git.ForceWithLease || s.Access != "edits" || s.WorktreeRoot != "/wt" {
 		t.Fatalf("%+v", s)
 	}
 }
@@ -128,7 +128,7 @@ func TestLoadServesTheProjectsAndEachOnesIdInItsRepo(t *testing.T) {
 		f.Repos["/w/pocket"].ID != l.Projects[0].ID || f.Repos["/w/bare"].ID != l.Projects[1].ID || f.Repos["/w/bare"].ID == "" {
 		t.Fatalf("%+v", f)
 	}
-	if f.Worktree.Root != "/wt" || f.Agents.Access != "edits" || !f.Sidebar.ExternalWorktrees || !slices.Equal(f.Tracked, []string{"/wt/a"}) {
+	if f.Worktree.Root != "/wt" || f.Agents.Access != "edits" || !slices.Equal(f.Tracked, []string{"/wt/a"}) {
 		t.Fatalf("%+v", f)
 	}
 }
@@ -290,7 +290,7 @@ func TestTheListWritesEmptyCollectionsAndAnUnsetLaunchAbsent(t *testing.T) {
 	r := Open(t.TempDir())
 	r.AddProject(paths[0], nil)
 	raw, _ := json.Marshal(r.List())
-	want := `{"type":"registry.list","projects":[{"id":"` + r.Load().Repos[paths[0]].ID + `","path":"` + paths[0] + `","repo":{"name":"","color":0,"setup":"","teardown":"","dev_url":"","icon":null,"gh_account":"","accounts":{},"hidden":[]}}],"tracked":[],"settings":{"git":{"remote":"","commit_all":null,"force_with_lease":false},"access":"","worktree_root":"","external_worktrees":false}}`
+	want := `{"type":"registry.list","projects":[{"id":"` + r.Load().Repos[paths[0]].ID + `","path":"` + paths[0] + `","repo":{"name":"","color":0,"setup":"","teardown":"","dev_url":"","icon":null,"gh_account":"","accounts":{},"hidden":[]}}],"tracked":[],"settings":{"git":{"remote":"","commit_all":null,"force_with_lease":false},"access":"","worktree_root":""}}`
 	if string(raw) != want {
 		t.Fatalf("got %s", raw)
 	}
