@@ -1266,15 +1266,47 @@ func TestAnInteractionRequestThatIsNoDecisionIsAnsweredByAccessAsBefore(t *testi
 	}
 }
 
-func TestAnAntigravitySubAgentShowsAsATaskThatEndsAsItLaunchesWithNoReport(t *testing.T) {
+// agyLaunch is agy 1.5.16's invoke_subagent of one sub-agent, which it ends as it launches.
+func agyLaunch(id, role, prompt string) []string {
+	return []string{
+		`{"sessionUpdate":"tool_call","toolCallId":"` + id + `","name":"invoke_subagent","status":"in_progress","kind":"other","title":"Run invoke_subagent","rawInput":{"Model":"inherit","Prompt":"` + prompt + `","Role":"` + role + `","TypeName":"self"}}`,
+		`{"sessionUpdate":"tool_call_update","toolCallId":"` + id + `","name":"invoke_subagent","status":"completed"}`,
+	}
+}
+
+// agyRun is a sub-agent's run_command as agy tells it on its parent's session, as id "<sub-agent>:<call>".
+func agyRun(id, command string) []string {
+	call := `"toolCallId":"` + id + `","name":"run_command","kind":"execute","title":"` + command + `","rawInput":{"CommandLine":"` + command + `"}`
+	return []string{
+		`{"sessionUpdate":"tool_call",` + call + `,"status":"pending"}`,
+		`{"sessionUpdate":"tool_call_update",` + call + `,"status":"in_progress"}`,
+		`{"sessionUpdate":"tool_call_update",` + call + `,"status":"completed","content":[{"type":"content","content":{"type":"text","text":"ok"}}]}`,
+	}
+}
+
+// inBrain has agy's brain hold a descriptor for each sub-agent of session s1, by its role.
+func inBrain(t *testing.T, roles map[string]string) {
+	was := brain
+	brain = t.TempDir()
+	t.Cleanup(func() { brain = was })
+	dir := filepath.Join(brain, "s1", ".system_generated", "subagents")
+	os.MkdirAll(dir, 0o700)
+	for id, role := range roles {
+		d := `{"conversationId":"` + id + `","subagentDescriptor":{"typeName":"self","role":"` + role + `"},"state":"SUBAGENT_STATE_ALIVE","spawnStepIndex":3}`
+		os.WriteFile(filepath.Join(dir, id+".json"), []byte(d), 0o600)
+	}
+}
+
+func TestAnAntigravitySubAgentShowsAsATaskThatEndsWithItsTurn(t *testing.T) {
+	inBrain(t, nil)
 	s, a, sk, _ := start(t, opts{provider: "antigravity", answer: script(`{"sessionId":"s1"}`, says(
-		`{"sessionUpdate":"tool_call","toolCallId":"sa1","name":"invoke_subagent","status":"in_progress","kind":"other","title":"Run invoke_subagent","rawInput":{"Model":"inherit","Prompt":"Fix the flaky test","Role":"Test Fixer","TypeName":"self"}}`,
-		`{"sessionUpdate":"tool_call_update","toolCallId":"sa1","name":"invoke_subagent","status":"completed"}`,
-	))})
+		slices.Concat(agyLaunch("sa1", "Test Fixer", "Fix the flaky test"), agyRun("c1:call_1", "echo ok"))...))})
 	s.Prompt("go")
 	equal(t, after(sk.wait(t, "ended:false"), "working"), []string{
 		"working",
 		"tool_start:sa1:task:task:Test Fixer: Fix the flaky test",
+		"sa1>tool_start:c1:call_1:shell:shell:echo ok",
+		"tool_end:c1:call_1:true:ok",
 		"tool_end:sa1:true",
 		"result:true:",
 		"ended:false",
@@ -1282,6 +1314,139 @@ func TestAnAntigravitySubAgentShowsAsATaskThatEndsAsItLaunchesWithNoReport(t *te
 	if got := a.called("session/load", 0); got != nil {
 		t.Fatalf("loaded %v", got)
 	}
+}
+
+func TestAntigravitySubAgentsLaunchedTogetherKeepTheirOwnCalls(t *testing.T) {
+	alpha, beta := agyRun("ka:call_1", "echo alpha"), agyRun("kb:call_1", "echo beta")
+	// Live, the sub-agent launched second sent its first call first.
+	turn := slices.Concat(agyLaunch("A", "Alpha", "run alpha"), agyLaunch("B", "Beta", "run beta"), []string{beta[0], alpha[0], beta[1], alpha[1], beta[2], alpha[2]})
+	for name, c := range map[string]struct {
+		roles  map[string]string
+		ka, kb string
+	}{
+		"by their descriptors' roles":                {map[string]string{"ka": "Alpha", "kb": "Beta"}, "A", "B"},
+		"with no descriptor, by launch order":        {nil, "B", "A"},
+		"with a role no launch has, by launch order": {map[string]string{"ka": "Gamma", "kb": "Gamma"}, "B", "A"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			inBrain(t, c.roles)
+			s, _, sk, _ := start(t, opts{provider: "antigravity", answer: script(`{"sessionId":"s1"}`, says(turn...))})
+			s.Prompt("go")
+			equal(t, after(sk.wait(t, "ended:false"), "working"), []string{
+				"working",
+				"tool_start:A:task:task:Alpha: run alpha",
+				"tool_start:B:task:task:Beta: run beta",
+				c.kb + ">tool_start:kb:call_1:shell:shell:echo beta",
+				c.ka + ">tool_start:ka:call_1:shell:shell:echo alpha",
+				"tool_end:kb:call_1:true:ok",
+				"tool_end:ka:call_1:true:ok",
+				"tool_end:A:true",
+				"tool_end:B:true",
+				"result:true:",
+				"ended:false",
+			})
+		})
+	}
+}
+
+func TestAnAntigravitySubAgentAsksForItsCallUnderItsCard(t *testing.T) {
+	inBrain(t, nil)
+	call := `{"toolCallId":"c1:call_1","name":"run_command","kind":"execute","title":"rm x","rawInput":{"CommandLine":"rm x"},"status":"pending"}`
+	s, a, sk, b := start(t, opts{provider: "antigravity", answer: script(`{"sessionId":"s1"}`, func(a *agent, _ string) string {
+		for _, u := range agyLaunch("sa1", "Cleaner", "Clean up") {
+			a.update(u)
+		}
+		a.update(`{"sessionUpdate":"tool_call",` + call[1:])
+		a.ask("1", "session/request_permission", `{"sessionId":"s1","toolCall":`+call+`,"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"deny","name":"Deny","kind":"reject_once"}]}`)
+		a.replied("1")
+		return endTurn
+	})})
+	s.Prompt("go")
+	req := asked(t, b)
+	if req.ToolName != "shell" || req.Detail.Command != "rm x" {
+		t.Fatalf("asked %+v", req)
+	}
+	b.Resolve(req.RequestID, broker.Answer{Decision: "allow"})
+	if got := a.replied("1"); got != `{"outcome":{"optionId":"allow","outcome":"selected"}}` {
+		t.Fatalf("answered %s", got)
+	}
+	if got := sk.wait(t, "ended:false"); !slices.Contains(got, "sa1>tool_start:c1:call_1:shell:shell:rm x") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestAnAntigravityTurnStoppedEndsItsSubAgentsInterrupted(t *testing.T) {
+	inBrain(t, nil)
+	cancelled := make(chan struct{})
+	s, _, sk, _ := start(t, opts{provider: "antigravity", answer: func(a *agent, method string, _ json.RawMessage) string {
+		switch method {
+		case "session/new":
+			return `{"sessionId":"s1"}`
+		case "session/cancel":
+			close(cancelled)
+		case "session/prompt":
+			for _, u := range slices.Concat(agyLaunch("sa1", "Sleeper", "Sleep"), agyRun("c1:call_1", "sleep 9")[:2]) {
+				a.update(u)
+			}
+			<-cancelled
+			return `{"stopReason":"cancelled"}`
+		}
+		return `{}`
+	}})
+	s.Prompt("go")
+	sk.wait(t, "sa1>tool_start:c1:call_1:shell:shell:sleep 9")
+	s.Cancel()
+	got := after(sk.wait(t, "stopped"), "sa1>tool_start:c1:call_1:shell:shell:sleep 9")[1:]
+	slices.Sort(got[:2])
+	equal(t, got, []string{"tool_end:c1:call_1:false:Interrupted", "tool_end:sa1:false:Interrupted", "result:false:interrupted", "stopped"})
+}
+
+func TestAntigravitySubAgentsReplayedEndAsTheHistoryTells(t *testing.T) {
+	inBrain(t, nil)
+	_, _, sk, _ := start(t, opts{provider: "antigravity", saved: "s1", answer: func(a *agent, method string, _ json.RawMessage) string {
+		if method == "session/load" {
+			a.update(`{"content":{"text":"go","type":"text"},"sessionUpdate":"user_message_chunk"}`)
+			a.update(`{"sessionUpdate":"tool_call","toolCallId":"sa1","name":"invoke_subagent","status":"completed","kind":"other","title":"Run invoke_subagent","rawInput":{"Prompt":"Fix it","Role":"Fixer","TypeName":"self"}}`)
+			a.update(`{"content":{"text":"done","type":"text"},"messageId":"m1","sessionUpdate":"agent_message_chunk"}`)
+		}
+		return `{"sessionId":"s1"}`
+	}})
+	equal(t, after(sk.wait(t, "bound:s1"), "loaded"), []string{
+		"loaded", "user:go", "tool_start:sa1:task:task:Fixer: Fix it", "tool_end:sa1:true", "assistant_text:done", "result:true:", "bound:s1"})
+}
+
+func TestAnAntigravityFailedLaunchEndsAtOnce(t *testing.T) {
+	inBrain(t, nil)
+	s, _, sk, _ := start(t, opts{provider: "antigravity", answer: script(`{"sessionId":"s1"}`, says(
+		agyLaunch("sa1", "Fixer", "Fix it")[0],
+		`{"sessionUpdate":"tool_call_update","toolCallId":"sa1","name":"invoke_subagent","status":"failed"}`,
+		`{"content":{"text":"it failed","type":"text"},"messageId":"m1","sessionUpdate":"agent_message_chunk"}`,
+	))})
+	s.Prompt("go")
+	equal(t, after(sk.wait(t, "ended:false"), "tool_start:sa1:task:task:Fixer: Fix it"), []string{
+		"tool_start:sa1:task:task:Fixer: Fix it", "tool_end:sa1:false", "assistant_draft:it failed", "assistant_text:it failed", "result:true:", "ended:false"})
+}
+
+func TestAntigravitySubAgentsOfATurnAPocketdBeforeThisOneStartedEndWithIt(t *testing.T) {
+	inBrain(t, nil)
+	s, a, sk, _ := start(t, opts{provider: "antigravity", saved: "s1", left: Running, answer: func(*agent, string, json.RawMessage) string {
+		return `{"sessionId":"s1"}`
+	}})
+	call := func(id, kind, status string) *proto.ToolCall {
+		return &proto.ToolCall{ToolUseID: id, Name: kind, Detail: proto.ToolDetail{Kind: kind}, Status: status}
+	}
+	s.mu.Lock()
+	s.Showing = func() []proto.Item {
+		return []proto.Item{{Kind: "user", Text: "go"},
+			{Kind: "tool", Call: call("sa0", "task", "ok")},
+			{Kind: "tool", Call: call("sa1", "task", "running")},
+			{Kind: "tool", Call: call("c1:call_1", "shell", "running"), ParentToolUseID: "sa1"},
+			{Kind: "tool", Call: call("sh", "shell", "running")}}
+	}
+	s.mu.Unlock()
+	sk.wait(t, "bound:s1")
+	a.say(`{"jsonrpc":"2.0","id":7,"result":{"stopReason":"end_turn"}}`)
+	equal(t, after(sk.wait(t, "ended:false"), "bound:s1")[1:], []string{"tool_end:c1:call_1:false:Interrupted", "tool_end:sa1:true", "result:true:", "ended:false"})
 }
 
 func TestPlansTodosAndSubAgentsOfCursorAndGrokShowInTheChat(t *testing.T) {

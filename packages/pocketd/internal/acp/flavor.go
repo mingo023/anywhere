@@ -43,6 +43,8 @@ type flavor struct {
 	// elicits has it ask the user through elicitation/create, which initialize
 	// offers it. Its interaction_ permission requests, never yet seen, are asked the same way.
 	elicits bool
+	// childCalls tells its sub-agents' calls on its own session, each id "<sub-agent>:<call>".
+	childCalls bool
 }
 
 // flavors has every ACP provider.
@@ -85,10 +87,11 @@ var flavors = map[string]flavor{
 			"elicitation": map[string]any{"form": map[string]any{}},
 		},
 		// Its server has no mode that runs every tool; pocketd answers for Full.
-		modes:     map[string]string{"ask": "default", "edits": "accept-edits", "auto": "default", "full": "accept-edits"},
-		planMode:  "plan",
-		buildMode: "default",
-		elicits:   true,
+		modes:      map[string]string{"ask": "default", "edits": "accept-edits", "auto": "default", "full": "accept-edits"},
+		planMode:   "plan",
+		buildMode:  "default",
+		elicits:    true,
+		childCalls: true,
 	},
 }
 
