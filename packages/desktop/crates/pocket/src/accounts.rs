@@ -251,9 +251,11 @@ where
     limited(a).map(|at| format!("Back at {}", when(at, now, tz)))
 }
 
-/// What an account is called: its label, else its email.
+/// What an account is called: its label, else its email, else whether it's signed in, as pocketd's `name` in
+/// workspace/accounts.go.
 pub(crate) fn name(a: &Account) -> &str {
-    [&a.label, &a.email].into_iter().find(|s| !s.is_empty()).map_or("Not signed in", String::as_str)
+    let fallback = if a.signed_in { "Signed in" } else { "Not signed in" };
+    [&a.label, &a.email].into_iter().find(|s| !s.is_empty()).map_or(fallback, String::as_str)
 }
 
 /// What an account is called where its email stays masked: its label, else its plan.
@@ -308,7 +310,8 @@ pub(crate) fn subline(a: &Account, provider: &str, host: &str) -> String {
         n => Some(format!("{n} sessions open")),
     };
     let renews = (a.signed_in && a.expired).then(|| "Usage returns after its next session".to_string());
-    [email, plan, running, renews].into_iter().flatten().collect::<Vec<_>>().join(" \u{b7} ")
+    let note = (!a.pending && !a.error.is_empty()).then(|| a.error.clone());
+    [email, plan, running, renews, note].into_iter().flatten().collect::<Vec<_>>().join(" \u{b7} ")
 }
 
 /// A usage window's whole percent, how full it reads, and when it resets: "back 14:05" once it's full.
@@ -607,6 +610,22 @@ mod tests {
         a.label = "Work".into();
         assert_eq!(name(&a), "Work");
         assert_eq!(name(&Account::default()), "Not signed in");
+    }
+
+    #[test]
+    fn a_signed_in_login_with_no_email_is_named_signed_in() {
+        let a = Account { id: BUILT_IN.into(), provider: "antigravity".into(), signed_in: true, ..Default::default() };
+        assert_eq!(name(&a), "Signed in");
+        assert_eq!(name(&Account { signed_in: false, ..a }), "Not signed in");
+    }
+
+    #[test]
+    fn a_signed_in_login_says_why_it_shows_no_usage() {
+        let note = "Update agy to 1.1.11 or later to see its usage";
+        let a = Account { id: BUILT_IN.into(), provider: "antigravity".into(), signed_in: true, error: note.into(), ..Default::default() };
+        assert_eq!(subline(&a, "Antigravity", "This Mac"), note);
+        let planned = Account { plan: "Max".into(), ..a.clone() };
+        assert_eq!(subline(&planned, "Antigravity", "This Mac"), format!("Max \u{b7} {note}"));
     }
 
     #[test]

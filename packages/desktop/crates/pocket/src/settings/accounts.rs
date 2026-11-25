@@ -67,6 +67,10 @@ fn meters(a: &Account, now: i64) -> Div {
     div().w(px(228.)).flex_none().flex().flex_col().gap(px(5.)).children(windows.collect::<Vec<_>>())
 }
 
+fn adds_accounts(provider: &str) -> bool {
+    agents::providers::get(provider).is_some_and(|b| b.adds_accounts)
+}
+
 fn menu_row(id: impl Into<ElementId>, icon: &str, label: &str, enabled: bool) -> Stateful<Div> {
     ui::menu_row(id, icon, label, None).when(!enabled, |d| d.opacity(0.45).cursor_default())
 }
@@ -132,11 +136,13 @@ impl Settings {
             }
             let key = Key { host: host.clone(), provider: provider.into(), id: String::new() };
             let signing = m.signins.iter().find(|s| s.provider == provider);
-            let add = action(SharedString::from(format!("account-add-{}-{provider}", host.as_deref().unwrap_or_default())), "Add account")
-                .when(signing.is_some(), |d| d.opacity(0.45).cursor_default())
-                .when(signing.is_none(), |d| {
-                    d.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::SignIn(key.clone())))))
-                });
+            let add = adds_accounts(provider).then(|| {
+                action(SharedString::from(format!("account-add-{}-{provider}", host.as_deref().unwrap_or_default())), "Add account")
+                    .when(signing.is_some(), |d| d.opacity(0.45).cursor_default())
+                    .when(signing.is_none(), |d| {
+                        d.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::SignIn(key.clone())))))
+                    })
+            });
             rows.push(
                 div()
                     .px(px(14.))
@@ -150,7 +156,7 @@ impl Settings {
                     .text_color(TEXT_2)
                     .child(provider_icon(provider, 13., TEXT_2))
                     .child(div().flex_1().child(provider_name(provider)))
-                    .child(add),
+                    .children(add),
             );
             let shared = accounts::shared(list, provider);
             for a in of {
@@ -189,14 +195,20 @@ impl Settings {
                     .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::SignIn(key.clone()))))),
             )
         };
-        let open = self.side.accounts.menu.as_ref() == Some(&key);
-        let toggle = key.clone();
-        let more = ui::popover_trigger(
-            ui::icon_button_sized(SharedString::from(format!("{id}-more")), "more", 26., TEXT_3),
-            open,
-            cx.listener(move |_, _: &MouseDownEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::Menu(Some(toggle.clone()))))),
-        );
-        let menu = open.then(|| account_menu(&id, key.clone(), a, name, cx));
+        // Sign out would do nothing for a login pocketd keeps no others of, and Rename only names those others. Its
+        // column stays, empty, so the meters line up with the other rows'.
+        let mut more = div().relative().flex_none().w(px(26.));
+        if adds_accounts(&a.provider) {
+            let open = self.side.accounts.menu.as_ref() == Some(&key);
+            let toggle = key.clone();
+            let trigger = ui::popover_trigger(
+                ui::icon_button_sized(SharedString::from(format!("{id}-more")), "more", 26., TEXT_3),
+                open,
+                cx.listener(move |_, _: &MouseDownEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::Menu(Some(toggle.clone()))))),
+            );
+            let menu = open.then(|| account_menu(&id, key.clone(), a, name, cx));
+            more = more.child(trigger).children(menu.map(|m| ui::dropdown_right(30., m)));
+        }
         let can_default = !a.default && a.signed_in;
         let radio = div().id(SharedString::from(format!("{id}-default"))).flex_none().child(ui::radio(a.default)).when(!a.signed_in, |d| d.opacity(0.35)).when(
             can_default,
@@ -206,16 +218,7 @@ impl Settings {
                 }))
             },
         );
-        div()
-            .px(px(14.))
-            .py(px(10.))
-            .flex()
-            .items_center()
-            .gap(px(16.))
-            .child(radio)
-            .child(who)
-            .child(side)
-            .child(div().relative().flex_none().child(more).children(menu.map(|m| ui::dropdown_right(30., m))))
+        div().px(px(14.)).py(px(10.)).flex().items_center().gap(px(16.)).child(radio).child(who).child(side).child(more)
     }
 
     /// A sign-in still running in its terminal, or the reason it failed.
