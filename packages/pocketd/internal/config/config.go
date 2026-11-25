@@ -128,7 +128,9 @@ func Load(db *sql.DB, adopt func(token string) error) (Config, error) {
 	if err := json.Unmarshal([]byte(rows["port"]), &c.Port); err != nil || c.Port == 0 {
 		return Config{}, errors.New("invalid config: need port")
 	}
-	json.Unmarshal([]byte(rows["listen"]), &c.Listen)
+	if c.Listen, err = stringRow(rows, "listen"); err != nil {
+		return Config{}, errors.New("invalid config: listen must be auto or loopback")
+	}
 	c.Listen = cmp.Or(c.Listen, "auto")
 	if c.Listen != "auto" && c.Listen != "loopback" {
 		return Config{}, errors.New("invalid config: listen must be auto or loopback")
@@ -173,9 +175,22 @@ func LegacyOwnerListen(home string) (string, error) {
 }
 
 func ownerListenRow(rows map[string]string) (string, error) {
-	var v string
-	json.Unmarshal([]byte(rows["ownerListen"]), &v)
+	v, err := stringRow(rows, "ownerListen")
+	if err != nil {
+		return "", errors.New("ownerListen must be off or a loopback ip:port")
+	}
 	return ownerListen(v)
+}
+
+// stringRow is key's string value, "" when there is no row.
+func stringRow(rows map[string]string, key string) (string, error) {
+	raw, ok := rows[key]
+	if !ok {
+		return "", nil
+	}
+	var v string
+	err := json.Unmarshal([]byte(raw), &v)
+	return v, err
 }
 
 func ownerListen(v string) (string, error) {

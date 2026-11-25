@@ -71,13 +71,16 @@ func TestLoadRejectsAnUnknownListenMode(t *testing.T) {
 	if _, err := Load(newDB(t, map[string]string{"port": "1", "listen": `"0.0.0.0"`}), keep); err == nil {
 		t.Fatal("want error")
 	}
+	if _, err := Load(newDB(t, map[string]string{"port": "1", "listen": "false"}), keep); err == nil {
+		t.Fatal("a listen that isn't a string: want error")
+	}
 	if c, err := Load(newDB(t, map[string]string{"port": "1", "listen": `"loopback"`}), keep); err != nil || c.Listen != "loopback" {
 		t.Fatalf("%+v %v", c, err)
 	}
 }
 
 func TestOwnerListenTakesOnlyALoopbackAddress(t *testing.T) {
-	for v, ok := range map[string]bool{`"off"`: true, `"127.0.0.1:4519"`: true, `"[::1]:4519"`: true, `"0.0.0.0:4519"`: false, `"localhost:4519"`: false, `"4519"`: false} {
+	for v, ok := range map[string]bool{`"off"`: true, `"127.0.0.1:4519"`: true, `"[::1]:4519"`: true, `"0.0.0.0:4519"`: false, `"localhost:4519"`: false, `"4519"`: false, `4519`: false} {
 		db := newDB(t, map[string]string{"port": "1", "ownerListen": v})
 		if c, err := Load(db, refuse); (err == nil) != ok || ok && `"`+c.OwnerListen+`"` != v {
 			t.Errorf("%s: %+v %v", v, c, err)
