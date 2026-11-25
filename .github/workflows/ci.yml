@@ -138,7 +138,7 @@ jobs:
 
       - name: Test
         working-directory: packages/ios/Packages/AnywhereKit
-        run: swift test
+        run: swift test -Xswiftc -warnings-as-errors
 
   desktop:
     needs: changes
