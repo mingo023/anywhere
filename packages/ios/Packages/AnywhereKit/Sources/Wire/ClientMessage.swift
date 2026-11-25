@@ -32,6 +32,13 @@ public enum ClientMessage: Codable, Hashable, Sendable {
     case automationEnable(ClientMessage.AutomationEnable)
     case automationDelete(ClientMessage.AutomationRef)
     case automationRun(ClientMessage.AutomationRef)
+    case boardSave(ClientMessage.BoardSave)
+    case boardDelete(ClientMessage.TicketRef)
+    case boardStart(ClientMessage.TicketRef)
+    case boardClose(ClientMessage.TicketRef)
+    case boardReopen(ClientMessage.TicketRef)
+    case boardMove(ClientMessage.BoardMove)
+    case boardLimit(ClientMessage.BoardLimit)
     case terminalList
     case terminalAttach(ClientMessage.TerminalRef)
     case terminalDetach(ClientMessage.TerminalRef)
@@ -124,6 +131,13 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case "automation.enable": self = .automationEnable(try ClientMessage.AutomationEnable(from: decoder))
         case "automation.delete": self = .automationDelete(try ClientMessage.AutomationRef(from: decoder))
         case "automation.run": self = .automationRun(try ClientMessage.AutomationRef(from: decoder))
+        case "board.save": self = .boardSave(try ClientMessage.BoardSave(from: decoder))
+        case "board.delete": self = .boardDelete(try ClientMessage.TicketRef(from: decoder))
+        case "board.start": self = .boardStart(try ClientMessage.TicketRef(from: decoder))
+        case "board.close": self = .boardClose(try ClientMessage.TicketRef(from: decoder))
+        case "board.reopen": self = .boardReopen(try ClientMessage.TicketRef(from: decoder))
+        case "board.move": self = .boardMove(try ClientMessage.BoardMove(from: decoder))
+        case "board.limit": self = .boardLimit(try ClientMessage.BoardLimit(from: decoder))
         case "terminal.list": self = .terminalList
         case "terminal.attach": self = .terminalAttach(try ClientMessage.TerminalRef(from: decoder))
         case "terminal.detach": self = .terminalDetach(try ClientMessage.TerminalRef(from: decoder))
@@ -221,6 +235,13 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .automationEnable(let m): try m.encode(to: encoder)
         case .automationDelete(let m): try m.encode(to: encoder)
         case .automationRun(let m): try m.encode(to: encoder)
+        case .boardSave(let m): try m.encode(to: encoder)
+        case .boardDelete(let m): try m.encode(to: encoder)
+        case .boardStart(let m): try m.encode(to: encoder)
+        case .boardClose(let m): try m.encode(to: encoder)
+        case .boardReopen(let m): try m.encode(to: encoder)
+        case .boardMove(let m): try m.encode(to: encoder)
+        case .boardLimit(let m): try m.encode(to: encoder)
         case .terminalList: break
         case .terminalAttach(let m): try m.encode(to: encoder)
         case .terminalDetach(let m): try m.encode(to: encoder)
@@ -313,6 +334,13 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .automationEnable: "automation.enable"
         case .automationDelete: "automation.delete"
         case .automationRun: "automation.run"
+        case .boardSave: "board.save"
+        case .boardDelete: "board.delete"
+        case .boardStart: "board.start"
+        case .boardClose: "board.close"
+        case .boardReopen: "board.reopen"
+        case .boardMove: "board.move"
+        case .boardLimit: "board.limit"
         case .terminalList: "terminal.list"
         case .terminalAttach: "terminal.attach"
         case .terminalDetach: "terminal.detach"

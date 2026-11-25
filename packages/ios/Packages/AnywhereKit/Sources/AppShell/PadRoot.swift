@@ -56,7 +56,7 @@ struct PadRoot: View {
                         }
                     }
                 }
-                .environment(\.showInDetail) { navigator.setPath([$0], for: navigator.tab) }
+                .environment(\.showInDetail, ShowInDetail(owner: navigator) { navigator.setPath([$0], for: navigator.tab) })
                 .navigationSplitViewColumnWidth(min: 320, ideal: 380)
         } detail: {
             NavigationStack(path: path) {

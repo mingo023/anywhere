@@ -117,16 +117,16 @@ struct Tokens(Arc<Mutex<HashMap<String, String>>>);
 
 impl Tokens {
     fn get(&self, account: &str) -> Option<String> {
-        if let Some(t) = self.0.lock().unwrap().get(account) {
+        if let Some(t) = self.0.lock().expect("poisoned").get(account) {
             return Some(t.clone());
         }
         let token = daemon::run_login(&github::token_argv(account), "/", "").ok().filter(|t| !t.is_empty())?;
-        self.0.lock().unwrap().insert(account.to_string(), token.clone());
+        self.0.lock().expect("poisoned").insert(account.to_string(), token.clone());
         Some(token)
     }
 
     fn forget(&self, account: &str) {
-        self.0.lock().unwrap().remove(account);
+        self.0.lock().expect("poisoned").remove(account);
     }
 }
 

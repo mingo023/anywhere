@@ -10,5 +10,5 @@ fn main() {
     names.sort();
     let entries: String =
         names.iter().map(|n| format!("(\"icons/material/{n}\", include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/assets/material/{n}\"))),\n")).collect();
-    fs::write(Path::new(&env::var("OUT_DIR").unwrap()).join("material.rs"), format!("&[\n{entries}]")).unwrap();
+    fs::write(Path::new(&env::var("OUT_DIR").expect("cargo sets OUT_DIR")).join("material.rs"), format!("&[\n{entries}]")).expect("OUT_DIR is writable");
 }

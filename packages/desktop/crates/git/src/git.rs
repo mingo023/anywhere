@@ -422,7 +422,7 @@ pub const PUSH: &[&str] = &["git", "-c", "push.autoSetupRemote=true", "push"];
 /// [`PUSH`] to `remote` when given; with `lease`, a rewritten branch replaces the remote one unless it holds commits not yet fetched.
 pub fn push_argv(remote: Option<&str>, lease: bool) -> Vec<String> {
     let pick = remote.map(|r| format!("remote.pushDefault={r}"));
-    let (push, setup) = PUSH.split_last().unwrap();
+    let (push, setup) = PUSH.split_last().expect("PUSH is not empty");
     let mut argv: Vec<String> = setup.iter().map(|a| a.to_string()).collect();
     argv.extend(pick.into_iter().flat_map(|p| ["-c".to_string(), p]));
     argv.push(push.to_string());

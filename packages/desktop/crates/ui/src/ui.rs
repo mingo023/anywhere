@@ -178,7 +178,7 @@ fn named_keys(mac: &str) -> String {
                 parts.push(n.into());
                 text = false;
             } else if text {
-                parts.last_mut().unwrap().push(c);
+                parts.last_mut().expect("text follows a part").push(c);
             } else {
                 parts.push(c.into());
                 text = true;

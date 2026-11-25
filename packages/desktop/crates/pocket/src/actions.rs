@@ -102,7 +102,7 @@ pub fn native(keys: &str, context: Option<&str>) -> String {
 
 /// ⌘ becomes Ctrl, with Shift in a terminal, whose Ctrl keys are the shell's. Mac's own ⌃ becomes Alt, so ⌘1 and ⌃1 stay apart, except ⌃Tab, which is Ctrl-Tab everywhere.
 fn off_mac(keys: &str, context: Option<&str>) -> String {
-    let k = Keystroke::parse_with_os(keys, keys::OS).unwrap();
+    let k = Keystroke::parse_with_os(keys, keys::OS).expect("keymap keys parse");
     let m = k.modifiers;
     let tab = k.key == "tab";
     let modifiers = Modifiers {
@@ -116,8 +116,8 @@ fn off_mac(keys: &str, context: Option<&str>) -> String {
 }
 
 fn bind<A: Action>(keys: &str, action: A, context: Option<&str>) -> KeyBinding {
-    let predicate = context.map(|c| Rc::new(KeyBindingContextPredicate::parse(c).unwrap()));
-    KeyBinding::load_for_os(&native(keys, context), Box::new(action), predicate, keys::OS).unwrap()
+    let predicate = context.map(|c| Rc::new(KeyBindingContextPredicate::parse(c).expect("a fixed context parses")));
+    KeyBinding::load_for_os(&native(keys, context), Box::new(action), predicate, keys::OS).expect("keymap keys parse")
 }
 
 pub fn bindings() -> Vec<KeyBinding> {
@@ -243,7 +243,8 @@ fn terminal_aliases(bindings: &[KeyBinding]) -> Vec<KeyBinding> {
             let alias = format!("ctrl-shift-{}", k.key);
             let free = !bindings.iter().any(|o| reaches_terminal(o) && on(o, &alias));
             (b.predicate().is_none() && ctrl_letter && free).then(|| {
-                KeyBinding::load_for_os(&alias, b.action().boxed_clone(), KeyBindingContextPredicate::parse(keys::CONTEXT).ok().map(Rc::new), keys::OS).unwrap()
+                KeyBinding::load_for_os(&alias, b.action().boxed_clone(), KeyBindingContextPredicate::parse(keys::CONTEXT).ok().map(Rc::new), keys::OS)
+                    .expect("a fixed binding parses")
             })
         })
         .collect()

@@ -604,7 +604,7 @@ impl Daemon {
                     s.set_write_timeout(Some(write_timeout)).map_err(|e| e.to_string())?;
                     Ok((BufReader::new(s.try_clone().map_err(|e| e.to_string())?), s))
                 }) {
-                    *shared.lock().unwrap() = Some(stream);
+                    *shared.lock().expect("poisoned") = Some(stream);
                     down = false;
                     if !link("up") {
                         return;
@@ -616,7 +616,7 @@ impl Daemon {
                             return;
                         }
                     }
-                    *shared.lock().unwrap() = None;
+                    *shared.lock().expect("poisoned") = None;
                     if up.elapsed() >= LINK_STABLE {
                         wait = RETRY_MIN;
                     }
@@ -639,7 +639,7 @@ impl Daemon {
 
     /// Whether the message reached pocketd's socket; false while it is down.
     pub fn send(&self, msg: Value) -> bool {
-        let mut writer = self.writer.lock().unwrap();
+        let mut writer = self.writer.lock().expect("poisoned");
         let Some(stream) = writer.as_mut() else { return false };
         if writeln!(stream, "{msg}").is_ok() {
             return true;

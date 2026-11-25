@@ -1,0 +1,1 @@
+{"type":"board.save","id":"b2","ticket":{"id":"t1","title":"Fix the login redirect","prompt":"Users land on a blank page after signing in.","provider":"codex","folder":"/Users/me/dev/pocket","base":"main","priority":2,"labels":["Bug","Infra"]},"start":false}

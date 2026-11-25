@@ -15,6 +15,7 @@ dbg_macro = "warn"
 todo = "warn"
 unimplemented = "warn"
 print_stdout = "warn"
+unwrap_used = "warn"
 
 [workspace.dependencies]
 agents = { path = "crates/agents" }

@@ -416,7 +416,7 @@ fn free_name(seed: usize, taken: &HashSet<String>) -> String {
 
 /// `base`, or `base-2`, `base-3`… when taken.
 fn unique(base: &str, taken: &HashSet<String>) -> String {
-    std::iter::once(base.to_string()).chain((2..).map(|n| format!("{base}-{n}"))).find(|n| !is_taken(n, taken)).unwrap()
+    std::iter::once(base.to_string()).chain((2..).map(|n| format!("{base}-{n}"))).find(|n| !is_taken(n, taken)).expect("numbered names never run out")
 }
 
 /// Why `name` can't name a new worktree and its branch, if it can't.

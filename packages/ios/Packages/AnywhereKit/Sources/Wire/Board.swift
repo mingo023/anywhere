@@ -66,3 +66,63 @@ public struct Board: Codable, Hashable, Sendable {
         self.limit = limit
     }
 }
+
+extension ClientMessage {
+    /// A ticket as `board.save` sends it; no `id` creates.
+    public struct TicketDraft: Codable, Hashable, Sendable {
+        public var id: String?
+        public var title: String
+        public var prompt: String
+        public var provider: ProviderId
+        public var folder: String
+        public var base: String?
+        public var priority: Int?
+        public var labels: [String]?
+        public init(
+            id: String? = nil, title: String, prompt: String, provider: ProviderId, folder: String, base: String? = nil, priority: Int? = nil,
+            labels: [String]? = nil
+        ) {
+            self.id = id
+            self.title = title
+            self.prompt = prompt
+            self.provider = provider
+            self.folder = folder
+            self.base = base
+            self.priority = priority
+            self.labels = labels
+        }
+    }
+
+    public struct BoardSave: Codable, Hashable, Sendable {
+        public var ticket: TicketDraft
+        /// Starts it once saved.
+        public var start: Bool?
+        public init(ticket: TicketDraft, start: Bool? = nil) {
+            self.ticket = ticket
+            self.start = start
+        }
+    }
+
+    public struct TicketRef: Codable, Hashable, Sendable {
+        public var ticketId: String
+        public init(ticketId: String) { self.ticketId = ticketId }
+    }
+
+    public struct BoardMove: Codable, Hashable, Sendable {
+        public var ticketId: String
+        /// `todo` or `queued`.
+        public var column: String
+        /// The ticket it goes before; absent or empty is last.
+        public var before: String?
+        public init(ticketId: String, column: String, before: String? = nil) {
+            self.ticketId = ticketId
+            self.column = column
+            self.before = before
+        }
+    }
+
+    public struct BoardLimit: Codable, Hashable, Sendable {
+        public var limit: Int
+        public init(limit: Int) { self.limit = limit }
+    }
+}

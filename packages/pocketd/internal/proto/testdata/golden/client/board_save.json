@@ -1,0 +1,1 @@
+{"type":"board.save","id":"b1","ticket":{"title":"Fix the login redirect","prompt":"Users land on a blank page after signing in.","provider":"claude","folder":"/Users/me/dev/pocket"},"start":true}

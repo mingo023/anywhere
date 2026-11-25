@@ -18,7 +18,7 @@ impl Pocketd {
     fn build(home: &Path) -> Self {
         let bin = home.join("pocketd");
         let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../pocketd");
-        let built = Command::new("go").args(["build", "-o"]).arg(&bin).arg("./cmd/pocketd").current_dir(src).status().unwrap();
+        let built = Command::new("go").args(["build", "-o"]).arg(&bin).arg("./cmd/pocketd").current_dir(src).status().expect("go builds pocketd");
         assert!(built.success(), "go build failed");
         Self { bin, home: home.into(), child: None }
     }
@@ -32,9 +32,9 @@ impl Pocketd {
      * POCKETD_RESTORE_SHELL keeps the owner's login shell and rc files out of restored Terminals.
      */
     fn start(&mut self) {
-        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let port = std::net::TcpListener::bind("127.0.0.1:0").expect("a free local port").local_addr().expect("a free local port").port();
         let config = json!({"token": "t", "port": port, "listen": "loopback", "restore": {"resumeAgents": false}});
-        std::fs::write(self.home.join("config.json"), config.to_string()).unwrap();
+        std::fs::write(self.home.join("config.json"), config.to_string()).expect("config written");
         let child = Command::new(&self.bin)
             .arg("serve")
             .env("HOME", &self.home)
@@ -44,14 +44,14 @@ impl Pocketd {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .unwrap();
+            .expect("pocketd serve starts");
         self.child = Some(child);
     }
 
     fn stop(&mut self) {
-        let mut child = self.child.take().unwrap();
+        let mut child = self.child.take().expect("pocketd running");
         unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
-        assert!(child.wait().unwrap().success(), "pocketd did not exit 0 on SIGTERM");
+        assert!(child.wait().expect("pocketd waited on").success(), "pocketd did not exit 0 on SIGTERM");
     }
 }
 

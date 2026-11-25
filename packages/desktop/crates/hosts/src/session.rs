@@ -54,21 +54,21 @@ impl Daemons {
     }
 
     pub fn add(&self, host: &str, daemon: Daemon) {
-        self.hosts.lock().unwrap().insert(host.into(), daemon);
+        self.hosts.lock().expect("poisoned").insert(host.into(), daemon);
     }
 
     pub fn remove(&self, host: &str) {
-        self.hosts.lock().unwrap().remove(host);
+        self.hosts.lock().expect("poisoned").remove(host);
     }
 
     pub fn has(&self, host: &str) -> bool {
-        self.hosts.lock().unwrap().contains_key(host)
+        self.hosts.lock().expect("poisoned").contains_key(host)
     }
 
     /// Sends `msg` to whichever pocketd holds the terminal it names, with that pocketd's id; a `list` goes to every one.
     pub fn send(&self, mut msg: Value) -> bool {
         if msg["op"] == "list" {
-            let hosts: Vec<Daemon> = self.hosts.lock().unwrap().values().cloned().collect();
+            let hosts: Vec<Daemon> = self.hosts.lock().expect("poisoned").values().cloned().collect();
             hosts.iter().for_each(|d| _ = d.send(msg.clone()));
             return self.local.send(msg);
         }
@@ -86,13 +86,13 @@ impl Daemons {
     pub fn send_to(&self, host: Option<&str>, msg: Value) -> bool {
         match host {
             None => self.local.send(msg),
-            Some(h) => self.hosts.lock().unwrap().get(h).is_some_and(|d| d.send(msg)),
+            Some(h) => self.hosts.lock().expect("poisoned").get(h).is_some_and(|d| d.send(msg)),
         }
     }
 
     pub fn input(&self, id: &str, bytes: &[u8]) -> bool {
         match untag(id) {
-            (Some(host), theirs) => self.hosts.lock().unwrap().get(host).is_some_and(|d| d.input(theirs, bytes)),
+            (Some(host), theirs) => self.hosts.lock().expect("poisoned").get(host).is_some_and(|d| d.input(theirs, bytes)),
             (None, _) => self.local.input(id, bytes),
         }
     }
@@ -200,27 +200,27 @@ impl Outboxes {
     }
 
     pub fn add(&self, host: &str, outbox: Outbox) {
-        self.hosts.lock().unwrap().insert(host.into(), outbox);
+        self.hosts.lock().expect("poisoned").insert(host.into(), outbox);
     }
 
     pub fn remove(&self, host: &str) {
-        self.hosts.lock().unwrap().remove(host);
+        self.hosts.lock().expect("poisoned").remove(host);
     }
 
     pub fn has(&self, host: &str) -> bool {
-        self.hosts.lock().unwrap().contains_key(host)
+        self.hosts.lock().expect("poisoned").contains_key(host)
     }
 
     fn to(&self, host: Option<&str>) -> Option<Outbox> {
         match host {
             None => Some(self.local.clone()),
-            Some(h) => self.hosts.lock().unwrap().get(h).cloned(),
+            Some(h) => self.hosts.lock().expect("poisoned").get(h).cloned(),
         }
     }
 
     /// Each pocketd hears of the agents in `ids` it holds; every one of them hears it when `all`, even of none.
     fn split_ids(&self, ids: &[String], all: bool, send: impl Fn(&Outbox, &[String])) {
-        let hosts = self.hosts.lock().unwrap().clone();
+        let hosts = self.hosts.lock().expect("poisoned").clone();
         let mut by: HashMap<Option<&str>, Vec<String>> = HashMap::new();
         if all {
             by.insert(None, Vec::new());

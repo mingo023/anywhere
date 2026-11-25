@@ -74,13 +74,13 @@ impl Conn {
     }
 
     fn idle(&self) -> bool {
-        self.waiters.lock().unwrap().as_ref().is_none_or(|w| w.is_empty())
+        self.waiters.lock().expect("poisoned").as_ref().is_none_or(|w| w.is_empty())
     }
 }
 
 impl Drop for Client {
     fn drop(&mut self) {
-        self.conn.get_mut().unwrap().iter().chain(self.retired.get_mut().unwrap().iter()).for_each(Conn::close);
+        self.conn.get_mut().expect("poisoned").iter().chain(self.retired.get_mut().expect("poisoned").iter()).for_each(Conn::close);
     }
 }
 
@@ -140,17 +140,17 @@ impl Client {
         op["id"] = id.clone().into();
         let (tx, rx) = mpsc::channel();
         let waiters = {
-            let mut conn = self.conn.lock().unwrap();
-            if conn.as_ref().is_some_and(|c| c.waiters.lock().unwrap().is_none()) {
+            let mut conn = self.conn.lock().expect("poisoned");
+            if conn.as_ref().is_some_and(|c| c.waiters.lock().expect("poisoned").is_none()) {
                 *conn = None;
             }
             let open = match conn.as_mut() {
                 Some(c) => c,
                 None => conn.insert(open(&self.endpoint, FS_TIMEOUT)?),
             };
-            open.waiters.lock().unwrap().get_or_insert_default().insert(id.clone(), tx);
+            open.waiters.lock().expect("poisoned").get_or_insert_default().insert(id.clone(), tx);
             if let Err(e) = writeln!(open.stream, "{op}") {
-                open.waiters.lock().unwrap().as_mut().map(|w| w.remove(&id));
+                open.waiters.lock().expect("poisoned").as_mut().map(|w| w.remove(&id));
                 self.retire(conn.take());
                 return Err(e);
             }
@@ -161,7 +161,7 @@ impl Client {
             mpsc::RecvTimeoutError::Disconnected => io::Error::new(ErrorKind::ConnectionAborted, "lost the host"),
         });
         if reply.is_err() {
-            waiters.lock().unwrap().as_mut().map(|w| w.remove(&id));
+            waiters.lock().expect("poisoned").as_mut().map(|w| w.remove(&id));
         }
         self.retire(None);
         let reply = reply?;
@@ -173,7 +173,7 @@ impl Client {
 
     /// Adds `conn` to the retired ones and closes those with no call left waiting.
     fn retire(&self, conn: Option<Conn>) {
-        let mut retired = self.retired.lock().unwrap();
+        let mut retired = self.retired.lock().expect("poisoned");
         retired.extend(conn);
         retired.retain(|c| {
             let idle = c.idle();
@@ -307,12 +307,12 @@ fn open(endpoint: &Endpoint, write_timeout: Duration) -> io::Result<Conn> {
         for line in reader.lines().map_while(Result::ok) {
             let Ok(reply) = serde_json::from_str::<Value>(&line) else { continue };
             let Some(id) = reply["id"].as_str() else { continue };
-            if let Some(tx) = shared.lock().unwrap().as_mut().and_then(|w| w.remove(id)) {
+            if let Some(tx) = shared.lock().expect("poisoned").as_mut().and_then(|w| w.remove(id)) {
                 let _ = tx.send(reply);
             }
         }
         // Dropping the senders fails every call still waiting.
-        shared.lock().unwrap().take();
+        shared.lock().expect("poisoned").take();
     });
     Ok(Conn { stream, waiters })
 }
@@ -365,15 +365,15 @@ fn registry() -> &'static Mutex<HashMap<String, Arc<Client>>> {
 
 /// The client for host `id` while its link is up and its pocketd serves projects.
 pub fn connected(id: &str) -> Option<Arc<Client>> {
-    registry().lock().unwrap().get(id).cloned()
+    registry().lock().expect("poisoned").get(id).cloned()
 }
 
 pub fn register(client: Arc<Client>) {
-    registry().lock().unwrap().insert(client.id.clone(), client);
+    registry().lock().expect("poisoned").insert(client.id.clone(), client);
 }
 
 pub fn forget(id: &str) {
-    registry().lock().unwrap().remove(id);
+    registry().lock().expect("poisoned").remove(id);
 }
 
 #[cfg(test)]

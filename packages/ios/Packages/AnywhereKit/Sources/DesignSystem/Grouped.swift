@@ -179,9 +179,28 @@ public struct PushRow<Content: View>: View {
     }
 }
 
+/// Opens a route in another column. Equal while its owner is, so a redraw that makes a new closure doesn't invalidate every row reading it.
+public struct ShowInDetail: Equatable {
+    let owner: ObjectIdentifier
+    let open: @MainActor (Route) -> Void
+
+    public init(owner: AnyObject, open: @escaping @MainActor (Route) -> Void) {
+        self.owner = ObjectIdentifier(owner)
+        self.open = open
+    }
+
+    @MainActor public func callAsFunction(_ route: Route) {
+        open(route)
+    }
+
+    public static func == (a: Self, b: Self) -> Bool {
+        a.owner == b.owner
+    }
+}
+
 extension EnvironmentValues {
     /// Set on a split view column whose rows open in another column: a `NavigationLink` only finds destinations in its own.
-    @Entry public var showInDetail: (@MainActor (Route) -> Void)?
+    @Entry public var showInDetail: ShowInDetail?
 }
 
 extension View {

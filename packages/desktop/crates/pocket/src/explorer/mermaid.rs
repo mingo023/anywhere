@@ -77,7 +77,7 @@ fn evict(images: &mut HashMap<u64, (Arc<RenderImage>, Instant)>, budget: usize) 
         if total <= budget || painted.elapsed() < IN_USE {
             break;
         }
-        let (image, _) = images.remove(&key).unwrap();
+        let (image, _) = images.remove(&key).expect("lru lists cached keys");
         total -= bytes(&image);
         dropped.push(image);
     }
@@ -535,7 +535,7 @@ impl MarkdownPlugin for Mermaid {
     }
 
     fn render(&self, node: &MarkdownNode, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let Fence { keys, place, source, heading } = node.data::<Fence>().unwrap();
+        let Fence { keys, place, source, heading } = node.data::<Fence>().expect("mermaid nodes carry a Fence");
         diagram(&self.0, keys[theme::is_dark() as usize], *place, source, || heading.clone(), window, cx)
     }
 }

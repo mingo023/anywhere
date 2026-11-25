@@ -4,7 +4,7 @@ const AVOID: [&str; 10] = ["workspace", "waiting", "attention", "blocked", "unre
 const ALLOWED: [&str; 1] = ["This session is not running."];
 
 fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
-    for entry in std::fs::read_dir(dir).unwrap().flatten() {
+    for entry in std::fs::read_dir(dir).expect("src readable").flatten() {
         let path = entry.path();
         if path.is_dir() {
             sources(&path, out);

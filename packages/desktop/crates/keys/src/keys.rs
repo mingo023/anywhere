@@ -24,7 +24,8 @@ pub fn bindings() -> Vec<KeyBinding> {
     let mut out = vec![
         KeyBinding::new("tab", NoAction {}, Some(CONTEXT)),
         KeyBinding::new("shift-tab", NoAction {}, Some(CONTEXT)),
-        KeyBinding::load_for_os("secondary-enter", Box::new(NoAction {}), KeyBindingContextPredicate::parse(CONTEXT).ok().map(Rc::new), OS).unwrap(),
+        KeyBinding::load_for_os("secondary-enter", Box::new(NoAction {}), KeyBindingContextPredicate::parse(CONTEXT).ok().map(Rc::new), OS)
+            .expect("a fixed binding parses"),
     ];
     if !cfg!(target_os = "macos") {
         out.extend(CTRL_LETTERS.map(|keys| KeyBinding::new(keys, NoAction {}, Some(CONTEXT))));
