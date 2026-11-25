@@ -94,9 +94,7 @@ impl Timelines {
                 let before = held.older.take()?;
                 let oldest = items.iter().map(|i| i.seq).min().filter(|oldest| *oldest < before);
                 held.has_older = f.has_older && oldest.is_some();
-                if let Some(oldest) = oldest {
-                    held.oldest = oldest;
-                }
+                held.took(&items, 0);
                 Some(Event::Items(agent, items))
             }
             Some(SINCE) if items.len() < PAGE && held.as_ref().is_some_and(|h| h.loaded) => {
@@ -269,6 +267,17 @@ mod tests {
         assert_eq!(again[1], json!({"type": "agent.timeline", "id": "o-a1", "agentId": "a1", "beforeSeq": 5, "limit": 500}));
         t.streamed("a1", &item(7));
         assert_eq!(t.again()[0]["sinceSeq"], 9);
+    }
+
+    #[test]
+    fn a_reconnect_starts_from_a_tool_call_still_running_in_an_older_page() {
+        let mut t = Timelines::default();
+        loaded(&mut t, 5..=9, true);
+        asks_older(&mut t);
+        let mut older = page("o-a1", 1..=4, true);
+        older.items[1] = running(2);
+        t.reply(&mut older);
+        assert_eq!(t.again()[0]["sinceSeq"], 1);
     }
 
     #[test]

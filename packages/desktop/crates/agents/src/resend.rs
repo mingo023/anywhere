@@ -89,6 +89,11 @@ impl Resend {
         events
     }
 
+    /// Whether `frame` is still on the list; a held prompt that left it has failed and must not go out.
+    pub(super) fn holds(&self, frame: &Value) -> bool {
+        self.entries.iter().any(|e| e.frame["id"] == frame["id"])
+    }
+
     pub(super) fn waiting(&self) -> bool {
         self.entries.iter().any(|e| e.stage == Stage::Lost)
     }

@@ -167,6 +167,8 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
     loop {
         let expired = carry.resend.expire(Instant::now());
         carry.report(tx, expired)?;
+        let resend = &carry.resend;
+        carry.held.retain(|m| !is_prompt(m) || resend.holds(m));
         while ready && let Some(m) = carry.held.pop_front().or_else(|| queue.try_recv().ok()) {
             let Some(m) = carry.timelines.ask(m) else { continue };
             if m["type"] == "agent.create" {
@@ -319,6 +321,7 @@ mod tests {
     use crate::Host;
     use crate::Local;
     use crate::PromptState;
+    use crate::resend::DOWN_LIMIT;
     #[cfg(unix)]
     use std::os::unix::net::UnixListener;
     use std::path::PathBuf;
@@ -850,6 +853,31 @@ mod tests {
         welcome(&mut ws, true);
         let sent = read(&mut ws);
         assert_eq!((sent["type"].as_str(), sent["id"].as_str()), (Some("agent.prompt"), Some(id.as_str())));
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn a_prompt_failed_for_the_link_being_down_too_long_is_never_sent_once_pocketd_is_back() {
+        let sock = sock_path("expired");
+        let (tx, mut events) = unbounded();
+        let (out, queue) = channel();
+        let mut carry = Carry::new(String::new(), None);
+        carry.resend = Resend::new(Instant::now() - DOWN_LIMIT);
+        out.send(json!({"type": "agent.prompt", "id": "prompt-x-1", "agentId": "a1", "text": "Fix it"})).unwrap();
+        carry.wait_out(&queue, &tx, Duration::from_millis(50));
+        let failed = std::iter::from_fn(|| events.try_recv().ok()).find_map(|ev| match ev {
+            Event::PromptFailed { request, .. } => Some(request),
+            _ => None,
+        });
+        assert_eq!(failed.as_deref(), Some("prompt-x-1"));
+
+        let server = UnixListener::bind(&sock).unwrap();
+        let link = sock.clone();
+        std::thread::spawn(move || run(&link, None, &tx, &queue, &mut carry, None));
+        let mut ws = accept(&server);
+        welcome(&mut ws, true);
+        out.send(json!({"type": "agent.seen", "agentIds": ["a1"]})).unwrap();
+        assert_eq!(read(&mut ws)["type"], "agent.seen", "the failed prompt stays unsent");
         std::fs::remove_file(&sock).unwrap();
     }
 
