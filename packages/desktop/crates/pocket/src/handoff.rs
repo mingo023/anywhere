@@ -424,7 +424,7 @@ impl Desktop {
         let Some(s) = self.agents.get(id).filter(|s| self.can_hand_off(s)) else { return };
         let agent_name = self.agent_name(&s.provider);
         let repo = self.repos.get(&s.cwd);
-        let projects = self.projects();
+        let projects = self.projects(cx);
         let (added, removed) = repo.map(|r| r.totals()).unwrap_or_default();
         let timeline = self.agents.timelines.get(id).map(Vec::as_slice).unwrap_or_default();
         let source = Source {
@@ -466,7 +466,7 @@ impl Desktop {
     /// Checks every connected host for what the handoff needs.
     pub(crate) fn check_hosts(&mut self, cx: &mut Context<Self>) {
         let online = self.online_hosts();
-        let projects = self.projects();
+        let projects = self.projects(cx);
         let checking = self.handoff.update(cx, |h, _| {
             let h = h.open.as_mut()?;
             h.keep_host(&online);
@@ -585,7 +585,7 @@ impl Desktop {
             Step::Worktree => {
                 let (Some(pack), Some(bundle), Some(project)) = (pack, bundle, project) else { return };
                 let name = basename(&source.cwd);
-                let given = self.tree_of(&source.cwd).and_then(|t| self.agents.given_name(&t).map(String::from));
+                let given = self.tree_of(&source.cwd, cx).and_then(|t| self.agents.given_name(&t).map(String::from));
                 let task = cx.background_executor().spawn({
                     let client = client.clone();
                     async move { handoff::place::worktree(&*client, &project, &source.repo, &name, &bundle, &pack) }
@@ -662,9 +662,9 @@ impl Desktop {
                 if !self.store.projects.contains(&project) {
                     self.store.projects.push(project);
                     self.store.save();
-                    self.publish_registry();
+                    self.publish_registry(cx);
                 }
-                if self.send_create(spec).is_none() {
+                if self.send_create(spec, cx).is_none() {
                     let name = self.host_name(&host);
                     return self.step_failed(generation, format!("{name} went offline"), cx);
                 }
@@ -854,7 +854,7 @@ impl Desktop {
     /// A shell on host `id` for fixing what the check found, in its checkout of the project, else any project there.
     pub(crate) fn open_host_shell(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let found = self.handoff.read(cx).open.as_ref().and_then(|h| h.probes.get(id)).and_then(|p| p.project.clone()).map(|p| hosts::place(id, &p));
-        let Some(project) = found.or_else(|| self.projects().into_iter().find(|p| hosts::split(p).0 == Some(id))) else { return };
+        let Some(project) = found.or_else(|| self.projects(cx).into_iter().find(|p| hosts::split(p).0 == Some(id))) else { return };
         self.close_overlay(window, cx);
         self.select_tree(project, None, cx);
         self.new_shell(workspace::Place::Pane(None), cx);

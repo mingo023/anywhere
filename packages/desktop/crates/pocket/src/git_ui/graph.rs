@@ -426,7 +426,7 @@ impl Render for Graph {
 
 impl Desktop {
     pub(crate) fn refresh_graph(&mut self, cx: &mut Context<Self>) {
-        let (cwd, active) = (self.cwd(), self.side == Side::Changes);
+        let (cwd, active) = (self.cwd(cx), self.side == Side::Changes);
         self.graph.update(cx, |g, cx| g.refresh(cwd, active, cx));
     }
 
@@ -441,27 +441,31 @@ impl Desktop {
         }
     }
 
-    fn viewing_commit_file(&self) -> Option<(String, String)> {
-        let v = self.diff.view(self.focused_pane())?;
+    pub(crate) fn viewing_commit_file(&self, cx: &App) -> Option<(String, String)> {
+        let v = self.diff.view(self.focused_pane(cx), cx)?;
         let At::Commit(sha) = &v.at else { return None };
         Some((sha.clone(), v.file.clone()?))
     }
+}
 
-    /// `changes` above the collapsible graph, splitting the height between them while it's open; drag the seam between to resize.
-    pub(crate) fn with_graph(&mut self, changes: Div, cx: &mut Context<Self>) -> Div {
-        let (cwd, active, seamed, viewing) = (self.cwd(), self.side == Side::Changes, self.overlay.is_none(), self.viewing_commit_file());
-        self.graph.update(cx, |g, _| g.show(cwd, active, seamed, viewing));
-        // A share dragged in a taller window would squeeze the list below its floor once the window shrinks.
-        let changes = if self.graph.read(cx).splits() { changes.min_h(px(MIN_CHANGES)) } else { changes };
-        let graph = self.graph.clone();
-        div().flex_1().min_h_0().flex().flex_col().child(changes).child(graph.clone()).on_drag_move(cx.listener(
-            move |_, e: &DragMoveEvent<GraphSeam>, _, cx| {
-                let (edge, below, height) = (e.drag(cx).edge.get(), f32::from(e.bounds.bottom() - e.event.position.y), f32::from(e.bounds.size.height));
-                // A drag move comes every frame, moved or not; the graph only notifies when the share moved.
-                graph.update(cx, |g, cx| g.drag_seam(edge, below, height, cx));
-            },
-        ))
-    }
+/// `changes` above the collapsible graph, splitting the height between them while it's open; drag the seam between to resize.
+pub(crate) fn with_graph<V: 'static>(
+    graph: &Entity<Graph>,
+    changes: Div,
+    cwd: Option<String>,
+    seamed: bool,
+    viewing: Option<(String, String)>,
+    cx: &mut Context<V>,
+) -> Div {
+    graph.update(cx, |g, _| g.show(cwd, true, seamed, viewing));
+    // A share dragged in a taller window would squeeze the list below its floor once the window shrinks.
+    let changes = if graph.read(cx).splits() { changes.min_h(px(MIN_CHANGES)) } else { changes };
+    let graph = graph.clone();
+    div().flex_1().min_h_0().flex().flex_col().child(changes).child(graph.clone()).on_drag_move(cx.listener(move |_, e: &DragMoveEvent<GraphSeam>, _, cx| {
+        let (edge, below, height) = (e.drag(cx).edge.get(), f32::from(e.bounds.bottom() - e.event.position.y), f32::from(e.bounds.size.height));
+        // A drag move comes every frame, moved or not; the graph only notifies when the share moved.
+        graph.update(cx, |g, cx| g.drag_seam(edge, below, height, cx));
+    }))
 }
 
 #[cfg(test)]

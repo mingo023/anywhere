@@ -1,4 +1,4 @@
-use crate::desktop::Desktop;
+use super::RepoForm;
 use gpui_kit::*;
 use std::collections::BTreeSet;
 
@@ -8,21 +8,21 @@ fn agent_switches_shown(offered: &[&str], hidden: &BTreeSet<String>) -> bool {
     offered.len() > 1 || offered.iter().any(|p| hidden.contains(*p))
 }
 
-impl Desktop {
+impl RepoForm {
     /// One row per agent on offer, switched off where the project keeps it out of its model panel.
     pub(super) fn project_agent_rows(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let offered = self.offered();
-        if !agent_switches_shown(&offered, &self.repo_form.draft.hidden) {
+        let offered = &self.side.offered;
+        if !agent_switches_shown(offered, &self.draft.hidden) {
             return Vec::new();
         }
-        offered.into_iter().map(|p| self.project_agent_row(p, cx).into_any_element()).collect()
+        offered.iter().map(|&p| self.project_agent_row(p, cx).into_any_element()).collect()
     }
 
     fn project_agent_row(&self, provider: &'static str, cx: &mut Context<Self>) -> Div {
-        let shown = !self.repo_form.draft.hidden.contains(provider);
+        let shown = !self.draft.hidden.contains(provider);
         let toggle = div().id(SharedString::from(format!("repo-agent-{provider}"))).flex_none().cursor_pointer().child(ui::toggle("switch", shown)).on_click(
             cx.listener(move |this, _: &ClickEvent, _, cx| {
-                let hidden = &mut this.repo_form.draft.hidden;
+                let hidden = &mut this.draft.hidden;
                 if !hidden.remove(provider) {
                     hidden.insert(provider.into());
                 }

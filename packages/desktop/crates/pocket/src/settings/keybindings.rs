@@ -1,7 +1,6 @@
 use super::catalog::Setting;
-use super::{Section, card, group, row};
-use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay, Screen};
+use super::{Section, Settings, SettingsEvent, card, group, row};
+use crate::desktop::chrome::Confirm;
 use crate::desktop::pages;
 use crate::{actions, browser, inbox, settings};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -248,22 +247,13 @@ pub(crate) struct Keyboard {
 }
 
 impl Keyboard {
-    pub(super) fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+    pub(super) fn new(window: &mut Window, cx: &mut Context<Settings>) -> (Self, Vec<Subscription>) {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search by name or keys"));
-        let desktop = cx.entity().downgrade();
-        let subs = vec![
-            cx.subscribe(&search, |_, _, ev: &InputEvent, cx| {
-                if let InputEvent::Change = ev {
-                    cx.notify();
-                }
-            }),
-            // Ahead of the keymap, so ⌘K becomes the new keys instead of opening the palette.
-            cx.intercept_keystrokes(move |ev, _, cx| {
-                if desktop.update(cx, |d, cx| d.record_shortcut(&ev.keystroke, cx)).unwrap_or(false) {
-                    cx.stop_propagation();
-                }
-            }),
-        ];
+        let subs = vec![cx.subscribe(&search, |_, _, ev: &InputEvent, cx| {
+            if let InputEvent::Change = ev {
+                cx.notify();
+            }
+        })];
         (Self { recording: None, customized: false, search }, subs)
     }
 
@@ -317,25 +307,24 @@ fn shortcut_row(label: impl IntoElement, control: impl IntoElement) -> Div {
         .child(control)
 }
 
-impl Desktop {
+impl Settings {
     /// Takes `k` as the new keys of the row being changed; true when it was for that row.
-    fn record_shortcut(&mut self, k: &Keystroke, cx: &mut Context<Self>) -> bool {
-        let Some((id, _)) = self.settings.keyboard.recording.clone() else { return false };
-        if self.screen != Screen::Settings || self.settings.section != Section::Keyboard {
-            self.settings.keyboard.stop();
+    pub(crate) fn record_shortcut(&mut self, k: &Keystroke, shown: bool, cx: &mut Context<Self>) -> bool {
+        let Some((id, _)) = self.keyboard.recording.clone() else { return false };
+        if !shown || self.section != Section::Keyboard {
+            self.keyboard.stop();
             return false;
         }
         if k.key == "escape" {
-            self.settings.keyboard.stop();
+            self.keyboard.stop();
         } else if takes(k) {
             let keys = k.unparse(keys::OS);
             let Some(row) = SHORTCUTS.iter().find(|r| r.id == id) else { return false };
             if clash(&SHORTCUTS, &self.store.keys, row, &keys).is_some() {
-                self.settings.keyboard.recording = Some((id, Some(keys)));
+                self.keyboard.recording = Some((id, Some(keys)));
             } else {
-                set_keys(&mut self.store.keys, row, &keys);
-                self.settings.keyboard.stop();
-                self.shortcuts_changed(cx);
+                self.keyboard.stop();
+                self.write(Some(&ROWS[0]), cx, move |s, _| set_keys(&mut s.keys, row, &keys));
             }
         }
         cx.notify();
@@ -343,23 +332,19 @@ impl Desktop {
     }
 
     fn replace_shortcut(&mut self, cx: &mut Context<Self>) {
-        let Some((id, Some(keys))) = self.settings.keyboard.recording.take() else { return };
+        let Some((id, Some(keys))) = self.keyboard.recording.take() else { return };
         let Some(row) = SHORTCUTS.iter().find(|r| r.id == id) else { return };
-        if replace(&mut self.store.keys, row, &keys) {
-            self.shortcuts_changed(cx);
+        if replace(&mut self.store.keys.clone(), row, &keys) {
+            self.write(Some(&ROWS[0]), cx, move |s, _| {
+                replace(&mut s.keys, row, &keys);
+            });
         }
-    }
-
-    fn shortcuts_changed(&mut self, cx: &mut Context<Self>) {
-        actions::rebind(&self.store.keys, cx);
-        self.save_soon(cx);
-        cx.notify();
     }
 
     fn shortcut_line(&self, r: &'static Shortcut, cx: &mut Context<Self>) -> Div {
         let custom = &self.store.keys;
         let changed = custom.contains_key(&r.id);
-        let recording = self.settings.keyboard.recording.as_ref().filter(|(id, _)| *id == r.id).map(|(_, pressed)| pressed.clone());
+        let recording = self.keyboard.recording.as_ref().filter(|(id, _)| *id == r.id).map(|(_, pressed)| pressed.clone());
         let title = div()
             .flex()
             .items_center()
@@ -394,8 +379,10 @@ impl Desktop {
                         .child(div().text_size(px(12.)).text_color(TEXT_4).child(format!("Default {}", shown(&r.keys[0]).replace(' ', ""))))
                         .child(ui::icon_button_sized(SharedString::from(format!("key-reset-{id}")), "discard", 22., TEXT_3).on_click(cx.listener(
                             move |this, _: &ClickEvent, _, cx| {
-                                this.store.keys.remove(&id);
-                                this.shortcuts_changed(cx);
+                                let id = id.clone();
+                                this.write(Some(&ROWS[0]), cx, move |s, _| {
+                                    s.keys.remove(&id);
+                                })
                             },
                         )))
                 });
@@ -406,7 +393,7 @@ impl Desktop {
                     .hover(|d| d.bg(FILL_2))
                     .child(shortcuts(&keys))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.settings.keyboard.recording = Some((id.clone(), None));
+                        this.keyboard.recording = Some((id.clone(), None));
                         cx.notify();
                     }));
                 div().flex().items_center().gap(px(8.)).children(reset).children(r.place.map(ui::tag)).child(keys)
@@ -416,7 +403,7 @@ impl Desktop {
         let other = recording.flatten().and_then(|pressed| clash(&SHORTCUTS, custom, r, &pressed).map(|o| (shown(&pressed).replace(' ', ""), o)));
         let Some((pressed, other)) = other else { return line };
         let cancel = ui::button("key-cancel", ui::Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.settings.keyboard.stop();
+            this.keyboard.stop();
             cx.notify();
         }));
         let replace =
@@ -453,33 +440,32 @@ impl Desktop {
             .rounded(px(7.))
             .bg(FILL_2)
             .child(icon("search", 13., TEXT_3))
-            .child(div().flex_1().min_w_0().child(Input::new(&self.settings.keyboard.search).appearance(false).p_0().text_size(px(12.5))));
+            .child(div().flex_1().min_w_0().child(Input::new(&self.keyboard.search).appearance(false).p_0().text_size(px(12.5))));
         let filter = ui::segmented(
             vec![
                 Segment { icon: None, value: false, label: "All".into(), badge: None },
                 Segment { icon: None, value: true, label: format!("Customized · {n}").into(), badge: None },
             ],
-            self.settings.keyboard.customized,
+            self.keyboard.customized,
             true,
             false,
             |this: &mut Self, on, cx| {
-                this.settings.keyboard.customized = on;
+                this.keyboard.customized = on;
                 cx.notify();
             },
             cx,
         );
-        let reset = super::action("keys-reset-all", "").gap(px(6.)).child(icon("discard", 12., TEXT_2)).child("Reset all…").on_click(cx.listener(
-            |this, _: &ClickEvent, _, cx| {
-                (this.confirm, this.overlay) = (Some(Confirm::ResetSection(Section::Keyboard)), Some(Overlay::Confirm));
-                cx.notify();
-            },
-        ));
+        let reset = super::action("keys-reset-all", "")
+            .gap(px(6.))
+            .child(icon("discard", 12., TEXT_2))
+            .child("Reset all…")
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Ask(Confirm::ResetSection(Section::Keyboard)))));
         div().flex().items_center().gap(px(8.)).child(search).child(filter).child(reset)
     }
 
     pub(crate) fn keybinding_settings(&self, cx: &mut Context<Self>) -> Div {
-        let words = super::catalog::words(&self.settings.keyboard.search.read(cx).value());
-        let customized = self.settings.keyboard.customized;
+        let words = super::catalog::words(&self.keyboard.search.read(cx).value());
+        let customized = self.keyboard.customized;
         let shown: Vec<&'static Shortcut> =
             find(&SHORTCUTS, &self.store.keys, &words).into_iter().filter(|r| !customized || self.store.keys.contains_key(&r.id)).collect();
         let groups: Vec<Div> = TOPICS
@@ -506,7 +492,7 @@ impl Desktop {
                 "No shortcut matches."
             })
         });
-        let open = self.settings.fixed_open;
+        let open = self.fixed_open;
         let fixed_title = div()
             .id("settings-fixed-keys")
             .mb(px(7.))
@@ -522,7 +508,7 @@ impl Desktop {
             .child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_3))
             .child("Fixed keys")
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.settings.fixed_open = !this.settings.fixed_open;
+                this.fixed_open = !this.fixed_open;
                 cx.notify();
             }));
         let fixed = open.then(|| card(FIXED.iter().map(|&(label, keys)| shortcut_row(label, fixed_keys(keys))).collect()));

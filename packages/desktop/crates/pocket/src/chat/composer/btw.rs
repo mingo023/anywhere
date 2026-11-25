@@ -1,3 +1,4 @@
+use super::ComposerState;
 use super::queue::{control, surface};
 use crate::desktop::Desktop;
 use gpui_kit::*;
@@ -11,26 +12,29 @@ pub(crate) struct Btw {
 }
 
 impl Desktop {
-    pub(super) fn chat_btw_ask(&mut self, agent: &str, question: &str) {
+    pub(super) fn chat_btw_ask(&mut self, agent: &str, question: &str, cx: &mut App) {
         let Some(request) = self.outbox.btw(agent, question) else { return };
-        self.chats.composer.btw.insert(agent.to_string(), Btw { request, question: question.to_string(), answer: None });
+        let (agent, question) = (agent.to_string(), question.to_string());
+        self.chats.composer.update(cx, |c, _| c.btw.insert(agent, Btw { request, question, answer: None }));
     }
 
     /// The answer to side question `request`, if its card still shows; a newer question replaced an older one's.
     pub(crate) fn chat_btw_answered(&mut self, request: &str, answer: Result<String, String>, cx: &mut Context<Self>) {
-        if let Some(b) = self.chats.composer.btw.values_mut().find(|b| b.request == request) {
-            b.answer = Some(answer);
+        let answered = self.chats.composer.update(cx, |c, _| c.btw.values_mut().find(|b| b.request == request).map(|b| b.answer = Some(answer)).is_some());
+        if answered {
             cx.notify();
         }
     }
+}
 
+impl ComposerState {
     /// The side question over the box with its answer, until closed.
     pub(super) fn btw_card(&self, agent: &str, cx: &mut Context<Self>) -> Option<Div> {
-        let b = self.chats.composer.btw.get(agent)?;
+        let b = self.btw.get(agent)?;
         let close = {
             let agent = agent.to_string();
             control(format!("chat-btw-close:{agent}"), "Close").child(icon("x", 13., TEXT_3)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.chats.composer.btw.remove(&agent);
+                this.btw.remove(&agent);
                 cx.notify();
             }))
         };

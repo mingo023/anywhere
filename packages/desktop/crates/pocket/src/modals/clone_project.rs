@@ -442,7 +442,7 @@ impl Desktop {
         self.open(Overlay::Clone, window, cx);
     }
 
-    fn machine_of(&self, space: &Space) -> Machine {
+    pub(crate) fn machine_of(&self, space: &Space) -> Machine {
         Machine {
             glyph: self.space_glyph(space),
             name: self.space_name(space),
@@ -515,7 +515,7 @@ impl Desktop {
                     }
                     self.open_chosen_folder(dest, window, cx);
                 } else {
-                    let cfg = self.new_repo_config(&dest);
+                    let cfg = self.new_repo_config(&dest, cx);
                     self.add_repo(dest, cfg, window, cx);
                 }
                 cx.notify();

@@ -1,19 +1,24 @@
 mod divider;
 mod drop;
 mod drop_marks;
+mod frame;
 mod layouts;
 mod pane_drag;
 mod shortcuts;
 mod strip;
 mod tab_actions;
+mod tab_face;
 mod tab_menu;
 mod top_actions;
+mod top_bar;
 mod top_tabs;
 
-use crate::desktop::Desktop;
-use crate::desktop::chrome::{Overlay, id, observe_banner};
+use crate::creating::{self, Creates};
+use crate::desktop::chrome::id;
 use crate::glide::Glide;
+use crate::modals::more::MoreMenu;
 use drop::Aim;
+use frame::{Drawing, Frame};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -21,8 +26,9 @@ use pane_drag::{DragPane, Source};
 use std::collections::HashMap;
 use std::time::Instant;
 use theme::*;
-use workspace::tree::{Axis, Divider, Node, Pane, PaneId, Rect, Target, Tree};
-use workspace::{Doc, Place, Tab};
+use top_bar::TopBar;
+use workspace::tree::{Axis, Divider, Node, Pane, PaneId, Rect, Tree};
+use workspace::{Doc, Place, Tab, Workspaces};
 
 #[derive(Default)]
 pub(crate) struct Strip {
@@ -31,50 +37,94 @@ pub(crate) struct Strip {
     revealed: Option<(String, usize)>,
 }
 
+pub(crate) enum PanelsEvent {
+    Select { pane: PaneId, tab: usize, pin: Option<Doc> },
+    Close(PaneId, usize),
+    CloseOthers(PaneId, usize),
+    Grab(PaneId, usize),
+    Freeze,
+    TabMenu(PaneId, Tab, Point<Pixels>),
+    TopMenu(String, Point<Pixels>),
+    NewTabMenu,
+    NewShell(Place),
+    NewChat(Place),
+    NewAgent(&'static str, Place),
+    OpenBrowser(Place),
+    NewBrowser,
+    GoToFile,
+    Ask(String),
+    Fork(String),
+    Handoff(String),
+    TopSwitch(usize),
+    TopClose(usize),
+    Moved,
+    Shown,
+    Changed,
+}
+
+impl EventEmitter<PanelsEvent> for Panels {}
+
 /// The main area's panes: their strips, menus and the tab held on one.
-#[derive(Default)]
 pub(crate) struct Panels {
+    workspaces: Entity<Workspaces>,
+    creates: Entity<Creates>,
     strips: HashMap<PaneId, Strip>,
     /// Where the open + menu's new tabs go: its pane, or a new top tab.
-    pub(crate) menu: Option<Place>,
+    menu: Option<Place>,
     /// The tab whose right-click menu is open, its pane, and where the click was.
-    pub(crate) actions: Option<(PaneId, Tab, Point<Pixels>)>,
+    actions: Option<(PaneId, Tab, Point<Pixels>)>,
     /// The agent whose top tab's right-click menu is open, and where the click was.
-    pub(crate) top_actions: Option<(String, Point<Pixels>)>,
+    top_actions: Option<(String, Point<Pixels>)>,
     /// The tab held on a strip, and the strip's pane.
-    pub(crate) drag: Option<(PaneId, strip::TabDrag)>,
-    /// Where the click that opened the More menu was.
-    pub(crate) more_at: Option<Point<Pixels>>,
+    drag: Option<(PaneId, strip::TabDrag)>,
+    pub(crate) more: Entity<MoreMenu>,
     /// The main area as last drawn, in window pixels; which panes have room to split depends on it.
     pub(crate) bounds: Rect,
     /// Where the held tab would drop, once it has left its strip.
-    pub(crate) aim: Option<Aim>,
+    aim: Option<Aim>,
     /// The pointer while a tab is held, in the window.
     at: Option<(f32, f32)>,
     /// Each strip's tabs on screen while a tab is held.
     slots: drop::Slots,
     /// The worktree and top tab whose panes were last synced; pane ids differ between them, so a held tab can't outlive a switch.
     tree: Option<(String, usize)>,
-    /// Whether the panels saved last launch were brought back; until then `desktop.json` keeps them as they were.
-    pub(crate) restored: bool,
-    /// Panels saved last launch for worktrees on hosts, until each host first lists its terminals.
-    pub(crate) waiting: std::collections::BTreeMap<String, workspace::Workspace>,
-    top_scroll: ScrollHandle,
-    /// The worktree and top tab last scrolled into view, so it is revealed once per switch rather than every frame.
-    top_revealed: Option<(String, usize)>,
-    /// The top tab held on the bar.
-    top_drag: Option<strip::TabDrag>,
+    pub(crate) top: Entity<TopBar>,
     /// The pane held by its head, and where it would drop.
     pane_drag: Option<pane_drag::Held>,
-    /// The top bar as last drawn, in window pixels.
-    bar: Rect,
     /// The panes last synced, to tell when a split makes one.
     panes: Vec<PaneId>,
     /// The pane a split just made, and how far it has grown to its share.
     born: Option<(PaneId, Glide)>,
+    _subs: Vec<Subscription>,
 }
 
 impl Panels {
+    pub(crate) fn new(workspaces: Entity<Workspaces>, creates: Entity<Creates>, cx: &mut Context<Self>) -> Self {
+        let top = cx.new(|_| TopBar::default());
+        let more = cx.new(|_| MoreMenu::default());
+        let _subs = vec![cx.subscribe(&top, Self::on_top_event), cx.observe(&top, |_, _, cx| cx.notify())];
+        Self {
+            workspaces,
+            creates,
+            strips: HashMap::new(),
+            menu: None,
+            actions: None,
+            top_actions: None,
+            drag: None,
+            more,
+            bounds: Rect::default(),
+            aim: None,
+            at: None,
+            slots: Default::default(),
+            tree: None,
+            top,
+            pane_drag: None,
+            panes: Vec::new(),
+            born: None,
+            _subs,
+        }
+    }
+
     /// Whether a held tab, pane or top tab may drop over a page, whose native view would hide the marks.
     pub(crate) fn parks_pages(&self) -> bool {
         self.drag.as_ref().is_some_and(|(_, d)| d.away) || self.pane_drag.is_some()
@@ -90,8 +140,361 @@ impl Panels {
     }
 
     /// Whether a tab, pane or top tab is held, so the pictures of pages taken for it are still wanted.
-    pub(crate) fn holding(&self) -> bool {
-        self.drag.is_some() || self.pane_drag.is_some() || self.top_drag.is_some()
+    pub(crate) fn holding(&self, cx: &App) -> bool {
+        self.drag.is_some() || self.pane_drag.is_some() || self.top.read(cx).holding()
+    }
+
+    pub(crate) fn menu_open(&self) -> bool {
+        self.menu.is_some() || self.actions.is_some() || self.top_actions.is_some()
+    }
+
+    pub(crate) fn close_menus(&mut self, cx: &mut Context<Self>) {
+        if self.menu.is_some() || self.actions.is_some() || self.top_actions.is_some() {
+            (self.menu, self.actions, self.top_actions) = (None, None, None);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn close_tab_menus(&mut self, cx: &mut Context<Self>) {
+        if self.menu.is_some() || self.actions.is_some() {
+            (self.menu, self.actions) = (None, None);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn set_menu(&mut self, menu: Option<Place>, cx: &mut Context<Self>) {
+        if self.menu != menu {
+            self.menu = menu;
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn set_top_actions(&mut self, actions: Option<(String, Point<Pixels>)>, cx: &mut Context<Self>) {
+        if self.top_actions != actions {
+            self.top_actions = actions;
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn menus_open(&self) -> [bool; 3] {
+        [self.menu.is_some(), self.actions.is_some(), self.top_actions.is_some()]
+    }
+
+    /// Lets go of a held pane, top tab or tab without moving it; true if one was held.
+    pub(crate) fn cancel_drag(&mut self, cx: &mut App) -> bool {
+        let tab = self.drag.take_if(|(_, d)| !d.released).is_some();
+        let top = self.top.update(cx, |b, _| b.cancel());
+        self.pane_drag.take().is_some() | tab | top
+    }
+
+    fn tree(&self) -> Option<&str> {
+        self.tree.as_ref().map(|(tree, _)| tree.as_str())
+    }
+
+    fn edit<R>(&self, cx: &mut Context<Self>, f: impl FnOnce(&mut workspace::Workspace) -> R) -> Option<R> {
+        let tree = self.tree()?;
+        self.workspaces.update(cx, |all, _| all.get_mut(tree).map(f))
+    }
+
+    pub(crate) fn sync(&mut self, tree: String, at: usize, live: Vec<PaneId>, drawn: &[PaneId], creating: bool) {
+        if self.tree.as_ref() != Some(&(tree.clone(), at)) {
+            self.drag = None;
+            self.tree = Some((tree, at));
+            // Pane ids repeat between trees, so one new here was not born of a split.
+            (self.panes, self.born) = (Vec::new(), None);
+        }
+        if let Some(pane) = born(&self.panes, &live) {
+            self.born = Some((pane, Glide::from(0.)));
+        }
+        self.strips.retain(|p, _| live.contains(p));
+        if matches!(self.menu, Some(Place::Pane(Some(p))) if !live.contains(&p)) {
+            self.menu = None;
+        }
+        self.panes = live;
+        // Only the held tab's strip ends a hold, so one whose strip isn't drawn would never end.
+        if creating || self.drag.as_ref().is_some_and(|(p, _)| !drawn.contains(p)) {
+            self.drag = None;
+        }
+        if self.drag.is_none() {
+            (self.aim, self.at) = (None, None);
+            self.slots.clear();
+        }
+    }
+
+    pub(crate) fn hide(&mut self) {
+        self.drag = None;
+    }
+
+    pub(crate) fn ghost_tab(&self, cx: &App) -> Option<Tab> {
+        let ((from, d), _) = (self.drag.as_ref()?, self.at?);
+        if !d.away {
+            return None;
+        }
+        self.workspaces.read(cx).get(self.tree()?)?.tree.pane(*from)?.tabs.get(d.from).cloned()
+    }
+
+    /// Worktree `tree`'s panes: all of them, or only the zoomed one.
+    pub(crate) fn view(&mut self, frame: Frame, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        let Frame { tree, bar, banner, ghost, mut draw } = frame;
+        // gpui ends a drag on any mouse up, and one outside the panels never reaches `drop_pane`.
+        if !cx.has_active_drag() {
+            self.pane_drag = None;
+        }
+        let (root, zoomed) = {
+            let t = &self.workspaces.read(cx)[tree.as_str()].tree;
+            (t.root.clone(), t.zoomed.and_then(|z| t.pane(z)).cloned())
+        };
+        let body = match zoomed {
+            Some(p) => self.pane_view(&mut draw, &tree, &p, window, cx).into_any_element(),
+            None => self.node_view(&mut draw, &tree, &root, Vec::new(), window, cx),
+        };
+        let this = cx.weak_entity();
+        let measure = canvas(
+            move |b, _, cx| {
+                this.update(cx, |this, _| this.bounds = rect(b)).ok();
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .size_full();
+        let drag_tree = tree.clone();
+        let bar = self.top_bar(&tree, bar, &draw, window, cx);
+        let marks = self.drop_marks(&tree, ghost, cx);
+        div()
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .bg(SURFACE_SUNKEN)
+            .child(bar)
+            .child(div().relative().flex_1().min_h_0().flex().child(measure).child(body).children(marks))
+            .when_some(banner, |d, banner| d.child(banner))
+            .children(self.pane_marks(&tree, cx))
+            .on_drag_move(
+                cx.listener(|this, e: &DragMoveEvent<strip::DragTab>, _, cx| this.aim_tab((e.event.position.x.into(), e.event.position.y.into()), cx)),
+            )
+            .on_drag_move(cx.listener(move |this, e: &DragMoveEvent<DragPane>, _, cx| {
+                this.aim_pane(&drag_tree, (e.event.position.x.into(), e.event.position.y.into()), cx)
+            }))
+            .on_drop(cx.listener(|this, d: &DragPane, _, cx| this.drop_pane(d.0, cx)))
+    }
+
+    fn node_view(&mut self, draw: &mut Drawing, tree: &str, node: &Node<Tab>, path: Vec<usize>, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let (axis, sizes, children) = match node {
+            Node::Pane(p) => return self.pane_view(draw, tree, p, window, cx).into_any_element(),
+            Node::Split { axis, sizes, children } => (*axis, sizes, children),
+        };
+        let born = self.born.as_ref().and_then(|(pane, glide)| {
+            let j = children.iter().position(|c| matches!(c, Node::Pane(p) if p.id == *pane))?;
+            let (_, at) = self.workspaces.read(cx).get(tree)?.tree.layout(self.bounds).into_iter().find(|(p, _)| p == pane)?;
+            Some((j, glide.at(), at))
+        });
+        let sizes = born.map_or_else(|| sizes.clone(), |(j, t, _)| growing(sizes, j, t));
+        let mut cells = Vec::new();
+        for (j, (child, size)) in children.iter().zip(sizes).enumerate() {
+            let inner = self.node_view(draw, tree, child, [path.as_slice(), &[j]].concat(), window, cx);
+            let cell = div().relative().flex().flex_none().flex_basis(relative(size)).min_w_0().min_h_0();
+            let cell = match born.filter(|(b, ..)| *b == j) {
+                // At the size it grows to, so it slides in whole and a terminal in it starts at the right width.
+                Some((_, _, at)) => {
+                    let whole = match axis {
+                        Axis::Row => div().flex_none().h_full().w(px(at.w)),
+                        Axis::Column => div().flex_none().w_full().h(px(at.h)),
+                    };
+                    cell.overflow_hidden().when(axis == Axis::Column, |d| d.flex_col()).when(j == 0, |d| d.justify_end()).child(whole.child(inner))
+                }
+                None => cell.child(inner),
+            };
+            cells.push(match (j, axis) {
+                (0, _) => cell,
+                (_, Axis::Row) => cell.border_l(px(0.5)).border_color(SEPARATOR).children(self.divider(&path, j, axis, draw.seams, cx)),
+                (_, Axis::Column) => cell.border_t(px(0.5)).border_color(SEPARATOR).children(self.divider(&path, j, axis, draw.seams, cx)),
+            });
+        }
+        div()
+            .size_full()
+            .flex()
+            .when(axis == Axis::Column, |d| d.flex_col())
+            .children(cells)
+            .on_drag_move(cx.listener(move |this, e: &DragMoveEvent<Divider>, _, cx| {
+                let d = e.drag(cx).clone();
+                if d.path != path {
+                    return;
+                }
+                let (at, len) = match axis {
+                    Axis::Row => (e.event.position.x - e.bounds.left(), e.bounds.size.width),
+                    Axis::Column => (e.event.position.y - e.bounds.top(), e.bounds.size.height),
+                };
+                this.resize_split(&d, at.into(), len.into(), cx);
+            }))
+            .into_any_element()
+    }
+
+    fn pane_view(&mut self, draw: &mut Drawing, tree: &str, pane: &Pane<Tab>, window: &mut Window, cx: &mut Context<Self>) -> Stateful<Div> {
+        let p = pane.id;
+        let Some(dress) = draw.panes.remove(&p) else { return div().id(id(format!("pane:{p}"))) };
+        let (focused, shape, split) = {
+            let t = &self.workspaces.read(cx)[tree].tree;
+            (t.focused == p, head(t, p), t.panes().len() > 1)
+        };
+        let bar = match shape {
+            Head::Bare => None,
+            Head::Title => Some(self.title_head(pane, dress.title, focused, cx)),
+            Head::Tabs => Some(self.tabs_head(draw, tree, pane, dress.tabs, split, window, cx)),
+        };
+        let bar = match (bar, dress.arriving) {
+            (Some(bar), Some(agent)) => Some(creating::arriving(&self.creates, &agent, creating::BAR, bar, window, cx)),
+            (bar, _) => bar,
+        };
+        let body = match dress.body {
+            frame::Body::Page(body) => body,
+            frame::Body::Empty(empty) => self.empty_pane(p, empty, cx).into_any_element(),
+        };
+        let lifted = self.pane_drag.as_ref().is_some_and(|h| h.from == Source::Pane(p));
+        div()
+            .id(id(format!("pane:{p}")))
+            .size_full()
+            .min_w_0()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .capture_any_mouse_down(dress.press)
+            // An unfocused pane tracks no focus, so the press would bubble to the root, whose `track_focus` retakes focus from `focus_panel`.
+            .when(!focused, |d| d.on_any_mouse_down(|_, window, _| window.prevent_default()))
+            .when(lifted, |d| d.opacity(0.4))
+            .children(bar)
+            .child(body)
+    }
+
+    /// A pane's tabs, with a grip to drag it by when it shares the tree, and its + menu.
+    #[expect(clippy::too_many_arguments, reason = "what a pane's head draws comes from the frame, the pane and the window")]
+    fn tabs_head(
+        &mut self,
+        draw: &Drawing,
+        tree: &str,
+        pane: &Pane<Tab>,
+        faces: Vec<frame::TabFace>,
+        split: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let p = pane.id;
+        let grip = div()
+            .id("pane-grip")
+            .w(px(20.))
+            .h(px(30.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(6.))
+            .cursor_grab()
+            .hover(|s| s.bg(FILL_1))
+            .child(icon("grip", 14., TEXT_4));
+        let filler = div().id("pane-filler").flex_1().min_w(px(16.)).self_stretch();
+        let filler = if split { self.pane_handle(filler, p, cx) } else { filler };
+        div()
+            .h(px(drop::STRIP_H))
+            .flex_none()
+            .flex()
+            .items_center()
+            .pl(px(6.))
+            .pr(px(10.))
+            .border_b(px(0.5))
+            .border_color(SEPARATOR)
+            .when(split, |d| d.child(self.pane_handle(grip, p, cx)))
+            .child(self.strip_tabs(draw, tree, pane, faces, window, cx))
+            .child(filler)
+            .child(self.new_tab_controls(Place::Pane(Some(p)), TEXT_2, draw, cx).ml(px(2.)))
+    }
+
+    /// A lone terminal's head in a split: a grip, a dot while focused, its title and ×.
+    fn title_head(&self, pane: &Pane<Tab>, title: String, focused: bool, cx: &mut Context<Self>) -> Div {
+        let p = pane.id;
+        let close = ui::control(div().id(("close-pane", p)))
+            .size(px(20.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .rounded(px(4.))
+            .cursor_pointer()
+            .hover(|s| s.bg(FILL_3))
+            .child(icon("x", 12., TEXT_3))
+            .tooltip(|window, cx| Tooltip::new("Close Pane (⌘W)").build(window, cx))
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                cx.emit(PanelsEvent::Close(p, 0));
+            }));
+        let head = div()
+            .id("pane-title")
+            .h(px(drop::STRIP_H))
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .px(px(8.))
+            .border_b(px(0.5))
+            .border_color(SEPARATOR)
+            .child(icon("grip", 14., TEXT_4))
+            .child(if focused { ui::dot(8., ACCENT) } else { div().size(px(8.)).flex_none() })
+            .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).child(title))
+            .child(close);
+        // A plain div around it, as a pane's head may rise in with its agent.
+        div().flex().flex_none().child(self.pane_handle(head, p, cx))
+    }
+
+    /// The pane is focused before a click lands, so the browser and file search open in it.
+    fn empty_pane(&self, p: PaneId, empty: frame::Empty, cx: &mut Context<Self>) -> Div {
+        let title = div().pb(px(6.)).text_size(px(13.)).text_color(TEXT_3).child("No open tabs");
+        let pane = div().flex_1().flex().flex_col().items_center().justify_center();
+        let frame::Empty::Offers(agent) = empty else {
+            return pane.child(title);
+        };
+        let agent = agent.map(|(provider, name)| {
+            ui::menu_pick(id(format!("pane-new-agent:{p}")), provider_icon(provider, 14., TEXT_2), &name, false)
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(PanelsEvent::NewAgent(provider, Place::Pane(Some(p))))))
+        });
+        let terminal = ui::menu_row(id(format!("pane-new-terminal:{p}")), "prompt", "Terminal", Some("⌘T"))
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(PanelsEvent::NewShell(Place::Pane(Some(p))))));
+        let browser = ui::menu_row(id(format!("pane-new-browser:{p}")), "globe", "Browser", Some("⌘⇧B"))
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(PanelsEvent::NewBrowser)));
+        let file = ui::menu_row(id(format!("pane-go-to-file:{p}")), "search", "Go to file", Some("⌘P"))
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(PanelsEvent::GoToFile)));
+        pane.child(div().w(px(260.)).flex().flex_col().gap(px(2.)).child(title).children(agent).child(terminal).child(browser).child(file))
+    }
+
+    /// Follows a held tab over the bar and the panes; off its own strip, its siblings slide home and the drop lights up.
+    fn aim_tab(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
+        let Some(tree) = self.tree().map(str::to_string) else { return };
+        if self.at == Some(at) {
+            return;
+        }
+        let top = self.bar_index(&tree, at, cx);
+        let Some((from, d)) = self.drag.as_mut() else { return };
+        let Some(w) = self.workspaces.read(cx).get(&tree) else { return };
+        let t = &w.tree;
+        let layout = t.drawn_layout(self.bounds);
+        let tabs = t.pane(*from).map_or(0, |p| p.tabs.len());
+        // `mid` reads the pointer, so it must be this move's.
+        d.pointer = at.0;
+        // Before its strip is laid out the tab has no middle; aiming then would read as away and park every page for a frame.
+        let Some(mid) = d.mid() else { return };
+        let aim = match top {
+            Some(i) => Some(Aim::Top(i)),
+            None => drop::aim(&layout, at, *from, tabs, mid, &self.slots),
+        };
+        d.away = aim != Some(Aim::Home);
+        (self.aim, self.at) = (aim, Some(at));
+        cx.notify();
+    }
+
+    fn move_tab_to(&mut self, pane: PaneId, i: usize, to: workspace::tree::Target, cx: &mut Context<Self>) {
+        self.edit(cx, |w| w.tree.move_tab(pane, i, to));
+        cx.emit(PanelsEvent::Shown);
     }
 }
 
@@ -126,360 +529,6 @@ pub(crate) fn head(t: &Tree<Tab>, pane: PaneId) -> Head {
         (Some([Tab::Term(_)]), 1) => Head::Bare,
         (Some([Tab::Term(_)]), _) => Head::Title,
         _ => Head::Tabs,
-    }
-}
-
-impl Desktop {
-    /// Points keys at the focused pane's terminal, and forgets what closed panes held.
-    pub(crate) fn sync_panels(&mut self, cx: &App) {
-        let Some(tree) = self.session_tree() else {
-            self.panels.drag = None;
-            return;
-        };
-        let at = self.workspace(&tree).at;
-        if self.panels.tree.as_ref() != Some(&(tree.clone(), at)) {
-            self.panels.drag = None;
-            self.panels.tree = Some((tree.clone(), at));
-            // Pane ids repeat between trees, so one new here was not born of a split.
-            (self.panels.panes, self.panels.born) = (Vec::new(), None);
-        }
-        let w = self.workspace(&tree);
-        let focused = match w.tree.focused().active() {
-            Some(Tab::Term(id)) => Some(id.clone()),
-            _ => None,
-        };
-        let live: Vec<PaneId> = w.tree.panes().iter().map(|p| p.id).collect();
-        let drawn: Vec<PaneId> = w.tree.drawn().iter().map(|p| p.id).collect();
-        self.terminal.focused = focused.map(|id| self.delegated_term(&id));
-        if let Some(pane) = born(&self.panels.panes, &live) {
-            self.panels.born = Some((pane, Glide::from(0.)));
-        }
-        self.panels.panes = live.clone();
-        self.panels.strips.retain(|p, _| live.contains(p));
-        if matches!(self.panels.menu, Some(Place::Pane(Some(p))) if !live.contains(&p)) {
-            self.panels.menu = None;
-        }
-        // Only the held tab's strip ends a hold, so one whose strip isn't drawn would never end.
-        if self.shown_create(cx).is_some() || self.panels.drag.as_ref().is_some_and(|(p, _)| !drawn.contains(p)) {
-            self.panels.drag = None;
-        }
-        if self.panels.drag.is_none() {
-            (self.panels.aim, self.panels.at) = (None, None);
-            self.panels.slots.clear();
-        }
-    }
-
-    /// Worktree `tree`'s panes: all of them, or only the zoomed one.
-    pub(crate) fn panels_view(&mut self, tree: &str, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        // gpui ends a drag on any mouse up, and one outside the panels never reaches `drop_pane`.
-        if !cx.has_active_drag() {
-            self.panels.pane_drag = None;
-        }
-        let t = &self.workspace(tree).tree;
-        let (root, zoomed) = (t.root.clone(), t.zoomed.and_then(|z| t.pane(z)).cloned());
-        let body = match zoomed {
-            Some(p) => self.pane_view(tree, &p, window, cx).into_any_element(),
-            None => self.node_view(tree, &root, Vec::new(), window, cx),
-        };
-        let this = cx.weak_entity();
-        let measure = canvas(
-            move |b, _, cx| {
-                this.update(cx, |this, _| this.panels.bounds = rect(b)).ok();
-            },
-            |_, _, _, _| {},
-        )
-        .absolute()
-        .size_full();
-        let this = cx.weak_entity();
-        let measure_bar = canvas(
-            move |b, _, cx| {
-                this.update(cx, |this, _| this.panels.bar = rect(b)).ok();
-            },
-            |_, _, _, _| {},
-        )
-        .absolute()
-        .inset_0();
-        let observe = self.agents.observe_only();
-        let drag_tree = tree.to_string();
-        div()
-            .relative()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .bg(SURFACE_SUNKEN)
-            .child(self.top_bar(tree, window, cx).child(measure_bar))
-            .child(div().relative().flex_1().min_h_0().flex().child(measure).child(body).children(self.drop_marks(tree)))
-            .when(observe, |d| d.child(observe_banner()))
-            .children(self.pane_marks(tree))
-            .on_drag_move(
-                cx.listener(|this, e: &DragMoveEvent<strip::DragTab>, _, cx| this.aim_tab((e.event.position.x.into(), e.event.position.y.into()), cx)),
-            )
-            .on_drag_move(cx.listener(move |this, e: &DragMoveEvent<DragPane>, _, cx| {
-                this.aim_pane(&drag_tree, (e.event.position.x.into(), e.event.position.y.into()), cx)
-            }))
-            .on_drop(cx.listener(|this, d: &DragPane, window, cx| this.drop_pane(d.0, window, cx)))
-    }
-
-    fn node_view(&mut self, tree: &str, node: &Node<Tab>, path: Vec<usize>, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let (axis, sizes, children) = match node {
-            Node::Pane(p) => return self.pane_view(tree, p, window, cx).into_any_element(),
-            Node::Split { axis, sizes, children } => (*axis, sizes, children),
-        };
-        let born = self.panels.born.as_ref().and_then(|(pane, glide)| {
-            let j = children.iter().position(|c| matches!(c, Node::Pane(p) if p.id == *pane))?;
-            let (_, at) = self.workspaces[tree].tree.layout(self.panels.bounds).into_iter().find(|(p, _)| p == pane)?;
-            Some((j, glide.at(), at))
-        });
-        let sizes = born.map_or_else(|| sizes.clone(), |(j, t, _)| growing(sizes, j, t));
-        let mut cells = Vec::new();
-        for (j, (child, size)) in children.iter().zip(sizes).enumerate() {
-            let inner = self.node_view(tree, child, [path.as_slice(), &[j]].concat(), window, cx);
-            let cell = div().relative().flex().flex_none().flex_basis(relative(size)).min_w_0().min_h_0();
-            let cell = match born.filter(|(b, ..)| *b == j) {
-                // At the size it grows to, so it slides in whole and a terminal in it starts at the right width.
-                Some((_, _, at)) => {
-                    let whole = match axis {
-                        Axis::Row => div().flex_none().h_full().w(px(at.w)),
-                        Axis::Column => div().flex_none().w_full().h(px(at.h)),
-                    };
-                    cell.overflow_hidden().when(axis == Axis::Column, |d| d.flex_col()).when(j == 0, |d| d.justify_end()).child(whole.child(inner))
-                }
-                None => cell.child(inner),
-            };
-            cells.push(match (j, axis) {
-                (0, _) => cell,
-                (_, Axis::Row) => cell.border_l(px(0.5)).border_color(SEPARATOR).children(self.divider(&path, j, axis, cx)),
-                (_, Axis::Column) => cell.border_t(px(0.5)).border_color(SEPARATOR).children(self.divider(&path, j, axis, cx)),
-            });
-        }
-        div()
-            .size_full()
-            .flex()
-            .when(axis == Axis::Column, |d| d.flex_col())
-            .children(cells)
-            .on_drag_move(cx.listener(move |this, e: &DragMoveEvent<Divider>, _, cx| {
-                let d = e.drag(cx).clone();
-                if d.path != path {
-                    return;
-                }
-                let (at, len) = match axis {
-                    Axis::Row => (e.event.position.x - e.bounds.left(), e.bounds.size.width),
-                    Axis::Column => (e.event.position.y - e.bounds.top(), e.bounds.size.height),
-                };
-                this.resize_split(&d, at.into(), len.into(), cx);
-            }))
-            .into_any_element()
-    }
-
-    fn pane_view(&mut self, tree: &str, pane: &Pane<Tab>, window: &mut Window, cx: &mut Context<Self>) -> Stateful<Div> {
-        let p = pane.id;
-        let t = &self.workspaces[tree].tree;
-        let focused = t.focused == p;
-        let (shape, split) = (head(t, p), t.panes().len() > 1);
-        let bar = match shape {
-            Head::Bare => None,
-            Head::Title => Some(self.title_head(pane, focused, cx)),
-            Head::Tabs => Some(self.tabs_head(tree, pane, split, window, cx)),
-        };
-        let bar = match (bar, pane.active()) {
-            (Some(bar), Some(Tab::Term(t))) => match self.summary(t).map(|a| a.id.clone()) {
-                Some(agent) => Some(self.arriving(&agent, crate::creating::BAR, bar, window, cx)),
-                None => Some(bar),
-            },
-            (bar, _) => bar,
-        };
-        let body = self.pane_body(p, focused, pane.active().cloned(), window, cx);
-        let lifted = self.panels.pane_drag.as_ref().is_some_and(|h| h.from == Source::Pane(p));
-        div()
-            .id(id(format!("pane:{p}")))
-            .size_full()
-            .min_w_0()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .overflow_hidden()
-            .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| this.focus_panel(p, window, cx)))
-            // An unfocused pane tracks no focus, so the press would bubble to the root, whose `track_focus` retakes focus from `focus_panel`.
-            .when(!focused, |d| d.on_any_mouse_down(|_, window, _| window.prevent_default()))
-            .when(lifted, |d| d.opacity(0.4))
-            .children(bar)
-            .child(body)
-    }
-
-    /// A pane's tabs, with a grip to drag it by when it shares the tree, and its + menu.
-    fn tabs_head(&mut self, tree: &str, pane: &Pane<Tab>, split: bool, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let p = pane.id;
-        let grip = div()
-            .id("pane-grip")
-            .w(px(20.))
-            .h(px(30.))
-            .flex_none()
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(6.))
-            .cursor_grab()
-            .hover(|s| s.bg(FILL_1))
-            .child(icon("grip", 14., TEXT_4));
-        let filler = div().id("pane-filler").flex_1().min_w(px(16.)).self_stretch();
-        let filler = if split { self.pane_handle(filler, p, cx) } else { filler };
-        div()
-            .h(px(drop::STRIP_H))
-            .flex_none()
-            .flex()
-            .items_center()
-            .pl(px(6.))
-            .pr(px(10.))
-            .border_b(px(0.5))
-            .border_color(SEPARATOR)
-            .when(split, |d| d.child(self.pane_handle(grip, p, cx)))
-            .child(self.strip_tabs(tree, pane, window, cx))
-            .child(filler)
-            .child(self.new_tab_controls(Place::Pane(Some(p)), TEXT_2, cx).ml(px(2.)))
-    }
-
-    /// A lone terminal's head in a split: a grip, a dot while focused, its title and ×.
-    fn title_head(&self, pane: &Pane<Tab>, focused: bool, cx: &mut Context<Self>) -> Div {
-        let p = pane.id;
-        let title = pane.active().map(|tab| self.tab_text(tab)).unwrap_or_default();
-        let close = ui::control(div().id(("close-pane", p)))
-            .size(px(20.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .rounded(px(4.))
-            .cursor_pointer()
-            .hover(|s| s.bg(FILL_3))
-            .child(icon("x", 12., TEXT_3))
-            .tooltip(|window, cx| Tooltip::new("Close Pane (⌘W)").build(window, cx))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                cx.stop_propagation();
-                this.close_tab(p, 0, cx);
-            }));
-        let head = div()
-            .id("pane-title")
-            .h(px(drop::STRIP_H))
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .px(px(8.))
-            .border_b(px(0.5))
-            .border_color(SEPARATOR)
-            .child(icon("grip", 14., TEXT_4))
-            .child(if focused { ui::dot(8., ACCENT) } else { div().size(px(8.)).flex_none() })
-            .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).child(title))
-            .child(close);
-        // A plain div around it, as a pane's head may rise in with its agent.
-        div().flex().flex_none().child(self.pane_handle(head, p, cx))
-    }
-
-    /// The pane is focused before a click lands, so the browser and file search open in it.
-    fn empty_pane(&self, p: PaneId, cx: &mut Context<Self>) -> Div {
-        let title = div().pb(px(6.)).text_size(px(13.)).text_color(TEXT_3).child("No open tabs");
-        let pane = div().flex_1().flex().flex_col().items_center().justify_center();
-        if self.agents.observe_only() {
-            return pane.child(title);
-        }
-        let agent = (!self.offered().is_empty()).then(|| self.store.agents.default_agent(&self.agents)).map(|provider| {
-            ui::menu_pick(id(format!("pane-new-agent:{p}")), provider_icon(provider, 14., TEXT_2), &self.agent_name(provider), false)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.new_agent_tab(provider, Place::Pane(Some(p)), cx)))
-        });
-        let terminal = ui::menu_row(id(format!("pane-new-terminal:{p}")), "prompt", "Terminal", Some("⌘T"))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.new_shell(Place::Pane(Some(p)), cx)));
-        let browser = ui::menu_row(id(format!("pane-new-browser:{p}")), "globe", "Browser", Some("⌘⇧B"))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_browser(&crate::actions::NewBrowser, window, cx)));
-        let file = ui::menu_row(id(format!("pane-go-to-file:{p}")), "search", "Go to file", Some("⌘P"))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.go_to_file(&crate::actions::GoToFile, window, cx)));
-        pane.child(div().w(px(260.)).flex().flex_col().gap(px(2.)).child(title).children(agent).child(terminal).child(browser).child(file))
-    }
-
-    fn pane_body(&mut self, p: PaneId, focused: bool, tab: Option<Tab>, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        match tab {
-            Some(Tab::Term(id)) => {
-                let id = self.delegated_term(&id);
-                if self.chat_shown(&id) {
-                    return self.chat_view(&id, window, cx);
-                }
-                self.term_body(&id, focused, cx)
-            }
-            Some(Tab::Doc(doc @ Doc::File(_))) if self.loaded(p, &doc) => self.file_view(p, cx),
-            Some(Tab::Doc(doc @ (Doc::Diff(_) | Doc::CommitFile { .. } | Doc::PrFile { .. } | Doc::CompareFile { .. }))) if self.loaded(p, &doc) => {
-                self.diff_view(p, cx)
-            }
-            Some(Tab::Doc(doc @ Doc::Commit(_))) if self.loaded(p, &doc) => self.commit_view(p, cx),
-            Some(Tab::Web(id)) => self.browser_view(p, id, window, cx),
-            Some(Tab::Doc(_)) => div().flex_1(),
-            None => self.empty_pane(p, cx),
-        }
-    }
-
-    pub(crate) fn open_more(&mut self, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
-        self.panels.more_at = Some(at);
-        self.open(Overlay::More, window, cx);
-    }
-
-    /// Moves the focus to pane `p`, and the keys with it.
-    fn focus_panel(&mut self, p: PaneId, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
-        let t = &mut self.workspace(&tree).tree;
-        if t.focused == p {
-            return;
-        }
-        self.release_page();
-        let t = &mut self.workspace(&tree).tree;
-        t.focus(p);
-        match t.focused().active().cloned() {
-            Some(Tab::Term(id)) => self.focus_chat_or_terminal(id, window, cx),
-            Some(Tab::Web(_)) => window.focus(&self.browsers.focus, cx),
-            Some(Tab::Doc(_)) | None => window.focus(&self.root, cx),
-        }
-        self.save_soon(cx);
-        cx.notify();
-    }
-
-    /// Follows a held tab over the bar and the panes; off its own strip, its siblings slide home and the drop lights up.
-    fn aim_tab(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
-        if self.panels.at == Some(at) {
-            return;
-        }
-        let top = self.bar_index(&tree, at);
-        let Some((from, d)) = self.panels.drag.as_mut() else { return };
-        let Some(w) = self.workspaces.get(&tree) else { return };
-        let t = &w.tree;
-        let layout = t.drawn_layout(self.panels.bounds);
-        let tabs = t.pane(*from).map_or(0, |p| p.tabs.len());
-        // `mid` reads the pointer, so it must be this move's.
-        d.pointer = at.0;
-        // Before its strip is laid out the tab has no middle; aiming then would read as away and park every page for a frame.
-        let Some(mid) = d.mid() else { return };
-        let aim = match top {
-            Some(i) => Some(Aim::Top(i)),
-            None => drop::aim(&layout, at, *from, tabs, mid, &self.panels.slots),
-        };
-        d.away = aim != Some(Aim::Home);
-        (self.panels.aim, self.panels.at) = (aim, Some(at));
-        cx.notify();
-    }
-
-    /// Moves tab `i` of `pane` to `to`, then shows what the focused pane shows and loads what the moved tab needs.
-    pub(crate) fn move_tab_to(&mut self, pane: PaneId, i: usize, to: Target, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
-        let t = &mut self.workspace(&tree).tree;
-        t.move_tab(pane, i, to);
-        self.show_focused(&tree, window, cx);
-    }
-
-    /// Shows what worktree `tree`'s focused pane shows, once its panes have moved.
-    fn show_focused(&mut self, tree: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let t = &self.workspace(tree).tree;
-        let (focused, active) = (t.focused, t.focused().active);
-        self.select_tab(focused, active, window, cx);
-        self.load_active(cx);
     }
 }
 

@@ -1,10 +1,14 @@
 use super::agent_detail::{self, Detail};
+use super::markdown::{Open, Press};
+use super::tool_row::Tools;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Screen, id};
 use crate::glide::Glide;
 use crate::util::now_ms;
 use chat::{Block, SubAgent, ToolCall, ToolKind, Transcript};
 use gpui_kit::*;
+use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 use theme::*;
 
@@ -89,12 +93,18 @@ fn escape_closes(dock_in: Option<&str>, session: Option<&str>, map_open: bool, a
     dock_in.is_some() && dock_in == session && !map_open && !asking
 }
 
-/// The panel at a chat's right edge with one sub-agent's details.
 pub(crate) struct AgentDock {
     pub(crate) pick: Pick,
     glide: Glide,
     focus: FocusHandle,
 }
+
+pub(crate) enum DockEvent {
+    Closed,
+    Link { agent: String, link: String, press: Press },
+}
+
+impl EventEmitter<DockEvent> for AgentDock {}
 
 impl AgentDock {
     pub(crate) fn new(cx: &mut App) -> Self {
@@ -114,85 +124,74 @@ impl AgentDock {
         }
         moving
     }
-}
 
-impl Desktop {
-    /// Shows `call` of `agent`'s chat in the dock, taking its keys, or closes the dock when it shows it.
-    pub(crate) fn chat_pick_agent(&mut self, agent: &str, call: &str, window: &mut Window, cx: &mut Context<Self>) {
-        self.chats.dock.pick.toggle(agent, call);
-        if self.chats.dock.pick.open.is_some() {
-            self.chats.dock.focus.focus(window, cx);
+    pub(crate) fn open(&self) -> Option<(&str, &str)> {
+        self.pick.open.as_ref().map(|s| (s.agent.as_str(), s.call.as_str()))
+    }
+
+    pub(crate) fn toggle(&mut self, agent: &str, call: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.pick.toggle(agent, call);
+        if self.pick.open.is_some() {
+            self.focus.focus(window, cx);
         } else {
-            self.chats.input.update(cx, |s, cx| s.focus(window, cx));
+            cx.emit(DockEvent::Closed);
         }
         cx.notify();
     }
 
-    fn chat_close_dock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.chats.dock.pick.close();
-        self.chats.input.update(cx, |s, cx| s.focus(window, cx));
+    pub(crate) fn close(&mut self, cx: &mut Context<Self>) {
+        self.pick.close();
+        cx.emit(DockEvent::Closed);
         cx.notify();
     }
 
-    fn chat_step_dock(&mut self, down: bool, cx: &mut Context<Self>) -> bool {
-        let Some(view) = self.chats.dock.pick.open.as_ref().and_then(|s| self.chats.views.get(&s.agent)) else { return false };
-        let calls: Vec<&str> = agent_calls(&view.session.transcript).iter().map(|(c, _)| c.id.as_str()).collect();
-        let moved = self.chats.dock.pick.step(down, &calls);
+    /// Closes the dock once its sub-agent is gone from its chat, or its chat is.
+    pub(crate) fn keep_if(&mut self, holds: impl Fn(&str, &str) -> bool) {
+        self.pick.keep_if(holds);
+    }
+
+    fn step(&mut self, down: bool, calls: &[&str], cx: &mut Context<Self>) -> bool {
+        let moved = self.pick.step(down, calls);
         if moved {
             cx.notify();
         }
         moved
     }
 
-    /// Esc on the session on screen closes its dock; true when it did.
-    pub(crate) fn chat_escape_dock(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let session = self.session().filter(|_| self.screen == Screen::Sessions && self.overlay.is_none() && !self.new_form.shown);
-        let dock_in = self.chats.dock.pick.open.as_ref().map(|s| s.agent.as_str());
-        let map_open = dock_in.is_some_and(|a| self.chats.map.nav.is_open(a));
-        let asking = dock_in.is_some_and(|a| self.agents.pending.iter().any(|p| p.agent_id == a));
-        if !escape_closes(dock_in, session, map_open, asking) {
-            return false;
-        }
-        self.chat_close_dock(window, cx);
-        true
-    }
-
-    /// Closes the dock once its sub-agent is gone from its chat, or its chat is.
-    pub(crate) fn chat_prune_dock(&mut self) {
-        let views = &self.chats.views;
-        self.chats.dock.pick.keep_if(|agent, call| views.get(agent).is_some_and(|v| agent_calls(&v.session.transcript).iter().any(|(c, _)| c.id == call)));
-    }
-
     /// `agent`'s dock while it shows or slides out: as wide as it has slid in, so the chat beside it narrows.
-    pub(crate) fn chat_dock(&self, agent: &str, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
-        let dock = &self.chats.dock;
-        let shown = dock.pick.shown.as_ref().filter(|s| s.agent == agent)?;
-        let t = dock.glide.at().clamp(0., 1.);
+    pub(crate) fn view(&self, agent: &str, transcript: &Transcript, tools: &Entity<Tools>, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let shown = self.pick.shown.as_ref().filter(|s| s.agent == agent)?;
+        let t = self.glide.at().clamp(0., 1.);
         if t < 0.01 {
             return None;
         }
-        let view = self.chats.views.get(agent)?;
-        let (call, sub) = agent_calls(&view.session.transcript).into_iter().find(|(c, _)| c.id == shown.call)?;
+        let (call, sub) = agent_calls(transcript).into_iter().find(|(c, _)| c.id == shown.call)?;
+        let calls: Rc<Vec<String>> = Rc::new(agent_calls(transcript).iter().map(|(c, _)| c.id.clone()).collect());
+        let step = move |down: bool, this: &mut Self, cx: &mut Context<Self>| {
+            let calls: Vec<&str> = calls.iter().map(String::as_str).collect();
+            this.step(down, &calls, cx)
+        };
+        let (step_up, step_down, step_key) = (step.clone(), step.clone(), step);
         let key = format!("dock-{agent}");
         let actions = vec![
-            agent_detail::action(format!("{key}-up"), "chevron-up", cx.listener(|this, _: &ClickEvent, _, cx| _ = this.chat_step_dock(false, cx))),
-            agent_detail::action(format!("{key}-down"), "chevron-down", cx.listener(|this, _: &ClickEvent, _, cx| _ = this.chat_step_dock(true, cx))),
-            agent_detail::action(format!("{key}-close"), "x", cx.listener(|this, _: &ClickEvent, window, cx| this.chat_close_dock(window, cx))),
+            agent_detail::action(format!("{key}-up"), "chevron-up", cx.listener(move |this, _: &ClickEvent, _, cx| _ = step_up(false, this, cx))),
+            agent_detail::action(format!("{key}-down"), "chevron-down", cx.listener(move |this, _: &ClickEvent, _, cx| _ = step_down(true, this, cx))),
+            agent_detail::action(format!("{key}-close"), "x", cx.listener(|this, _: &ClickEvent, _, cx| this.close(cx))),
         ];
         let on_brief = cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.chats.dock.pick.brief_open ^= true;
+            this.pick.brief_open ^= true;
             cx.notify();
         });
         let on_more = cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.chats.dock.pick.all_steps ^= true;
+            this.pick.all_steps ^= true;
             cx.notify();
         });
-        let links = self.chat_links(agent, cx);
-        let detail = Detail { key: key.clone(), call, agent: sub, now: now_ms(), all_steps: dock.pick.all_steps, brief_open: dock.pick.brief_open };
-        let body = agent_detail::view(detail, None, actions, on_brief, on_more, &view.tools, &links, cx);
+        let links = self.links(agent, cx);
+        let detail = Detail { key: key.clone(), call, agent: sub, now: now_ms(), all_steps: self.pick.all_steps, brief_open: self.pick.brief_open };
+        let body = agent_detail::view(detail, None, actions, on_brief, on_more, tools, &links, cx);
         // Laid out at its full width as it slides, so its text doesn't rewrap every frame.
         let inner = div().absolute().top_0().bottom_0().left_0().w(relative(1. / t)).opacity(t).child(body);
-        let focus = dock.focus.clone();
+        let focus = self.focus.clone();
         Some(
             div()
                 .id(id(key))
@@ -204,16 +203,71 @@ impl Desktop {
                 .overflow_hidden()
                 .border_l(px(0.5))
                 .border_color(SEPARATOR)
-                .track_focus(&dock.focus)
+                .track_focus(&self.focus)
                 .on_mouse_down(MouseButton::Left, move |_, window, cx| focus.focus(window, cx))
-                .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| {
+                .on_key_down(cx.listener(move |this, e: &KeyDownEvent, _, cx| {
                     let k = &e.keystroke;
-                    if (k.key == "down" || k.key == "up") && !k.modifiers.modified() && this.chat_step_dock(k.key == "down", cx) {
+                    if (k.key == "down" || k.key == "up") && !k.modifiers.modified() && step_key(k.key == "down", this, cx) {
                         cx.stop_propagation();
                     }
                 }))
                 .child(inner),
         )
+    }
+
+    fn links(&self, agent: &str, cx: &Context<Self>) -> Open {
+        let (this, agent) = (cx.weak_entity(), agent.to_string());
+        Arc::new(move |link, press, _, cx| _ = this.update(cx, |_, cx| cx.emit(DockEvent::Link { agent: agent.clone(), link: link.to_string(), press })))
+    }
+}
+
+impl Desktop {
+    pub(crate) fn on_dock_event(&mut self, ev: &DockEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            DockEvent::Closed => self.chats.input.update(cx, |s, cx| s.focus(window, cx)),
+            DockEvent::Link { agent, link, press } => {
+                let cwd = self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default();
+                self.chat_link(agent, link, &cwd, *press, window, cx);
+            }
+        }
+    }
+
+    /// Shows `call` of `agent`'s chat in the dock, taking its keys, or closes the dock when it shows it.
+    pub(crate) fn chat_pick_agent(&mut self, agent: &str, call: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.chats.dock.update(cx, |d, cx| d.toggle(agent, call, window, cx));
+        cx.notify();
+    }
+
+    /// Esc on the session on screen closes its dock; true when it did.
+    pub(crate) fn chat_escape_dock(&mut self, cx: &mut Context<Self>) -> bool {
+        let session = self.session().filter(|_| self.screen == Screen::Sessions && self.overlay.is_none() && !self.new_form.read(cx).shown());
+        let dock = self.chats.dock.read(cx);
+        let dock_in = dock.open().map(|(agent, _)| agent);
+        let map_open = dock_in.is_some_and(|a| self.chats.map.read(cx).nav.is_open(a));
+        let asking = dock_in.is_some_and(|a| self.agents.pending.iter().any(|p| p.agent_id == a));
+        if !escape_closes(dock_in, session, map_open, asking) {
+            return false;
+        }
+        self.chats.dock.update(cx, |d, cx| d.close(cx));
+        true
+    }
+
+    /// Closes the dock once its sub-agent is gone from its chat, or its chat is.
+    pub(crate) fn chat_prune_dock(&mut self, cx: &mut App) {
+        let Some((agent, call)) = self.chats.dock.read(cx).open().map(|(a, c)| (a.to_string(), c.to_string())) else { return };
+        let holds = self.chats.views.get(&agent).is_some_and(|v| agent_calls(&v.read(cx).transcript()).iter().any(|(c, _)| c.id == call));
+        if !holds {
+            self.chats.dock.update(cx, |d, _| d.keep_if(|_, _| false));
+        }
+    }
+
+    pub(crate) fn chat_dock(&self, agent: &str, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let view = self.chats.views.get(agent)?;
+        let (tools, transcript) = {
+            let v = view.read(cx);
+            (v.tools(), v.transcript())
+        };
+        self.chats.dock.update(cx, |d, cx| d.view(agent, &transcript, &tools, cx))
     }
 }
 

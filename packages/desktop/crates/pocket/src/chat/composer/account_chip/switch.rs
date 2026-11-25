@@ -1,8 +1,7 @@
-use super::bar;
-use crate::accounts::{self, BUILT_IN, Host, Tone};
+use super::{Ask, Chip, bar};
+use crate::accounts::{self, Host, Tone};
+use crate::chat::composer::{ChatBoxEvent, ComposerState};
 use crate::composer::Menu;
-use crate::desktop::Desktop;
-use crate::settings::Section;
 use crate::settings::accounts::tag;
 use crate::util::now_ms;
 use agents::Summary;
@@ -10,12 +9,12 @@ use chrono::Local;
 use daemon::Account;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use serde_json::json;
 use theme::*;
 
-impl Desktop {
+impl ComposerState {
     /// Every account of the agent's provider on its machine; picking one moves the agent there, at once or when its turn ends.
-    pub(super) fn chat_account_switch(&self, agent: &Summary, host: &Host, current: &Account, cx: &mut Context<Self>) -> Div {
+    pub(super) fn account_switch(&self, chip: &Chip, cx: &mut Context<Self>) -> Div {
+        let Chip { agent, host, account: current, machine, rows, .. } = chip;
         let back = div()
             .id("chat-account-back")
             .h(px(28.))
@@ -32,7 +31,7 @@ impl Desktop {
             .child(icon("back", 13., TEXT_2))
             .child("Usage")
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.chats.composer.draft.menu = Some(Menu::Usage { back: true });
+                this.draft.menu = Some(Menu::Usage { back: true });
                 cx.notify();
             }));
         let title = div()
@@ -46,11 +45,7 @@ impl Desktop {
             .text_color(TEXT)
             .child("Switch account");
         let head = div().relative().h(px(46.)).px(px(8.)).flex().items_center().child(title).child(back);
-        // The account it runs on stays listed while it switches away, as picking it calls the switch off.
-        let running = if agent.account.is_empty() { BUILT_IN } else { &agent.account };
-        let rows = accounts::choices(self.accounts.list(host), &agent.provider, &[&current.id, running])
-            .map(|x| self.chat_account_row(agent, host, x, x.id == current.id, cx))
-            .collect::<Vec<_>>();
+        let rows = rows.iter().map(|x| self.account_row(agent, host, x, x.id == current.id, cx)).collect::<Vec<_>>();
         let manage = div()
             .id("chat-account-manage")
             .h(px(24.))
@@ -62,12 +57,11 @@ impl Desktop {
             .hover(|d| d.bg(FILL_3))
             .text_color(TEXT_2)
             .child("Manage\u{2026}")
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.chats.composer.draft.menu = None;
-                this.open_settings(&crate::actions::OpenSettings, window, cx);
-                this.show_section(Section::Accounts, cx);
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.draft.menu = None;
+                cx.emit(ChatBoxEvent::Account(Ask::Manage));
             }));
-        let only = format!("Only {} accounts on {}", provider_name(&agent.provider), self.machine_name(host));
+        let only = format!("Only {} accounts on {}", provider_name(&agent.provider), machine);
         let foot = div()
             .pl(px(16.))
             .pr(px(10.))
@@ -85,7 +79,7 @@ impl Desktop {
         div().flex().flex_col().child(head).child(div().px(px(6.)).pt(px(2.)).pb(px(4.)).flex().flex_col().children(rows)).child(foot)
     }
 
-    fn chat_account_row(&self, agent: &Summary, host: &Host, a: &Account, current: bool, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn account_row(&self, agent: &Summary, host: &Host, a: &Account, current: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         let why = if a.signed_in { accounts::back_at(a, now_ms(), &Local).map(|b| tag(b, Tone::Bad)) } else { Some(tag("Signed out".into(), Tone::Plain)) };
         let plan = (!a.plan.is_empty() && accounts::alias(a) != Some(a.plan.as_str())).then(|| tag(a.plan.clone(), Tone::Plain));
         let name = div()
@@ -99,7 +93,7 @@ impl Desktop {
             .child(div().min_w_0().truncate().child(accounts::alias(a).unwrap_or(provider_name(&agent.provider)).to_string()))
             .children(plan)
             .children(why);
-        let email = (!a.email.is_empty()).then(|| div().flex().child(self.chat_account_email(a, 11.5, TEXT_3, cx)));
+        let email = (!a.email.is_empty()).then(|| div().flex().child(self.account_email(a, 11.5, TEXT_3, cx)));
         let who = div().flex_1().min_w_0().flex().flex_col().child(name).children(email);
         let usage = a.usage.as_ref().filter(|_| a.signed_in).map(|u| {
             let pct = |w: &Option<daemon::Window>| w.as_ref().map_or("\u{2013}".into(), |w| format!("{}%", accounts::percent(w)));
@@ -133,8 +127,8 @@ impl Desktop {
         let (id, provider, theirs) = (a.id.clone(), agent.provider.clone(), hosts::session::untag(&agent.id).1.to_string());
         let host = host.clone();
         row.cursor_pointer().hover(|d| d.bg(FILL_3)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.chats.composer.draft.menu = None;
-            this.account_op(host.clone(), json!({"op": "accounts.switch", "key": provider, "id": id, "text": theirs}), cx);
+            this.draft.menu = None;
+            cx.emit(ChatBoxEvent::Account(Ask::Switch { host: host.clone(), provider: provider.clone(), id: id.clone(), session: theirs.clone() }));
             cx.notify();
         }))
     }

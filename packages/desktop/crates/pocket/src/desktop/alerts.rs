@@ -146,15 +146,15 @@ impl Desktop {
         if let Event::Host(host) = &ev
             && let Some(message) = upgrade_toast(self.agents.host.as_ref(), host)
         {
-            self.error = Some(message);
+            self.fail(message, cx);
         }
         let connected = matches!(ev, Event::Connected { .. });
         let automations = matches!(ev, Event::Automations { .. });
         let board = matches!(ev, Event::Board { .. });
         let locals = matches!(ev, Event::Locals(_));
         if let (Event::Connected { version, .. }, None) = (&ev, host) {
-            self.terminals.link.connected(channel::version(), version, channel::is_release(), Instant::now());
-            if self.terminals.link.stale().is_some() {
+            self.terminals.update(cx, |t, _| t.link.connected(channel::version(), version, channel::is_release(), Instant::now()));
+            if self.terminals.read(cx).link.stale().is_some() {
                 self.relaunch_if_replaced(cx);
                 cx.spawn(async |this, cx| {
                     cx.background_executor().timer(link::STALE_AFTER).await;
@@ -169,7 +169,8 @@ impl Desktop {
         if let (Event::Connected { .. }, Some(ids)) = (&ev, &self.alerts.viewing) {
             self.outbox.view(ids);
         }
-        let exited = exited_terminal(&self.agents.list, &ev).filter(|t| self.store.agents.close_on_exit && !self.capturing && !self.terminals.killed(t));
+        let exited =
+            exited_terminal(&self.agents.list, &ev).filter(|t| self.store.agents.close_on_exit && !self.capturing && !self.terminals.read(cx).killed(t));
         let listed = matches!(ev, Event::Agents(_) | Event::Agent(_)).then(|| self.agents.list.clone());
         let named = Feed::of(&ev).map(|feed| (feed, feed.read(&self.agents)));
         let delegating = match &ev {
@@ -204,19 +205,20 @@ impl Desktop {
         }
         if listed.is_some() {
             let agents = &self.agents;
-            self.pr.track.settle(|id| agents.get(id).and_then(Status::of));
+            self.pr.update(cx, |p, cx| p.settle(|id| agents.get(id).and_then(Status::of), cx));
         }
         for (agent, who) in listed.map(|before| gone(&before, &self.agents.list)).unwrap_or_default() {
             self.chat_closed(&agent, &who, window, cx);
         }
         self.hand_off_creates(cx);
         self.focus_arrived_chat(window, cx);
-        self.refresh_chats();
-        if let Some(term) = exited.filter(|t| self.workspaces.values().any(|w| w.holds_term(t))) {
+        self.refresh_chats(cx);
+        if let Some(term) = exited.filter(|t| self.workspaces.read(cx).values().any(|w| w.holds_term(t))) {
             self.close_pane(&term, cx);
         }
         if connected && host.is_none() {
-            self.new_form.offer_locals(self.agents.locals_offered());
+            let offered = self.agents.locals_offered();
+            self.new_form.update(cx, |f, _| f.offer_locals(offered));
             self.leave_unoffered_automations();
             self.leave_unoffered_board();
         }
@@ -224,14 +226,14 @@ impl Desktop {
             self.leave_gone_local(cx);
         }
         let agents = &self.agents;
-        self.terminals.setups.retain(|term, _| !agents.list.iter().any(|a| &a.terminal_id == term));
+        self.terminals.update(cx, |t, _| t.setups.retain(|term, _| !agents.list.iter().any(|a| &a.terminal_id == term)));
         if self.screen == Screen::Inbox {
             let (selected, focused) = inbox::reselect(&self.shown_notes(cx), self.terminal.focused.as_deref(), self.inbox.read(cx).selected);
             self.inbox.update(cx, |i, cx| i.select(selected, cx));
             self.terminal.focused = focused;
         }
         if automations {
-            self.automations_changed();
+            self.automations_changed(cx);
         }
         if board {
             self.board_changed(cx);
@@ -254,21 +256,21 @@ impl Desktop {
             }
             ev @ (Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. }) => self.on_launch(ev, window, cx),
             Event::SettingsFailed(message) | Event::AutomationError(message) | Event::BoardError(message) | Event::RegistryFailed(message) => {
-                self.error = Some(message);
+                self.fail(message, cx);
                 cx.notify();
             }
             Event::PromptFailed { agent, request } => {
                 // A chat not yet opened has no send to fail.
-                if let Some(v) = self.chats.views.get_mut(&agent) {
-                    v.session.outgoing.fail(&request);
+                if let Some(v) = self.chats.views.get(&agent) {
+                    v.update(cx, |v, _| v.send_failed(&request));
                 }
                 cx.notify();
             }
             Event::InterruptFailed { agent, reason } => {
-                if let Some(v) = self.chats.views.get_mut(&agent) {
-                    v.session.outgoing.stop_refused();
+                if let Some(v) = self.chats.views.get(&agent) {
+                    v.update(cx, |v, _| v.stop_refused());
                 }
-                self.error = Some(stop_failed(self.agents.get(&agent), &reason));
+                self.fail(stop_failed(self.agents.get(&agent), &reason), cx);
                 cx.notify();
             }
             Event::QueueFailed { agent, reason, text } => {
@@ -277,36 +279,37 @@ impl Desktop {
                 if let Some(text) = text {
                     self.chat_add_text(&agent, &text, window, cx);
                 }
-                self.error = Some(format!("Couldn't change the queue: {reason}"));
+                self.fail(format!("Couldn't change the queue: {reason}"), cx);
                 cx.notify();
             }
             Event::Commands { agent, commands } => {
-                self.chats.composer.suggest.listed(agent, commands);
+                self.chats.composer.update(cx, |c, _| c.suggest.listed(agent, commands));
                 self.suggest(crate::chat::composer::suggest::Prompt::Chat, cx);
             }
             Event::Skills { provider, account, project, commands } => {
-                self.new_form.composer.suggest.listed(crate::chat::composer::suggest::launch_key(&provider, &account, &project), commands);
+                let key = crate::chat::composer::suggest::launch_key(&provider, &account, &project);
+                self.new_form.update(cx, |f, _| f.suggest.listed(key, commands));
                 self.suggest(crate::chat::composer::suggest::Prompt::Launch, cx);
             }
             Event::Mcp { agent, servers, auth_url, acted } => {
                 if !auth_url.is_empty() {
                     cx.open_url(&auth_url);
                 }
-                self.chats.composer.suggest.mcp_listed(agent.clone(), servers, &auth_url, acted);
+                self.chats.composer.update(cx, |c, _| c.suggest.mcp_listed(agent.clone(), servers, &auth_url, acted));
                 self.recheck_servers(agent, cx);
                 self.suggest(crate::chat::composer::suggest::Prompt::Chat, cx);
             }
             Event::McpActFailed { agent, reason } => {
-                self.chats.composer.suggest.mcp_act_failed(&agent);
+                self.chats.composer.update(cx, |c, _| c.suggest.mcp_act_failed(&agent));
                 // The servers may have moved on from what the rows show, as when a sign-in ended.
                 self.outbox.mcp(&agent);
-                self.error = Some(reason);
+                self.fail(reason, cx);
                 cx.notify();
             }
             Event::Btw { request, answer } => self.chat_btw_answered(&request, answer, cx),
             Event::RemoteControl { agent, url } => self.chat_remote_controlled(agent, url, cx),
             Event::NamingFailed(_) => {
-                self.error = Some("Couldn't name the session from its prompt".into());
+                self.fail("Couldn't name the session from its prompt", cx);
                 cx.notify();
             }
             ev => return Some(ev),
@@ -315,10 +318,10 @@ impl Desktop {
     }
 
     /// "{project} · {worktree}" for the Local or worktree the agent's terminal belongs to; empty outside every project.
-    pub(crate) fn alert_place(&self, a: &Summary) -> String {
-        let projects = self.projects();
-        let Some(info) = self.terminals.sessions.get(&a.terminal_id).map(|s| &s.info) else { return String::new() };
-        match (self.agent_project(a, &info.cwd, &projects), self.place_of(info)) {
+    pub(crate) fn alert_place(&self, a: &Summary, cx: &App) -> String {
+        let projects = self.projects(cx);
+        let Some(info) = self.terminals.read(cx).sessions.get(&a.terminal_id).map(|s| &s.info) else { return String::new() };
+        match (self.agent_project(a, &info.cwd, &projects), self.place_of(info, cx)) {
             (Some(project), Some(tree)) => format!("{} · {}", self.repo_name(project), self.place_name(&tree)),
             _ => String::new(),
         }
@@ -327,9 +330,9 @@ impl Desktop {
     fn sync_alerts(&mut self, cx: &mut App) {
         let mut alerts = std::mem::replace(&mut self.alerts, Alerts::new());
         let n = self.store.notifications;
-        let show = alerts.sync(&self.agents, |a| self.alert_place(a), |s| !self.capturing && wants_banner(n, s), n.on_screen);
+        let show = alerts.sync(&self.agents, |a| self.alert_place(a, cx), |s| !self.capturing && wants_banner(n, s), n.on_screen);
         self.alerts = alerts;
-        self.sync_island(&show);
+        self.sync_island(&show, cx);
         for n in show {
             let actions = n.actions();
             cx.show_system_notification(SystemNotification { tag: n.id.into(), title: n.title.into(), body: n.body.into(), actions });
@@ -363,15 +366,15 @@ impl Desktop {
     }
 
     /// The terminals on screen: those of the tabs the drawn panes show.
-    fn visible_panes(&mut self) -> Vec<String> {
-        let Some(tree) = self.place().filter(|_| self.screen == Screen::Sessions) else { return Vec::new() };
+    fn visible_panes(&mut self, cx: &mut App) -> Vec<String> {
+        let Some(tree) = self.place(cx).filter(|_| self.screen == Screen::Sessions) else { return Vec::new() };
         let shown: Vec<String> =
-            self.workspace(&tree).shown().into_iter().filter_map(|(_, t)| if let Tab::Term(id) = t { Some(id.clone()) } else { None }).collect();
+            self.workspace(&tree, cx, |w| w.shown().into_iter().filter_map(|(_, t)| if let Tab::Term(id) = t { Some(id.clone()) } else { None }).collect());
         shown.iter().map(|id| self.delegated_term(id)).collect()
     }
 
     pub(crate) fn sync_view(&mut self, window: &Window, cx: &mut App) {
-        let panes = if window.is_window_active() || self.capturing { self.visible_panes() } else { Vec::new() };
+        let panes = if window.is_window_active() || self.capturing { self.visible_panes(cx) } else { Vec::new() };
         if let Some(ids) = self.alerts.view(&panes, &self.agents.list) {
             self.outbox.view(&ids);
             self.delegated_ask(ids);

@@ -1,7 +1,7 @@
+use super::PrSide;
 use super::body::selectable_text;
 use super::card::{pill, small, small_with, thread_chip};
 use super::{opening, spot};
-use crate::desktop::Desktop;
 use crate::util::{ago, now_ms};
 use git::github::{Comment, Pr, Thread, ThreadState};
 use gpui_kit::component::input::Textarea;
@@ -97,33 +97,33 @@ fn comment_text(t: &Thread, c: &Comment) -> impl IntoElement {
     selectable_text(SharedString::from(format!("pr-c:{}:{}", t.id, c.id)), c.body.trim().to_string())
 }
 
-impl Desktop {
+impl PrSide {
     /// Threads of `pr` can go to the agent when sessions aren't only watched and it isn't fixing this PR already.
     pub(super) fn shown<'a>(&self, tree: &'a str, pr: &'a Pr) -> Shown<'a> {
-        let can_send = !self.agents.observe_only() && self.pr.track.fixing(tree, pr).is_none();
-        Shown { tree, pr, agent: self.fix_agent(), can_send }
+        let can_send = !self.frame.observe_only && self.track.fixing(tree, pr).is_none();
+        Shown { tree, pr, agent: self.frame.agent, can_send }
     }
 
     /// Thread `id` of the PR on screen, as a card under its line in the PR diff.
     pub(crate) fn pinned_thread(&self, k: usize, id: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
         let (tree, pr) = self.shown_pr()?;
         let t = pr.threads.iter().find(|t| t.id == id)?;
-        Some(self.pr_thread(k, &self.shown(&tree, pr), t, cx))
+        Some(self.pr_thread(k, &self.shown(tree, pr), t, cx))
     }
 
     /// A thread on its own card under its line in the diff. A long one folds its middle replies.
     fn pr_thread(&self, i: usize, shown: &Shown, t: &Thread, cx: &mut Context<Self>) -> AnyElement {
         let (agent, can_send, now) = (shown.agent, shown.can_send, now_ms());
-        let state = t.state(self.pr.track.thread_sent(shown.tree, shown.pr, &t.id));
+        let state = t.state(self.track.thread_sent(shown.tree, shown.pr, &t.id));
         let frame = |d: Stateful<Div>| d.px(px(10.)).rounded(px(10.)).bg(SURFACE).shadow(ui::row_shadow());
         let at = at_line(t);
         let toggle = |id: String| {
-            cx.listener(move |this: &mut Desktop, _: &ClickEvent, _, cx| {
-                this.pr.track.toggle_expanded(&id);
+            cx.listener(move |this: &mut PrSide, _: &ClickEvent, _, cx| {
+                this.track.toggle_expanded(&id);
                 cx.notify();
             })
         };
-        let whole = self.pr.track.expanded.contains(&t.id);
+        let whole = self.track.expanded.contains(&t.id);
         if state == ThreadState::Resolved && !whole {
             return frame(div().id(("pr-thread-min", i)))
                 .h(px(36.))
@@ -213,7 +213,7 @@ impl Desktop {
             }
         };
         let id = t.id.clone();
-        let foot = if self.pr.replying.as_deref() == Some(t.id.as_str()) {
+        let foot = if self.replying.as_deref() == Some(t.id.as_str()) {
             let field = div()
                 .px(px(10.))
                 .py(px(7.))
@@ -221,8 +221,8 @@ impl Desktop {
                 .bg(SURFACE)
                 .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
                 .text_size(px(12.5))
-                .child(Textarea::new(&self.pr.reply).appearance(false));
-            let ready = !self.pr.reply.read(cx).value().trim().is_empty();
+                .child(Textarea::new(&self.reply).appearance(false));
+            let ready = !self.reply.read(cx).value().trim().is_empty();
             let send = small("pr-reply-send", Variant::Primary, "Reply")
                 .when(!ready, |d| d.opacity(0.5).cursor_default())
                 .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send_reply(window, cx))));
@@ -271,11 +271,11 @@ impl Desktop {
     /// A thread in the Conversation, under the review that opened it: its file and line, the code, what was said, and what to do with it. A resolved one folds to a line.
     pub(super) fn conv_thread(&self, i: usize, shown: &Shown, t: &Thread, cx: &mut Context<Self>) -> AnyElement {
         let (agent, can_send, now) = (shown.agent, shown.can_send, now_ms());
-        let state = t.state(self.pr.track.thread_sent(shown.tree, shown.pr, &t.id));
-        let whole = self.pr.track.expanded.contains(&t.id);
+        let state = t.state(self.track.thread_sent(shown.tree, shown.pr, &t.id));
+        let whole = self.track.expanded.contains(&t.id);
         let toggle = |id: String| {
-            cx.listener(move |this: &mut Desktop, _: &ClickEvent, _, cx| {
-                this.pr.track.toggle_expanded(&id);
+            cx.listener(move |this: &mut PrSide, _: &ClickEvent, _, cx| {
+                this.track.toggle_expanded(&id);
                 cx.notify();
             })
         };
@@ -361,8 +361,8 @@ impl Desktop {
             }
         };
         let id = t.id.clone();
-        let foot = if self.pr.replying.as_deref() == Some(t.id.as_str()) {
-            let ready = !self.pr.reply.read(cx).value().trim().is_empty();
+        let foot = if self.replying.as_deref() == Some(t.id.as_str()) {
+            let ready = !self.reply.read(cx).value().trim().is_empty();
             let send = small("pr-reply-send", Variant::Primary, "Reply")
                 .when(!ready, |d| d.opacity(0.5).cursor_default())
                 .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send_reply(window, cx))));
@@ -378,7 +378,7 @@ impl Desktop {
                     small("pr-reply-cancel", Variant::Ghost, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_reply(window, cx))),
                 )
                 .child(send);
-            let field = div().px(px(10.)).pt(px(8.)).text_size(px(12.5)).child(Textarea::new(&self.pr.reply).appearance(false));
+            let field = div().px(px(10.)).pt(px(8.)).text_size(px(12.5)).child(Textarea::new(&self.reply).appearance(false));
             div()
                 .mt(px(8.))
                 .mr(px(8.))

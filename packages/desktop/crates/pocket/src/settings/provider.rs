@@ -3,7 +3,7 @@ use super::catalog::Setting;
 use super::dropdown::dropdown;
 use super::dropdown::picks;
 use super::models::{effort_options, model_rows};
-use super::{Section, action, card, field_box, row};
+use super::{Section, Settings, SettingsEvent, action, card, field_box, row};
 use crate::composer::model_menu::listed_name;
 use crate::desktop::Desktop;
 use crate::models::{effort_label, model_or_default, not_found};
@@ -166,15 +166,15 @@ impl Launch {
 pub(crate) struct LaunchFields([[Entity<InputState>; 4]; providers::COUNT]);
 
 impl LaunchFields {
-    pub fn new(store: &Store, window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+    pub fn new(store: &Store, window: &mut Window, cx: &mut Context<Settings>) -> (Self, Vec<Subscription>) {
         let mut subs = vec![];
         let fields = std::array::from_fn(|i| {
             let p = LaunchPick::PROVIDERS[i];
             Launch::ALL.map(|f| {
                 let field = cx.new(|cx| InputState::new(window, cx).placeholder(f.placeholder(p)).default_value(f.text(&store.agents, p)));
-                subs.push(cx.subscribe_in(&field, window, move |this, _, ev: &InputEvent, window, cx| {
+                subs.push(cx.subscribe_in(&field, window, move |this, _, ev: &InputEvent, _, cx| {
                     if matches!(ev, InputEvent::PressEnter { .. } | InputEvent::Blur) {
-                        this.commit_launch(i, f, window, cx);
+                        this.commit_launch(i, f, cx);
                     }
                 }));
                 field
@@ -196,23 +196,40 @@ impl LaunchFields {
     }
 }
 
-impl Desktop {
+impl Settings {
     /// Opens a provider's page with its fields showing what the store holds.
     pub(crate) fn open_provider(&mut self, provider: usize, window: &mut Window, cx: &mut Context<Self>) {
-        self.settings.launch.sync(&self.store, window, cx);
+        self.launch.sync(&self.store, window, cx);
         self.show_section(Section::Provider(provider), cx);
         cx.notify();
     }
 
-    /// The trimmed text goes to pocketd, which checks it; a refusal puts the old one back.
-    fn commit_launch(&mut self, i: usize, f: Launch, window: &mut Window, cx: &mut Context<Self>) {
+    fn commit_launch(&mut self, i: usize, f: Launch, cx: &mut Context<Self>) {
         let p = LaunchPick::PROVIDERS[i];
-        let field = self.settings.launch.0[i][f.index()].clone();
-        let text = field.read(cx).value().trim().to_string();
+        let text = self.launch.0[i][f.index()].read(cx).value().trim().to_string();
         let before = f.text(&self.store.agents, p);
-        if text == before || self.capturing {
+        if text != before {
+            cx.emit(SettingsEvent::Launch { i, f, text, before });
+        }
+    }
+
+    fn launch_efforts(&self, provider: &str, model: &str) -> Vec<String> {
+        let settings = self.store.agents.provider(provider).model;
+        let model = if model.is_empty() { &settings } else { model };
+        match self.models_of(provider).iter().find(|m| m.value == model || m.resolved == model) {
+            Some(m) => m.efforts.clone(),
+            None => self.live.provider_info(provider).efforts.clone(),
+        }
+    }
+}
+
+impl Desktop {
+    pub(crate) fn set_launch(&mut self, i: usize, f: Launch, text: String, before: String, window: &mut Window, cx: &mut Context<Self>) {
+        let p = LaunchPick::PROVIDERS[i];
+        if self.capturing {
             return;
         }
+        let field = self.settings.read(cx).launch.0[i][f.index()].clone();
         f.set(&mut self.store.agents, p, text.clone());
         self.save_soon(cx);
         cx.notify();
@@ -222,7 +239,7 @@ impl Desktop {
                 cx.background_executor().spawn(async move { daemon::request(&serde_json::json!({"op": "config-set", "key": key, "text": sent})) }).await;
             this.update_in(cx, |d, window, cx| {
                 if let Err(e) = result {
-                    d.error = Some(format!("Anywhere kept the {} {}: {e}", d.agent_name(p), f.noun()));
+                    d.fail(format!("Anywhere kept the {} {}: {e}", d.agent_name(p), f.noun()), cx);
                     // A newer edit has its own request; putting `before` back would undo it.
                     if f.text(&d.store.agents, p) == text {
                         f.set(&mut d.store.agents, p, before);
@@ -240,7 +257,7 @@ impl Desktop {
     }
 
     /// Sends the store's value after Reset.
-    fn send_launch(&mut self, i: usize, f: Launch, cx: &mut Context<Self>) {
+    pub(super) fn send_launch(&mut self, i: usize, f: Launch, cx: &mut Context<Self>) {
         let p = LaunchPick::PROVIDERS[i];
         let (key, text) = (f.key(p), f.text(&self.store.agents, p));
         self.set_host(key, text, cx);
@@ -248,30 +265,31 @@ impl Desktop {
             self.models.forget(p);
         }
     }
+}
 
+impl Settings {
     /// Whether the agent is on, and the default; one pocketd didn't find says how to install it instead.
     fn enabled_row(&mut self, i: usize, cx: &mut Context<Self>) -> Div {
         let p = LaunchPick::PROVIDERS[i];
         let on = !self.store.agents.disabled.contains(p);
-        let (default, installed) = (self.store.agents.default_agent(&self.agents) == p, self.installed(p));
+        let (default, installed) = (self.store.agents.default_agent(&self.live) == p, self.installed(p));
         let tile = div().size(px(32.)).flex().flex_none().items_center().justify_center().rounded(px(8.)).bg(FILL_2).child(provider_icon(p, 17., TEXT));
         let badge = default.then(|| div().px(px(6.)).py(px(1.)).rounded(px(4.)).bg(FILL_3).text_size(px(11.)).text_color(TEXT_2).child("Default"));
         let set_default = (!default && installed).then(|| {
             action("provider-set-default", "Set as default").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.store.agents.default = p.into();
-                this.store.agents.enable(p);
-                this.save_soon(cx);
-                cx.notify();
+                this.write(None, cx, move |s, _| {
+                    s.agents.default = p.into();
+                    s.agents.enable(p);
+                })
             }))
         });
         let toggle = installed.then(|| {
-            div().id("provider-enabled").flex_none().cursor_pointer().child(ui::toggle("switch", on)).on_click(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
-                    toggle_enabled(&mut this.store.agents, p, &this.agents);
-                    this.save_soon(cx);
-                    cx.notify();
-                },
-            ))
+            div()
+                .id("provider-enabled")
+                .flex_none()
+                .cursor_pointer()
+                .child(ui::toggle("switch", on))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.write(None, cx, move |s, live| toggle_enabled(&mut s.agents, p, live))))
         });
         let (title, line) = if installed {
             (ENABLED, "Shows up in Default agent, New session, Automations and AI commit messages".to_string())
@@ -297,11 +315,11 @@ impl Desktop {
         let menu = dropdown(
             id,
             trigger,
-            (self.models.revision, self.installed(p), &model),
+            (self.side.models.revision, self.installed(p), &model),
             || model_rows(p, offered, &model),
             &model,
             self,
-            move |d, v, _| d.store.agents.provider_mut(p).model = v,
+            move |d, v, cx| d.write(None, cx, move |s, _| s.agents.provider_mut(p).model = v.clone()),
             cx,
         );
         row(setting.label, setting.hint, menu)
@@ -323,7 +341,7 @@ impl Desktop {
             || picks(effort_options(&levels, "Agent default")),
             &effort,
             self,
-            move |d, v, _| d.store.agents.provider_mut(p).effort = v,
+            move |d, v, cx| d.write(None, cx, move |s, _| s.agents.provider_mut(p).effort = v.clone()),
             cx,
         );
         row(providers::known(p).effort_word, setting.hint, menu)
@@ -331,7 +349,7 @@ impl Desktop {
 
     /// The title and hint over a field as wide as the card, as typed args run long.
     fn launch_row(&mut self, i: usize, f: Launch, setting: &'static Setting) -> Div {
-        let input = Input::new(&self.settings.launch.0[i][f.index()]).appearance(false).p_0().text_size(px(12.));
+        let input = Input::new(&self.launch.0[i][f.index()]).appearance(false).p_0().text_size(px(12.));
         let field = field_box().w_full().h(px(30.)).child(div().flex_1().min_w_0().font_family(MONO).child(input));
         div().flex().flex_col().child(row(setting.label, setting.hint, div()).pb(px(6.))).child(div().px(px(14.)).pb(px(12.)).child(field))
     }
@@ -340,7 +358,7 @@ impl Desktop {
     pub(super) fn provider_page(&mut self, i: usize, cx: &mut Context<Self>) -> Div {
         let section = Section::Provider(i);
         let p = LaunchPick::PROVIDERS[i];
-        let path = self.settings.host.status.as_ref().and_then(|s| s.providers.get(p)).cloned();
+        let path = self.host.status.as_ref().and_then(|s| s.providers.get(p)).cloned();
         let tile = div()
             .size(px(40.))
             .flex()

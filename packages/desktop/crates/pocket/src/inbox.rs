@@ -186,13 +186,13 @@ impl Desktop {
             .into_iter()
             .zip(headings)
             .map(|(note, heading)| Row {
-                project: self.project_name(&note.agent),
+                project: self.project_name(&note.agent, cx),
                 provider: self.agents.get(&note.agent).map_or_else(|| "Shell".into(), |a| self.agent_name(&a.provider)),
                 note,
                 heading,
             })
             .collect();
-        let lead = past_lights(self.store.appearance.zoom_factor(), self.lead_width(), 16.);
+        let lead = past_lights(self.store.appearance.zoom_factor(), self.lead_width(cx), 16.);
         self.inbox.update(cx, |i, _| i.set(rows, lead, width));
         self.inbox.clone()
     }
@@ -216,14 +216,14 @@ impl Desktop {
         }
     }
 
-    fn project_name(&self, agent: &str) -> String {
-        basename(&self.project_path(agent))
+    fn project_name(&self, agent: &str, cx: &App) -> String {
+        basename(&self.project_path(agent, cx))
     }
 
     /// The project the agent works in, else its own folder.
-    fn project_path(&self, agent: &str) -> String {
-        let projects = self.projects();
-        let cwd = self.cwd_of(agent).unwrap_or_default();
+    fn project_path(&self, agent: &str, cx: &App) -> String {
+        let projects = self.projects(cx);
+        let cwd = self.cwd_of(agent, cx).unwrap_or_default();
         self.project_of(&cwd, &projects).cloned().unwrap_or(cwd)
     }
 

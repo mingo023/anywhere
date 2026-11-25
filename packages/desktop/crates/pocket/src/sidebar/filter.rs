@@ -1,12 +1,9 @@
 use super::fold::Fold;
 use super::sections::{Block, Item, Listed};
 use crate::desktop::Desktop;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::InputState;
 use gpui_kit::*;
-use theme::*;
-use ui::icon_button_sized;
 
-const FILTER_IN: std::time::Duration = std::time::Duration::from_millis(220);
 pub(super) const FIELD_H: f32 = 28.;
 
 /// A row the filter lists: a project, or one of its trees by key.
@@ -21,23 +18,9 @@ pub(crate) struct Filter {
 }
 
 impl Filter {
-    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+    pub fn new<T: 'static>(window: &mut Window, cx: &mut Context<T>) -> Self {
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("Filter projects & worktrees"));
-        let subs = vec![cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| {
-            match ev {
-                InputEvent::Change => {
-                    this.sidebar.filter.lit = this.filter_hits(cx).into_iter().next();
-                    if this.sidebar.filter.query(cx).is_empty() {
-                        this.shut_filtered_folds();
-                    }
-                }
-                // A typed query stays, so its rows can still be clicked.
-                InputEvent::Blur if this.sidebar.filter.query(cx).is_empty() => this.close_filter(window, cx),
-                _ => {}
-            }
-            cx.notify()
-        })];
-        (Self { input, open: false, lit: None }, subs)
+        Self { input, open: false, lit: None }
     }
 
     /// The filter's text, lowercased; empty while it's closed.
@@ -76,100 +59,64 @@ fn step(hits: &[Hit], lit: Option<&Hit>, down: bool) -> Option<Hit> {
 
 impl Desktop {
     /// Empty while the query is.
-    fn filter_hits(&self, cx: &App) -> Vec<Hit> {
-        let query = self.sidebar.filter.query(cx);
+    pub(super) fn filter_hits(&self, cx: &App) -> Vec<Hit> {
+        let query = self.sidebar.read(cx).query(cx);
         if query.is_empty() { vec![] } else { hits(&self.listed(&query, cx)) }
     }
 
-    /// The filter's field, close button inside, growing leftwards out of the search button.
-    pub(super) fn filter_field(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let close = icon_button_sized("aside-filter-close", "x", 20., TEXT_3)
-            .rounded(px(5.))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_filter(window, cx)));
-        div()
-            .ml_auto()
-            .mr(px(2.))
-            .flex_1()
-            .min_w_0()
-            .h(px(FIELD_H))
-            .pl(px(8.))
-            .pr(px(4.))
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .rounded(px(8.))
-            .bg(FILL_2)
-            // A click on the field's padding or icon would otherwise focus the window's root, blurring and so closing an empty filter.
-            .track_focus(&self.sidebar.filter.input.focus_handle(cx))
-            .capture_key_down(cx.listener(Self::on_filter_key))
-            .child(icon("search", 13., TEXT_3))
-            .child(Input::new(&self.sidebar.filter.input).appearance(false).p_0().text_size(px(13.)))
-            .child(close)
-            .overflow_hidden()
-            .with_animation("aside-filter-in", Animation::new(FILTER_IN).with_easing(|t: f32| 1. - (1. - t).powi(3)), |d, t| {
-                d.min_w(px(28.)).max_w(relative(t)).opacity(t)
-            })
-    }
-
-    pub(crate) fn open_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus(cx);
-        self.sidebar.filter.open = true;
-        self.sidebar.filter.input.update(cx, |s, cx| s.focus(window, cx));
-        cx.notify();
-    }
-
     /// Starts shutting the folded folds a query held open.
-    fn shut_filtered_folds(&mut self) {
+    pub(super) fn shut_filtered_folds(&self, cx: &mut App) {
         let sections = &self.store.sections;
         let groups = sections.groups.iter().filter(|g| g.folded).map(|g| Fold::Group(g.id));
         let projects = self.store.collapsed.iter().map(|p| Fold::Project(p.clone()));
-        for fold in groups.chain(sections.pins_folded.then_some(Fold::Pinned)).chain(self.store.scratch_folded.then_some(Fold::Scratch)).chain(projects) {
-            self.sidebar.closing.start(fold);
+        let folds: Vec<Fold> =
+            groups.chain(sections.pins_folded.then_some(Fold::Pinned)).chain(self.store.scratch_folded.then_some(Fold::Scratch)).chain(projects).collect();
+        self.sidebar.update(cx, |s, cx| {
+            folds.into_iter().for_each(|fold| s.closing.start(fold));
+            cx.notify();
+        });
+    }
+
+    pub(super) fn filtered(&mut self, cx: &mut Context<Self>) {
+        let lit = self.filter_hits(cx).into_iter().next();
+        self.set_lit(lit, cx);
+        if self.sidebar.read(cx).query(cx).is_empty() {
+            self.shut_filtered_folds(cx);
         }
     }
 
-    fn close_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.shut_filtered_folds();
-        self.sidebar.filter.open = false;
-        self.sidebar.filter.lit = None;
-        self.sidebar.filter.input.update(cx, |s, cx| s.set_value("", window, cx));
-        window.blur(cx);
-        cx.notify();
+    fn set_lit(&mut self, lit: Option<Hit>, cx: &mut Context<Self>) {
+        self.sidebar.read(cx).header.clone().update(cx, |h, cx| {
+            if h.filter.lit != lit {
+                h.filter.lit = lit;
+                cx.notify();
+            }
+        });
     }
 
-    fn on_filter_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        match ev.keystroke.key.as_str() {
-            key @ ("up" | "down") => {
-                let hits = self.filter_hits(cx);
-                self.sidebar.filter.lit = step(&hits, self.sidebar.filter.lit.as_ref(), key == "down");
-            }
+    pub(super) fn filter_key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let hits = self.filter_hits(cx);
+        let lit = self.sidebar.read(cx).header.read(cx).filter.lit.clone();
+        match key {
             "enter" => {
-                let hits = self.filter_hits(cx);
-                let lit = self.sidebar.filter.lit.as_ref();
-                if let Some(hit) = hits.iter().find(|h| Some(*h) == lit).or(hits.first()).cloned() {
+                if let Some(hit) = hits.iter().find(|h| Some(*h) == lit.as_ref()).or(hits.first()).cloned() {
                     self.pick_hit(hit, window, cx);
                 }
             }
-            "escape" if self.sidebar.filter.query(cx).is_empty() => self.close_filter(window, cx),
-            "escape" => {
-                self.sidebar.filter.input.update(cx, |s, cx| s.set_value("", window, cx));
-                self.sidebar.filter.lit = None;
-            }
-            _ => return,
+            _ => self.set_lit(step(&hits, lit.as_ref(), key == "down"), cx),
         }
-        cx.stop_propagation();
-        cx.notify();
     }
 
     /// Shows `hit`'s row, unfolded, and closes the filter.
     fn pick_hit(&mut self, (p, tree): Hit, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_filter(window, cx);
+        self.shut_filtered_folds(cx);
+        self.sidebar.read(cx).header.clone().update(cx, |h, cx| h.close_filter(window, cx));
         self.store.sections.reveal(&p, tree.as_deref());
         self.store.collapsed.remove(&p);
         self.store.save();
         match tree {
             Some(key) => {
-                let main = self.tree_of(&p).unwrap_or_else(|| p.clone());
+                let main = self.tree_of(&p, cx).unwrap_or_else(|| p.clone());
                 self.select_tree(p, (key != main).then_some(key), cx);
             }
             None => self.select_project(p, cx),

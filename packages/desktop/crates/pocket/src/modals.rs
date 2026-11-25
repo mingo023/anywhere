@@ -1,9 +1,9 @@
 pub(crate) mod add_project;
 pub(crate) mod clone_project;
-mod confirm;
+pub(crate) mod confirm;
 pub(crate) mod form;
 pub(crate) mod host_finder;
-mod more;
+pub(crate) mod more;
 pub(crate) mod new_session;
 pub(crate) mod pair_phone;
 
@@ -41,17 +41,18 @@ impl Desktop {
         match self.overlay.take() {
             Some(Overlay::Handoff) => self.handoff_closed(cx),
             Some(Overlay::Confirm) => {
-                self.sheet_closed();
+                let left = self.confirm.update(cx, |c, _| c.clear());
+                self.sheet_closed(left);
                 self.sweep_host_leftovers(cx);
             }
             _ => {}
         }
-        self.host_finder.finder = None;
+        self.host_finder.update(cx, |f, _| f.drop_finder());
         self.refocus(window, cx);
     }
 
     pub(crate) fn refocus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.web_tab(self.focused_pane()).is_some() {
+        if self.web_tab(self.focused_pane(cx), cx).is_some() {
             window.focus(&self.browsers.focus, cx);
         } else if !self.terminal.focus.is_focused(window) {
             window.focus(&self.root, cx);
@@ -59,20 +60,20 @@ impl Desktop {
         cx.notify();
     }
 
-    pub fn overlay_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub fn overlay_view(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let o = self.overlay?;
         // Entrance as (ms, rise). The palette opens from a shortcut many times a day; motion would only slow it.
         let (body, alpha, entrance) = match o {
             Overlay::Palette => (self.palette_view(cx), 0x1f, None),
-            Overlay::AddRepo => (self.repo_view(window, cx), 0x40, Some((200, 8.))),
+            Overlay::AddRepo => (self.repo_view(cx), 0x40, Some((200, 8.))),
             Overlay::Clone => (self.clone_view(cx), 0x40, Some((200, 8.))),
-            Overlay::More => (self.more_menu(cx), 0, Some((150, -4.))),
+            Overlay::More => (self.more_view(cx), 0, Some((150, -4.))),
             Overlay::Confirm => (self.confirm_view(cx), 0x2e, Some((200, 8.))),
             Overlay::PairPhone => (self.pair_view(), 0x2e, Some((200, 8.))),
             Overlay::Handoff => (self.handoff_view(cx), 0x2e, Some((200, 8.))),
         };
         let backdrop = ui::backdrop("backdrop", alpha).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
-        let finder = self.host_finder_view(window, cx);
+        let finder = self.host_finder_view(cx);
         let layer = div().absolute().inset_0();
         let Some((ms, rise)) = entrance else {
             return Some(layer.child(backdrop).child(body).children(finder).into_any_element());

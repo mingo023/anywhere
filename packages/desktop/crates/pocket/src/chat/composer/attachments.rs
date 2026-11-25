@@ -1,13 +1,14 @@
-use crate::composer::Draft;
+use super::ComposerState;
 use crate::composer::element_card::element_card;
 use crate::composer::elements;
 use crate::composer::file_card::file_card;
+use crate::composer::{Draft, Held};
 use crate::desktop::Desktop;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::*;
 use theme::*;
 
-pub(crate) fn attach_button(id: impl Into<ElementId>, draft: impl Fn(&mut Desktop) -> &mut Draft + Copy + 'static, cx: &mut Context<Desktop>) -> Stateful<Div> {
+pub(crate) fn attach_button(id: impl Into<ElementId>, press: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static) -> Stateful<Div> {
     div()
         .id(id)
         .size(px(32.))
@@ -21,22 +22,19 @@ pub(crate) fn attach_button(id: impl Into<ElementId>, draft: impl Fn(&mut Deskto
         .active(|s| s.bg(FILL_4))
         .child(icon("plus", 17., TEXT_2))
         .tooltip(|window, cx| Tooltip::new("Attach files").build(window, cx))
-        .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-            cx.stop_propagation();
-            attach_files(this, draft, window, cx);
-        }))
+        .capture_any_mouse_down(press)
 }
 
-fn attach_files(d: &mut Desktop, draft: impl Fn(&mut Desktop) -> &mut Draft + Copy + 'static, window: &mut Window, cx: &mut Context<Desktop>) {
-    draft(d).menu = None;
-    d.pick_path(false, window, cx, move |d, paths, _, _| {
-        draft(d).drop_files(&paths);
+pub(crate) fn attach_files(d: &mut Desktop, held: Held, window: &mut Window, cx: &mut Context<Desktop>) {
+    held.edit(d, cx, |draft| draft.menu = None);
+    d.pick_path(false, window, cx, move |d, paths, _, cx| {
+        held.edit(d, cx, |draft| draft.drop_files(&paths));
     });
     cx.notify();
 }
 
 /// The draft's attached images and files over the input; none when it has none.
-pub(super) fn strip(draft: &Draft, cx: &mut Context<Desktop>) -> Option<Div> {
+pub(super) fn strip(draft: &Draft, cx: &Context<ComposerState>) -> Option<Div> {
     if !draft.has_attachments() {
         return None;
     }
@@ -59,7 +57,7 @@ pub(super) fn strip(draft: &Draft, cx: &mut Context<Desktop>) -> Option<Div> {
             .active(|s| s.opacity(0.6))
             .child(icon("circle-x", 14., TEXT_3))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                take(&mut this.chats.composer.draft, i);
+                take(&mut this.draft, i);
                 cx.notify();
             }))
     };

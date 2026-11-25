@@ -1,8 +1,7 @@
-use super::{chip_menu, close_menu};
+use super::{ChatBoxEvent, ComposerState, chip_menu};
 use crate::chat::shimmer::shimmer;
 use crate::composer::model_menu::row;
 use crate::composer::{self, Menu};
-use crate::desktop::Desktop;
 use crate::terminal_view::context::thousands;
 use agents::{Goal, GoalStatus, Summary};
 use gpui_kit::*;
@@ -26,16 +25,16 @@ fn pill_label(status: GoalStatus) -> Option<&'static str> {
     }
 }
 
-impl Desktop {
+impl ComposerState {
     /// The agent's goal as a pill that opens it; none once `pill_label` has no words for it.
-    pub(super) fn chat_goal_pill(&self, agent: &Summary, view_only: bool, cx: &mut Context<Self>) -> Option<Div> {
-        let open = self.chats.composer.draft.menu == Some(Menu::Goal);
+    pub(super) fn goal_pill(&self, agent: &Summary, view_only: bool, cx: &mut Context<Self>) -> Option<Div> {
+        let open = self.draft.menu == Some(Menu::Goal);
         let shown = agent.goal.as_ref().filter(|_| !view_only).and_then(|g| Some((g, pill_label(g.status)?)));
         let Some((goal, label)) = shown else {
             // Left open as the goal ends, the menu would pop up by itself over the next goal.
             if open {
-                let desktop = cx.entity();
-                cx.defer(move |cx| desktop.update(cx, close_menu));
+                let this = cx.entity();
+                cx.defer(move |cx| this.update(cx, |c, cx| c.close_menu(cx)));
             }
             return None;
         };
@@ -58,7 +57,7 @@ impl Desktop {
                 .child(words),
             open,
             cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.chats.composer.draft.toggle(Menu::Goal);
+                this.draft.toggle(Menu::Goal);
                 cx.notify();
             }),
         );
@@ -74,8 +73,8 @@ impl Desktop {
         let send = |text: &'static str| {
             let agent = agent.id.clone();
             cx.listener(move |this, _: &ClickEvent, _, cx| {
-                _ = this.outbox.prompt(&agent, text);
-                close_menu(this, cx);
+                cx.emit(ChatBoxEvent::Prompt { agent: agent.clone(), text });
+                this.close_menu(cx);
             })
         };
         let objective = div().px(px(10.)).pb(px(6.)).text_size(px(13.)).line_height(px(19.)).text_color(TEXT).child(goal.objective.clone());
@@ -94,7 +93,7 @@ impl Desktop {
             pause_or_resume.map(IntoElement::into_any_element),
             Some(clear.into_any_element()),
         ];
-        chip_menu("chat-goal-menu", "Goal", 340., rows.into_iter().flatten(), cx)
+        chip_menu("chat-goal-menu", "Goal", 340., rows.into_iter().flatten(), Self::close_menu, cx)
     }
 }
 

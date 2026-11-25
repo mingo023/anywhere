@@ -1,20 +1,20 @@
 mod composer;
 mod menu;
 mod selection;
-mod toast;
-
-pub(crate) use selection::offers_chat;
+pub(crate) mod toast;
 
 use crate::actions::AddToChat;
 use crate::chat::Route;
 use crate::desktop::Desktop;
 use crate::git_ui::diff::{DiffView, ordered, span};
+use crate::region::notify_after_draw;
 use crate::sidebar::in_tree;
 use crate::status::{Card, Kind, Status};
 use crate::syntax::language_for;
 use crate::util::basename;
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::*;
+use std::collections::HashMap;
 use std::ops::Range;
 use std::time::Duration;
 use workspace::{Doc, Tab};
@@ -160,7 +160,7 @@ pub fn input_bytes(payload: &str, question: &str) -> Vec<u8> {
     out
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Choice {
     pub id: String,
     pub provider: String,
@@ -199,7 +199,29 @@ pub fn target_for(to: &str, picked: Option<&str>, focused: Option<&str>, recent:
     }
 }
 
-pub struct ChatComposer {
+#[derive(Default, PartialEq)]
+pub(crate) struct Side {
+    pub choices: Vec<Choice>,
+    pub target: Option<String>,
+    pub names: HashMap<String, String>,
+}
+
+impl Side {
+    fn agent_name(&self, provider: &str) -> String {
+        self.names.get(provider).cloned().unwrap_or_else(|| theme::provider_name(provider).into())
+    }
+}
+
+pub(crate) enum ChatEvent {
+    Add,
+    Cancel,
+    NewSession,
+    Asked,
+    /// The menu closed on a press outside it, which may have left focus nowhere.
+    MenuDismissed,
+}
+
+pub(crate) struct ChatComposer {
     pub(crate) input: Entity<TextareaState>,
     /// The agent picked in the menu; the default applies while it can't take a quote.
     pub(crate) target: Option<String>,
@@ -213,69 +235,192 @@ pub struct ChatComposer {
     /// A file selection being asked about, and where its composer floats.
     pub(crate) file: Option<(Point<Pixels>, Quote)>,
     /// The provider last added to, confirmed in a toast until its timer hides it.
-    pub(crate) added: Option<(String, Task<()>)>,
+    added: Option<(String, Task<()>)>,
+    side: Side,
+    _subs: Vec<Subscription>,
 }
 
+impl EventEmitter<ChatEvent> for ChatComposer {}
+
 impl ChatComposer {
-    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Ask about this selection…").rows(2));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Send to…"));
         let subs = vec![
-            cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| {
+            cx.subscribe(&input, |_, _, ev: &InputEvent, cx| {
                 if let InputEvent::PressEnter { secondary: true, .. } = ev {
-                    this.add_to_input(window, cx);
+                    cx.emit(ChatEvent::Add);
                 }
             }),
             cx.subscribe(&search, |this, _, ev: &InputEvent, cx| {
                 if let InputEvent::Change = ev {
-                    this.reset_chat_highlight(cx);
+                    this.reset_highlight(cx);
                     cx.notify();
                 }
             }),
         ];
-        (Self { input, target: None, menu: false, search, highlight: 0, scroll: ScrollHandle::new(), pill: None, file: None, added: None }, subs)
+        Self {
+            input,
+            target: None,
+            menu: false,
+            search,
+            highlight: 0,
+            scroll: ScrollHandle::new(),
+            pill: None,
+            file: None,
+            added: None,
+            side: Side::default(),
+            _subs: subs,
+        }
+    }
+
+    pub(crate) fn hand(&mut self, side: Side, cx: &mut Context<Self>) {
+        if self.side != side {
+            self.side = side;
+            notify_after_draw(cx);
+        }
+    }
+
+    pub(crate) fn question(&self, cx: &App) -> String {
+        self.input.read(cx).value().to_string()
+    }
+
+    pub(crate) fn file_quote(&self) -> Option<Quote> {
+        self.file.as_ref().map(|(_, q)| q.clone())
+    }
+
+    pub(crate) fn added(&self) -> Option<&str> {
+        self.added.as_ref().map(|(p, _)| p.as_str())
+    }
+
+    pub(crate) fn clear_added(&mut self) {
+        self.added = None;
+    }
+
+    pub(crate) fn flash(&mut self, provider: String, cx: &mut Context<Self>) {
+        let hide = cx.spawn(async |this, cx| {
+            cx.background_executor().timer(ADDED_TOAST).await;
+            this.update(cx, |c, cx| {
+                c.added = None;
+                cx.notify();
+            })
+            .ok();
+        });
+        self.added = Some((provider, hide));
+    }
+
+    pub(crate) fn reset(&mut self, forget_target: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.menu = false;
+        (self.file, self.pill) = (None, None);
+        if forget_target {
+            self.target = None;
+        }
+        self.input.update(cx, |s, cx| s.set_value("", window, cx));
+        cx.notify();
+    }
+
+    pub(crate) fn offer(&mut self, pill: Option<(Point<Pixels>, Quote)>, cx: &mut Context<Self>) {
+        if pill != self.pill {
+            self.pill = pill;
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn clear_file(&mut self, cx: &mut Context<Self>) {
+        self.file = None;
+        cx.notify();
+    }
+
+    pub(crate) fn set_file(&mut self, file: Option<(Point<Pixels>, Quote)>, cx: &mut Context<Self>) {
+        self.file = file;
+        cx.notify();
+    }
+
+    pub(crate) fn drop_pill(&mut self) -> bool {
+        self.pill.take().is_some()
+    }
+
+    pub(crate) fn ask(&mut self, at: Point<Pixels>, quote: Quote, window: &mut Window, cx: &mut Context<Self>) {
+        (self.file, self.menu) = (Some((at, quote)), false);
+        self.input.update(cx, |s, cx| {
+            s.set_value("", window, cx);
+            s.focus(window, cx);
+        });
+        cx.emit(ChatEvent::Asked);
+        cx.notify();
+    }
+
+    pub(crate) fn focus_input(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.input.update(cx, |s, cx| s.focus(window, cx));
+    }
+
+    pub(crate) fn search_focused(&self, window: &Window, cx: &App) -> bool {
+        self.search.focus_handle(cx).is_focused(window)
     }
 }
 
 impl Desktop {
     pub(crate) fn add_to_chat(&mut self, _: &AddToChat, window: &mut Window, cx: &mut Context<Self>) {
-        let pane = self.focused_pane();
-        match self.pane_tab(pane) {
+        let pane = self.focused_pane(cx);
+        match self.pane_tab(pane, cx) {
             Some(Tab::Doc(Doc::Diff(_) | Doc::CompareFile { .. })) => {
                 let quotable = |v: &&DiffView| v.followed_file().is_some() && v.pick.range.is_some_and(|r| span(&v.lines, ordered(r)).is_some());
-                if let Some(i) = self.diff.view(pane).filter(quotable).and_then(|v| v.pick.last()) {
+                if let Some(i) = self.diff.view(pane, cx).filter(quotable).and_then(|v| v.pick.last()) {
                     self.open_composer(pane, i, window, cx);
                 }
             }
-            Some(Tab::Doc(Doc::File(_))) if self.chat.file.is_none() => self.ask_about_text(pane, window, cx),
+            Some(Tab::Doc(Doc::File(_))) if self.chat.read(cx).file.is_none() => self.ask_about_text(pane, window, cx),
             Some(Tab::Term(terminal)) if self.chat_shown(&terminal) => self.quote_chat_selection(&terminal, window, cx),
             _ => {}
         }
     }
 
-    pub(crate) fn chat_choices(&self) -> Vec<Choice> {
-        let (Some(project), Some(tree)) = (self.project.as_deref(), self.place()) else { return Vec::new() };
-        let branch = self.repo().map(|r| r.branch.clone()).unwrap_or_default();
-        choices(in_tree(self.cards(project), Some(&tree), |c| self.tree_of(c)), &branch)
+    pub(crate) fn chat_choices(&self, cx: &App) -> Vec<Choice> {
+        let (Some(project), Some(tree)) = (self.project.as_deref(), self.place(cx)) else { return Vec::new() };
+        let branch = self.repo(cx).map(|r| r.branch.clone()).unwrap_or_default();
+        choices(in_tree(self.cards(project, cx), Some(&tree), |c| self.tree_of(c, cx)), &branch)
     }
 
-    pub(crate) fn chat_target(&self, choices: &[Choice]) -> Option<String> {
+    pub(crate) fn chat_target(&self, choices: &[Choice], cx: &App) -> Option<String> {
         let recent = choices.iter().filter(|c| c.ready).filter_map(|c| self.agents.get(&c.id)).max_by_key(|a| a.updated_at).map(|a| a.id.as_str());
-        target_for(self.store.agents.chat_to(), self.chat.target.as_deref(), self.session(), recent, choices)
+        target_for(self.store.agents.chat_to(), self.chat.read(cx).target.as_deref(), self.session(), recent, choices)
     }
 
-    fn chat_quote(&self) -> Option<Quote> {
-        self.chat.file.as_ref().map(|(_, q)| q.clone()).or_else(|| self.diff.draft_quote())
+    pub(crate) fn chat_side(&self, cx: &App) -> Side {
+        let choices = self.chat_choices(cx);
+        Side { target: self.chat_target(&choices, cx), names: choices.iter().map(|c| (c.provider.clone(), self.agent_name(&c.provider))).collect(), choices }
+    }
+
+    fn chat_quote(&self, cx: &App) -> Option<Quote> {
+        self.chat.read(cx).file_quote().or_else(|| self.diff.draft_quote(cx))
+    }
+
+    pub(crate) fn on_chat_event(&mut self, _: &Entity<ChatComposer>, ev: &ChatEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            ChatEvent::Add => self.add_to_input(window, cx),
+            ChatEvent::Cancel => self.cancel_chat(window, cx),
+            ChatEvent::NewSession => self.chat_in_new_session(window, cx),
+            ChatEvent::Asked => self.diff.cancel_draft(cx),
+            ChatEvent::MenuDismissed => {
+                // The press then focuses what it lands on; take focus back unless that's something else, like a terminal.
+                cx.defer_in(window, |this, window, cx| {
+                    let stayed = this.root.is_focused(window) || this.chat.read(cx).search_focused(window, cx);
+                    if stayed && this.chat_quote(cx).is_some() {
+                        this.chat.update(cx, |c, cx| c.focus_input(window, cx));
+                    }
+                });
+            }
+        }
     }
 
     pub fn add_to_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.agents.observe_only() {
             return;
         }
-        let (Some(quote), Some(target)) = (self.chat_quote(), self.chat_target(&self.chat_choices())) else { return };
+        let (Some(quote), Some(target)) = (self.chat_quote(cx), self.chat_target(&self.chat_choices(cx), cx)) else { return };
         let Some((terminal, provider)) = self.agents.get(&target).map(|a| (a.terminal_id.clone(), a.provider.clone())) else { return };
-        let question = self.chat.input.read(cx).value().to_string();
-        match self.route(&terminal) {
+        let question = self.chat.read(cx).question(cx);
+        match self.route(&terminal, cx) {
             Route::Chat if self.store.agents.send_now => self.chat_command(&target, chat::Command::Send(quote.prompt(&question)), cx),
             Route::Chat => self.chat_add_text(&target, &quote.prompt(&question), window, cx),
             Route::Paste => {
@@ -289,8 +434,8 @@ impl Desktop {
                 }
             }
             Route::Blocked => {
-                self.chat.added = None;
-                self.error = Some("This agent can't take pasted text right now.".into());
+                self.chat.update(cx, |c, _| c.clear_added());
+                self.fail("This agent can't take pasted text right now.", cx);
                 return cx.notify();
             }
         }
@@ -299,32 +444,20 @@ impl Desktop {
     }
 
     pub(crate) fn flash_added(&mut self, provider: String, cx: &mut Context<Self>) {
-        let hide = cx.spawn(async |this, cx| {
-            cx.background_executor().timer(ADDED_TOAST).await;
-            this.update(cx, |d, cx| {
-                d.chat.added = None;
-                cx.notify();
-            })
-            .ok();
-        });
-        self.chat.added = Some((provider, hide));
+        self.chat.update(cx, |c, cx| c.flash(provider, cx));
     }
 
     pub fn cancel_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.diff.cancel_draft();
-        self.chat.menu = false;
-        (self.chat.file, self.chat.pill) = (None, None);
-        if self.store.agents.chat_to() == "ask" {
-            self.chat.target = None;
-        }
-        self.chat.input.update(cx, |s, cx| s.set_value("", window, cx));
+        self.diff.cancel_draft(cx);
+        let ask = self.store.agents.chat_to() == "ask";
+        self.chat.update(cx, |c, cx| c.reset(ask, window, cx));
         window.focus(&self.root, cx);
         cx.notify();
     }
 
     fn chat_in_new_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(quote) = self.chat_quote() else { return };
-        let prompt = quote.prompt(&self.chat.input.read(cx).value());
+        let Some(quote) = self.chat_quote(cx) else { return };
+        let prompt = quote.prompt(&self.chat.read(cx).question(cx));
         self.cancel_chat(window, cx);
         self.new_session(Some(prompt), false, window, cx);
     }

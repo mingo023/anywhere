@@ -1,4 +1,4 @@
-use crate::desktop::Desktop;
+use super::pane::TerminalPane;
 use crate::desktop::chrome::id;
 use gpui_kit::*;
 use theme::ui_font;
@@ -53,14 +53,13 @@ pub fn arrows(up: bool, n: usize, app_cursor: bool) -> Vec<u8> {
     [&[0x1b][..], &key].concat().repeat(n)
 }
 
-pub fn jump_pill(pane: &str, cx: &mut Context<Desktop>) -> Div {
-    let pane = pane.to_string();
+pub fn jump_pill(pane: &str, cx: &mut Context<TerminalPane>) -> Div {
     let button = ui::button(id(format!("jump-{pane}")), Variant::Glass, None, "Jump to bottom ↓")
         .h(px(28.))
         .rounded(px(14.))
         .text_size(px(12.))
         .font_family(ui_font())
-        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.scroll_to_bottom(&pane, cx)));
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.scroll_to_bottom(cx)));
     div().absolute().right(px(12.)).bottom(px(12.)).occlude().child(button)
 }
 

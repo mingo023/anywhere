@@ -36,15 +36,15 @@ impl Desktop {
         if self.agents.observe_only() {
             return;
         }
-        let choices = self.chat_choices();
-        let target = self.chat_target(&choices).or_else(|| default_target(None, self.session(), &choices));
+        let choices = self.chat_choices(cx);
+        let target = self.chat_target(&choices, cx).or_else(|| default_target(None, self.session(), &choices));
         let Some((agent, terminal, provider)) = target.and_then(|t| self.agents.get(&t).map(|a| (t.clone(), a.terminal_id.clone(), a.provider.clone()))) else {
-            self.error = Some("No agent here to send the element to.".into());
+            self.fail("No agent here to send the element to.", cx);
             return cx.notify();
         };
-        match self.route(&terminal) {
+        match self.route(&terminal, cx) {
             Route::Chat => {
-                if !self.chat_draft_mut(&agent).pick_element(element) {
+                if !self.chat_draft_edit(&agent, cx, |d| d.pick_element(element)) {
                     return;
                 }
                 if let Some(b) = self.browsers.tabs.get_mut(&id) {
@@ -53,7 +53,7 @@ impl Desktop {
             }
             Route::Paste => self.send_input(&terminal, &term::paste_bytes(&elements::block(&[element]), true), cx),
             Route::Blocked => {
-                self.error = Some("This agent can't take pasted text right now.".into());
+                self.fail("This agent can't take pasted text right now.", cx);
                 return cx.notify();
             }
         }

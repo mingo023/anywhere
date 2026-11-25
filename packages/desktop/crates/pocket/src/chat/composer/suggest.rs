@@ -1,3 +1,4 @@
+use super::{ChatBoxEvent, ComposerState};
 use crate::chat::locate::touched;
 use crate::composer::model_menu::{PAD, ROW, row, rows};
 use crate::desktop::Desktop;
@@ -40,7 +41,7 @@ pub(crate) struct Suggest {
 }
 
 /// What the list shows, worked out as the draft changes rather than each frame.
-struct List {
+pub(crate) struct List {
     agent: String,
     /// The draft it was worked out for; a draft set without a change, as a send's clearing, hides it.
     text: String,
@@ -308,8 +309,8 @@ pub(crate) enum Prompt {
 
 /// Who a draft goes to: the chat's agent, or the agent, account and project a new session starts; `key` is the agent's
 /// id or `launch_key`'s.
-struct Target {
-    key: String,
+pub(crate) struct Target {
+    pub(crate) key: String,
     provider: String,
     account: String,
     cwd: String,
@@ -321,38 +322,38 @@ pub(crate) fn launch_key(provider: &str, account: &str, cwd: &str) -> String {
 }
 
 impl Desktop {
-    pub(crate) fn suggest_input(&self, p: Prompt) -> &Entity<TextareaState> {
+    pub(crate) fn suggest_input<'a>(&'a self, p: Prompt, cx: &'a App) -> &'a Entity<TextareaState> {
         match p {
             Prompt::Chat => &self.chats.input,
-            Prompt::Launch => &self.new_form.composer.prompt,
+            Prompt::Launch => &self.new_form.read(cx).prompt,
         }
     }
 
-    fn suggest_state(&self, p: Prompt) -> &Suggest {
+    fn suggest_state<'a>(&'a self, p: Prompt, cx: &'a App) -> &'a Suggest {
         match p {
-            Prompt::Chat => &self.chats.composer.suggest,
-            Prompt::Launch => &self.new_form.composer.suggest,
+            Prompt::Chat => &self.chats.composer.read(cx).suggest,
+            Prompt::Launch => &self.new_form.read(cx).suggest,
         }
     }
 
-    fn suggest_state_mut(&mut self, p: Prompt) -> &mut Suggest {
+    pub(crate) fn with_suggest<R>(&mut self, p: Prompt, cx: &mut App, f: impl FnOnce(&mut Suggest) -> R) -> R {
         match p {
-            Prompt::Chat => &mut self.chats.composer.suggest,
-            Prompt::Launch => &mut self.new_form.composer.suggest,
+            Prompt::Chat => self.chats.composer.update(cx, |c, _| f(&mut c.suggest)),
+            Prompt::Launch => self.new_form.update(cx, |form, _| f(&mut form.suggest)),
         }
     }
 
-    fn suggest_target(&self, p: Prompt) -> Option<Target> {
+    pub(crate) fn suggest_target(&self, p: Prompt, cx: &App) -> Option<Target> {
         match p {
-            Prompt::Chat => self.chats.drafts.owner().and_then(|id| self.agents.get(id)).map(|a| Target {
+            Prompt::Chat => self.chats.composer.read(cx).owner().and_then(|id| self.agents.get(id)).map(|a| Target {
                 key: a.id.clone(),
                 provider: a.provider.clone(),
                 account: a.account.clone(),
                 cwd: a.cwd.clone(),
             }),
             Prompt::Launch => {
-                let pick = self.new_form_pick();
-                self.new_form.project().map(|cwd| Target {
+                let pick = self.new_form_pick(cx);
+                self.new_form.read(cx).project().map(|cwd| Target {
                     key: launch_key(&pick.provider, &pick.account, cwd),
                     provider: pick.provider,
                     account: pick.account,
@@ -366,22 +367,21 @@ impl Desktop {
     /// session's skills as pocketd reads them off disk, its MCP servers each time an `@mcp/` tag does, and the folder's
     /// files each time another `@` does.
     pub(crate) fn draft_changed(&mut self, p: Prompt, cx: &mut Context<Self>) {
-        self.suggest_state_mut(p).selected = 0;
-        let Some(t) = self.suggest_target(p) else { return self.suggest(p, cx) };
-        let input = self.suggest_input(p).read(cx);
+        self.with_suggest(p, cx, |s| s.selected = 0);
+        let Some(t) = self.suggest_target(p, cx) else { return self.suggest(p, cx) };
+        let input = self.suggest_input(p, cx).read(cx);
         let (text, cursor) = (input.value().to_string(), input.cursor());
-        let s = self.suggest_state_mut(p);
-        if s.asks_commands(&t.key, &text, cursor) {
+        if self.with_suggest(p, cx, |s| s.asks_commands(&t.key, &text, cursor)) {
             match p {
                 Prompt::Chat => self.outbox.commands(&t.key),
                 Prompt::Launch => self.outbox.skills(&t.provider, &t.account, &t.cwd),
             }
         }
         if p == Prompt::Chat && offers_mcp(&t.provider) && word(&text, cursor, '@').is_some_and(|(_, q)| q.starts_with(mcp_word())) {
-            if self.suggest_state_mut(p).asks_servers(&t.key, &text, cursor) {
+            if self.with_suggest(p, cx, |s| s.asks_servers(&t.key, &text, cursor)) {
                 self.outbox.mcp(&t.key);
             }
-        } else if self.suggest_state_mut(p).loads_files(&t.cwd, &text, cursor) {
+        } else if self.with_suggest(p, cx, |s| s.loads_files(&t.cwd, &text, cursor)) {
             self.load_files(p, &t.cwd, cx);
         }
         self.suggest(p, cx);
@@ -389,11 +389,11 @@ impl Desktop {
 
     /// A command or skill the list offers, typed out and ended with a space, turns into a pill as picking it does.
     pub(crate) fn pill_typed_command(&mut self, p: Prompt, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(t) = self.suggest_target(p) else { return };
-        let input = self.suggest_input(p).clone();
+        let Some(t) = self.suggest_target(p, cx) else { return };
+        let input = self.suggest_input(p, cx).clone();
         let (text, cursor) = (input.read(cx).value().to_string(), input.read(cx).cursor());
         let pills: Vec<Range<usize>> = input.read(cx).tokens().iter().map(|s| s.range()).collect();
-        let listed = self.suggest_state(p).commands.get(&t.key).map_or(&[][..], Vec::as_slice);
+        let listed = self.suggest_state(p, cx).commands.get(&t.key).map_or(&[][..], Vec::as_slice);
         let Some((range, name)) = typed_pill(p, &t.provider, listed, &text, cursor, &pills) else { return };
         input.update(cx, |s, cx| {
             if s.replace_range_with_token(range, crate::composer::pills::command_token(name), window, cx).is_ok() {
@@ -407,10 +407,10 @@ impl Desktop {
     /// nothing runs yet; a `/` past the draft's start lists those and `/mcp`, as another command runs only from the
     /// start.
     pub(crate) fn suggest(&mut self, p: Prompt, cx: &mut Context<Self>) {
-        let t = self.suggest_target(p);
-        let input = self.suggest_input(p).read(cx);
+        let t = self.suggest_target(p, cx);
+        let input = self.suggest_input(p, cx).read(cx);
         let (text, cursor) = (input.value().to_string(), input.cursor());
-        let s = self.suggest_state(p);
+        let s = self.suggest_state(p, cx);
         let rows = t.as_ref().and_then(|t| {
             if let Some((at, query)) = word(&text, cursor, '/') {
                 let listed = s.commands.get(&t.key).map_or(&[][..], Vec::as_slice);
@@ -425,13 +425,13 @@ impl Desktop {
             let root = format!("{}/", hosts::split(&t.cwd).1.trim_end_matches('/'));
             let views = (p == Prompt::Chat).then(|| self.chats.views.get(&t.key)).flatten();
             let touched: Vec<String> =
-                views.map(|v| touched(&v.session.transcript)).unwrap_or_default().iter().filter_map(|p| p.strip_prefix(&root).map(String::from)).collect();
+                views.map(|v| touched(&v.read(cx).transcript())).unwrap_or_default().iter().filter_map(|p| p.strip_prefix(&root).map(String::from)).collect();
             let changed: HashSet<&str> = self.repos.get(&t.cwd).map(|r| r.files.iter().map(|f| f.path.as_str()).collect()).unwrap_or_default();
             let files = s.files.get(&t.cwd).map_or(&[][..], Vec::as_slice);
             Some(Rows::Files { at, query: query.into(), paths: rank(query, &touched, &changed, files) })
         });
         let list = t.zip(rows).map(|(t, rows)| List { agent: t.key, text, rows });
-        self.suggest_state_mut(p).list = list;
+        self.with_suggest(p, cx, |s| s.list = list);
         cx.notify();
     }
 
@@ -450,7 +450,7 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             let files = task.await;
             this.update(cx, |d, cx| {
-                d.suggest_state_mut(p).files.insert(cwd, files);
+                d.with_suggest(p, cx, |s| s.files.insert(cwd, files));
                 d.suggest(p, cx);
             })
             .ok();
@@ -460,25 +460,15 @@ impl Desktop {
 
     /// The list, while the input holds the draft it was worked out for and it has rows; servers show while they load
     /// or when none fit, to say so.
-    fn suggestions(&self, p: Prompt, cx: &App) -> Option<&List> {
-        let list = self.suggest_state(p).list.as_ref()?;
-        let current = self.suggest_target(p).is_some_and(|t| t.key == list.agent) && *self.suggest_input(p).read(cx).value() == *list.text;
-        (current && (list.rows.len() > 0 || matches!(list.rows, Rows::Servers { .. }))).then_some(list)
-    }
-
-    fn suggest_move(&mut self, p: Prompt, down: bool, cx: &mut Context<Self>) -> bool {
-        let Some(total) = self.suggestions(p, cx).map(|l| l.rows.len()) else { return false };
-        if total > 0 {
-            self.suggest_state_mut(p).step(down, total);
-            cx.notify();
-        }
-        true
+    fn suggestions<'a>(&'a self, p: Prompt, cx: &'a App) -> Option<&'a List> {
+        let key = self.suggest_target(p, cx).map(|t| t.key);
+        self.suggest_state(p, cx).shown(key.as_deref(), &self.suggest_input(p, cx).read(cx).value())
     }
 
     /// Puts the picked row in the draft: a command's name, ready for its argument, a file's path, or a server's tag.
     /// A command the desktop runs itself runs at once, but `/compact`, which can't be undone and may take instructions;
     /// `/mcp` gives way to a tag, which lists the servers. A server the agent can't use now can't be picked.
-    fn suggest_pick(&mut self, p: Prompt, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn suggest_pick(&mut self, p: Prompt, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(shown) = self.suggestions(p, cx) else { return false };
         if let Rows::Servers { servers, pickable, .. } = &shown.rows {
             if ix >= *pickable {
@@ -491,11 +481,11 @@ impl Desktop {
                 return true;
             }
         }
-        let Some(list) = self.suggest_state_mut(p).list.take() else { return false };
+        let Some(list) = self.with_suggest(p, cx, |s| s.list.take()) else { return false };
         match list.rows {
             Rows::Commands { at, rows, .. } if !starts_draft(&list.text, at) => {
                 let Some(c) = rows.get(ix) else { return true };
-                let cursor = self.suggest_input(p).read(cx).cursor();
+                let cursor = self.suggest_input(p, cx).read(cx).cursor();
                 if c.kind == Kind::Local(Local::Mcp) {
                     let text = format!("{}{}{}", &list.text[..at], chat::mcp::TAG, &list.text[cursor..]);
                     self.put_text(p, text, Some(at + chat::mcp::TAG.len()), None, window, cx);
@@ -508,7 +498,7 @@ impl Desktop {
             Rows::Commands { rows, .. } => {
                 let Some(c) = rows.get(ix) else { return true };
                 let arg = chat::slash(&list.text).map_or("", |(_, arg)| arg);
-                let provider = self.suggest_target(p).map(|t| t.provider).unwrap_or_default();
+                let provider = self.suggest_target(p, cx).map(|t| t.provider).unwrap_or_default();
                 // The list sorted it without an argument, which can change it: Claude sends `/compact` with one.
                 match chat::for_provider(&provider).command(&c.name, arg) {
                     Kind::Local(local) if p == Prompt::Chat && local != Local::Compact => {
@@ -523,12 +513,12 @@ impl Desktop {
             }
             Rows::Files { at, paths, .. } => {
                 let Some(path) = paths.get(ix) else { return true };
-                let cursor = self.suggest_input(p).read(cx).cursor();
+                let cursor = self.suggest_input(p, cx).read(cx).cursor();
                 let (text, cursor) = replaced(&list.text, at, cursor, &format!("@{path}"));
                 self.put_text(p, text, Some(cursor), None, window, cx);
             }
             Rows::Servers { at, servers, .. } => {
-                let cursor = self.suggest_input(p).read(cx).cursor();
+                let cursor = self.suggest_input(p, cx).read(cx).cursor();
                 let (text, cursor) = replaced(&list.text, at, cursor, &format!("{}{}", chat::mcp::TAG, listed(&servers)[ix].name));
                 self.put_text(p, text, Some(cursor), None, window, cx);
             }
@@ -538,23 +528,23 @@ impl Desktop {
 
     /// Has `agent` sign in to, reconnect or enable `s`, the list staying open to show how it went; one at a time.
     fn mcp_act(&mut self, p: Prompt, agent: &str, s: &McpServer, cx: &mut Context<Self>) {
-        let Some(t) = self.suggest_target(p) else { return };
-        let Some(action) = self.suggest_state_mut(p).act(agent, &t.provider, s) else { return };
+        let Some(t) = self.suggest_target(p, cx) else { return };
+        let Some(action) = self.with_suggest(p, cx, |sg| sg.act(agent, &t.provider, s)) else { return };
         self.outbox.mcp_act(agent, action, &s.name);
         cx.notify();
     }
 
     /// Asks `agent`'s servers again shortly while they settle and the chat lists them.
     pub(crate) fn recheck_servers(&mut self, agent: String, cx: &mut Context<Self>) {
-        if !self.chats.composer.suggest.rechecks(&agent) {
+        if !self.chats.composer.update(cx, |c, _| c.suggest.rechecks(&agent)) {
             return;
         }
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SETTLE_CHECK).await;
             _ = this.update(cx, |d, cx| {
-                d.chats.composer.suggest.rechecking.remove(&agent);
+                d.chats.composer.update(cx, |c, _| c.suggest.rechecking.remove(&agent));
                 let listing = d.suggestions(Prompt::Chat, cx).is_some_and(|l| l.agent == agent && matches!(l.rows, Rows::Servers { .. }));
-                if listing && d.chats.composer.suggest.settling(&agent) {
+                if listing && d.chats.composer.read(cx).suggest.settling(&agent) {
                     d.outbox.mcp(&agent);
                 }
             });
@@ -565,7 +555,7 @@ impl Desktop {
     /// Sets the draft to `text`, the command named at `pill`'s offset as a pill; the pills it held stay where the text does.
     fn put_text(&mut self, p: Prompt, text: String, cursor: Option<usize>, pill: Option<(usize, &str)>, window: &mut Window, cx: &mut Context<Self>) {
         let cursor = cursor.unwrap_or(text.len());
-        self.suggest_input(p).clone().update(cx, |s, cx| {
+        self.suggest_input(p, cx).clone().update(cx, |s, cx| {
             let content = crate::composer::pills::kept_pills(&s.content(), text, pill.map(|(at, name)| (at, crate::composer::pills::command_token(name))));
             s.set_value(content, window, cx);
             let at = s.text().offset_to_position(cursor);
@@ -574,100 +564,196 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Takes the list's keys while it shows, before the input's own bindings do.
-    pub(crate) fn suggest_keys(&self, p: Prompt, d: Div, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn suggest_list(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let p = Prompt::Chat;
+        let provider = self.suggest_target(p, cx).map(|t| t.provider).unwrap_or_default();
+        let list = self.suggestions(p, cx)?;
+        let pick = |i: usize| -> Press {
+            let press = cx.listener(move |this, _: &ClickEvent, window, cx| _ = this.suggest_pick(p, i, window, cx));
+            Box::new(press)
+        };
+        Some(list_view(
+            p,
+            list,
+            self.suggest_state(p, cx),
+            &provider,
+            pick,
+            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                this.with_suggest(p, cx, |s| s.list = None);
+                cx.notify();
+            }),
+        ))
+    }
+}
+
+impl ComposerState {
+    fn suggesting(&self, listed: bool, cx: &App) -> (Option<String>, String) {
+        (self.owner().filter(|_| listed).map(String::from), self.input.read(cx).value().to_string())
+    }
+
+    fn take_pick(&self, listed: bool, cx: &App) -> Option<usize> {
+        let (key, text) = self.suggesting(listed, cx);
+        let ix = self.suggest.chosen(key.as_deref(), &text)?;
+        match &self.suggest.shown(key.as_deref(), &text)?.rows {
+            Rows::Servers { pickable, .. } if ix >= *pickable => None,
+            _ => Some(ix),
+        }
+    }
+
+    fn walk_list(&mut self, listed: bool, down: bool, cx: &mut Context<Self>) -> bool {
+        let (key, text) = self.suggesting(listed, cx);
+        let taken = self.suggest.walk(key.as_deref(), &text, down);
+        if taken {
+            cx.notify();
+        }
+        taken
+    }
+
+    fn pick_chosen(&mut self, listed: bool, cx: &mut Context<Self>) -> bool {
+        let ix = self.take_pick(listed, cx);
+        if let Some(ix) = ix {
+            cx.emit(ChatBoxEvent::Pick(ix));
+        }
+        ix.is_some()
+    }
+
+    fn dismiss_list(&mut self, listed: bool, cx: &mut Context<Self>) -> bool {
+        let (key, text) = self.suggesting(listed, cx);
+        let taken = self.suggest.dismiss(key.as_deref(), &text);
+        if taken {
+            cx.notify();
+        }
+        taken
+    }
+
+    pub(crate) fn suggest_keys(&self, listed: bool, d: Div, cx: &mut Context<Self>) -> Div {
         let stop = |cx: &mut Context<Self>, taken: bool| {
             if taken {
                 cx.stop_propagation();
             }
         };
         d.capture_action(cx.listener(move |this, _: &MoveUp, _, cx| {
-            let taken = this.suggest_move(p, false, cx);
+            let taken = this.walk_list(listed, false, cx);
             stop(cx, taken);
         }))
         .capture_action(cx.listener(move |this, _: &MoveDown, _, cx| {
-            let taken = this.suggest_move(p, true, cx);
+            let taken = this.walk_list(listed, true, cx);
             stop(cx, taken);
         }))
-        .capture_action(cx.listener(move |this, _: &IndentInline, window, cx| {
-            let taken = this.suggest_pick(p, this.suggest_state(p).selected, window, cx);
+        .capture_action(cx.listener(move |this, _: &IndentInline, _, cx| {
+            let taken = this.pick_chosen(listed, cx);
             stop(cx, taken);
         }))
-        .capture_action(cx.listener(move |this, e: &Enter, window, cx| {
-            let taken = !e.secondary && !e.shift && this.suggest_pick(p, this.suggest_state(p).selected, window, cx);
+        .capture_action(cx.listener(move |this, e: &Enter, _, cx| {
+            let taken = !e.secondary && !e.shift && this.pick_chosen(listed, cx);
             stop(cx, taken);
         }))
         .capture_action(cx.listener(move |this, _: &Escape, _, cx| {
-            let taken = this.suggestions(p, cx).is_some();
-            if taken {
-                this.suggest_state_mut(p).list = None;
-                cx.notify();
-            }
+            let taken = this.dismiss_list(listed, cx);
             stop(cx, taken);
         }))
     }
+}
 
-    /// The list, opening upward over the composer as the model menu does.
-    pub(crate) fn suggest_list(&self, p: Prompt, cx: &mut Context<Self>) -> Option<Div> {
-        let list = self.suggestions(p, cx)?;
-        let selected = self.suggest_state(p).selected.min(list.rows.len().saturating_sub(1));
-        let pick = |i: usize| cx.listener(move |this, _: &ClickEvent, window, cx| _ = this.suggest_pick(p, i, window, cx));
-        // Servers the agent can't use now follow those it can, and can't be selected.
-        let r = |i: usize| row(("chat-suggest", i), i == selected && i < list.rows.len()).on_click(pick(i));
-        let shown: Vec<Stateful<Div>> = match &list.rows {
-            Rows::Commands { query, rows, .. } => window(selected, rows.len())
-                .map(|i| {
-                    let c = &rows[i];
-                    r(i).child(div().flex_none().font_family(code_font()).child(marked(format!("/{}", c.name), &[query.to_lowercase()])))
-                        .when(!c.hint.is_empty(), |r| {
-                            r.child(div().min_w_0().truncate().font_family(code_font()).text_size(px(12.)).text_color(TEXT_3).child(c.hint.clone()))
-                        })
-                        .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_3).child(c.description.clone()))
-                })
-                .collect(),
-            Rows::Files { query, paths, .. } => window(selected, paths.len())
-                .map(|i| {
-                    let p = &paths[i];
-                    r(i).child(file_icon(p, false, false, 14.)).child(div().flex_1().min_w_0().truncate().child(marked(p.clone(), &[query.to_lowercase()])))
-                })
-                .collect(),
-            Rows::Servers { query, servers, .. } => {
-                let provider = self.suggest_target(p).map(|t| t.provider).unwrap_or_default();
-                let s = self.suggest_state(p);
-                let acting = |name: &str| s.acting.get(&list.agent).filter(|(server, _)| server == name).map(|(_, a)| *a);
-                match servers {
-                    None => vec![note("Checking MCP servers…", TEXT_3)],
-                    Some(Err(e)) => vec![note(e, FAILED_TEXT)],
-                    Some(Ok(all)) if all.is_empty() => vec![note(if query.is_empty() { "No MCP servers found" } else { "No matching MCP servers" }, TEXT_3)],
-                    Some(Ok(all)) => window(selected, all.len())
-                        .map(|i| server_row(r(i), &all[i], &provider, query, s.signs_in(&list.agent, &all[i].name), acting(&all[i].name)))
-                        .collect(),
-                }
-            }
-        };
-        let id = match p {
-            Prompt::Chat => "chat-suggest",
-            Prompt::Launch => "launch-suggest",
-        };
-        let pop = ui::pop(div())
-            .id(id)
-            .w(px(460.))
-            .p(px(PAD))
-            // It hangs over the transcript; without this a click on it also lands on what it covers.
-            .occlude()
-            .child(rows("chat-suggest-rows", shown))
-            .on_mouse_down_out(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                this.suggest_state_mut(p).list = None;
-                cx.notify();
-            }));
-        Some(
-            div()
-                .absolute()
-                .top(px(-6.))
-                .left_0()
-                .child(deferred(anchored().anchor(Anchor::BottomLeft).snap_to_window_with_margin(px(8.)).child(pop)).with_priority(1)),
-        )
+pub(crate) type Press = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
+
+impl Suggest {
+    pub(crate) fn shown(&self, key: Option<&str>, text: &str) -> Option<&List> {
+        let list = self.list.as_ref()?;
+        let current = key.is_some_and(|k| k == list.agent) && *text == *list.text;
+        (current && (list.rows.len() > 0 || matches!(list.rows, Rows::Servers { .. }))).then_some(list)
     }
+
+    pub(crate) fn walk(&mut self, key: Option<&str>, text: &str, down: bool) -> bool {
+        let Some(total) = self.shown(key, text).map(|l| l.rows.len()) else { return false };
+        if total > 0 {
+            self.step(down, total);
+        }
+        true
+    }
+
+    pub(crate) fn chosen(&self, key: Option<&str>, text: &str) -> Option<usize> {
+        self.shown(key, text).map(|_| self.selected)
+    }
+
+    pub(crate) fn forget_list(&mut self) {
+        self.list = None;
+    }
+
+    pub(crate) fn dismiss(&mut self, key: Option<&str>, text: &str) -> bool {
+        let shown = self.shown(key, text).is_some();
+        if shown {
+            self.list = None;
+        }
+        shown
+    }
+}
+
+pub(crate) fn launch_list(
+    s: &Suggest,
+    key: Option<&str>,
+    text: &str,
+    provider: &str,
+    pick: impl Fn(usize) -> Press,
+    dismiss: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Option<Div> {
+    s.shown(key, text).map(|list| list_view(Prompt::Launch, list, s, provider, pick, dismiss))
+}
+
+/// The list, opening upward over the composer as the model menu does.
+fn list_view(
+    p: Prompt,
+    list: &List,
+    s: &Suggest,
+    provider: &str,
+    pick: impl Fn(usize) -> Press,
+    dismiss: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    let selected = s.selected.min(list.rows.len().saturating_sub(1));
+    // Servers the agent can't use now follow those it can, and can't be selected.
+    let r = |i: usize| row(("chat-suggest", i), i == selected && i < list.rows.len()).on_click(pick(i));
+    let shown: Vec<Stateful<Div>> = match &list.rows {
+        Rows::Commands { query, rows, .. } => window(selected, rows.len())
+            .map(|i| {
+                let c = &rows[i];
+                r(i).child(div().flex_none().font_family(code_font()).child(marked(format!("/{}", c.name), &[query.to_lowercase()])))
+                    .when(!c.hint.is_empty(), |r| {
+                        r.child(div().min_w_0().truncate().font_family(code_font()).text_size(px(12.)).text_color(TEXT_3).child(c.hint.clone()))
+                    })
+                    .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_3).child(c.description.clone()))
+            })
+            .collect(),
+        Rows::Files { query, paths, .. } => window(selected, paths.len())
+            .map(|i| {
+                let p = &paths[i];
+                r(i).child(file_icon(p, false, false, 14.)).child(div().flex_1().min_w_0().truncate().child(marked(p.clone(), &[query.to_lowercase()])))
+            })
+            .collect(),
+        Rows::Servers { query, servers, .. } => {
+            let acting = |name: &str| s.acting.get(&list.agent).filter(|(server, _)| server == name).map(|(_, a)| *a);
+            match servers {
+                None => vec![note("Checking MCP servers…", TEXT_3)],
+                Some(Err(e)) => vec![note(e, FAILED_TEXT)],
+                Some(Ok(all)) if all.is_empty() => vec![note(if query.is_empty() { "No MCP servers found" } else { "No matching MCP servers" }, TEXT_3)],
+                Some(Ok(all)) => window(selected, all.len())
+                    .map(|i| server_row(r(i), &all[i], provider, query, s.signs_in(&list.agent, &all[i].name), acting(&all[i].name)))
+                    .collect(),
+            }
+        }
+    };
+    let id = match p {
+        Prompt::Chat => "chat-suggest",
+        Prompt::Launch => "launch-suggest",
+    };
+    let pop = ui::pop(div())
+        .id(id)
+        .w(px(460.))
+        .p(px(PAD))
+        // It hangs over the transcript; without this a click on it also lands on what it covers.
+        .occlude()
+        .child(rows("chat-suggest-rows", shown))
+        .on_mouse_down_out(dismiss);
+    div().absolute().top(px(-6.)).left_0().child(deferred(anchored().anchor(Anchor::BottomLeft).snap_to_window_with_margin(px(8.)).child(pop)).with_priority(1))
 }
 
 #[cfg(test)]

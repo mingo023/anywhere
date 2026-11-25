@@ -1,9 +1,8 @@
 use super::catalog::{Look, Setting};
 use super::dropdown::dropdown;
 use super::models::model_rows;
-use super::{action, row};
+use super::{Settings, SettingsEvent, action, row};
 use crate::composer::model_menu::listed_name;
-use crate::desktop::Desktop;
 use crate::models::model_or_default;
 use git::github::GhStatus;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -11,7 +10,6 @@ use gpui_kit::*;
 use store::Store;
 use store::prefs::git::Style;
 use theme::*;
-use workspace::Place;
 
 pub(super) const ACCOUNT_MENU: &str = "gh-account";
 const AGENTS: [&str; agents::providers::COUNT] = agents::providers::IDS;
@@ -113,7 +111,7 @@ fn gh_line(status: Option<&GhStatus>) -> (Option<Token>, &'static str, String) {
 }
 
 /// A shell command to copy.
-fn command(id: &'static str, text: &'static str, cx: &mut Context<Desktop>) -> Stateful<Div> {
+fn command(id: &'static str, text: &'static str, cx: &mut Context<Settings>) -> Stateful<Div> {
     div()
         .id(id)
         .h(px(26.))
@@ -133,19 +131,32 @@ fn command(id: &'static str, text: &'static str, cx: &mut Context<Desktop>) -> S
         .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(text.into()))))
 }
 
-impl Desktop {
+impl Settings {
     /// The commit agent's models, as its CLI lists them.
     fn ai_model_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
         let model = self.store.git.model.clone();
         let (agent, offered) = (self.store.git.agent.as_str(), self.offered_models(&self.store.git.agent));
         let trigger = action(setting.id, "").child(listed_name(&model, offered)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
         let title = super::sub_title(setting.label);
-        let from = (agent, self.models.revision, self.installed(agent), &model);
-        row(title, setting.hint, dropdown(setting.id, trigger, from, || model_rows(agent, offered, &model), &model, self, |d, v, _| d.store.git.model = v, cx))
+        let from = (agent, self.side.models.revision, self.installed(agent), &model);
+        row(
+            title,
+            setting.hint,
+            dropdown(
+                setting.id,
+                trigger,
+                from,
+                || model_rows(agent, offered, &model),
+                &model,
+                self,
+                move |d, v, cx| d.set(setting, cx, move |s| s.git.model = v.clone()),
+                cx,
+            ),
+        )
     }
 
     fn gh_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let status = self.prs.gh.clone().flatten();
+        let status = self.side.gh.status.clone().flatten();
         let (dot, title, detail) = gh_line(status.as_ref());
         let fix = match status {
             Some(GhStatus::Missing) => Some(
@@ -155,12 +166,8 @@ impl Desktop {
                 ),
             ),
             Some(GhStatus::SignedOut { .. }) => {
-                Some(div().flex().items_center().gap(px(10.)).child(command("gh-login", "gh auth login", cx)).when(self.cwd().is_some(), |d| {
-                    d.child(ui::link("gh-login-terminal", "Open in terminal").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        let argv = ["gh", "auth", "login"].map(String::from);
-                        this.close_settings(window, cx);
-                        this.run_in_tree(Place::Pane(None), &argv, None, |cwd| daemon::agent_op(&argv, cwd), cx);
-                    })))
+                Some(div().flex().items_center().gap(px(10.)).child(command("gh-login", "gh auth login", cx)).when(self.side.gh.terminal, |d| {
+                    d.child(ui::link("gh-login-terminal", "Open in terminal").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::GhLogin))))
                 }))
             }
             _ => None,
@@ -172,14 +179,16 @@ impl Desktop {
             .child(div().flex().items_center().gap(px(8.)).children(dot.map(|c| ui::dot(8., c))).child(title))
             .child(div().text_size(px(12.)).line_height(px(16.)).font_weight(FontWeight::NORMAL).text_color(TEXT_3).child(detail))
             .children(fix.map(|f| f.mt(px(8.))));
-        let checking = self.prs.gh == Some(None);
-        let again = action("gh-check", "Check again").when(checking, |d| d.opacity(0.5)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.check_gh(cx)));
+        let checking = self.side.gh.status == Some(None);
+        let again = action("gh-check", "Check again")
+            .when(checking, |d| d.opacity(0.5))
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::CheckGh)));
         div().flex().flex_col().child(row(title, None, again)).child(self.gh_accounts_rows(cx))
     }
 
     /// Each project's account, once `gh` has more than one.
     fn gh_accounts_rows(&mut self, cx: &mut Context<Self>) -> Div {
-        if !self.gh_accounts.any_choice() {
+        if self.side.gh.rows.is_empty() {
             return div();
         }
         let caption = div()
@@ -191,48 +200,38 @@ impl Desktop {
             .text_size(px(12.))
             .text_color(TEXT_3)
             .child("Each project's pull requests and new terminals use its account. Anywhere picks the one with the most access to the repo.");
-        let rows: Vec<Div> =
-            self.store.without_scratch(self.store.projects.clone()).into_iter().enumerate().map(|(i, p)| self.gh_account_row(i, p, cx)).collect();
+        let rows: Vec<Div> = (0..self.side.gh.rows.len()).map(|i| self.gh_account_row(i, cx)).collect();
         div().flex().flex_col().child(caption).children(rows)
     }
 
-    fn gh_account_row(&mut self, i: usize, project: String, cx: &mut Context<Self>) -> Div {
-        let chosen = self.gh_accounts.chosen(&self.store.repos, &project).map(str::to_string);
-        let checking = chosen.is_none() && self.gh_accounts.detecting(&project);
-        let open = self.settings.menu == Some(ACCOUNT_MENU) && self.settings.account_menu.as_deref() == Some(project.as_str());
+    fn gh_account_row(&mut self, i: usize, cx: &mut Context<Self>) -> Div {
+        let row = &self.side.gh.rows[i];
+        let card = &self.side.projects[row.card];
+        let (project, chosen, checking) = (card.path.clone(), row.chosen.clone(), row.checking);
+        let open = self.menu == Some(ACCOUNT_MENU) && self.account_menu.as_deref() == Some(project.as_str());
         let shown = match (&chosen, checking) {
             (Some(account), _) => div().font_family(MONO).text_size(px(12.)).text_color(TEXT).child(account.clone()),
             (None, true) => div().text_color(TEXT_3).child("Checking accounts…"),
-            (None, false) => {
-                div().text_color(TEXT_3).child(format!("Active account ({})", self.gh_accounts.accounts_of(&project).map_or("", |s| s.active.as_str())))
-            }
+            (None, false) => div().text_color(TEXT_3).child(format!("Active account ({})", row.active)),
         };
         let toggle = project.clone();
         let button = action(("gh-account", i), "").gap(px(6.)).child(shown).child(icon("chevron-down", 12., TEXT_3)).on_click(cx.listener(
             move |this, _: &ClickEvent, _, cx| {
-                (this.settings.menu, this.settings.account_menu) = if open { (None, None) } else { (Some(ACCOUNT_MENU), Some(toggle.clone())) };
+                (this.menu, this.account_menu) = if open { (None, None) } else { (Some(ACCOUNT_MENU), Some(toggle.clone())) };
                 cx.notify();
             },
         ));
         let menu = open.then(|| {
-            let options = self.gh_accounts.accounts_of(&project).map(|s| s.accounts.clone()).unwrap_or_default().into_iter().enumerate().map(|(j, account)| {
+            let options = row.accounts.clone().into_iter().enumerate().map(|(j, account)| {
                 let project = project.clone();
                 div()
                     .id(("gh-account-option", j))
-                    .h(px(26.))
-                    .px(px(8.))
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .rounded(px(5.))
                     .cursor_pointer()
-                    .hover(|d| d.bg(FILL_2))
-                    .text_color(TEXT)
                     .child(div().w(px(14.)).flex_none().when(chosen.as_ref() == Some(&account), |d| d.child(icon("check", 13., TEXT))))
                     .child(div().font_family(MONO).text_size(px(12.)).child(account.clone()))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        (this.settings.menu, this.settings.account_menu) = (None, None);
-                        this.pick_gh_account(&project, account.clone(), cx);
+                        (this.menu, this.account_menu) = (None, None);
+                        cx.emit(SettingsEvent::PickGhAccount { project: project.clone(), account: account.clone() });
                         cx.notify();
                     }))
             });
@@ -242,32 +241,27 @@ impl Desktop {
             )
         });
         div()
-            .px(px(14.))
-            .py(px(7.))
-            .flex()
-            .items_center()
-            .gap(px(10.))
             .border_b(px(0.5))
             .border_color(SEPARATOR)
-            .child(self.project_tile(&project, 20.))
-            .child(div().flex_1().min_w_0().truncate().text_size(px(13.)).text_color(TEXT).child(self.repo_name(&project)))
+            .child(card.tile(20.))
+            .child(div().flex_1().min_w_0().truncate().text_size(px(13.)).text_color(TEXT).child(card.name.clone()))
             .child(div().relative().child(button).children(menu.map(|m| ui::dropdown_right(30., m))))
     }
 
     /// A dropdown of the remotes the repository on screen has.
     fn remote_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
         let chosen = self.store.git.remote.clone();
-        let mut remotes = self.repo().map(|r| r.remotes.clone()).unwrap_or_default();
+        let mut remotes = self.side.gh.remotes.clone();
         if !remotes.contains(&chosen) {
             remotes.insert(0, chosen.clone());
         }
-        let open = self.settings.menu == Some(setting.id);
+        let open = self.menu == Some(setting.id);
         let button = action(setting.id, "")
             .gap(px(6.))
             .child(div().font_family(MONO).text_size(px(12.)).child(chosen.clone()))
             .child(icon("chevron-down", 12., TEXT_3))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.settings.menu = (!open).then_some(setting.id);
+                this.menu = (!open).then_some(setting.id);
                 cx.notify();
             }));
         let rows = remotes.into_iter().enumerate().map(|(i, name)| {
@@ -286,10 +280,9 @@ impl Desktop {
                 .child(div().w(px(14.)).flex_none().when(name == chosen, |d| d.child(icon("check", 13., TEXT))))
                 .child(div().font_family(MONO).text_size(px(12.)).child(name.clone()))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.settings.menu = None;
-                    this.store.git.remote = name.clone();
-                    this.save_soon(cx);
-                    cx.notify();
+                    this.menu = None;
+                    let name = name.clone();
+                    this.set(setting, cx, move |s| s.git.remote = name.clone());
                 }))
         });
         let menu = ui::menu_in("remote-menu-in", ui::pop(div()).min_w(px(160.)).p(px(4.)).flex().flex_col().children(rows));

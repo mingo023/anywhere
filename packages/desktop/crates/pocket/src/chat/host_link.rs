@@ -1,4 +1,4 @@
-use crate::desktop::Desktop;
+use super::transcript::{View, ViewEvent};
 use crate::fleet::Links;
 use agents::hosts::Link;
 use gpui_kit::*;
@@ -32,7 +32,7 @@ pub(super) fn linked(hint: &str, list: &[Host], links: &Links) -> Linked {
 }
 
 /// An agent asks for a host this Mac doesn't link yet: why, and a button that opens the add form with the host it named. Once that host is listed the card says how its link stands instead.
-pub(super) fn card(id: &str, hint: &str, reason: &str, linked: Linked, cx: &mut Context<Desktop>) -> Div {
+pub(super) fn card(id: &str, hint: &str, reason: &str, linked: Linked, cx: &mut Context<View>) -> Div {
     let tile = div().size(px(28.)).flex().flex_none().items_center().justify_center().rounded(px(7.)).bg(FILL_2).child(icon("server", 14., TEXT_2));
     let title = match (&linked, hint) {
         (Linked::Online(name), _) => format!("{name} is linked"),
@@ -54,12 +54,12 @@ pub(super) fn card(id: &str, hint: &str, reason: &str, linked: Linked, cx: &mut 
         Linked::No => Some(
             ui::button(SharedString::from(format!("host-link-{id}")), ui::Variant::Secondary, None, "Add host\u{2026}")
                 .h(px(26.))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.link_host(hint.clone(), window, cx))),
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(ViewEvent::LinkHost(hint.clone())))),
         ),
         Linked::Trouble(_) => Some(
             ui::button(SharedString::from(format!("host-link-{id}")), ui::Variant::Secondary, None, "Hosts\u{2026}")
                 .h(px(26.))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.show_hosts(window, cx))),
+                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ViewEvent::ShowHosts))),
         ),
         Linked::Connecting(_) | Linked::Online(_) => None,
     };

@@ -42,6 +42,7 @@ use locals::Local;
 use providers::ProviderInfo;
 use queue::Queues;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use tickets::Board;
 
@@ -64,7 +65,7 @@ pub struct Agents {
     pub locals: Vec<Local>,
     /// pocketd's build from `hello.ok`: the release tag, or a VCS stamp in dev.
     pub version: String,
-    pub automations: Automations,
+    pub automations: Arc<Automations>,
     pub board: Arc<Board>,
     pub delegations: Delegations,
     pub queues: Queues,
@@ -188,7 +189,11 @@ impl Agents {
             }
             Event::Locals(locals) => self.locals = locals,
             Event::Registry(_) | Event::RegistryFailed(_) => {}
-            Event::Automations { automations, runs } => self.automations.apply(automations, runs),
+            Event::Automations { automations, runs } => {
+                let mut snapshot = Automations::default();
+                snapshot.apply(automations, runs);
+                self.automations = Arc::new(snapshot);
+            }
             Event::Board { tickets, limit } => self.board = Arc::new(Board { tickets, limit }),
             Event::Delegations { agent, items } => self.delegations.replace(&agent, items),
             Event::Delegated { agent, delegation } => self.delegations.update(&agent, delegation),
@@ -404,6 +409,29 @@ impl Agents {
                 Some((a, ts))
             })
             .max_by_key(|(_, ts)| *ts)
+    }
+
+    /// Every path an agent's timeline edited or wrote, absolute: the paths `last_edit` finds an agent for.
+    pub fn edited_paths(&self) -> HashSet<String> {
+        let mut paths = HashSet::new();
+        for a in &self.list {
+            for d in self.timelines.get(&a.id).into_iter().flatten().filter_map(|i| i.call.as_ref()).map(|c| &c.detail) {
+                if (d.kind == "edit" || d.kind == "write") && !d.path.is_empty() {
+                    paths.insert(format!("{}/{}", a.cwd, d.path));
+                    paths.insert(d.path.clone());
+                }
+            }
+        }
+        paths
+    }
+
+    /// Differs whenever `edited_paths` may: an agent came or went, moved folders, or took timeline items.
+    pub fn edits_stamp(&self) -> u64 {
+        let mut hasher = std::hash::DefaultHasher::new();
+        for a in &self.list {
+            (&a.id, &a.cwd, self.revision(&a.id)).hash(&mut hasher);
+        }
+        hasher.finish()
     }
 
     pub fn last_text(&self, id: &str) -> Option<&str> {
@@ -748,6 +776,32 @@ mod tests {
         assert!(a.last_edit("/elsewhere/b.rs").is_some());
         assert!(a.last_edit("/r/src/b.rs").is_none());
         assert!(a.last_edit("/rr/src/a.rs").is_none());
+    }
+
+    #[test]
+    fn the_edited_paths_are_those_last_edit_finds_an_agent_for() {
+        let mut a = Agents::default();
+        a.list.push(Summary { id: "a".into(), cwd: "/r".into(), ..Default::default() });
+        let edit = |path: &str| Item {
+            ts: 1,
+            call: Some(Call { detail: Detail { kind: "edit".into(), path: path.into(), ..Default::default() }, ..Default::default() }),
+            ..Default::default()
+        };
+        a.timelines.insert("a".into(), vec![edit("src/a.rs"), edit("/elsewhere/b.rs")]);
+        let paths = a.edited_paths();
+        for path in ["/r/src/a.rs", "/elsewhere/b.rs", "/r/src/b.rs", "/rr/src/a.rs"] {
+            assert_eq!(paths.contains(path), a.last_edit(path).is_some(), "{path}");
+        }
+    }
+
+    #[test]
+    fn the_edits_stamp_moves_when_an_agent_takes_items_or_comes() {
+        let mut a = Agents::default();
+        let first = a.edits_stamp();
+        a.list.push(Summary { id: "a".into(), cwd: "/r".into(), ..Default::default() });
+        let listed = a.edits_stamp();
+        a.revisions.insert("a".into(), 1);
+        assert!(first != listed && listed != a.edits_stamp());
     }
 
     #[test]

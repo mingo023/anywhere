@@ -1,8 +1,8 @@
 use super::catalog::Setting;
 use super::host::{service_line, uptime};
-use super::{field_box, row};
-use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
+use super::side::HostRow;
+use super::{HostsAct, Settings, SettingsEvent, field_box, row};
+use crate::desktop::chrome::Confirm;
 use crate::fleet::needs_update;
 use crate::spaces::Space;
 use crate::spaces::header::tile;
@@ -92,82 +92,86 @@ fn field(label: &'static str, input: &Entity<InputState>) -> Div {
     div().flex().flex_col().gap(px(5.)).child(div().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(label)).child(input)
 }
 
-impl Desktop {
-    fn host_rows(&mut self, cx: &mut Context<Self>) -> Div {
-        let connected = !self.terminals.link.is_down();
+impl Settings {
+    fn host_rows(&self, cx: &mut Context<Self>) -> Div {
+        let connected = !self.side.link_down;
         let here = host_row(
             0,
             tile(LOCAL_ICON, None, 28.),
             "This Mac".into(),
-            service_line(connected, self.settings.host.status.as_ref()),
+            service_line(connected, self.host.status.as_ref()),
             if connected { SUCCESS } else { TEXT_4 },
         )
         .child(div().flex_none().text_size(px(12.5)).text_color(TEXT_3).child("Here"));
-        if self.hosts_read_only() {
+        if self.side.hosts.read_only {
             // The hosts the desktop linked itself before pocketd did, named as it saved them.
-            let saved =
-                self.store.hosts.iter().enumerate().map(|(i, h)| {
-                    host_row(i + 1, tile("server", None, 28.), h["name"].as_str().unwrap_or_default().to_string(), UPDATE_SERVICE.into(), TEXT_4)
-                });
+            let saved = self
+                .side
+                .hosts
+                .saved
+                .iter()
+                .enumerate()
+                .map(|(i, name)| host_row(i + 1, tile("server", None, 28.), name.clone(), UPDATE_SERVICE.into(), TEXT_4));
             return div().flex().flex_col().child(here).children(saved.collect::<Vec<_>>());
         }
-        let order = self.space_order();
-        let remotes = self.fleet.hosts.list.clone().into_iter().enumerate().map(|(i, h)| {
-            let link = self.fleet.hosts.links.get(&h.id);
+        let remotes = self.side.hosts.rows.iter().enumerate().map(|(i, HostRow { host: h, link, shown, glyph, colour, install, notice })| {
+            let link = link.as_ref();
             let space = Space::Host(h.id.clone());
-            let shown = self.host_name(&h.id);
+            let shown = shown.clone();
             let open = matches!(link, Some(Link::Online { .. })).then(|| {
                 let space = space.clone();
                 super::action(("host-open", i), "Open")
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.switch_space(space.clone(), window, cx)))
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::Open(space.clone())))))
             });
-            let list = self.fleet.installs.get(&h.id);
-            let line = self.fleet.notices.get(&h.id).cloned().unwrap_or_else(|| host_line(&h, &shown, link));
+            let list = install.as_ref();
+            let line = notice.clone().unwrap_or_else(|| host_line(h, &shown, link));
             let not_running = matches!(link, Some(Link::Retrying(Failure::NotRunning) | Link::Failed(Failure::NotRunning)));
             let install = (not_running && list.is_none()).then(|| {
                 let id = h.id.clone();
-                super::action(("host-install", i), "Install").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.install_host(&id, false, cx)))
+                super::action(("host-install", i), "Install")
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::Install { id: id.clone(), update: false }))))
             });
-            let update = (list.is_none() && needs_update(link, channel::version())).then(|| {
-                let (id, name, windows) = (h.id.clone(), shown.clone(), h.windows);
-                super::action(("host-update", i), "Update").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    (this.confirm, this.overlay) = (Some(Confirm::UpdateHost { id: id.clone(), name: name.clone(), windows }), Some(Overlay::Confirm));
-                    cx.notify();
-                }))
-            });
-            let typing = self.fleet.password.host.as_ref() == Some(&h.id);
+            let update =
+                (list.is_none() && needs_update(link, channel::version())).then(|| {
+                    let (id, name, windows) = (h.id.clone(), shown.clone(), h.windows);
+                    super::action(("host-update", i), "Update").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        cx.emit(SettingsEvent::Ask(Confirm::UpdateHost { id: id.clone(), name: name.clone(), windows }))
+                    }))
+                });
+            let password_form = self.side.hosts.password.as_ref();
+            let typing = password_form.is_some_and(|p| p.host.as_ref() == Some(&h.id));
             // A reconnect while a password sign-in runs would spend sshd's penalty budget twice.
-            let reconnect = link.filter(|l| !matches!(l, Link::Connecting) && !(typing && self.fleet.password.signing_in)).map(|_| {
+            let reconnect = link.filter(|l| !matches!(l, Link::Connecting) && !(typing && password_form.is_some_and(|p| p.signing_in))).map(|_| {
                 let id = h.id.clone();
-                super::action(("host-reconnect", i), "Reconnect").on_click(cx.listener(move |this, _: &ClickEvent, _, _| this.retry_host(&id)))
+                super::action(("host-reconnect", i), "Reconnect")
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::Retry(id.clone())))))
             });
             let password = (link == Some(&Link::Failed(Failure::Auth)) && !typing).then(|| {
                 let id = h.id.clone();
                 super::action(("host-password", i), "Use password")
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_password(id.clone(), window, cx)))
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::OpenPassword(id.clone())))))
             });
+            let shown_name = shown.clone();
             let (id, name) = (h.id.clone(), shown.clone());
-            let remove =
-                ui::button(("host-remove", i), ui::Variant::Danger, None, "Remove").h(px(26.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    (this.confirm, this.overlay) = (Some(Confirm::RemoveHost { id: id.clone(), name: name.clone() }), Some(Overlay::Confirm));
-                    cx.notify();
-                }));
-            let row = host_row(i + 1, tile(self.space_glyph(&space), self.space_colour(&space, &order), 28.), shown, line, link_color(link))
+            let remove = ui::button(("host-remove", i), ui::Variant::Danger, None, "Remove")
+                .h(px(26.))
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Ask(Confirm::RemoveHost { id: id.clone(), name: name.clone() }))));
+            let row = host_row(i + 1, tile(glyph, *colour, 28.), shown, line, link_color(link))
                 .children(password)
                 .children(install)
                 .children(update)
                 .children(reconnect)
                 .children(open)
                 .child(remove);
-            let panel = list.cloned().map(|list| self.checklist_panel(i, &h.id, &list, cx));
+            let panel = list.cloned().map(|list| self.checklist_panel(i, &h.id, &shown_name, &list, cx));
             div().flex().flex_col().child(row).when(typing, |d| d.child(self.password_form(&h.name, cx))).children(panel)
         });
         div().flex().flex_col().child(here).children(remotes.collect::<Vec<_>>())
     }
 
     /// The install's steps under the host's row, with Retry once it failed and Done once pocketd runs.
-    fn checklist_panel(&mut self, i: usize, id: &str, list: &Checklist, cx: &mut Context<Self>) -> Div {
-        let name = self.host_name(id);
+    fn checklist_panel(&self, i: usize, id: &str, name: &str, list: &Checklist, cx: &mut Context<Self>) -> Div {
+        let name = name.to_string();
         let title = checklist_title(list, &name);
         let rows = list.rows().map(|(step, mark)| {
             let lead = match mark {
@@ -195,23 +199,21 @@ impl Desktop {
                 None,
                 Some(
                     super::action(("host-install-retry", i), "Retry")
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.install_host(&id, update, cx))),
+                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::Install { id: id.clone(), update })))),
                 ),
             ),
             Some(_) => {
                 let (space, done_id) = (Space::Host(id.clone()), id.clone());
                 let open = (!update).then(|| {
                     ui::button(("host-install-open", i), ui::Variant::Primary, None, format!("Open {name}")).h(px(26.)).on_click(cx.listener(
-                        move |this, _: &ClickEvent, window, cx| {
-                            this.fleet.installs.remove(&id);
-                            this.switch_space(space.clone(), window, cx);
+                        move |_, _: &ClickEvent, _, cx| {
+                            cx.emit(SettingsEvent::Hosts(HostsAct::DismissInstall(id.clone())));
+                            cx.emit(SettingsEvent::Hosts(HostsAct::Open(space.clone())));
                         },
                     ))
                 });
-                let done = super::action(("host-install-done", i), "Done").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.fleet.installs.remove(&done_id);
-                    cx.notify();
-                }));
+                let done = super::action(("host-install-done", i), "Done")
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::DismissInstall(done_id.clone())))));
                 (open, Some(done))
             }
             None => (None, None),
@@ -242,16 +244,16 @@ impl Desktop {
 
     /// Signs in once with a password to put the app's own key on a host that refused the user's keys.
     fn password_form(&self, name: &str, cx: &mut Context<Self>) -> Div {
-        let form = &self.fleet.password;
+        let Some(form) = &self.side.hosts.password else { return div() };
         let input = field_box().child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(&form.input).appearance(false).p_0().text_size(px(12.))));
         let cancel = ui::button("host-password-cancel", ui::Variant::Secondary, None, "Cancel")
             .h(px(26.))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_password(window, cx)));
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::ClosePassword))));
         let sign_in = match form.signing_in {
             true => ui::button("host-sign-in", ui::Variant::Primary, None, "Signing in\u{2026}").h(px(26.)).opacity(0.6),
             false => ui::button("host-sign-in", ui::Variant::Primary, None, "Sign in")
                 .h(px(26.))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.sign_in_with_password(window, cx))),
+                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::SignInWithPassword)))),
         };
         let note = format!("Used once to add a key for this app to {name}\u{2019}s ~/.ssh/authorized_keys. The password isn\u{2019}t saved.");
         let error = form.error.clone().map(|e| div().text_size(px(12.)).text_color(FAILED_TEXT).child(e));
@@ -269,14 +271,14 @@ impl Desktop {
     }
 
     fn add_host_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
-        let form = &self.fleet.form;
-        if self.hosts_read_only() {
+        let Some(form) = &self.side.hosts.form else { return div() };
+        if self.side.hosts.read_only {
             return row(setting.label, Some(UPDATE_SERVICE), div());
         }
         if !form.open {
             let add = ui::button("host-add", ui::Variant::Primary, Some("plus"), "Add host")
                 .h(px(28.))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_add_host(None, window, cx)));
+                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::OpenAdd))));
             return row(setting.label, setting.hint, add);
         }
         let chips = form.suggestions.iter().enumerate().map(|(i, alias)| {
@@ -295,7 +297,7 @@ impl Desktop {
                 .when(on, |d| d.bg(ACCENT).text_color(ON_TEXT))
                 .when(!on, |d| d.bg(FILL_2).text_color(TEXT_BODY).hover(|d| d.bg(FILL_4)))
                 .child(alias.clone())
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.suggest_host(picked.clone(), window, cx)))
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::Suggest(picked.clone())))))
         });
         let suggested = (!form.suggestions.is_empty()).then(|| {
             div()
@@ -315,10 +317,10 @@ impl Desktop {
                 .text_color(TEXT_2)
                 .child("Signs in with")
                 .child(div().font_family(MONO).text_color(TEXT).child(path.clone()))
-                .child(ui::icon_button_sized("host-key-clear", "x", 20., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.fleet.form.key_file = None;
-                    cx.notify();
-                }))),
+                .child(
+                    ui::icon_button_sized("host-key-clear", "x", 20., TEXT_3)
+                        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::ClearKeyFile)))),
+                ),
             None => div()
                 .flex()
                 .flex_wrap()
@@ -330,15 +332,16 @@ impl Desktop {
                 .child(
                     ui::link("host-key-file", "Use a key file\u{2026}")
                         .text_size(px(12.))
-                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.pick_key_file(window, cx))),
+                        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::PickKeyFile)))),
                 ),
         };
         let error = form.error.clone().map(|e| div().text_size(px(12.)).text_color(FAILED_TEXT).child(e));
         let cancel = ui::button("host-cancel", ui::Variant::Secondary, None, "Cancel")
             .h(px(28.))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_add_host(window, cx)));
-        let connect =
-            ui::button("host-connect", ui::Variant::Primary, None, "Connect").h(px(28.)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.add_host(cx)));
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::CloseAdd))));
+        let connect = ui::button("host-connect", ui::Variant::Primary, None, "Connect")
+            .h(px(28.))
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::Add))));
         let foot = div()
             .pt(px(2.))
             .flex()

@@ -1,9 +1,11 @@
+use crate::automations::Automations;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Column, HEADER, Screen, Side, drag_area};
+use crate::desktop::chrome::{Column, SEAM, Screen, seam_handle};
+use crate::inbox::Inbox;
 use git::Repo;
 use gpui_kit::*;
 use theme::*;
-use ui::{self, icon_button_sized};
+use workspace::tree::Axis;
 
 /// Whether the worktree has any changed file.
 pub(crate) fn has_changes(repo: Option<&Repo>) -> bool {
@@ -20,48 +22,89 @@ pub(crate) fn changes_badge(n: usize) -> Div {
     ui::count_badge(n).top(px(19.)).right(px(-4.)).bg(PRIMARY).text_color(ON_PRIMARY).shadow(vec![ui::ring(RAIL_CUTOUT, 2.)])
 }
 
+#[derive(PartialEq)]
+pub(crate) enum ColumnBody {
+    Inbox(Entity<Inbox>),
+    Automations(Entity<Automations>),
+}
+
+#[derive(PartialEq)]
+pub(crate) struct ColumnFrame {
+    pub(crate) width: f32,
+    pub(crate) seam: bool,
+    pub(crate) body: ColumnBody,
+}
+
+pub(crate) enum ColumnEvent {
+    Drag(f32),
+    Reset,
+}
+
+impl EventEmitter<ColumnEvent> for ColumnView {}
+
+#[derive(Default)]
+pub(crate) struct ColumnView {
+    frame: Option<ColumnFrame>,
+}
+
+impl ColumnView {
+    pub(crate) fn set(&mut self, frame: ColumnFrame, cx: &mut Context<Self>) {
+        if self.frame.as_ref() != Some(&frame) {
+            self.frame = Some(frame);
+            cx.notify();
+        }
+    }
+}
+
+impl Render for ColumnView {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let Some(f) = self.frame.as_ref() else { return div() };
+        let list = match &f.body {
+            ColumnBody::Automations(a) => a.update(cx, |a, cx| a.column(cx)).w(px(f.width)),
+            ColumnBody::Inbox(i) => div().h_full().flex_none().child(i.clone()),
+        };
+        if !f.seam {
+            return list;
+        }
+        let col = Column::Sessions;
+        let handle = seam_handle(("resize-column", col as usize), Axis::Row, |_: &mut Self, cx| cx.emit(ColumnEvent::Reset), cx).right(px(-SEAM / 2.)).on_drag(
+            col,
+            |_, _, _, cx| {
+                cx.stop_propagation();
+                cx.new(|_| EmptyView)
+            },
+        );
+        // Deferred so the handle straddles the edge: `column()` clips its children.
+        list.relative().child(deferred(handle)).on_drag_move(cx.listener(move |_, e: &DragMoveEvent<Column>, _, cx| {
+            if *e.drag(cx) == col {
+                cx.emit(ColumnEvent::Drag(f32::from(e.event.position.x - e.bounds.left())));
+            }
+        }))
+    }
+}
+
 impl Desktop {
     /// The inbox or Automations list left of the page.
-    pub(crate) fn column_view(&mut self, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn column_view(&mut self, cx: &mut Context<Self>) -> Entity<ColumnView> {
         let width = self.width(Column::Sessions, 348.);
-        let list = if self.screen == Screen::Automations {
-            self.automations_column(cx).w(px(width))
+        let body = if self.screen == Screen::Automations {
+            let side = self.automations_side(cx);
+            self.automations.update(cx, |a, _| a.set(side));
+            ColumnBody::Automations(self.automations.clone())
         } else {
-            div().h_full().flex_none().child(self.inbox_list(width, cx))
+            ColumnBody::Inbox(self.inbox_list(width, cx))
         };
-        self.resizable(list, Column::Sessions, cx)
+        let frame = ColumnFrame { width, seam: self.overlay.is_none(), body };
+        let view = self.sidebar.read(cx).column.clone();
+        view.update(cx, |v, cx| v.set(frame, cx));
+        view
     }
 
-    /// The Workspace panel's content: the side the rail picked, under the worktree's title.
-    pub(crate) fn workspace_column(&mut self, cx: &mut Context<Self>) -> Div {
-        let body = match self.side {
-            Side::Sessions => self.session_list(cx).into_any_element(),
-            Side::Explorer => self.explorer(cx).into_any_element(),
-            Side::Changes => self.changes_list(cx).into_any_element(),
-            Side::PullRequest => self.pr_side(cx).into_any_element(),
-        };
-        div()
-            .bg(SIDE)
-            .h_full()
-            .flex()
-            .flex_col()
-            .overflow_hidden()
-            .child(drag_area(self.column_header(cx)).h(px(HEADER)).flex_none().border_b(px(0.5)).border_color(SEPARATOR))
-            .child(body)
-    }
-
-    fn column_header(&self, cx: &mut Context<Self>) -> Div {
-        let title = self.place().map(|t| self.place_name(&t)).or_else(|| self.project.as_deref().map(|p| self.repo_name(p))).unwrap_or_default();
-        let add = icon_button_sized("column-add", "plus", 28., TEXT_2)
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_session(None, false, window, cx)));
-        div()
-            .pl(px(18.))
-            .pr(px(12.))
-            .flex()
-            .items_center()
-            .gap(px(4.))
-            .child(div().flex_1().text_size(px(16.)).font_weight(FontWeight::BOLD).truncate().child(title))
-            .child(add)
+    pub(crate) fn on_column_event(&mut self, _: &Entity<ColumnView>, ev: &ColumnEvent, _: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            ColumnEvent::Drag(width) => self.drag_edge(Column::Sessions, *width, cx),
+            ColumnEvent::Reset => self.reset_width(Column::Sessions, cx),
+        }
     }
 }
 

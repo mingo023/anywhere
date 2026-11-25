@@ -517,30 +517,30 @@ impl Render for Creates {
     }
 }
 
+/// `el`, rising into `agent`'s chat just opened from its create.
+pub(crate) fn arriving(creates: &Entity<Creates>, agent: &str, part: Part, el: Div, window: &mut Window, cx: &App) -> Div {
+    match creates.read(cx).arriving(agent, part, Instant::now(), cx.reduce_motion()) {
+        Some(r) => {
+            window.request_animation_frame();
+            r.on(el)
+        }
+        None => el,
+    }
+}
+
 impl Desktop {
     /// The create on screen, unless its worktree's terminal is.
     pub(crate) fn shown_create<'a>(&self, cx: &'a App) -> Option<&'a Create> {
-        if self.terminals.link.is_down() || self.screen != Screen::Sessions {
+        if self.terminals.read(cx).link.is_down() || self.screen != Screen::Sessions {
             return None;
         }
-        self.creates.read(cx).shown(&self.place()?)
+        self.creates.read(cx).shown(&self.place(cx)?)
     }
 
     /// Hands finished creates to their chats; says whether any went.
     pub(crate) fn hand_off_creates(&mut self, cx: &mut Context<Self>) -> bool {
         let agents = &self.agents;
         self.creates.update(cx, |c, _| c.hand_off(|a| agents.get(a).is_some(), Instant::now()))
-    }
-
-    /// `el`, rising into `agent`'s chat just opened from its create.
-    pub(crate) fn arriving(&self, agent: &str, part: Part, el: Div, window: &mut Window, cx: &App) -> Div {
-        match self.creates.read(cx).arriving(agent, part, Instant::now(), cx.reduce_motion()) {
-            Some(r) => {
-                window.request_animation_frame();
-                r.on(el)
-            }
-            None => el,
-        }
     }
 
     fn tick_create(&mut self, cx: &mut Context<Self>) {
@@ -581,7 +581,7 @@ impl Desktop {
 
     fn retry_create(&mut self, request: &str, cx: &mut Context<Self>) {
         let Some(spec) = self.creates.read(cx).list.iter().find(|c| c.request == request).map(|c| c.again()) else { return };
-        if let Some(sent) = self.send_create(spec.clone()) {
+        if let Some(sent) = self.send_create(spec.clone(), cx) {
             self.creates.update(cx, |cs, _| {
                 if let Some(c) = cs.get(request) {
                     *c = Create::new(sent, c.path.clone(), spec, Instant::now());
@@ -606,7 +606,7 @@ impl Desktop {
         let (request, tree, project, name) = (c.request.clone(), c.path.clone(), c.project().to_string(), c.name());
         let host = self.project_host_name(&project);
         let bar = self.page_bar(crate::spaces::crumbs(host, [self.repo_name(&project), name]), Vec::new(), div(), cx);
-        let has_terminal = self.workspaces.get(&tree).is_some_and(|w| w.tree.panes().iter().any(|p| !p.tabs.is_empty()));
+        let has_terminal = self.workspaces.read(cx).get(&tree).is_some_and(|w| w.tree.panes().iter().any(|p| !p.tabs.is_empty()));
         self.creates.update(cx, |c, _| c.show(request, has_terminal));
         div().flex_1().flex().flex_col().child(bar).child(self.creates.clone())
     }

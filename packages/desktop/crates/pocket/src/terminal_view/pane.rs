@@ -1,15 +1,20 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id as element_id;
 use crate::status;
+use crate::terminal_view::mouse::Reporting;
+use crate::terminal_view::scroll::WheelRows;
 use crate::terminal_view::surface::{self, Metrics};
-use crate::terminal_view::{cursor, scroll};
-use crate::terminals::sessions::Session;
+use crate::terminal_view::{Clicks, Drag, Slot, cursor, menu, scroll};
+use crate::terminals::sessions::{Grid, Session};
 use crate::util::basename;
 use agents::Summary;
 use daemon::Info;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
+use std::ops::Range;
+use std::time::Duration;
+use term::Scroll;
 use theme::*;
 use ui::icon_button_sized;
 
@@ -49,40 +54,137 @@ impl DismissedBanners {
     }
 }
 
-impl Desktop {
-    pub fn pane_label(&self, id: &str) -> String {
-        pane_label(self.summary(id), self.terminals.sessions.get(id))
+pub(crate) struct Look {
+    pub metrics: Metrics,
+    pub grid: Option<Grid>,
+    pub placeholder: &'static str,
+    pub exit: Option<i32>,
+    pub banner: Option<(&'static str, String)>,
+    pub focus: Option<FocusHandle>,
+    /// Typing reaches the terminal: it holds keyboard focus and no overlay is open.
+    pub keyboard: bool,
+    pub flashing: bool,
+    pub menu: Option<Point<Pixels>>,
+    pub observe_only: bool,
+    pub known: bool,
+    pub may_send: bool,
+    pub may_close: bool,
+    pub has_agent: bool,
+    pub clicks: Clicks,
+}
+
+pub(crate) enum PaneEvent {
+    Fit(u16, u16),
+    Focus,
+    Dropped(String),
+    Input(Vec<u8>),
+    Report(Vec<u8>),
+    OpenLink(String),
+    OpenMenu(Point<Pixels>),
+    CloseMenu,
+    Pick(menu::Item),
+    Banner(String, &'static str),
+}
+
+pub struct TerminalPane {
+    pub(super) id: String,
+    pub(super) look: Option<Look>,
+    /// The IME's uncommitted text, drawn at the cursor until it commits.
+    marked: Option<String>,
+    caret: Option<Bounds<Pixels>>,
+    pub(super) selection: Option<Drag>,
+    pub(super) reporting: Reporting,
+    pub(super) wheel: WheelRows,
+    pub(super) autoscroll: Option<Task<()>>,
+    pub(super) link_hover: bool,
+    blink: Option<Task<()>>,
+    blink_on: bool,
+    drawn: bool,
+}
+
+impl EventEmitter<PaneEvent> for TerminalPane {}
+
+impl TerminalPane {
+    fn new(id: String) -> Self {
+        Self {
+            id,
+            look: None,
+            marked: None,
+            caret: None,
+            selection: None,
+            reporting: Reporting::default(),
+            wheel: WheelRows::default(),
+            autoscroll: None,
+            link_hover: false,
+            blink: None,
+            blink_on: true,
+            drawn: false,
+        }
     }
 
-    /// The body of a terminal tab; only the focused pane's takes keys.
-    pub(crate) fn term_body(&mut self, id: &str, focused: bool, cx: &mut Context<Self>) -> Div {
-        div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .border_t(px(0.5))
-            .border_color(SEPARATOR)
-            .when(focused, |d| {
-                d.key_context(keys::CONTEXT)
-                    .track_focus(&self.terminal.focus)
-                    .on_key_down(cx.listener(Self::on_term_key))
-                    .on_action(cx.listener(Self::copy_selection))
-                    .on_action(cx.listener(Self::select_all))
-                    .on_action(cx.listener(Self::paste))
+    pub(super) fn set_caret(&mut self, at: Bounds<Pixels>) {
+        self.caret = Some(at);
+    }
+
+    fn set(&mut self, look: Look) {
+        self.look = Some(look);
+    }
+
+    pub(crate) fn forget_selection(&mut self) {
+        self.selection = None;
+    }
+
+    pub(crate) fn typed(&mut self) {
+        self.blink_on = true;
+        self.blink = None;
+    }
+
+    pub(super) fn scroll_to_bottom(&mut self, cx: &mut Context<Self>) {
+        if let Some(t) = self.look.as_ref().and_then(|l| l.grid.as_ref()) {
+            t.get().scroll(Scroll::Bottom);
+            cx.notify();
+        }
+    }
+
+    fn sync_blink(&mut self, on: bool, cx: &mut Context<Self>) {
+        if on == self.blink.is_some() {
+            return;
+        }
+        self.blink_on = true;
+        self.blink = on.then(|| {
+            cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor().timer(Duration::from_millis(530)).await;
+                    let ticked = this.update(cx, |p, cx| {
+                        if !std::mem::take(&mut p.drawn) {
+                            p.blink = None;
+                            p.blink_on = true;
+                            return false;
+                        }
+                        p.blink_on = !p.blink_on;
+                        cx.notify();
+                        true
+                    });
+                    if !ticked.unwrap_or(false) {
+                        break;
+                    }
+                }
             })
-            .child(self.pane(id, &Metrics::of(&self.store.terminal), cx))
+        });
     }
+}
 
-    pub fn pane(&mut self, id: &str, m: &Metrics, cx: &mut Context<Self>) -> Div {
-        let focused = self.terminal.focused.as_deref() == Some(id);
-        let exit = self.terminals.sessions.get(id).and_then(|s| s.exit);
-        let known = self.terminals.sessions.get(id).is_some();
-        let banner = self.summary(id).map(|a| (a.id.clone(), status::banner(a)));
-        let banner = banner.and_then(|(agent, banner)| Some((self.terminal.dismissed.shown(&agent, banner)?, agent))).map(|(text, agent)| {
+impl Render for TerminalPane {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.drawn = true;
+        let Some(look) = self.look.take() else { return div() };
+        let id = self.id.clone();
+        let m = &look.metrics;
+        let focused = look.focus.is_some();
+        let banner = look.banner.clone().map(|(text, agent)| {
             let close = icon_button_sized(element_id(format!("banner-close:{id}")), "x", 20., TEXT_3).rounded(px(5.)).on_click(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
-                    this.terminal.dismissed.dismiss(&agent, text);
+                move |_, _: &ClickEvent, _, cx| {
+                    cx.emit(PaneEvent::Banner(agent.clone(), text));
                     cx.notify();
                 },
             ));
@@ -102,43 +204,39 @@ impl Desktop {
                 .child(div().flex_1().min_w_0().child(text))
                 .child(close)
         });
-        let typing = focused && self.terminal.keyboard;
-        let blink_on = self.terminal.blink_on;
-        let (body, grid, scrolled, caret) = match self.terminals.sessions.get_mut(id).and_then(|s| s.term.as_mut()) {
+        let typing = focused && look.keyboard;
+        let mut frame_blink = false;
+        let (body, grid, scrolled, caret) = match look.grid.as_ref() {
             Some(t) => {
+                let mut t = t.get();
                 let (f, cells) = t.frame();
                 if typing {
-                    self.terminal.cursor_blinks = f.cursor_visible == 1 && f.cursor_blink == 1;
+                    frame_blink = f.cursor_visible == 1 && f.cursor_blink == 1;
                 }
-                let c = cursor::cursor(&f, typing, blink_on);
+                let c = cursor::cursor(&f, typing, self.blink_on);
                 let caret = (focused || c.is_some()).then_some(((f.cursor_x, f.cursor_y), f.rows, c));
                 (surface::screen(&f, cells, m), Some((f.cols, f.rows)), f.at_bottom == 0, caret)
             }
-            None => {
-                let offline = hosts::session::untag(id).0.is_some_and(|h| hosts::remote::connected(h).is_none());
-                let text = match (known, offline) {
-                    (true, true) => "Disconnected from the host.",
-                    (true, false) => "Connecting…",
-                    (false, _) => "This session is not running.",
-                };
-                (div().text_color(TEXT_3).child(text), None, false, None)
-            }
+            None => (div().text_color(TEXT_3).child(look.placeholder), None, false, None),
         };
+        self.sync_blink(cursor::blinks(frame_blink, cx.reduce_motion(), window.is_window_active()), cx);
         let caret = caret.map(|(at, rows, c)| {
-            let preedit = self.terminal.marked.clone().filter(|_| typing);
+            let preedit = self.marked.clone().filter(|_| typing);
             cursor::overlay(focused.then(|| cx.entity()), at, rows, c, preedit, m)
         });
-        let focus_id = id.to_string();
-        let drop_id = id.to_string();
         let screen = div()
             .relative()
             .size_full()
             .overflow_hidden()
-            .child(surface::surface(cx.entity(), id.to_string(), m, grid, focused.then(|| self.terminal.focus.clone())))
+            .child(surface::surface(cx.entity(), m, grid, look.focus.clone()))
             .child(body)
             .children(caret)
-            .children(scrolled.then(|| scroll::jump_pill(id, cx)))
-            .when(self.terminals.bell.flashing.as_deref() == Some(id), |d| d.child(div().absolute().inset_0().bg(FILL_4)));
+            .children(scrolled.then(|| scroll::jump_pill(&id, cx)))
+            .when(look.flashing, |d| d.child(div().absolute().inset_0().bg(FILL_4)));
+        let menu = look.menu.map(|at| Self::menu(at, &look, cx));
+        let exit = look.exit;
+        let (pad, font, size, line) = (m.pad, m.font.family.clone(), m.size, m.line);
+        self.look = Some(look);
         div()
             .flex_1()
             .min_w_0()
@@ -147,26 +245,141 @@ impl Desktop {
             .flex_col()
             .bg(SURFACE_SUNKEN)
             .overflow_hidden()
-            .on_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| this.focus_pane(focus_id.clone(), window, cx)))
+            .on_any_mouse_down(cx.listener(|_, _: &MouseDownEvent, _, cx| cx.emit(PaneEvent::Focus)))
             .drag_over::<ExternalPaths>(|s, _, _, _| s.shadow(vec![BoxShadow { inset: true, ..ui::ring(ACCENT, 1.5) }]))
-            .on_drop(cx.listener(move |this, paths: &ExternalPaths, window, cx| this.drop_paths(drop_id.clone(), paths, window, cx)))
+            .on_drop(cx.listener(|_, paths: &ExternalPaths, _, cx| cx.emit(PaneEvent::Dropped(term::dropped_paths(paths.paths())))))
             .children(banner)
-            .children(self.term_menu(id, cx))
+            .children(menu)
             .child(
                 div()
                     .flex_1()
                     .min_h_0()
-                    .py(px(m.pad / 2.))
-                    .px(px(m.pad))
-                    .font_family(m.font.family.clone())
-                    .text_size(px(m.size))
-                    .line_height(px(m.line))
+                    .py(px(pad / 2.))
+                    .px(px(pad))
+                    .font_family(font)
+                    .text_size(px(size))
+                    .line_height(px(line))
                     .text_color(TEXT)
                     .child(screen),
             )
             .children(exit.map(|c| {
                 div().px(px(24.)).pb(px(12.)).text_size(px(12.)).text_color(if c == 0 { TEXT_3 } else { FAILED }).child(format!("Process exited with code {c}"))
             }))
+    }
+}
+
+/// Typed text arrives here rather than as key-downs so IMEs (Telex, dead keys, CJK) can compose it.
+impl EntityInputHandler for TerminalPane {
+    fn text_for_range(&mut self, _: Range<usize>, _: &mut Option<Range<usize>>, _: &mut Window, _: &mut Context<Self>) -> Option<String> {
+        None
+    }
+
+    fn selected_text_range(&mut self, _: bool, _: &mut Window, _: &mut Context<Self>) -> Option<UTF16Selection> {
+        Some(UTF16Selection { range: 0..0, reversed: false })
+    }
+
+    fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
+        self.marked.as_ref().map(|text| 0..text.encode_utf16().count())
+    }
+
+    fn unmark_text(&mut self, _: &mut Window, _: &mut Context<Self>) {
+        self.marked = None;
+    }
+
+    fn replace_text_in_range(&mut self, _: Option<Range<usize>>, text: &str, _: &mut Window, cx: &mut Context<Self>) {
+        self.marked = None;
+        if self.look.as_ref().is_some_and(|l| l.keyboard) {
+            cx.emit(PaneEvent::Input(text.as_bytes().to_vec()));
+        }
+    }
+
+    fn replace_and_mark_text_in_range(&mut self, _: Option<Range<usize>>, text: &str, _: Option<Range<usize>>, _: &mut Window, cx: &mut Context<Self>) {
+        self.marked = (!text.is_empty() && self.look.as_ref().is_some_and(|l| l.keyboard)).then(|| text.to_string());
+        cx.notify();
+    }
+
+    fn bounds_for_range(&mut self, _: Range<usize>, _: Bounds<Pixels>, _: &mut Window, _: &mut Context<Self>) -> Option<Bounds<Pixels>> {
+        self.caret
+    }
+
+    fn character_index_for_point(&mut self, _: Point<Pixels>, _: &mut Window, _: &mut Context<Self>) -> Option<usize> {
+        None
+    }
+}
+
+impl Desktop {
+    pub fn pane_label(&self, id: &str, cx: &App) -> String {
+        pane_label(self.summary(id), self.terminals.read(cx).sessions.get(id))
+    }
+
+    /// The body of a terminal tab; only the focused pane's takes keys.
+    pub(crate) fn term_body(&mut self, id: &str, focused: bool, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .border_t(px(0.5))
+            .border_color(SEPARATOR)
+            .when(focused, |d| {
+                d.key_context(keys::CONTEXT)
+                    .track_focus(&self.terminal.focus)
+                    .on_key_down(cx.listener(Self::on_term_key))
+                    .on_action(cx.listener(Self::copy_selection))
+                    .on_action(cx.listener(Self::select_all))
+                    .on_action(cx.listener(Self::paste))
+            })
+            .child(self.terminal_pane(id, window, cx))
+    }
+
+    pub(crate) fn terminal_pane(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) -> Entity<TerminalPane> {
+        let view = self.terminal_entity(id, window, cx);
+        let focused = self.terminal.focused.as_deref() == Some(id);
+        let session = self.terminals.read(cx).sessions.get(id);
+        let (grid, exit, known) = (session.and_then(|s| s.term.clone()), session.and_then(|s| s.exit), session.is_some());
+        let placeholder = if grid.is_some() {
+            ""
+        } else {
+            let offline = hosts::session::untag(id).0.is_some_and(|h| hosts::remote::connected(h).is_none());
+            match (known, offline) {
+                (true, true) => "Disconnected from the host.",
+                (true, false) => "Connecting…",
+                (false, _) => "This session is not running.",
+            }
+        };
+        let banner = self.summary(id).map(|a| (a.id.clone(), status::banner(a)));
+        let banner = banner.and_then(|(agent, banner)| Some((self.terminal.dismissed.shown(&agent, banner)?, agent)));
+        let observe_only = self.agents.observe_only();
+        let look = Look {
+            metrics: Metrics::of(&self.store.terminal),
+            grid,
+            placeholder,
+            exit,
+            banner,
+            focus: focused.then(|| self.terminal.focus.clone()),
+            keyboard: self.terminal.focus.is_focused(window) && self.overlay.is_none(),
+            flashing: self.terminals.read(cx).bell.flashing.as_deref() == Some(id),
+            menu: self.terminal.menu.as_ref().filter(|(p, _)| p == id).map(|(_, at)| *at),
+            observe_only,
+            known,
+            may_send: self.terminals.read(cx).may_send(id, observe_only),
+            may_close: self.terminals.read(cx).may_close(id, observe_only),
+            has_agent: self.summary(id).is_some(),
+            clicks: Clicks::from(&self.store.terminal),
+        };
+        view.update(cx, |p, _| p.set(look));
+        view
+    }
+
+    fn terminal_entity(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) -> Entity<TerminalPane> {
+        if let Some(slot) = self.terminal.panes.get(id) {
+            return slot.view.clone();
+        }
+        let view = cx.new(|_| TerminalPane::new(id.to_string()));
+        let key = id.to_string();
+        let sub = cx.subscribe_in(&view, window, move |this, _, ev, window, cx| this.on_terminal_pane(&key, ev, window, cx));
+        self.terminal.panes.insert(id.to_string(), Slot { view: view.clone(), _sub: sub });
+        view
     }
 }
 

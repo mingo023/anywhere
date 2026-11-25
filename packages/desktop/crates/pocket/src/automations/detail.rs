@@ -1,15 +1,15 @@
-use super::Menu;
 use super::glyph::glyph;
 use super::logic::{Tab, created_by_line, next_run_text, run_age_text, session_text, strip, trigger_text, when_label};
 use super::parts::{card, crumbs, details, section};
-use crate::desktop::Desktop;
+use super::{Automations, AutomationsEvent, Menu};
+use crate::desktop::chrome::drag_area;
 use crate::desktop::chrome::pill;
-use crate::desktop::chrome::{Confirm, Overlay, drag_area};
-use crate::util::{initials, now_ms, tilde};
+use crate::util::{now_ms, tilde};
 use agents::automations::{Automation, Run, RunStatus, Schedule};
 use chrono::Local;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::sync::Arc;
 use theme::*;
 use ui::{self, Variant};
 
@@ -38,7 +38,7 @@ fn outcome(status: RunStatus) -> (&'static str, Token) {
 }
 
 /// The webhook's address in the font for addresses, with a button that copies it.
-fn webhook_url(url: &str, cx: &mut Context<Desktop>) -> Div {
+fn webhook_url(url: &str, cx: &mut Context<Automations>) -> Div {
     let copied = url.to_string();
     div().flex().items_center().gap(px(8.)).child(div().min_w_0().truncate().font_family(MONO).text_size(px(12.5)).child(url.to_string())).child(
         div()
@@ -56,27 +56,49 @@ fn webhook_url(url: &str, cx: &mut Context<Desktop>) -> Div {
     )
 }
 
-impl Desktop {
-    /// The right-hand page of the Automations screen.
-    pub(crate) fn automations_page(&mut self, cx: &mut Context<Self>) -> Div {
-        if self.automations.form.open {
-            return self.automation_editor_page(cx);
+impl Render for Automations {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.page(cx)
+    }
+}
+
+impl Automations {
+    fn selected_automation(&self) -> Option<Automation> {
+        self.selected.as_deref().and_then(|id| self.data.items.iter().find(|x| x.id == id)).or(self.data.items.first()).cloned()
+    }
+
+    fn shown_run(&self) -> Option<Run> {
+        super::logic::shown_run(self.selected_run.as_deref(), self.only.as_deref(), &self.data.runs).cloned()
+    }
+
+    pub(crate) fn bar(&mut self, cx: &mut Context<Self>) -> Option<(Div, Div)> {
+        if self.form.open {
+            return Some(self.editor_bar(cx));
         }
-        let a = &self.agents.automations;
-        if !a.loaded {
-            return div().flex_1();
+        if !self.data.loaded {
+            return None;
         }
-        match self.automations.tab {
-            Tab::Automations => {
-                let auto = self.automations.selected.as_deref().and_then(|id| a.items.iter().find(|x| x.id == id)).or(a.items.first()).cloned();
-                match auto {
-                    Some(auto) => self.automation_detail(auto, cx),
-                    None => self.automations_empty(cx),
-                }
-            }
-            Tab::Runs => match super::logic::shown_run(self.automations.selected_run.as_deref(), self.automations.only.as_deref(), &a.runs).cloned() {
-                Some(run) => self.run_detail(run, cx),
-                None => self.page_note("No runs yet."),
+        match self.tab {
+            Tab::Automations => self.selected_automation().map(|auto| self.automation_bar(&auto, cx)),
+            Tab::Runs => self.shown_run().map(|run| self.run_bar(&run, cx)),
+        }
+    }
+
+    fn page(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        if self.form.open {
+            return self.editor_body(cx).into_any_element();
+        }
+        if !self.data.loaded {
+            return div().flex_1().into_any_element();
+        }
+        match self.tab {
+            Tab::Automations => match self.selected_automation() {
+                Some(auto) => self.automation_body(auto, cx).into_any_element(),
+                None => self.automations_empty(cx).into_any_element(),
+            },
+            Tab::Runs => match self.shown_run() {
+                Some(run) => self.run_body(run, cx).into_any_element(),
+                None => self.page_note("No runs yet.").into_any_element(),
             },
         }
     }
@@ -99,19 +121,12 @@ impl Desktop {
             .child("No automations yet.")
             .child(
                 ui::button("automation-empty-new", Variant::Primary, Some("plus"), "New automation")
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.edit_automation(None, window, cx))),
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.edit(None, window, cx))),
             )
     }
 
-    pub(super) fn ask_delete_automation(&mut self, id: String, cx: &mut Context<Self>) {
-        self.close_menus(cx);
-        self.confirm = Some(Confirm::DeleteAutomation(id));
-        self.overlay = Some(Overlay::Confirm);
-        cx.notify();
-    }
-
     fn automation_menu(&self, id: &str, cx: &mut Context<Self>) -> Div {
-        let open = self.automations.menu == Some(Menu::More);
+        let open = self.menu == Some(Menu::More);
         let button = self.menu_toggle(ui::icon_button("automation-more", "more"), Menu::More, open, cx);
         let target = id.to_string();
         div().relative().child(button).when(open, |d| {
@@ -119,19 +134,14 @@ impl Desktop {
                 "automation-more-in",
                 self.popup("automation-more-menu", 180., cx).child(
                     ui::danger_row("automation-delete", "trash", "Delete")
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.ask_delete_automation(target.clone(), cx))),
+                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(AutomationsEvent::AskDelete(target.clone())))),
                 ),
             );
             d.child(ui::dropdown(32., menu))
         })
     }
 
-    fn automation_detail(&mut self, auto: Automation, cx: &mut Context<Self>) -> Div {
-        let now = now_ms();
-        let a = &self.agents.automations;
-        let project = self.repo_name(&auto.folder);
-        let created = created_by_line(&auto.created_by, self.agents.get(&auto.created_by).map(|s| s.title.as_str()));
-        let runs: Vec<Run> = a.runs_of(&auto.id).cloned().collect();
+    fn automation_bar(&mut self, auto: &Automation, cx: &mut Context<Self>) -> (Div, Div) {
         let (id, enabled) = (auto.id.clone(), auto.enabled);
         let toggle = div()
             .id("automation-enabled")
@@ -151,36 +161,43 @@ impl Desktop {
             .child(toggle)
             .child(
                 pill("automation-edit", Variant::Secondary, Some("pencil"), "Edit")
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.edit_automation(Some(&edit_id), window, cx))),
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.edit(Some(&edit_id), window, cx))),
             )
-            .child(pill("automation-run", Variant::Primary, Some("play"), "Run now").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.run_automation(&run_id);
-                cx.notify();
-            })))
+            .child(
+                pill("automation-run", Variant::Primary, Some("play"), "Run now")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.run_automation(&run_id, cx))),
+            )
             .child(self.automation_menu(&auto.id, cx));
-        let bar = self.detail_bar(crumbs("Automations", auto.name.clone()), right, cx);
+        (crumbs("Automations", auto.name.clone()), right)
+    }
 
-        let title =
-            div().flex().items_center().gap(px(14.)).child(ui::repo_tile(&self.project_mark(&auto.folder, initials(&project)), 40., false, None)).child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap(px(4.))
-                    .child(div().truncate().text_size(px(22.)).line_height(px(28.)).font_weight(FontWeight::BOLD).child(auto.name.clone()))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(7.))
-                            .text_size(px(13.))
-                            .text_color(TEXT_3)
-                            .child(provider_icon(&auto.provider, 14., TEXT_2))
-                            .child(format!("{} · {project}", self.agent_name(&auto.provider))),
-                    )
-                    .children(created.map(|line| div().truncate().text_size(px(12.5)).text_color(TEXT_3).child(line))),
-            );
+    fn automation_body(&mut self, auto: Automation, cx: &mut Context<Self>) -> Stateful<Div> {
+        let now = now_ms();
+        let a = Arc::clone(&self.data);
+        let project = self.repo_name(&auto.folder);
+        let created = created_by_line(&auto.created_by, self.side.titles.get(&auto.created_by).map(String::as_str));
+        let runs: Vec<Run> = a.runs_of(&auto.id).cloned().collect();
+
+        let title = div().flex().items_center().gap(px(14.)).child(ui::repo_tile(&self.repo_mark(&auto.folder), 40., false, None)).child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .child(div().truncate().text_size(px(22.)).line_height(px(28.)).font_weight(FontWeight::BOLD).child(auto.name.clone()))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(7.))
+                        .text_size(px(13.))
+                        .text_color(TEXT_3)
+                        .child(provider_icon(&auto.provider, 14., TEXT_2))
+                        .child(format!("{} · {project}", self.agent_name(&auto.provider))),
+                )
+                .children(created.map(|line| div().truncate().text_size(px(12.5)).text_color(TEXT_3).child(line))),
+        );
 
         let waiting = a.waiting().find(|r| r.automation_id == auto.id).cloned().map(|run| self.waiting_card(&run, &auto.name, cx));
         let next = next_run_text(&auto, now, &Local);
@@ -193,7 +210,7 @@ impl Desktop {
         if !auto.bound.is_empty() {
             rows.push((
                 "Posts into",
-                div().truncate().child(session_text(self.agents.get(&auto.bound).map(|s| s.title.as_str())).to_string()).into_any_element(),
+                div().truncate().child(session_text(self.side.titles.get(&auto.bound).map(String::as_str)).to_string()).into_any_element(),
             ));
         }
         if !auto.webhook_url.is_empty() {
@@ -208,7 +225,7 @@ impl Desktop {
             .into_iter()
             .chain(waiting.map(IntoElement::into_any_element))
             .chain([section("Details", facts).into_any_element(), recent.into_any_element()]);
-        div().flex_1().min_w_0().flex().flex_col().child(bar).child(self.detail_body("automation-detail", 18., body))
+        self.detail_body("automation-detail", 18., body)
     }
 
     fn waiting_card(&self, run: &Run, name: &str, cx: &mut Context<Self>) -> Div {
@@ -228,8 +245,8 @@ impl Desktop {
             .text_size(px(13.))
             .font_weight(FontWeight::SEMIBOLD)
             .child("Answer")
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.answer_run(&run, window, cx);
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.answer_run(&run, cx);
             }));
         card()
             .p(px(12.))
@@ -266,7 +283,7 @@ impl Desktop {
             .child(div().flex().gap(px(3.)).children(bars))
             .child(div().ml_auto().child(ui::link("automation-all-runs", "All runs").text_size(px(12.)).text_color(ACCENT_LINK).px(px(4.)).on_click(
                 cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.automations.tab = Tab::Runs;
+                    this.tab = Tab::Runs;
                     this.set_only(Some(id.clone()), cx);
                 }),
             )));
@@ -302,7 +319,7 @@ impl Desktop {
                 .underline()
                 .child("Open")
                 .child(icon("external", 12., ACCENT_LINK))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_run_session(&agent, window, cx)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_run_session(&agent, cx)))
         });
         let first = div()
             .flex()

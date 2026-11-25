@@ -432,8 +432,8 @@ impl Board {
 }
 
 impl Desktop {
-    pub(crate) fn board_projects(&self) -> Vec<String> {
-        self.store.without_scratch(self.projects())
+    pub(crate) fn board_projects(&self, cx: &App) -> Vec<String> {
+        self.store.without_scratch(self.projects(cx))
     }
 
     pub(crate) fn open_board(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -609,7 +609,7 @@ impl Desktop {
     }
 
     fn ask_delete_ticket(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.confirm = Some(Confirm::DeleteTicket(id));
+        self.hold_confirm(Confirm::DeleteTicket(id), cx);
         self.open(Overlay::Confirm, window, cx);
     }
 
@@ -690,7 +690,7 @@ impl Desktop {
                 (t.id.clone(), extra)
             })
             .collect();
-        let pickable = self.board_projects();
+        let pickable = self.board_projects(cx);
         let projects = folders
             .into_iter()
             .chain(pickable.iter().cloned())

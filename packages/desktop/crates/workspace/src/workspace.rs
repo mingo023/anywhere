@@ -1,4 +1,7 @@
 pub mod tree;
+mod workspaces;
+
+pub use workspaces::Workspaces;
 
 use serde::{Deserialize, Serialize};
 use tree::{Edge, Node, Pane, PaneId, Rect, Tree};

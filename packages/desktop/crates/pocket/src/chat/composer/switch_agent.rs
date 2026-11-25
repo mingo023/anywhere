@@ -1,6 +1,6 @@
 use super::close_menu;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
+use crate::desktop::chrome::Confirm;
 use crate::terminals::link;
 use agents::Summary;
 use gpui_kit::*;
@@ -47,8 +47,8 @@ fn switching(conversation: bool, busy: bool, tokens_used: u64) -> Switch {
 }
 
 impl Desktop {
-    fn chat_conversation(&self, agent: &Summary) -> String {
-        self.chats.views.get(&agent.id).map_or_else(String::new, |v| chat::handoff::transcript(&v.session.transcript, &self.agent_name(&agent.provider)))
+    fn chat_conversation(&self, agent: &Summary, cx: &App) -> String {
+        self.chats.views.get(&agent.id).map_or_else(String::new, |v| chat::handoff::transcript(&v.read(cx).transcript(), &self.agent_name(&agent.provider)))
     }
 
     /// A chat can't change provider, so a model from another one opens a new chat: asked which kind if there's a
@@ -56,11 +56,10 @@ impl Desktop {
     pub(super) fn switch_chat_agent(&mut self, id: &str, provider: String, model: String, cx: &mut Context<Self>) {
         close_menu(self, cx);
         let Some(agent) = self.agents.get(id) else { return };
-        let switch = switching(!self.chat_conversation(agent).is_empty(), self.chat_busy(agent), agent.tokens_used);
+        let switch = switching(!self.chat_conversation(agent, cx).is_empty(), self.chat_busy(agent, cx), agent.tokens_used);
         let terminal = agent.terminal_id.clone();
         if switch == Switch::Ask {
-            self.confirm = Some(Confirm::SwitchAgent { agent: id.to_string(), provider, model });
-            self.overlay = Some(Overlay::Confirm);
+            self.ask(Confirm::SwitchAgent { agent: id.to_string(), provider, model }, cx);
             return cx.notify();
         }
         if self.open_switched_chat(id, &provider, &model, false, cx) && switch == Switch::Replace {
@@ -70,24 +69,24 @@ impl Desktop {
 
     /// Opens the new chat beside `id`'s, `fork` telling it the conversation so far. Whether the create was sent.
     pub(crate) fn open_switched_chat(&mut self, id: &str, provider: &str, model: &str, fork: bool, cx: &mut Context<Self>) -> bool {
-        if self.terminals.link.stale().is_some() {
-            self.error = Some(link::UPDATING.into());
+        if self.terminals.read(cx).link.stale().is_some() {
+            self.fail(link::UPDATING, cx);
             cx.notify();
             return false;
         }
-        let projects = self.projects();
+        let projects = self.projects(cx);
         let Some(s) = self.agents.get(id) else { return false };
         let Some(project) = self.agent_project(s, &s.cwd, &projects) else {
-            self.error = Some("Couldn't find this chat's project".into());
+            self.fail("Couldn't find this chat's project", cx);
             cx.notify();
             return false;
         };
-        let prompt = if fork { chat::handoff::prompt(&self.chat_conversation(s), &self.agent_name(&s.provider)) } else { String::new() };
+        let prompt = if fork { chat::handoff::prompt(&self.chat_conversation(s, cx), &self.agent_name(&s.provider)) } else { String::new() };
         let spec = switched_spec(s, project, (provider, model), &prompt, &self.store.agents, &self.agents, &self.launch_efforts(provider, model));
-        let request = self.send_create(spec);
+        let request = self.send_create(spec, cx);
         let sent = request.is_some();
         if let Some(request) = request {
-            self.terminals.tab_chats.insert(request, Place::Pane(None));
+            self.terminals.update(cx, |t, _| _ = t.tab_chats.insert(request, Place::Pane(None)));
             self.model_used(provider, model, cx);
         }
         cx.notify();

@@ -2,6 +2,7 @@ mod email;
 mod switch;
 mod usage;
 
+use super::ComposerState;
 use crate::accounts::{self, Host, Tone};
 use crate::composer::Menu;
 use crate::desktop::Desktop;
@@ -37,20 +38,72 @@ fn slide(id: &'static str, from: f32, page: Div) -> AnyElement {
     .into_any_element()
 }
 
+pub(crate) struct Chip {
+    agent: Summary,
+    host: Host,
+    account: Account,
+    switch: bool,
+    checking: bool,
+    machine: String,
+    more: usize,
+    rows: Vec<Account>,
+}
+
+pub(crate) enum Ask {
+    Check(Host),
+    Switch { host: Host, provider: String, id: String, session: String },
+    Manage,
+}
+
 impl Desktop {
     /// The chat agent's account with its fuller limit, opening its usage and, while its machine has others, the accounts it can switch to.
-    pub(super) fn chat_account_chip(&self, agent: &Summary, cx: &mut Context<Self>) -> Option<Div> {
+    pub(super) fn chat_account_chip(&self, agent: &Summary, open: bool) -> Option<Chip> {
         if !agent.chat_only {
             return None;
         }
         let host: Host = hosts::session::untag(&agent.id).0.map(str::to_string);
         let (a, switch) = self.accounts.chip(&host, &agent.provider, agent.shown_account())?;
+        let list = self.accounts.list(&host);
+        let more = accounts::choices(list, &agent.provider, &[]).filter(|x| x.id != a.id && x.signed_in).count();
+        // The account it runs on stays listed while it switches away, as picking it calls the switch off.
+        let running = if agent.account.is_empty() { accounts::BUILT_IN } else { &agent.account };
+        let rows = if open { accounts::choices(list, &agent.provider, &[&a.id, running]).cloned().collect() } else { Vec::new() };
+        Some(Chip {
+            agent: agent.clone(),
+            checking: self.accounts.checking.contains(&host),
+            machine: self.machine_name(&host),
+            account: a.clone(),
+            host,
+            switch,
+            more,
+            rows,
+        })
+    }
+
+    pub(super) fn on_account_ask(&mut self, ask: &Ask, window: &mut Window, cx: &mut Context<Self>) {
+        match ask {
+            Ask::Check(host) => self.check_accounts(host.clone(), true, cx),
+            Ask::Switch { host, provider, id, session } => {
+                self.account_op(host.clone(), serde_json::json!({"op": "accounts.switch", "key": provider, "id": id, "text": session}), cx)
+            }
+            Ask::Manage => {
+                self.open_settings(&crate::actions::OpenSettings, window, cx);
+                self.show_section(crate::settings::Section::Accounts, cx);
+            }
+        }
+        cx.notify();
+    }
+}
+
+impl ComposerState {
+    pub(super) fn account_chip(&self, chip: &Chip, cx: &mut Context<Self>) -> Div {
+        let (agent, a) = (&chip.agent, &chip.account);
         let meter = accounts::peak(a).map(|p| {
             let pct = div().text_color(ink(accounts::tone(p))).font_weight(FontWeight::MEDIUM).child(format!("{p}%"));
             div().flex().items_center().gap(px(5.)).child(bar(p, 22., 4.)).child(pct)
         });
-        let open = matches!(self.chats.composer.draft.menu, Some(Menu::Usage { .. } | Menu::Switch));
-        let chip = ui::popover_trigger(
+        let open = matches!(self.draft.menu, Some(Menu::Usage { .. } | Menu::Switch));
+        let trigger = ui::popover_trigger(
             div()
                 .id("chat-account")
                 .h(px(22.))
@@ -67,24 +120,23 @@ impl Desktop {
                 .children(meter),
             open,
             cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.chats.composer.draft.toggle_account();
+                this.draft.toggle_account();
                 cx.notify();
             }),
         );
-        let menu = open.then(|| self.chat_account_menu(agent, &host, a, switch, cx));
-        Some(div().relative().flex_none().child(chip).children(menu))
+        let menu = open.then(|| self.account_menu(chip, cx));
+        div().relative().flex_none().child(trigger).children(menu)
     }
 
-    fn chat_account_menu(&self, agent: &Summary, host: &Host, a: &Account, switch: bool, cx: &mut Context<Self>) -> Div {
-        let page = match self.chats.composer.draft.menu {
-            Some(Menu::Switch) if switch => slide("chat-account-switch-in", SLIDE, self.chat_account_switch(agent, host, a, cx)),
-            Some(Menu::Usage { back: true }) => slide("chat-account-usage-back", -SLIDE, self.chat_account_usage(agent, host, a, switch, cx)),
-            _ => self.chat_account_usage(agent, host, a, switch, cx).into_any_element(),
+    fn account_menu(&self, chip: &Chip, cx: &mut Context<Self>) -> Div {
+        let page = match self.draft.menu {
+            Some(Menu::Switch) if chip.switch => slide("chat-account-switch-in", SLIDE, self.account_switch(chip, cx)),
+            Some(Menu::Usage { back: true }) => slide("chat-account-usage-back", -SLIDE, self.account_usage(chip, cx)),
+            _ => self.account_usage(chip, cx).into_any_element(),
         };
         let pop = ui::pop(div().id("chat-account-menu")).w(px(WIDTH)).overflow_hidden().occlude().child(page).on_mouse_down_out(cx.listener(
             |this, _: &MouseDownEvent, _, cx| {
-                this.chats.composer.draft.menu = None;
-                cx.notify();
+                this.close_menu(cx);
             },
         ));
         // It opens upward, as the composer sits at the bottom.
@@ -92,9 +144,10 @@ impl Desktop {
             deferred(anchored().anchor(Anchor::BottomLeft).snap_to_window_with_margin(px(8.)).child(ui::menu_in("chat-account-menu-in", pop))).with_priority(1),
         )
     }
+}
 
-    pub(crate) fn escape_composer_menu(&mut self) -> bool {
-        let draft = &mut self.chats.composer.draft;
-        draft.escape_account() || draft.escape_model()
+impl Desktop {
+    pub(crate) fn escape_composer_menu(&mut self, cx: &mut App) -> bool {
+        self.chats.composer.update(cx, |c, _| c.draft.escape_account() || c.draft.escape_model())
     }
 }

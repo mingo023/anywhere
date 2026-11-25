@@ -1,6 +1,6 @@
+use super::Automations;
 use super::glyph::glyph;
 use super::logic::{last_label, trigger_line};
-use crate::desktop::Desktop;
 use crate::util::now_ms;
 use agents::automations::RunStatus;
 use chrono::Local;
@@ -8,14 +8,14 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 
-impl Desktop {
+impl Automations {
     /// Automation `i` as a row of the list: 80 px tall, 2 of gap.
     pub(super) fn automation_row(&self, i: usize, cx: &mut Context<Self>) -> AnyElement {
-        let a = &self.agents.automations;
+        let a = &self.data;
         let Some(auto) = a.items.get(i) else { return Empty.into_any_element() };
         let now = now_ms();
-        let drafting = self.automations.form.open && self.automations.form.v.id.is_none();
-        let selected = !drafting && self.automations.selected.as_deref() == Some(auto.id.as_str());
+        let drafting = self.form.open && self.form.v.id.is_none();
+        let selected = !drafting && self.selected.as_deref() == Some(auto.id.as_str());
         let last = a.last_run(&auto.id);
         let status = if !auto.enabled {
             ui::tag("Paused")

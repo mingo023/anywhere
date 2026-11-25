@@ -1,10 +1,8 @@
-use super::{WIDTH, bar};
-use crate::accounts::{self, Host};
+use super::{Ask, Chip, WIDTH, bar};
+use crate::accounts;
+use crate::chat::composer::{ChatBoxEvent, ComposerState};
 use crate::composer::Menu;
-use crate::desktop::Desktop;
 use crate::util::now_ms;
-use agents::Summary;
-use daemon::Account;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -28,20 +26,20 @@ fn block(title: &'static str, w: &daemon::Window, now: i64) -> Div {
         .child(div().flex().justify_between().text_size(px(11.5)).text_color(TEXT_3).child(format!("{}% remaining", 100 - percent)).children(resets))
 }
 
-impl Desktop {
+impl ComposerState {
     /// The account in use and its two limits, then the way to the others while there are any.
-    pub(super) fn chat_account_usage(&self, agent: &Summary, host: &Host, a: &Account, switch: bool, cx: &mut Context<Self>) -> Div {
+    pub(super) fn account_usage(&self, chip: &Chip, cx: &mut Context<Self>) -> Div {
+        let Chip { agent, host, account: a, switch, checking, more, .. } = chip;
         let now = now_ms();
-        let checking = self.accounts.checking.contains(host);
-        let reload = if checking {
+        let reload = if *checking {
             div().size(px(26.)).flex().items_center().justify_center().child(spinner("chat-account-checking", 13., TEXT_3)).into_any_element()
         } else {
             let host = host.clone();
             ui::icon_button_sized("chat-account-reload", "reload", 26., TEXT_3)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.check_accounts(host.clone(), true, cx)))
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(ChatBoxEvent::Account(Ask::Check(host.clone())))))
                 .into_any_element()
         };
-        let checked = accounts::checked(checking, a.usage.as_ref().map_or(0, |u| u.at), now);
+        let checked = accounts::checked(*checking, a.usage.as_ref().map_or(0, |u| u.at), now);
         let head = div()
             .px(px(14.))
             .pt(px(14.))
@@ -77,7 +75,7 @@ impl Desktop {
             .text_size(px(12.5))
             .text_color(TEXT_2)
             .child(div().flex_none().child(label))
-            .when(!a.email.is_empty(), |d| d.child(self.chat_account_email(a, 12.5, TEXT_2, cx)));
+            .when(!a.email.is_empty(), |d| d.child(self.account_email(a, 12.5, TEXT_2, cx)));
         let windows = a
             .usage
             .as_ref()
@@ -89,8 +87,6 @@ impl Desktop {
         if !switch {
             return page.child(hero.pb(px(12.)));
         }
-        let list = self.accounts.list(host);
-        let more = accounts::choices(list, &agent.provider, &[]).filter(|x| x.id != a.id && x.signed_in).count();
         let next = div()
             .id("chat-account-more")
             .mx(px(12.))
@@ -114,7 +110,7 @@ impl Desktop {
             .child(div().font_weight(FontWeight::NORMAL).text_size(px(12.)).text_color(TEXT_3).child(format!("{more} more")))
             .child(icon("chevron-right", 12., TEXT_4))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.chats.composer.draft.menu = Some(Menu::Switch);
+                this.draft.menu = Some(Menu::Switch);
                 cx.notify();
             }));
         page.child(hero).child(next)

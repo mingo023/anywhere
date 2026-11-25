@@ -1,5 +1,5 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
+use crate::desktop::chrome::Confirm;
 use agents::locals::{self, Local};
 use gpui_kit::*;
 
@@ -14,8 +14,8 @@ impl Desktop {
     }
 
     /// Adds a Local to `project`, named after the first free number, and returns its id.
-    pub(crate) fn new_local(&mut self, project: &str) -> String {
-        let main = self.tree_of(project).map(|t| self.local_name(&t));
+    pub(crate) fn new_local(&mut self, project: &str, cx: &App) -> String {
+        let main = self.tree_of(project, cx).map(|t| self.local_name(&t));
         let taken: Vec<String> = self.agents.locals_in(project).map(|l| l.name.clone()).chain(main).collect();
         let local = Local { id: locals::new_id(), project: project.to_string(), name: locals::next_name(taken.iter().map(String::as_str)) };
         self.outbox.local.local_create(&local);
@@ -24,19 +24,18 @@ impl Desktop {
     }
 
     pub(crate) fn ask_delete_local(&mut self, id: String, cx: &mut Context<Self>) {
-        self.confirm = Some(Confirm::DeleteLocal(id));
-        self.overlay = Some(Overlay::Confirm);
+        self.ask(Confirm::DeleteLocal(id), cx);
         cx.notify();
     }
 
     /// Closes its terminals; their files belong to the project and stay.
     pub(crate) fn delete_local(&mut self, id: &str, cx: &mut Context<Self>) {
-        for term in self.tree_terminals(id) {
+        for term in self.tree_terminals(id, cx) {
             self.close_pane(&term, cx);
         }
         self.outbox.local.local_delete(id);
         self.agents.remove_local(id);
-        self.workspaces.remove(id);
+        self.workspaces.update(cx, |w, _| w.remove(id));
         self.store.layouts.remove(id);
         self.store.sections.unpin_tree(id);
         self.leave_gone_local(cx);

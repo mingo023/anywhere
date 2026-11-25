@@ -1,6 +1,6 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay, Screen, Side, state};
-use crate::explorer::{self, preview};
+use crate::desktop::chrome::{Confirm, Screen, Side, state};
+use crate::explorer::preview;
 use crate::fs::fs_for;
 use crate::git_ui::diff;
 use crate::status::{self, Card, Status};
@@ -10,8 +10,10 @@ use agents::Summary;
 use agents::locals::is_local;
 use git::Repo;
 use gpui_kit::*;
+use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::Arc;
 use std::time::Instant;
 use store::prefs::sidebar::SessionSort;
 use theme::*;
@@ -58,6 +60,8 @@ fn without_child_only(trees: Vec<git::Worktree>, terminals: &[Placed]) -> Vec<gi
 pub(crate) struct Placement {
     projects: Vec<String>,
     cards: HashMap<String, Vec<Card>>,
+    /// Where each folder a row asked about sits, as every row asks again for each card in its project.
+    trees: RefCell<HashMap<String, Option<String>>>,
 }
 
 /// Each project's cards, sorted as one project's are.
@@ -73,19 +77,19 @@ fn by_project<'a>(placed: impl Iterator<Item = (&'a String, Card)>, by: SessionS
 }
 
 impl Desktop {
-    pub fn projects(&self) -> Vec<String> {
-        if let Some(placed) = self.sidebar.placement.borrow().as_ref() {
+    pub fn projects(&self, cx: &App) -> Vec<String> {
+        if let Some(placed) = self.sidebar.read(cx).placement.borrow().as_ref() {
             return placed.projects.clone();
         }
         let placeable = self.git_done > 0 || project::all_listed(&self.store.projects, &self.worktrees, readable);
-        let hidden = hidden_terminals(&self.agents.list, &self.terminals.sessions.items);
-        let sessions = if placeable { self.terminals.sessions.items.as_slice() } else { &[] };
+        let hidden = hidden_terminals(&self.agents.list, &self.terminals.read(cx).sessions.items);
+        let sessions = if placeable { self.terminals.read(cx).sessions.items.as_slice() } else { &[] };
         project::projects(&self.store.projects, sessions.iter().filter(|s| !hidden.contains(s.info.id.as_str())).map(|s| s.info.cwd.as_str()), &self.worktrees)
     }
 
-    fn placed_terminals(&self) -> Vec<Placed> {
-        let hidden = hidden_terminals(&self.agents.list, &self.terminals.sessions.items);
-        self.terminals.sessions.items.iter().map(|s| (s.info.id.clone(), self.place_of(&s.info), hidden.contains(s.info.id.as_str()))).collect()
+    fn placed_terminals(&self, cx: &App) -> Vec<Placed> {
+        let hidden = hidden_terminals(&self.agents.list, &self.terminals.read(cx).sessions.items);
+        self.terminals.read(cx).sessions.items.iter().map(|s| (s.info.id.clone(), self.place_of(&s.info, cx), hidden.contains(s.info.id.as_str()))).collect()
     }
 
     /// Lists each saved project's worktrees on its own, so the sidebar fills in as each lands instead of after the first `refresh_git`.
@@ -117,7 +121,7 @@ impl Desktop {
         if self.git_done == 0 && !project::all_listed(&self.store.projects, &self.worktrees, readable) {
             return;
         }
-        let cwds: Vec<&str> = self.terminals.sessions.items.iter().map(|s| s.info.cwd.as_str()).filter(|c| readable(c)).collect();
+        let cwds: Vec<&str> = self.terminals.read(cx).sessions.items.iter().map(|s| s.info.cwd.as_str()).filter(|c| readable(c)).collect();
         for cwd in self.tree_lookups.ask(cwds, &self.store.projects, &self.worktrees) {
             let task = cx.background_executor().spawn(async move { git::worktrees(&hosts::runner_for(&cwd), &cwd) });
             cx.spawn(async move |this, cx| {
@@ -152,12 +156,12 @@ impl Desktop {
     }
 
     /// The worktrees `p` lists; `None` until git has listed them.
-    pub fn listed_trees(&self, p: &str) -> Option<Vec<git::Worktree>> {
+    pub fn listed_trees(&self, p: &str, cx: &App) -> Option<Vec<git::Worktree>> {
         let trees = self.worktrees.get(p).map(|w| project::listed(w, |t| self.store.lists(t)))?;
         if status::hidden_children(&self.agents.list).is_empty() {
             return Some(trees);
         }
-        Some(without_child_only(trees, &self.placed_terminals()))
+        Some(without_child_only(trees, &self.placed_terminals(cx)))
     }
 
     pub(crate) fn untracked_trees(&self, p: &str) -> Vec<git::Worktree> {
@@ -173,35 +177,44 @@ impl Desktop {
         cx.notify();
     }
 
-    pub fn tree_of(&self, cwd: &str) -> Option<String> {
-        project::tree_of(cwd, &self.worktrees, |t| self.store.lists(t), || self.projects())
+    pub fn tree_of(&self, cwd: &str, cx: &App) -> Option<String> {
+        let find = || project::tree_of(cwd, &self.worktrees, |t| self.store.lists(t), || self.projects(cx));
+        let sidebar = self.sidebar.read(cx);
+        let placement = sidebar.placement.borrow();
+        let Some(placed) = placement.as_ref() else { return find() };
+        if let Some(tree) = placed.trees.borrow().get(cwd) {
+            return tree.clone();
+        }
+        let tree = find();
+        placed.trees.borrow_mut().insert(cwd.to_string(), tree.clone());
+        tree
     }
 
-    pub fn cards(&self, project: &str) -> Vec<Card> {
-        if let Some(placed) = self.sidebar.placement.borrow().as_ref() {
+    pub fn cards(&self, project: &str, cx: &App) -> Vec<Card> {
+        if let Some(placed) = self.sidebar.read(cx).placement.borrow().as_ref() {
             return placed.cards.get(project).cloned().unwrap_or_default();
         }
-        let projects = self.projects();
-        let mut out: Vec<Card> = self.placed_cards(&projects).filter(|(p, _)| *p == project).map(|(_, c)| c).collect();
+        let projects = self.projects(cx);
+        let mut out: Vec<Card> = self.placed_cards(&projects, cx).filter(|(p, _)| *p == project).map(|(_, c)| c).collect();
         status::sort(&mut out, self.store.sidebar.sort);
         out
     }
 
     /// Each listed session's card, with the project it sits in.
-    fn placed_cards<'a>(&'a self, projects: &'a [String]) -> impl Iterator<Item = (&'a String, Card)> + 'a {
-        status::listed(&self.agents.list).into_iter().filter_map(|a| Some((a, self.terminals.sessions.get(&a.terminal_id)?))).filter_map(|(a, s)| {
+    fn placed_cards<'a>(&'a self, projects: &'a [String], cx: &'a App) -> impl Iterator<Item = (&'a String, Card)> + 'a {
+        status::listed(&self.agents.list).into_iter().filter_map(|a| Some((a, self.terminals.read(cx).sessions.get(&a.terminal_id)?))).filter_map(|(a, s)| {
             Some((self.agent_project(a, &s.info.cwd, projects)?, status::Card { local: s.info.local.clone(), ..status::card(a, &s.info.cwd) }))
         })
     }
 
     /// Runs `f` with `projects` and `cards` answered from one pass over the sessions. Every sidebar row asks for its
     /// project's cards, and placing each session again per row took most of a frame with 60 sessions.
-    pub(crate) fn placed<R>(&self, f: impl FnOnce() -> R) -> R {
-        let projects = self.projects();
-        let cards = by_project(self.placed_cards(&projects), self.store.sidebar.sort);
-        self.sidebar.placement.replace(Some(Placement { projects, cards }));
-        let out = f();
-        self.sidebar.placement.take();
+    pub(crate) fn placed<R>(&self, cx: &mut Context<Self>, f: impl FnOnce(&mut Context<Self>) -> R) -> R {
+        let projects = self.projects(cx);
+        let cards = by_project(self.placed_cards(&projects, cx), self.store.sidebar.sort);
+        self.sidebar.read(cx).placement.replace(Some(Placement { projects, cards, trees: RefCell::default() }));
+        let out = f(cx);
+        self.sidebar.read(cx).placement.take();
         out
     }
 
@@ -215,26 +228,26 @@ impl Desktop {
         self.summary(self.terminal.focused.as_deref()?).map(|a| a.id.as_str())
     }
 
-    pub fn cwd_of(&self, id: &str) -> Option<String> {
-        self.agents.get(id).map(|a| a.cwd.clone()).or_else(|| self.terminals.sessions.get(id).map(|s| s.info.cwd.clone()))
+    pub fn cwd_of(&self, id: &str, cx: &App) -> Option<String> {
+        self.agents.get(id).map(|a| a.cwd.clone()).or_else(|| self.terminals.read(cx).sessions.get(id).map(|s| s.info.cwd.clone()))
     }
 
     /// The tree on screen, by its worktree's path or its Local's id: the one picked, else the project's main worktree.
-    pub fn place(&self) -> Option<String> {
-        self.worktree.clone().or_else(|| self.tree_of(self.project.as_deref()?))
+    pub fn place(&self, cx: &App) -> Option<String> {
+        self.worktree.clone().or_else(|| self.tree_of(self.project.as_deref()?, cx))
     }
 
-    pub fn cwd(&self) -> Option<String> {
-        self.folder_of(&self.place()?)
+    pub fn cwd(&self, cx: &App) -> Option<String> {
+        self.folder_of(&self.place(cx)?, cx)
     }
 
     /// A tree's folder; a Local's is its project's main worktree.
-    pub(crate) fn folder_of(&self, key: &str) -> Option<String> {
+    pub(crate) fn folder_of(&self, key: &str, cx: &App) -> Option<String> {
         if !is_local(key) {
             return Some(key.to_string());
         }
         let project = self.agents.local(key).map(|l| l.project.clone()).or_else(|| self.project.clone())?;
-        self.tree_of(&project)
+        self.tree_of(&project, cx)
     }
 
     /// A tree's short name: the one it was given, else its folder's.
@@ -243,56 +256,71 @@ impl Desktop {
     }
 
     /// The tree a terminal belongs to: the Local it was opened in, else the worktree holding its folder.
-    pub(crate) fn place_of(&self, info: &daemon::Info) -> Option<String> {
-        if info.local.is_empty() { self.tree_of(&info.cwd) } else { Some(info.local.clone()) }
+    pub(crate) fn place_of(&self, info: &daemon::Info, cx: &App) -> Option<String> {
+        if info.local.is_empty() { self.tree_of(&info.cwd, cx) } else { Some(info.local.clone()) }
     }
 
-    pub fn repo(&self) -> Option<&Repo> {
-        self.repos.get(&self.cwd()?)
+    pub fn repo(&self, cx: &App) -> Option<&Repo> {
+        self.repos.get(&self.cwd(cx)?).map(|r| &**r)
     }
 
-    pub(crate) fn workspace(&mut self, tree: &str) -> &mut Workspace {
-        let (mine, theirs) = held(tree, &self.placed_terminals());
-        let w = self.workspaces.entry(tree.to_string()).or_default();
-        w.sync(&mine, &theirs);
-        w
+    pub(crate) fn repo_handle(&self, cx: &App) -> Option<Arc<Repo>> {
+        self.repos.get(&self.cwd(cx)?).cloned()
     }
 
-    pub(crate) fn project_terminals(&self, p: &str) -> Vec<String> {
-        let projects = self.projects();
-        self.terminals.sessions.items.iter().filter(|s| self.project_of(&s.info.cwd, &projects).is_some_and(|o| o == p)).map(|s| s.info.id.clone()).collect()
+    /// Runs `f` on worktree `tree`'s panels, once the terminals pocketd holds for it are in.
+    pub(crate) fn workspace<R>(&mut self, tree: &str, cx: &mut App, f: impl FnOnce(&mut Workspace) -> R) -> R {
+        let (mine, theirs) = held(tree, &self.placed_terminals(cx));
+        self.workspaces.update(cx, |all, _| {
+            let w = all.entry(tree);
+            w.sync(&mine, &theirs);
+            f(w)
+        })
+    }
+
+    pub(crate) fn project_terminals(&self, p: &str, cx: &App) -> Vec<String> {
+        let projects = self.projects(cx);
+        self.terminals
+            .read(cx)
+            .sessions
+            .items
+            .iter()
+            .filter(|s| self.project_of(&s.info.cwd, &projects).is_some_and(|o| o == p))
+            .map(|s| s.info.id.clone())
+            .collect()
     }
 
     /// Whether `tree` has a terminal or a tab open.
-    pub(crate) fn in_use(&self, tree: &str) -> bool {
-        self.workspaces.get(tree).is_some_and(|w| !w.is_empty()) || !held(tree, &self.placed_terminals()).0.is_empty()
+    pub(crate) fn in_use(&self, tree: &str, cx: &App) -> bool {
+        self.workspaces.read(cx).get(tree).is_some_and(|w| !w.is_empty()) || !held(tree, &self.placed_terminals(cx)).0.is_empty()
     }
 
-    pub(crate) fn tree_terminals(&self, tree: &str) -> Vec<String> {
-        self.terminals.sessions.items.iter().filter(|s| self.place_of(&s.info).as_deref() == Some(tree)).map(|s| s.info.id.clone()).collect()
+    pub(crate) fn tree_terminals(&self, tree: &str, cx: &App) -> Vec<String> {
+        self.terminals.read(cx).sessions.items.iter().filter(|s| self.place_of(&s.info, cx).as_deref() == Some(tree)).map(|s| s.info.id.clone()).collect()
     }
 
-    fn git_cwds(&self) -> Vec<String> {
-        let sessions = self.project.as_deref().map(|p| self.cards(p).into_iter().map(|c| c.cwd).collect()).unwrap_or_default();
-        let listed: project::Worktrees = self.project.iter().filter_map(|p| Some((p.clone(), self.listed_trees(p)?))).collect();
-        project::git_cwds(self.project.as_deref(), sessions, &listed, self.cwd())
+    fn git_cwds(&self, cx: &App) -> Vec<String> {
+        let sessions = self.project.as_deref().map(|p| self.cards(p, cx).into_iter().map(|c| c.cwd).collect()).unwrap_or_default();
+        let listed: project::Worktrees = self.project.iter().filter_map(|p| Some((p.clone(), self.listed_trees(p, cx)?))).collect();
+        project::git_cwds(self.project.as_deref(), sessions, &listed, self.cwd(cx))
     }
 
     pub fn refresh_git(&mut self, cx: &mut Context<Self>) {
-        let cwds = self.git_cwds();
+        let cwds = self.git_cwds(cx);
         let projects = self.store.projects.clone();
         let shown = self.store.files.clone();
         let files: Vec<_> = self
             .preview
+            .read(cx)
             .panes
             .iter()
             .filter_map(|(p, f)| {
                 let f = f.file.clone()?;
-                let changed = self.file_status(&f).is_some();
+                let changed = self.file_status(&f, cx).is_some();
                 Some((*p, f, changed))
             })
             .collect();
-        let root = self.cwd();
+        let root = self.cwd(cx);
         let known: BTreeSet<String> = self
             .store
             .tracked
@@ -303,9 +331,8 @@ impl Desktop {
             .collect();
         let (untracked, options) = (self.store.git.untracked, self.diff.options);
         let diffs: Vec<_> =
-            self.diff.panes.iter().filter_map(|(p, v)| Some((*p, v.followed_file()?.to_string(), v.at.clone(), v.open.clone(), v.lines.clone()))).collect();
-        let mut dirs: Vec<PathBuf> = self.explorer.tree.keys().cloned().collect();
-        dirs.extend(self.explore_root().map(PathBuf::from));
+            self.diff.views(cx).filter_map(|(p, v)| Some((p, v.followed_file()?.to_string(), v.at.clone(), v.open.clone(), v.lines.clone()))).collect();
+        let dirs = self.explorer.read(cx).listed_dirs(self.explore_root(cx).as_deref());
         self.git_run += 1;
         let run = self.git_run;
         let task = cx.background_executor().spawn(async move {
@@ -339,7 +366,6 @@ impl Desktop {
                     return;
                 }
                 d.git_done = run;
-                let tree = explorer::merge_tree(tree, &d.explorer.tree, d.explore_root().as_deref().map(std::path::Path::new));
                 // Before `worktrees` is replaced, while it still places their terminals.
                 for t in &gone {
                     if d.store.is_scratch(t) {
@@ -353,22 +379,24 @@ impl Desktop {
                 let worktrees = project::refreshed(worktrees, &d.worktrees, &keep);
                 d.renames.relisted(d.worktrees.values().flatten(), worktrees.values().flatten(), Instant::now());
                 let repos_changed = merge_repos(&mut d.repos, repos);
-                let mut changed = !gone.is_empty() || repos_changed || tree != d.explorer.tree || worktrees != d.worktrees;
-                (d.explorer.tree, d.worktrees) = (tree, worktrees);
+                let root = d.explore_root(cx);
+                let tree_changed = d.explorer.update(cx, |e, cx| e.land_tree(tree, root.as_deref().map(std::path::Path::new), cx));
+                let mut changed = !gone.is_empty() || repos_changed || tree_changed || worktrees != d.worktrees;
+                d.worktrees = worktrees;
                 d.activity_changed(cx);
                 if d.screen == Screen::Board {
                     d.rescue_board_composer(cx);
                 }
                 d.poll_prs(cx);
                 d.detect_gh_account(cx);
-                if d.side == Side::Changes && d.sidebar.panel_open {
+                if d.side == Side::Changes && d.sidebar.read(cx).panel_open() {
                     d.load_compare(cx);
                 }
                 for (pane, file) in files {
-                    changed |= d.preview.apply(pane, file);
+                    changed |= d.preview.update(cx, |p, _| p.state.apply(pane, file));
                 }
                 for (pane, load) in diffs {
-                    changed |= d.diff.apply(pane, load);
+                    changed |= d.diff.apply(pane, load, cx);
                 }
                 if changed {
                     cx.notify();
@@ -382,7 +410,7 @@ impl Desktop {
 
     /// Reads only the tree on screen, so a switch shows its changes without waiting for `refresh_git` to read every tree.
     pub(crate) fn load_shown_repo(&mut self, cx: &mut Context<Self>) {
-        let Some(cwd) = self.cwd() else { return };
+        let Some(cwd) = self.cwd(cx) else { return };
         let (run, untracked) = (self.git_run, self.store.git.untracked);
         let task = cx.background_executor().spawn({
             let cwd = cwd.clone();
@@ -392,7 +420,7 @@ impl Desktop {
             let repo = task.await;
             this.update(cx, |d, cx| {
                 // A newer refresh or a stage reads the index after this one did.
-                if run == d.git_run && d.cwd().as_ref() == Some(&cwd) && merge_repos(&mut d.repos, vec![(cwd, repo)]) {
+                if run == d.git_run && d.cwd(cx).as_ref() == Some(&cwd) && merge_repos(&mut d.repos, vec![(cwd, repo)]) {
                     cx.notify();
                 }
             })
@@ -405,8 +433,8 @@ impl Desktop {
         if self.store.is_scratch(path) { self.place_name(path) } else { self.store.repo_name(path) }
     }
 
-    pub fn repo_color(&self, path: &str) -> u32 {
-        let fallback = || PALETTE[self.projects().iter().position(|p| p == path).unwrap_or(0) % PALETTE.len()];
+    pub fn repo_color(&self, path: &str, cx: &App) -> u32 {
+        let fallback = || PALETTE[self.projects(cx).iter().position(|p| p == path).unwrap_or(0) % PALETTE.len()];
         self.store.repos.get(path).map(|r| r.color).filter(|c| *c != 0).unwrap_or_else(fallback)
     }
 
@@ -415,25 +443,25 @@ impl Desktop {
         util::mark(self.store.repos.get(path).and_then(|r| r.icon.as_ref()), letters)
     }
 
-    pub fn roll_up(&self, p: &str) -> Option<(Status, usize)> {
-        status::roll_up(self.cards(p).iter().map(|c| c.status))
+    pub fn roll_up(&self, p: &str, cx: &App) -> Option<(Status, usize)> {
+        status::roll_up(self.cards(p, cx).iter().map(|c| c.status))
     }
 
-    pub fn project_state(&self, p: &str) -> Option<State> {
-        self.roll_up(p).map(|(s, _)| state(s, 0, 0))
+    pub fn project_state(&self, p: &str, cx: &App) -> Option<State> {
+        self.roll_up(p, cx).map(|(s, _)| state(s, 0, 0))
     }
 
     pub(crate) fn keep_project(&mut self, p: &str, cx: &mut Context<Self>) {
         self.store.add(p);
         self.store.save();
-        self.publish_registry();
+        self.publish_registry(cx);
         self.refresh_git(cx);
         cx.notify();
     }
 
     /// Closes the project's terminals, deletes its Locals and takes it off the sidebar; its folder is untouched.
     pub(crate) fn remove_project(&mut self, p: &str, cx: &mut Context<Self>) {
-        for id in self.project_terminals(p) {
+        for id in self.project_terminals(p, cx) {
             self.close_pane(&id, cx);
         }
         let locals: Vec<String> = self.agents.locals_removed_with(p).map(str::to_string).collect();
@@ -442,13 +470,13 @@ impl Desktop {
         }
         self.store.remove(p);
         self.store.save();
-        self.publish_registry();
+        self.publish_registry(cx);
         let only = [p.to_string()];
         self.repos.retain(|cwd, _| project::project_of(cwd, &only, &self.worktrees).is_none());
         self.worktrees.remove(p);
         if self.project.as_deref() == Some(p) {
             self.set_project(None, cx);
-            if let Some(next) = self.projects().into_iter().next() {
+            if let Some(next) = self.projects(cx).into_iter().next() {
                 self.select_tree(next, None, cx);
             }
         }
@@ -456,11 +484,10 @@ impl Desktop {
     }
 
     pub(crate) fn ask_remove_project(&mut self, p: String, cx: &mut Context<Self>) {
-        if self.project_terminals(&p).is_empty() && self.agents.locals_removed_with(&p).next().is_none() {
+        if self.project_terminals(&p, cx).is_empty() && self.agents.locals_removed_with(&p).next().is_none() {
             self.remove_project(&p, cx);
         } else {
-            self.confirm = Some(Confirm::RemoveProject(p));
-            self.overlay = Some(Overlay::Confirm);
+            self.ask(Confirm::RemoveProject(p), cx);
         }
         cx.notify();
     }
@@ -473,12 +500,12 @@ fn readable(p: &str) -> bool {
 
 /// Applies `read`, keeping folders it skipped so switching back shows them at once, and those on a host that went offline,
 /// whose failed read says nothing about the repo. Returns whether anything changed.
-fn merge_repos(repos: &mut HashMap<String, Repo>, read: Vec<(String, Option<Repo>)>) -> bool {
+fn merge_repos(repos: &mut HashMap<String, Arc<Repo>>, read: Vec<(String, Option<Repo>)>) -> bool {
     let mut changed = false;
     for (cwd, repo) in read {
         changed |= match repo {
-            Some(r) if repos.get(&cwd) != Some(&r) => {
-                repos.insert(cwd, r);
+            Some(r) if repos.get(&cwd).map(|a| &**a) != Some(&r) => {
+                repos.insert(cwd, Arc::new(r));
                 true
             }
             Some(_) => false,
@@ -491,7 +518,7 @@ fn merge_repos(repos: &mut HashMap<String, Repo>, read: Vec<(String, Option<Repo
 
 #[cfg(test)]
 mod tests {
-    use super::{HashMap, Placed, Repo, SessionSort, by_project, child_only, held, hidden_terminals, merge_repos, without_child_only};
+    use super::{Arc, HashMap, Placed, Repo, SessionSort, by_project, child_only, held, hidden_terminals, merge_repos, without_child_only};
 
     fn repo(branch: &str) -> Repo {
         Repo { branch: branch.into(), ..Repo::default() }
@@ -499,28 +526,28 @@ mod tests {
 
     #[test]
     fn a_host_that_cannot_be_reached_keeps_the_repo_it_showed() {
-        let mut repos = HashMap::from([("//devbox/home/me/app".to_string(), repo("main"))]);
+        let mut repos = HashMap::from([("//devbox/home/me/app".to_string(), Arc::new(repo("main")))]);
         assert!(!merge_repos(&mut repos, vec![("//devbox/home/me/app".into(), None)]));
         assert_eq!(repos["//devbox/home/me/app"].branch, "main");
     }
 
     #[test]
     fn a_refresh_keeps_the_repos_it_did_not_read() {
-        let mut repos = HashMap::from([("/a".to_string(), repo("main")), ("/b".to_string(), repo("main"))]);
+        let mut repos = HashMap::from([("/a".to_string(), Arc::new(repo("main"))), ("/b".to_string(), Arc::new(repo("main")))]);
         assert!(merge_repos(&mut repos, vec![("/a".into(), Some(repo("fix")))]));
         assert_eq!((repos["/a"].branch.as_str(), repos["/b"].branch.as_str()), ("fix", "main"));
     }
 
     #[test]
     fn a_folder_no_longer_a_repo_is_dropped() {
-        let mut repos = HashMap::from([("/a".to_string(), repo("main"))]);
+        let mut repos = HashMap::from([("/a".to_string(), Arc::new(repo("main")))]);
         assert!(merge_repos(&mut repos, vec![("/a".into(), None)]));
         assert!(repos.is_empty());
     }
 
     #[test]
     fn reading_the_same_state_changes_nothing() {
-        let mut repos = HashMap::from([("/a".to_string(), repo("main"))]);
+        let mut repos = HashMap::from([("/a".to_string(), Arc::new(repo("main")))]);
         assert!(!merge_repos(&mut repos, vec![("/a".into(), Some(repo("main"))), ("/b".into(), None)]));
     }
 

@@ -1,12 +1,10 @@
-use crate::accounts::{self, Host};
-use crate::desktop::Desktop;
+use super::{Menu, RepoForm};
+use crate::accounts;
 use daemon::Account;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use store::LaunchPick;
 use theme::*;
-
-pub(crate) const ACCOUNT_MENU: &str = "repo-account";
 
 fn option(id: impl Into<ElementId>, on: bool, label: String, aside: String, enabled: bool) -> Stateful<Div> {
     div()
@@ -26,23 +24,22 @@ fn option(id: impl Into<ElementId>, on: bool, label: String, aside: String, enab
         .when(!enabled, |d| d.opacity(0.45))
 }
 
-impl Desktop {
+impl RepoForm {
     /// One row per agent with accounts to pick between on the project's machine; none when no agent has.
     pub(super) fn project_account_rows(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let host: Host = accounts::host_of(self.repo_form.draft.path.as_deref());
-        let list = self.accounts.list(&host).to_vec();
-        LaunchPick::PROVIDERS.into_iter().filter(|p| accounts::shared(&list, p)).map(|p| self.project_account_picker(&list, p, cx).into_any_element()).collect()
+        let list = &self.side.accounts;
+        LaunchPick::PROVIDERS.into_iter().filter(|p| accounts::shared(list, p)).map(|p| self.project_account_picker(list, p, cx).into_any_element()).collect()
     }
 
     fn project_account_picker(&self, list: &[Account], provider: &'static str, cx: &mut Context<Self>) -> Div {
-        let draft = &self.repo_form.draft;
+        let draft = &self.draft;
         let chosen = draft.accounts.get(provider).and_then(|id| accounts::picked(list, provider, id));
         let default = accounts::default_of(list, provider).map(|a| accounts::name(a).to_string()).unwrap_or_default();
         let shown = match chosen {
             Some(a) => div().text_color(TEXT).child(accounts::name(a).to_string()),
             None => div().flex().gap(px(4.)).child(div().text_color(TEXT).child("Default")).child(div().text_color(TEXT_3).child(format!("\u{b7} {default}"))),
         };
-        let open = self.settings.menu == Some(ACCOUNT_MENU) && draft.account_menu == Some(provider);
+        let open = self.menu == Some(Menu::Account(provider));
         let button = ui::popover_trigger(
             div()
                 .id(SharedString::from(format!("repo-account-{provider}")))
@@ -61,20 +58,18 @@ impl Desktop {
                 .child(icon("chevron-down", 11., TEXT_3)),
             open,
             cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                this.settings.menu = Some(ACCOUNT_MENU);
-                this.repo_form.draft.account_menu = Some(provider);
+                this.menu = Some(Menu::Account(provider));
                 cx.notify();
             }),
         );
         let menu = open.then(|| {
             let pick = |id: Option<String>| {
                 cx.listener(move |this: &mut Self, _: &ClickEvent, _, cx| {
-                    let draft = &mut this.repo_form.draft;
                     match &id {
-                        Some(id) => _ = draft.accounts.insert(provider.into(), id.clone()),
-                        None => _ = draft.accounts.remove(provider),
+                        Some(id) => _ = this.draft.accounts.insert(provider.into(), id.clone()),
+                        None => _ = this.draft.accounts.remove(provider),
                     }
-                    (this.settings.menu, draft.account_menu) = (None, None);
+                    this.menu = None;
                     cx.notify();
                 })
             };
@@ -94,7 +89,7 @@ impl Desktop {
                 if a.signed_in { row.on_click(pick(Some(a.id.clone()))) } else { row }
             });
             let close = cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                (this.settings.menu, this.repo_form.draft.account_menu) = (None, None);
+                this.menu = None;
                 cx.notify();
             });
             let menu = ui::pop(div())

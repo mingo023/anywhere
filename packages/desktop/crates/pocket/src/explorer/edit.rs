@@ -1,5 +1,4 @@
-use super::{ExplorerState, Row, files, name_of, outline};
-use crate::desktop::Desktop;
+use super::{Explorer, ExplorerEvent, Landing, Row, files, name_of, outline};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
@@ -97,7 +96,7 @@ pub fn new_row_at(rows: &[Row], parent: &Path, root: &Path) -> Option<(usize, us
     rows.iter().position(|r| r.path == parent && r.open).map(|i| (i + 1, rows[i].depth + 1))
 }
 
-impl ExplorerState {
+impl Explorer {
     /// Why `name` can't be made in `parent`, judged by the folders listed so far; `renaming` is the item being renamed, which doesn't clash with itself.
     pub fn problem(&self, parent: &Path, name: &str, renaming: Option<&Path>, root: &Path) -> Option<String> {
         let name = name.trim();
@@ -174,7 +173,7 @@ impl ExplorerState {
     }
 }
 
-impl Desktop {
+impl Explorer {
     pub(crate) fn start_edit(&mut self, naming: Naming, window: &mut Window, cx: &mut Context<Self>) {
         let folder = naming.folder();
         let name = naming.renaming().map(name_of).unwrap_or_default();
@@ -194,28 +193,28 @@ impl Desktop {
             InputEvent::Focus => {}
         });
         if let Naming::New { parent, .. } = &naming
-            && !self.explorer.tree.contains_key(parent)
+            && !self.tree.contains_key(parent)
         {
-            self.explorer.tree.insert(parent.clone(), Vec::new());
-            self.relist_explorer(cx);
+            self.tree.insert(parent.clone(), Vec::new());
+            self.relist(cx);
         }
-        self.explorer.edit = Some(NameEdit { naming, input, shakes: 0, _sub: sub });
-        self.explorer.seek = true;
+        self.edit = Some(NameEdit { naming, input, shakes: 0, _sub: sub });
+        self.seek = true;
     }
 
-    pub(super) fn commit_edit(&mut self, strict: bool, cx: &mut Context<Self>) {
-        let (Some(edit), Some(root)) = (self.explorer.edit.as_ref(), self.explore_root()) else { return };
+    pub(crate) fn commit_edit(&mut self, strict: bool, cx: &mut Context<Self>) {
+        let (Some(edit), Some(root)) = (self.edit.as_ref(), self.inputs.root.clone()) else { return };
         let name = edit.input.read(cx).value().trim().to_string();
-        let refused = self.explorer.edit_problem(&name, Path::new(&root)).is_some();
+        let refused = self.edit_problem(&name, Path::new(&root)).is_some();
         match edit.naming.verdict(&name, Path::new(&root), refused, strict) {
             Verdict::Keep => {
-                if let Some(edit) = self.explorer.edit.as_mut() {
+                if let Some(edit) = self.edit.as_mut() {
                     edit.shakes += 1;
                 }
             }
-            Verdict::Drop => self.explorer.edit = None,
+            Verdict::Drop => self.edit = None,
             Verdict::Save => {
-                let Some(edit) = self.explorer.edit.take() else { return };
+                let Some(edit) = self.edit.take() else { return };
                 self.save_name(edit.naming, name, cx);
             }
         }
@@ -233,49 +232,43 @@ impl Desktop {
                     }
                 }
             });
-            let made = made.await;
-            this.update(cx, |d, cx| {
-                let folder = naming.folder() || name.ends_with('/');
-                match (naming, made) {
-                    (Naming::New { .. }, Ok(path)) if !d.in_explore_root(&path) => {}
-                    (Naming::New { parent, .. }, Ok(path)) => {
-                        d.explorer.reveal(&parent, &path);
-                        if !folder {
-                            d.open_file(path.to_string_lossy().to_string(), false, cx);
-                        }
-                        d.flash_row(path, cx);
-                    }
-                    (Naming::Rename { path, .. }, Ok(to)) => {
-                        d.explorer.moved(&path, &to);
-                        d.tabs_follow(&path, &to, cx);
-                        if d.in_explore_root(&to) {
-                            d.flash_row(to, cx);
-                        }
-                    }
-                    (Naming::New { .. }, Err(e)) => d.error = Some(format!("Couldn’t create “{name}”: {e}")),
-                    (Naming::Rename { .. }, Err(e)) => d.error = Some(format!("Couldn’t rename to “{name}”: {e}")),
-                }
-                d.relist_explorer(cx);
-                cx.notify();
-            })
-            .ok();
+            let made = made.await.map_err(|e| e.to_string());
+            this.update(cx, |_, cx| cx.emit(ExplorerEvent::Landed(Landing::Saved { naming, name, made }))).ok();
         })
         .detach();
     }
 
-    fn tabs_follow(&mut self, from: &Path, to: &Path, cx: &mut Context<Self>) {
-        let (from, to) = (from.to_string_lossy(), to.to_string_lossy());
-        self.workspaces.values_mut().for_each(|w| w.move_files(&from, &to));
-        self.preview.move_files(&from, &to);
-        self.save_soon(cx);
+    pub(super) fn saved(&mut self, naming: Naming, name: String, made: Result<PathBuf, String>, cx: &mut Context<Self>) {
+        let folder = naming.folder() || name.ends_with('/');
+        match (naming, made) {
+            (Naming::New { .. }, Ok(path)) if !self.in_root(&path) => {}
+            (Naming::New { parent, .. }, Ok(path)) => {
+                self.reveal(&parent, &path);
+                if !folder {
+                    cx.emit(ExplorerEvent::Open { path: path.to_string_lossy().to_string(), pin: false });
+                }
+                self.flash_row(path, cx);
+            }
+            (Naming::Rename { path, .. }, Ok(to)) => {
+                self.moved(&path, &to);
+                cx.emit(ExplorerEvent::Renamed { from: path, to: to.clone() });
+                if self.in_root(&to) {
+                    self.flash_row(to, cx);
+                }
+            }
+            (Naming::New { .. }, Err(e)) => cx.emit(ExplorerEvent::Failed(format!("Couldn’t create “{name}”: {e}"))),
+            (Naming::Rename { .. }, Err(e)) => cx.emit(ExplorerEvent::Failed(format!("Couldn’t rename to “{name}”: {e}"))),
+        }
+        self.relist(cx);
+        cx.notify();
     }
 
     /// The row the name is typed in, laid out as the tree's rows are, with the reason it can't be saved under it.
     pub(crate) fn edit_row(&self, depth: usize, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let (edit, root) = (self.explorer.edit.as_ref()?, self.explore_root()?);
+        let (edit, root) = (self.edit.as_ref()?, self.inputs.root.as_ref()?);
         let name = edit.input.read(cx).value().to_string();
         let folder = edit.naming.folder() || name.ends_with('/');
-        let problem = self.explorer.edit_problem(&name, Path::new(&root));
+        let problem = self.edit_problem(&name, Path::new(root));
         let field = div().relative().flex_1().min_w_0().child(Input::new(&edit.input).appearance(false).p_0().text_size(px(13.5)));
         let field = if edit.shakes == 0 {
             field.into_any_element()
@@ -309,11 +302,11 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExplorerState, Naming, Row, Verdict, new_row_at, selected_len, shake_x, verdict};
+    use super::{Explorer, Naming, Row, Verdict, new_row_at, selected_len, shake_x, verdict};
     use std::path::{Path, PathBuf};
 
-    fn state(listings: &[(&str, &[(bool, &str)])]) -> ExplorerState {
-        let mut s = ExplorerState::new();
+    fn state(listings: &[(&str, &[(bool, &str)])]) -> Explorer {
+        let mut s = Explorer::new();
         for (dir, listing) in listings {
             s.tree.insert(dir.into(), listing.iter().map(|(d, p)| (*d, PathBuf::from(p))).collect());
         }

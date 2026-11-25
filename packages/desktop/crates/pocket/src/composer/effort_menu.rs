@@ -1,6 +1,5 @@
+use super::launch;
 use super::model_menu::{GAP, PAD, check, row};
-use super::{Draft, launch};
-use crate::desktop::Desktop;
 use gpui_kit::*;
 use theme::*;
 
@@ -8,7 +7,7 @@ const LIST_WIDTH: f32 = 148.;
 
 /// The row whose list of levels is open, by the word that heads it, and the level last picked from one. The level
 /// outlives the list: a chat's effort takes a poll to come back, and the row would show the old one until then.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct EffortMenu {
     open: Option<SharedString>,
     picked: Option<(SharedString, String)>,
@@ -42,16 +41,18 @@ pub(crate) struct Effort {
     pub(super) list: Option<Div>,
 }
 
+pub(crate) type EditEffort<V> = fn(&mut V, &mut Context<V>, &mut dyn FnMut(&mut EffortMenu));
+
 /// A row headed `word`, a model's setting, naming the value in use, `on` unless `menu` holds a newer one, that opens
 /// `levels`, each value it takes and what the list calls it, beside the panel. Picking one hands it to `pick`.
-pub(crate) fn choice_menu(
+pub(crate) fn choice_menu<V: 'static>(
     id: impl Into<ElementId>,
     word: SharedString,
     (levels, on): (&[(String, String)], Option<&String>),
     menu: &EffortMenu,
-    draft: impl Fn(&mut Desktop) -> &mut Draft + Copy + 'static,
-    pick: launch::Pick,
-    cx: &mut Context<Desktop>,
+    edit: EditEffort<V>,
+    pick: launch::Pick<V>,
+    cx: &mut Context<V>,
 ) -> Effort {
     let at = menu.shown(&word, levels, on);
     let name = at.map_or_else(|| "Default".to_string(), |i| levels[i].1.clone());
@@ -64,7 +65,7 @@ pub(crate) fn choice_menu(
         .child(div().text_color(TEXT_3).child(name))
         .child(icon("chevron-right", 14., TEXT_3))
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            draft(this).effort.toggle(&heads);
+            edit(this, cx, &mut |menu| menu.toggle(&heads));
             cx.notify();
         }));
     let list = open.then(|| {
@@ -73,7 +74,7 @@ pub(crate) fn choice_menu(
             let on = at == Some(i);
             row(("effort-level", i), on).pr(px(6.)).child(div().flex_1().font_weight(FontWeight::MEDIUM).child(label.clone())).child(check(on)).on_click(
                 cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    draft(this).effort.pick(word.clone(), level.clone());
+                    edit(this, cx, &mut |menu| menu.pick(word.clone(), level.clone()));
                     pick(this, level.clone(), cx);
                     cx.notify();
                 }),

@@ -1,3 +1,5 @@
+use super::frame::{AgentRow, NewTab};
+use super::{Panels, PanelsEvent};
 use crate::desktop::Desktop;
 use agents::Summary;
 use gpui_kit::*;
@@ -14,9 +16,11 @@ impl Desktop {
     pub fn model_hint(&self, provider: &str) -> Option<String> {
         model_hint(&self.agents.list, provider)
     }
+}
 
-    pub(crate) fn tab_menu_view(&self, place: Place, cx: &mut Context<Self>) -> Stateful<Div> {
-        let branch = self.repo().map(|r| r.branch.clone()).unwrap_or_default();
+impl Panels {
+    pub(super) fn tab_menu_view(&self, place: Place, rows: Option<&NewTab>, cx: &mut Context<Self>) -> Stateful<Div> {
+        let (branch, agents) = rows.map_or((String::new(), &[][..]), |r| (r.branch.clone(), r.agents.as_slice()));
         let item = |id: ElementId, lead: AnyElement, label: String, hint: Option<String>, keys: Option<&str>| {
             div()
                 .id(id)
@@ -34,18 +38,13 @@ impl Desktop {
                 .child(div().flex_1().flex().whitespace_nowrap().child(label).children(hint.map(|h| div().ml(px(7.)).text_color(TEXT_3).child(h))))
                 .children(keys.map(|k| div().text_size(px(11.5)).text_color(TEXT_4).child(k.to_string())))
         };
-        let agent = |provider: &'static str, cx: &mut Context<Self>| {
-            item(
-                format!("tab-menu-{provider}").into(),
-                provider_icon(provider, 14., TEXT).into_any_element(),
-                self.agent_name(provider),
-                self.model_hint(provider),
-                None,
-            )
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.panels.menu = None;
-                this.new_agent_tab(provider, place, cx);
-            }))
+        let agent = |row: &AgentRow, cx: &mut Context<Self>| {
+            let provider = row.provider;
+            item(format!("tab-menu-{provider}").into(), provider_icon(provider, 14., TEXT).into_any_element(), row.name.clone(), row.hint.clone(), None)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.menu = None;
+                    cx.emit(PanelsEvent::NewAgent(provider, place));
+                }))
         };
         ui::pop(div().id("tab-menu"))
             .w(px(264.))
@@ -67,26 +66,24 @@ impl Desktop {
             )
             .child(item("tab-menu-shell".into(), icon("prompt", 14., TEXT_2).into_any_element(), "New shell".into(), None, Some("⌘T")).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
-                    this.panels.menu = None;
-                    this.new_shell(place, cx);
+                    this.menu = None;
+                    cx.emit(PanelsEvent::NewShell(place));
                 },
             )))
-            .child(item("tab-menu-browser".into(), icon("globe", 14., TEXT_2).into_any_element(), "New browser".into(), None, Some("⌘⇧B")).on_click(
-                cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.close_menus(cx);
-                    this.open_browser_at(place, None, window, cx);
-                }),
-            ))
+            .child(
+                item("tab-menu-browser".into(), icon("globe", 14., TEXT_2).into_any_element(), "New browser".into(), None, Some("⌘⇧B"))
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(PanelsEvent::OpenBrowser(place)))),
+            )
             .child(item("tab-menu-chat".into(), icon("comment", 14., TEXT_2).into_any_element(), "New chat".into(), None, None).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
-                    this.panels.menu = None;
-                    this.new_chat_tab(place, cx);
+                    this.menu = None;
+                    cx.emit(PanelsEvent::NewChat(place));
                 },
             )))
             .child(div().h(px(0.5)).my(px(4.)).mx(px(6.)).bg(SEPARATOR))
-            .children(self.offered().into_iter().map(|p| agent(p, cx)))
+            .children(agents.iter().map(|row| agent(row, cx)))
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.panels.menu = None;
+                this.menu = None;
                 cx.notify();
             }))
     }

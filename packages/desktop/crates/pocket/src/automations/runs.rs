@@ -1,6 +1,6 @@
+use super::Automations;
 use super::glyph::glyph;
 use super::logic::{Row, Section, run_reason, run_when, shown_run, stamp};
-use crate::desktop::Desktop;
 use crate::desktop::chrome::empty;
 use crate::util::now_ms;
 use chrono::Local;
@@ -25,13 +25,13 @@ fn head(label: String, count: Option<usize>, tone: Token) -> AnyElement {
         .into_any_element()
 }
 
-impl Desktop {
-    pub(super) fn runs_list(&mut self, cx: &mut Context<Self>) -> Div {
+impl Automations {
+    pub(super) fn runs_column(&mut self, cx: &mut Context<Self>) -> Div {
         let body = div().flex_1().min_h_0().flex().flex_col();
-        if !self.agents.automations.loaded {
+        if !self.data.loaded {
             return body;
         }
-        let only = self.automations.only.as_deref().and_then(|id| self.agents.automations.items.iter().find(|a| a.id == id)).map(|a| a.name.clone());
+        let only = self.only.as_deref().and_then(|id| self.data.items.iter().find(|a| a.id == id)).map(|a| a.name.clone());
         let bar = only.map(|name| {
             div()
                 .h(px(32.))
@@ -46,17 +46,17 @@ impl Desktop {
                 .child("·")
                 .child(ui::link("runs-show-all", "Show all").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.set_only(None, cx))))
         });
-        if self.automations.rows.is_empty() {
+        if self.rows.is_empty() {
             return body.children(bar).child(empty("No runs yet."));
         }
-        let rows = list(self.automations.runs_list.clone(), cx.processor(|this, ix, _, cx| this.run_row(ix, cx))).size_full();
-        body.children(bar).child(div().relative().flex_1().min_h_0().child(rows).vertical_scrollbar(&self.automations.runs_list))
+        let rows = list(self.runs_list.clone(), cx.processor(|this, ix, _, cx| this.run_row(ix, cx))).size_full();
+        body.children(bar).child(div().relative().flex_1().min_h_0().child(rows).vertical_scrollbar(&self.runs_list))
     }
 
     fn run_row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        let a = &self.agents.automations;
+        let a = &self.data;
         let now = now_ms();
-        match self.automations.rows.get(ix).copied() {
+        match self.rows.get(ix).copied() {
             Some(Row::SoonHead) => head("Up next".into(), None, TEXT_3),
             Some(Row::Soon(i)) => {
                 let Some(auto) = a.items.get(i) else { return Empty.into_any_element() };
@@ -85,7 +85,7 @@ impl Desktop {
             Some(Row::Head(section, n)) => head(section.label().into(), Some(n), if section == Section::NeedsYou { WAITING_TEXT } else { TEXT_3 }),
             Some(Row::Run(i)) => {
                 let Some(r) = a.runs.get(i) else { return Empty.into_any_element() };
-                let selected = shown_run(self.automations.selected_run.as_deref(), self.automations.only.as_deref(), &a.runs).is_some_and(|s| s.id == r.id);
+                let selected = shown_run(self.selected_run.as_deref(), self.only.as_deref(), &a.runs).is_some_and(|s| s.id == r.id);
                 let name = a.items.iter().find(|x| x.id == r.automation_id).map_or("Deleted automation".to_string(), |x| x.name.clone());
                 let id = r.id.clone();
                 div()

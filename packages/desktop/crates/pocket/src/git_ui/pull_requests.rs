@@ -3,6 +3,7 @@ use crate::git_ui::pull_request::tally;
 use git::github::{self, GhProblem, GhStatus, Pr, PrState};
 use gpui_kit::*;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use theme::*;
 
@@ -13,7 +14,7 @@ pub(crate) const MERGED_BG: Token = Token::fixed(0x8250df1f);
 /// Each worktree's PR as `gh` last reported it, and when it was asked.
 #[derive(Default)]
 pub(crate) struct PullRequests {
-    by_tree: HashMap<String, (Instant, Option<Pr>)>,
+    by_tree: HashMap<String, (Instant, Option<Arc<Pr>>)>,
     /// The tree `gh` is asked about, and since when.
     running: Option<(String, Instant)>,
     /// Why `gh` can't be asked, on this Mac (`None`) or a host, and since when.
@@ -76,8 +77,12 @@ impl PullRequests {
             Err(p) => self.problems.insert(machine(&tree), (p, now)).map(|(old, _)| old) != Some(p),
             Ok(pr) => {
                 self.failed.remove(&tree);
-                let changed = self.problems.remove(&machine(&tree)).is_some() || self.by_tree.get(&tree).is_none_or(|(_, old)| *old != pr);
-                self.by_tree.insert(tree, (now, pr));
+                let same = self.by_tree.get(&tree).is_some_and(|(_, old)| old.as_deref() == pr.as_ref());
+                let changed = self.problems.remove(&machine(&tree)).is_some() || !same;
+                match self.by_tree.get_mut(&tree) {
+                    Some(entry) if same => entry.0 = now,
+                    _ => _ = self.by_tree.insert(tree, (now, pr.map(Arc::new))),
+                }
                 changed
             }
         }
@@ -88,12 +93,16 @@ impl PullRequests {
     }
 
     pub(crate) fn get(&self, tree: &str) -> Option<&Pr> {
-        self.by_tree.get(tree)?.1.as_ref()
+        self.by_tree.get(tree)?.1.as_deref()
+    }
+
+    pub(crate) fn handle(&self, tree: &str) -> Option<Arc<Pr>> {
+        self.by_tree.get(tree)?.1.clone()
     }
 
     /// Every worktree's PR, with its worktree.
     pub(crate) fn all(&self) -> impl Iterator<Item = (&str, &Pr)> {
-        self.by_tree.iter().filter_map(|(tree, (_, pr))| Some((tree.as_str(), pr.as_ref()?)))
+        self.by_tree.iter().filter_map(|(tree, (_, pr))| Some((tree.as_str(), pr.as_deref()?)))
     }
 
     /// Create is offered only once `gh` has answered for `tree` with no PR, and `branch` isn't `base`.
@@ -119,14 +128,14 @@ impl PullRequests {
 
     /// Shows `pr` for `tree` at once, as when it was just opened, until the next poll asks `gh`.
     pub(crate) fn put(&mut self, tree: &str, pr: Pr, now: Instant) {
-        self.by_tree.insert(tree.to_string(), (now, Some(pr)));
+        self.by_tree.insert(tree.to_string(), (now, Some(Arc::new(pr))));
         self.expire(tree, now);
     }
 
     /// Changes what's shown for `tree`'s PR after acting on it, so an answer asked for before can't undo it.
     pub(crate) fn edit(&mut self, tree: &str, f: impl FnOnce(&mut Pr)) {
         if let Some((_, Some(pr))) = self.by_tree.get_mut(tree) {
-            f(pr);
+            f(Arc::make_mut(pr));
         }
         self.drop_run(tree);
     }
@@ -271,18 +280,18 @@ impl Desktop {
             return self.check_gh(cx);
         }
         let mut trees: Vec<String> = self
-            .projects()
+            .projects(cx)
             .iter()
-            .filter_map(|p| self.listed_trees(p))
+            .filter_map(|p| self.listed_trees(p, cx))
             .flatten()
             .filter(|w| !w.main && w.branch != "detached" && self.gh_accounts.accounts_of(&w.path).is_some())
             .map(|w| w.path)
             .collect();
         trees.sort();
-        let Some(tree) = self.prs.due(self.cwd().as_deref(), self.store.general.prs_every(), &trees, Instant::now()) else { return };
+        let Some(tree) = self.prs.due(self.cwd(cx).as_deref(), self.store.general.prs_every(), &trees, Instant::now()) else { return };
         let started = Instant::now();
         self.prs.start(&tree, started);
-        let (dir, gh) = (tree.clone(), self.gh_in(&tree));
+        let (dir, gh) = (tree.clone(), self.gh_in(&tree, cx));
         let task = cx.background_executor().spawn(async move {
             let mut result = github::view(|argv| gh.run(argv, &dir, ""));
             let mut lost = false;

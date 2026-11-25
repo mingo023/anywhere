@@ -1,11 +1,11 @@
 use super::queue::{control, surface};
 use super::send_button::stop_square;
+use super::{ChatBoxEvent, ComposerState};
 use crate::chat::sub_agent::{self, Mark, step};
 use crate::chat::working::format_elapsed;
-use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
 use crate::util::now_ms;
-use chat::{Command, ToolCall, ToolKind, Transcript};
+use chat::{ToolCall, ToolKind, Transcript};
 use gpui_kit::*;
 use theme::*;
 
@@ -43,7 +43,7 @@ pub(super) fn stops(chat_only: bool, interrupt: bool, busy: bool, tasks: &[&Tool
     chat_only && interrupt && !busy && tasks.iter().any(|c| matches!(c.kind, ToolKind::Agent(_)))
 }
 
-impl Desktop {
+impl ComposerState {
     /// The tray over the box: the sub-agents and commands the agent left at work past their turn, each showing its row on a
     /// click; none when nothing is. Folded, it's one line: how many, and the newest step. With `stop`, Stop ends the sub-agents.
     pub(super) fn background_tray(&self, agent: &str, t: &Transcript, stop: impl FnOnce(&[&ToolCall]) -> bool, cx: &mut Context<Self>) -> Option<Div> {
@@ -51,7 +51,7 @@ impl Desktop {
         if tasks.is_empty() {
             return None;
         }
-        let folded = self.chats.composer.background_folded;
+        let folded = self.background_folded;
         let calls: Vec<_> = tasks.iter().map(|(_, _, c)| *c).collect();
         let stop = stop(&calls);
         let line = |d: Div| d.min_w_0().truncate().font_family(code_font()).text_size(px(11.5)).text_color(TEXT_3);
@@ -78,14 +78,14 @@ impl Desktop {
                     .text_color(TEXT_2)
                     .child(stop_square(TEXT_2).size(px(8.)).rounded(px(2.)))
                     .child("Stop")
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                         cx.stop_propagation();
-                        this.chat_command(&agent, Command::Interrupt, cx);
+                        cx.emit(ChatBoxEvent::Interrupt(agent.clone()));
                     }))
             }))
             .child(icon(if folded { "chevron-right" } else { "chevron-down" }, 13., TEXT_4))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.chats.composer.background_folded ^= true;
+                this.background_folded ^= true;
                 cx.notify();
             }));
         let now = now_ms();
@@ -123,7 +123,7 @@ impl Desktop {
                             .child("Show")
                             .child(icon("arrow-up", 11., TEXT_4)),
                     )
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_show_block(&agent, turn, block, cx)))
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(ChatBoxEvent::ShowBlock { agent: agent.clone(), turn, block })))
             })
         });
         Some(surface().py(px(6.)).child(header).children(rows.into_iter().flatten()))

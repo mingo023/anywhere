@@ -1,18 +1,19 @@
 mod access_pill;
-mod account_chip;
+pub(crate) mod account_chip;
 pub(crate) mod attachments;
 mod background;
 pub(crate) mod btw;
 mod goal;
-mod model_pill;
-mod queue;
+pub(crate) mod model_pill;
+pub(crate) mod prompt_box;
+pub(crate) mod queue;
 pub(crate) mod send_button;
 pub(crate) mod suggest;
 mod switch_agent;
 
-use super::question::Wizard;
+use super::question::{self, Wizard};
 use crate::composer::model_menu::focus_search;
-use crate::composer::{Draft, Menu};
+use crate::composer::{Draft, Held, Menu};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
 use crate::explorer::toast::Notice;
@@ -21,11 +22,11 @@ use crate::status::Status;
 use crate::util::now_ms;
 use agents::{Decision, Summary};
 use chat::{Action, Ask, Command, Kind, Local, Session};
-use gpui_kit::component::input::{InputEditsEvent, InputEvent, InputState, RopeExt as _, Textarea, TextareaState};
-use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::component::input::{InputEditsEvent, InputEvent, InputState, RopeExt as _, TextareaState};
 use gpui_kit::*;
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use suggest::Prompt;
 use theme::*;
 use workspace::Place;
@@ -124,7 +125,7 @@ fn text_view_focused(contexts: &[KeyContext]) -> bool {
 
 /// The prompt input, built here since dropped files and Enter are wired at construction.
 pub(crate) fn input(window: &mut Window, cx: &mut Context<Desktop>) -> Entity<TextareaState> {
-    let drop = crate::composer::drop_handler(cx.weak_entity(), |d| &mut d.chats.composer.draft);
+    let drop = crate::composer::drop_handler(cx.weak_entity(), |d| d.chats.composer.clone());
     cx.new(|cx| {
         TextareaState::new(window, cx)
             .placeholder(PLACEHOLDER)
@@ -137,7 +138,10 @@ pub(crate) fn input(window: &mut Window, cx: &mut Context<Desktop>) -> Entity<Te
 
 /// The chat composer's state besides its input (`ChatState::input`), shared by every chat pane.
 pub(crate) struct ComposerState {
+    pub(crate) input: Entity<TextareaState>,
     pub(crate) draft: Draft,
+    /// The text and attachments of each chat the input doesn't hold now.
+    drafts: super::drafts::Drafts<(String, Draft)>,
     /// Narrows the model panel's list.
     pub(crate) search: Entity<InputState>,
     /// The free-text answer of a question, or the reply to a permission.
@@ -161,8 +165,107 @@ pub(crate) struct ComposerState {
     pressing_send: bool,
 }
 
+pub(crate) enum ChatBoxEvent {
+    Prompt { agent: String, text: &'static str },
+    Access { agent: String, access: String },
+    Interrupt(String),
+    ShowBlock { agent: String, turn: usize, block: usize },
+    Queue { agent: String, what: queue::Queue },
+    Account(account_chip::Ask),
+    Model(model_pill::Model),
+    Press { terminal: String, action: Action },
+    Escape(String),
+    Attach,
+    Unsaved(&'static str, String),
+    Command { agent: String, command: Command },
+    Pick(usize),
+    Link { agent: String, link: String, cwd: String, press: super::markdown::Press },
+    Drop { agent: String, paths: ExternalPaths },
+}
+
+impl EventEmitter<ChatBoxEvent> for ComposerState {}
+
+impl crate::composer::Drafted for ComposerState {
+    fn draft(&mut self) -> &mut Draft {
+        &mut self.draft
+    }
+
+    fn unsaved(&mut self, title: &'static str, error: String, cx: &mut Context<Self>) {
+        cx.emit(ChatBoxEvent::Unsaved(title, error));
+    }
+}
+
 impl ComposerState {
-    pub(crate) fn new(input: &Entity<TextareaState>, window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+    pub(crate) fn drop_zone(&self, agent: &str, cx: &mut Context<Self>) -> Div {
+        let agent = agent.to_string();
+        drop_zone(cx.listener(move |_, paths: &ExternalPaths, _, cx| cx.emit(ChatBoxEvent::Drop { agent: agent.clone(), paths: paths.clone() })))
+    }
+
+    pub(crate) fn open_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
+        self.draft.menu = Some(menu);
+        cx.notify();
+    }
+
+    pub(crate) fn close_menu(&mut self, cx: &mut Context<Self>) {
+        self.draft.menu = None;
+        cx.notify();
+    }
+
+    pub(crate) fn holds(&self, agent: &str) -> bool {
+        self.drafts.owner() == Some(agent)
+    }
+
+    pub(crate) fn owner(&self) -> Option<&str> {
+        self.drafts.owner()
+    }
+
+    pub(crate) fn take_input(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let input = self.input.clone();
+        let draft = &mut self.draft;
+        let Some((text, parked)) = self.drafts.switch(agent, || (input.read(cx).value().to_string(), std::mem::take(draft))) else { return };
+        self.draft = parked;
+        self.input.update(cx, |s, cx| s.set_value(text, window, cx));
+    }
+
+    pub(crate) fn close_draft(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.drafts.close(agent) {
+            self.draft.clear();
+            self.input.update(cx, |s, cx| s.set_value("", window, cx));
+        }
+    }
+
+    pub(crate) fn draft_of<'a>(&'a self, agent: &str, cx: &'a App) -> (String, Option<&'a Draft>) {
+        if self.holds(agent) {
+            return (self.input.read(cx).value().to_string(), Some(&self.draft));
+        }
+        self.drafts.parked(agent).map_or((String::new(), None), |(text, draft)| (text.clone(), Some(draft)))
+    }
+
+    pub(crate) fn add_text(&mut self, agent: &str, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.holds(agent) {
+            let (draft, _) = self.drafts.parked_mut(agent);
+            *draft = added(draft, text);
+            return;
+        }
+        let value = added(&self.input.read(cx).value(), text);
+        self.input.update(cx, |s, cx| {
+            let end = value.len();
+            s.set_value(crate::composer::pills::kept_pills(&s.content(), value, None), window, cx);
+            let end = s.text().offset_to_position(end);
+            s.set_cursor_position(end, window, cx);
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn edit_draft<R>(&mut self, agent: &str, cx: &mut Context<Self>, f: impl FnOnce(&mut Draft) -> R) -> R {
+        if self.holds(agent) {
+            cx.notify();
+            return f(&mut self.draft);
+        }
+        f(&mut self.drafts.parked_mut(agent).1)
+    }
+
+    pub(crate) fn new(input: &Entity<TextareaState>, window: &mut Window, cx: &mut Context<Desktop>) -> (Entity<Self>, Vec<Subscription>) {
         let answer = cx.new(|cx| TextareaState::new(window, cx).placeholder(super::question::PLACEHOLDER).auto_grow(1, MAX_ROWS).submit_on_enter(true));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search models"));
         let subs = vec![
@@ -175,7 +278,7 @@ impl ComposerState {
                 }
                 _ => {}
             }),
-            cx.subscribe_in(input, window, |this, _, ev: &InputEditsEvent, window, cx| this.rich_typed(Prompt::Chat, ev, window, cx)),
+            cx.subscribe_in(input, window, |this, _, ev: &InputEditsEvent, window, cx| crate::composer::rich::rich_typed(&this.chats.input, ev, window, cx)),
             cx.subscribe_in(&answer, window, |this, _, ev: &InputEvent, window, cx| match ev {
                 InputEvent::PressEnter { shift: false, .. } => this.chat_answer_enter(window, cx),
                 InputEvent::Change => cx.notify(),
@@ -183,7 +286,9 @@ impl ComposerState {
             }),
         ];
         let state = Self {
+            input: input.clone(),
             draft: Draft::default(),
+            drafts: Default::default(),
             search,
             answer,
             wizard: None,
@@ -197,7 +302,7 @@ impl ComposerState {
             clicked_send: None,
             pressing_send: false,
         };
-        (state, subs)
+        (cx.new(|_| state), subs)
     }
 }
 
@@ -255,9 +360,12 @@ pub(crate) fn marks_overlay(input: Entity<TextareaState>) -> impl IntoElement {
 
 /// The prompt box, ringed darker while typed into.
 pub(crate) fn frame(typing: bool) -> Div {
+    frame_on(div(), typing)
+}
+
+pub(crate) fn frame_on(base: Div, typing: bool) -> Div {
     let (ring, drop) = if typing { (TEXT_4, 0x11111314) } else { (SEPARATOR_STRONG, 0x1111130f) };
-    div()
-        .relative()
+    base.relative()
         .flex()
         .flex_col()
         .rounded(px(RADIUS))
@@ -268,6 +376,120 @@ pub(crate) fn frame(typing: bool) -> Div {
         .shadow(vec![ui::shadow(rgba(drop), 8., 28.)])
         .text_size(px(INPUT_TEXT_SIZE))
         .text_color(TEXT)
+}
+
+pub(crate) struct Frame {
+    terminal: String,
+    agent: Summary,
+    name: String,
+    mode: Mode,
+    ask: Option<(Ask, bool)>,
+    focused: bool,
+    caps: chat::Capabilities,
+    busy: bool,
+    stopping: bool,
+    face: Option<prompt_box::Face>,
+    tray: Option<queue::Tray>,
+    transcript: Option<std::sync::Arc<chat::Transcript>>,
+    map: Option<AnyElement>,
+    chip: Option<account_chip::Chip>,
+    said: Option<(&'static str, String)>,
+    branch: Option<Div>,
+}
+
+impl ComposerState {
+    pub(crate) fn view(&mut self, frame: Frame, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        let Frame { terminal, agent, name, mode, ask, focused, caps, busy, stopping, face, tray, transcript, map, chip, said, branch } = frame;
+        let agent = &agent;
+        let dock = div().flex_none().flex().justify_center().px(px(32.)).pb(px(16.));
+        let input = self.input.read(cx).focus_handle(cx);
+        let handoff = match mode {
+            _ if !focused => None,
+            Mode::Prompt => {
+                let mut from = vec![self.ask_focus.clone(), self.answer.read(cx).focus_handle(cx)];
+                // The search or the effort slider takes the keys while the model panel is open; closing it would leave them nowhere.
+                if self.draft.menu != Some(Menu::Model) {
+                    from.push(self.search.read(cx).focus_handle(cx));
+                    from.extend(self.draft.slider.borrow().focus.clone());
+                }
+                Some(hand_focus(from, input))
+            }
+            Mode::Permission { answerable: true } | Mode::Question { answerable: true } => Some(hand_focus(vec![input], self.ask_focus.clone())),
+            _ => None,
+        };
+        let can_queue = caps.send_while_working;
+        let placeholder = placeholder(busy, stopping, can_queue);
+        if self.placeholder.replace(placeholder) != placeholder {
+            self.input.update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
+        }
+        let body = match (mode, ask, face) {
+            (Mode::Permission { answerable }, Some((ask, feedback)), _) => {
+                let card = self.permission_card(&agent.id, &name, &ask, feedback, answerable, cx);
+                fade_in(id(format!("chat-ask:{}", ask.request_id)), card).into_any_element()
+            }
+            (Mode::Question { answerable }, Some((ask, _)), _) => {
+                let request = ask.request_id.clone();
+                let asked = Rc::new(question::Asked { agent: agent.id.clone(), cwd: agent.cwd.clone(), ask });
+                let panel = self.question_panel(&asked, answerable, cx);
+                fade_in(id(format!("chat-ask:{request}")), panel).into_any_element()
+            }
+            (_, _, Some(face)) => self.prompt_box(agent, face, window, cx).into_any_element(),
+            (_, _, None) => div().into_any_element(),
+        };
+        let tray = tray.and_then(|t| self.queue_tray(&t, cx));
+        let tray = tray.map(|t| fade_in(id(format!("chat-queue:{terminal}")), t));
+        let stop = |tasks: &[&chat::ToolCall]| mode == Mode::Prompt && background::stops(agent.chat_only, caps.interrupt, busy, tasks);
+        let background =
+            matches!(mode, Mode::Prompt | Mode::ViewOnly).then(|| transcript.as_ref().and_then(|t| self.background_tray(&agent.id, t, stop, cx))).flatten();
+        let background = background.map(|t| fade_in(id(format!("chat-background-in:{terminal}")), t));
+        let btw = matches!(mode, Mode::Prompt).then(|| self.btw_card(&agent.id, cx)).flatten();
+        let (typed, draft) = self.draft_of(&agent.id, cx);
+        let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
+        let asking = matches!(mode, Mode::Permission { .. } | Mode::Question { .. });
+        let account = chip.map(|chip| self.account_chip(&chip, cx));
+        let footer = footer(branch, account, hint(mode, busy, stopping, empty, can_queue), said, asking);
+        let column = div()
+            .w_full()
+            .max_w(px(MAX_WIDTH))
+            .flex()
+            .flex_col()
+            .children(map)
+            .children(btw)
+            .children(background)
+            .children(tray)
+            .child(body)
+            .child(footer)
+            .children(handoff);
+        dock.child(column)
+    }
+}
+
+fn footer(branch: Option<Div>, account: Option<Div>, hint: Option<&'static str>, said: Option<(&'static str, String)>, asking: bool) -> Div {
+    div()
+        .min_w_0()
+        .pt(px(8.))
+        .px(px(8.))
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .text_size(px(12.))
+        .text_color(TEXT_3)
+        .children(branch)
+        .children(account)
+        .child(div().flex_1())
+        .children(match said {
+            Some((glyph, said)) => Some(
+                div()
+                    .min_w_0()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .text_color(TEXT_2)
+                    .child(icon(glyph, 13., TEXT_3))
+                    .child(div().min_w_0().truncate().child(said)),
+            ),
+            None => hint.map(|h| div().flex_none().whitespace_nowrap().text_color(if asking { WAITING_TEXT } else { TEXT_4 }).child(h)),
+        })
 }
 
 /// Laid over a whole conversation so files dropped anywhere on it reach its prompt; dashed in while they hover.
@@ -297,24 +519,29 @@ pub(crate) fn hand_focus(from: Vec<FocusHandle>, to: FocusHandle) -> impl IntoEl
 }
 
 fn close_menu(this: &mut Desktop, cx: &mut Context<Desktop>) {
-    this.chats.composer.draft.menu = None;
+    this.chats.composer.update(cx, |c, cx| c.close_menu(cx));
     cx.notify();
 }
 
 /// A chip's menu of `rows` under `title`, opening upward from the chip's left edge as the composer sits at the bottom;
-/// a press outside closes it.
-fn chip_menu(id: &'static str, title: &'static str, width: f32, rows: impl IntoIterator<Item = impl IntoElement>, cx: &mut Context<Desktop>) -> Div {
-    hang(id, crate::composer::menu_list(id, title, width, rows), cx)
+fn chip_menu<V: 'static>(
+    id: &'static str,
+    title: &'static str,
+    width: f32,
+    rows: impl IntoIterator<Item = impl IntoElement>,
+    close: fn(&mut V, &mut Context<V>),
+    cx: &mut Context<V>,
+) -> Div {
+    hang(id, crate::composer::menu_list(id, title, width, rows), close, cx)
 }
 
-/// `menu` opening upward from the chip's left edge; a press outside it closes it.
-fn hang(id: &'static str, menu: impl IntoElement, cx: &mut Context<Desktop>) -> Div {
+fn hang<V: 'static>(id: &'static str, menu: impl IntoElement, close: fn(&mut V, &mut Context<V>), cx: &mut Context<V>) -> Div {
     let menu = div()
         .id(SharedString::from(format!("{id}-out")))
         // Menus hang over the transcript; without this a click on one also lands on what it covers.
         .occlude()
         .child(menu)
-        .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| close_menu(this, cx)));
+        .on_mouse_down_out(cx.listener(move |this, _: &MouseDownEvent, _, cx| close(this, cx)));
     let menu = ui::menu_in(SharedString::from(format!("{id}-in")), menu);
     div()
         .absolute()
@@ -369,16 +596,16 @@ fn busy(agent: &Summary, session: Option<&Session>) -> bool {
 }
 
 impl Desktop {
-    pub(crate) fn chat_busy(&self, agent: &Summary) -> bool {
-        busy(agent, self.chats.views.get(&agent.id).map(|v| &v.session))
+    pub(crate) fn chat_busy(&self, agent: &Summary, cx: &App) -> bool {
+        busy(agent, self.chats.views.get(&agent.id).map(|v| v.read(cx).session()))
     }
 
     pub(super) fn chat_caps(&self, provider: &str) -> chat::Capabilities {
         chat::capabilities(provider, self.agents.provider_info(provider).chat)
     }
 
-    fn chat_stopping(&self, agent: &Summary) -> bool {
-        self.chats.views.get(&agent.id).is_some_and(|v| v.session.outgoing.stopping())
+    fn chat_stopping(&self, agent: &Summary, cx: &App) -> bool {
+        self.chats.views.get(&agent.id).is_some_and(|v| v.read(cx).session().outgoing.stopping())
     }
 
     /// The agent's open ask in `terminal`'s chat, and whether a deny can carry a reply.
@@ -388,44 +615,66 @@ impl Desktop {
         Some((chat::for_provider(&a.provider).ask(p), p.feedback))
     }
 
+    pub(super) fn on_chat_box_event(&mut self, ev: &ChatBoxEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            ChatBoxEvent::Prompt { agent, text } => _ = self.outbox.prompt(agent, text),
+            ChatBoxEvent::Access { agent, access } => self.outbox.access(agent, access),
+            ChatBoxEvent::Interrupt(agent) => self.chat_command(agent, Command::Interrupt, cx),
+            ChatBoxEvent::ShowBlock { agent, turn, block } => self.chat_show_block(agent, *turn, *block, cx),
+            ChatBoxEvent::Queue { agent, what } => self.on_queue(agent, what, window, cx),
+            ChatBoxEvent::Account(ask) => self.on_account_ask(ask, window, cx),
+            ChatBoxEvent::Model(ev) => self.on_model(ev, cx),
+            ChatBoxEvent::Press { terminal, action } => self.chat_press(terminal, *action, window, cx),
+            ChatBoxEvent::Escape(terminal) => self.chat_escape(terminal, cx),
+            ChatBoxEvent::Attach => attachments::attach_files(self, Held::Chat, window, cx),
+            ChatBoxEvent::Unsaved(title, detail) => {
+                self.fail(format!("{title}: {detail}"), cx);
+                cx.notify();
+            }
+            ChatBoxEvent::Command { agent, command } => self.chat_command(agent, command.clone(), cx),
+            ChatBoxEvent::Pick(ix) => _ = self.suggest_pick(suggest::Prompt::Chat, *ix, window, cx),
+            ChatBoxEvent::Link { agent, link, cwd, press } => self.chat_link(agent, link, cwd, *press, window, cx),
+            ChatBoxEvent::Drop { agent, paths } => {
+                self.chat_take_input(agent, window, cx);
+                let (input, paths) = (self.chats.input.clone(), paths.clone());
+                // The input's drop handler updates `Desktop`, which this handler is already updating.
+                window.defer(cx, move |window, cx| input.update(cx, |s, cx| s.drop_paths(&paths, window, cx)));
+            }
+        }
+        cx.notify();
+    }
+
     pub(crate) fn chat_command(&mut self, agent: &str, c: Command, cx: &mut Context<Self>) {
         match c {
             Command::Send(text) => {
-                let working = self.agents.get(agent).is_some_and(|a| self.chat_busy(a));
+                let working = self.agents.get(agent).is_some_and(|a| self.chat_busy(a, cx));
                 if working && self.agents.holds_queue(agent) {
                     self.outbox.prompt_queued(agent, &text);
                     return cx.notify();
                 }
-                let view = self.chats.views.get_mut(agent);
+                let view = self.chats.views.get(agent).cloned();
                 let held = working && view.is_some();
                 let request = if held { None } else { self.outbox.prompt(agent, &text) };
                 if let Some(v) = view {
-                    let send = v.session.outgoing.push(text, working, now_ms());
-                    if let Some((send, request)) = send.zip(request) {
-                        v.session.outgoing.sent_as(send, request);
-                    }
-                    if !working {
-                        v.pin();
-                    }
+                    v.update(cx, |v, _| v.send(text, working, request));
                 }
             }
             Command::Interrupt => {
                 self.outbox.interrupt(agent);
-                if let Some(v) = self.chats.views.get_mut(agent) {
-                    v.session.outgoing.stop(now_ms());
+                if let Some(v) = self.chats.views.get(agent) {
+                    v.update(cx, |v, _| v.interrupt());
                 }
             }
             Command::SendNow => {
-                if self.chats.views.get_mut(agent).is_some_and(|v| v.session.outgoing.send_now(now_ms())) {
+                if self.chats.views.get(agent).is_some_and(|v| v.update(cx, |v, _| v.send_now())) {
                     self.outbox.send_now(agent);
                 }
             }
             Command::Compact => {
                 self.outbox.compact(agent);
-                let busy = self.agents.get(agent).is_some_and(|a| self.chat_busy(a));
-                if let Some(v) = self.chats.views.get_mut(agent) {
-                    v.session.outgoing.compact(busy, now_ms());
-                    if busy { v.steered() } else { v.pin() }
+                let busy = self.agents.get(agent).is_some_and(|a| self.chat_busy(a, cx));
+                if let Some(v) = self.chats.views.get(agent) {
+                    v.update(cx, |v, _| v.compact(busy));
                 }
             }
             Command::Allow(r) => self.outbox.resolve(&r, Decision::Allow),
@@ -457,7 +706,7 @@ impl Desktop {
     /// Text typed while nothing holds the keys goes to the focused pane's chat, as in Discord. Returns whether it did.
     pub(crate) fn type_into_chat(&mut self, key: &Keystroke, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(text) = typed_text(key) else { return false };
-        if !self.keys_free(window) || !self.panes_on_screen(cx) {
+        if !self.keys_free(window, cx) || !self.panes_on_screen(cx) {
             return false;
         }
         let Some(t) = self.focused_chat().filter(|t| self.chat_mode(t, cx) == Mode::Prompt) else { return false };
@@ -468,8 +717,8 @@ impl Desktop {
     }
 
     /// Whether nothing that takes typing holds the keys.
-    fn keys_free(&self, window: &Window) -> bool {
-        self.root.is_focused(window) || self.chats.dock.focused(window) || text_view_focused(&window.context_stack())
+    fn keys_free(&self, window: &Window, cx: &App) -> bool {
+        self.root.is_focused(window) || self.chats.dock.read(cx).focused(window) || text_view_focused(&window.context_stack())
     }
 
     /// [DEBUG-focus] Logs text typed while a chat is focused that neither its input nor `type_into_chat` takes.
@@ -479,39 +728,39 @@ impl Desktop {
             return;
         }
         let mode = self.chat_mode(&t, cx);
-        if self.keys_free(window) && self.panes_on_screen(cx) && mode == Mode::Prompt {
+        if self.keys_free(window, cx) && self.panes_on_screen(cx) && mode == Mode::Prompt {
             return;
         }
-        let c = &self.chats.composer;
+        let c = self.chats.composer.read(cx);
         let named = [
             ("root", self.root.clone()),
             ("terminal", self.terminal.focus.clone()),
             ("ask", c.ask_focus.clone()),
             ("answer", c.answer.read(cx).focus_handle(cx)),
-            ("map", self.chats.map.focus.clone()),
+            ("map", self.chats.map.read(cx).focus.clone()),
             ("browser", self.browsers.focus.clone()),
             ("inbox", self.inbox.read(cx).focus.clone()),
-            ("sidebar-filter", self.sidebar.filter.input.read(cx).focus_handle(cx)),
+            ("sidebar-filter", self.sidebar.read(cx).header.read(cx).filter.input.read(cx).focus_handle(cx)),
         ];
         let focus = match window.focused(cx) {
             None => "none",
             Some(f) => named.iter().find(|(_, h)| *h == f).map_or("other", |(n, _)| n),
         };
+        let [menu, actions, top_actions] = self.panels.read(cx).menus_open();
         let menus = [
-            ("panels.menu", self.panels.menu.is_some()),
-            ("panels.actions", self.panels.actions.is_some()),
-            ("panels.top_actions", self.panels.top_actions.is_some()),
+            ("panels.menu", menu),
+            ("panels.actions", actions),
+            ("panels.top_actions", top_actions),
             ("row_menu", self.row_menu.is_some()),
-            ("changes.commit_menu", self.changes.commit_menu),
-            ("changes.menu", self.changes.menu),
-            ("pr.ship_menu", self.pr.ship_menu),
-            ("pr.merge_menu", self.pr.merge_menu),
-            ("pr.create_menu", self.pr.create_menu),
-            ("sidebar.picker", self.sidebar.picker.open),
-            ("sidebar.add_menu", self.sidebar.add_menu),
-            ("sidebar.organize", self.sidebar.organize.menu),
-            ("automations.menu", self.automations.menu.is_some()),
-            ("explorer.menu", self.explorer.menu.is_some()),
+            ("changes.commit_menu", self.changes.read(cx).commit_menu),
+            ("changes.menu", self.changes.read(cx).menu),
+            ("pr.ship_menu", self.pr.read(cx).ship_menu),
+            ("pr.merge_menu", self.pr.read(cx).merge_menu),
+            ("pr.create_menu", self.pr.read(cx).create_menu),
+            ("sidebar.picker", self.sidebar.read(cx).picker.read(cx).open),
+            ("sidebar.header_menu", self.sidebar.read(cx).header.read(cx).menu_open()),
+            ("automations.menu", self.automations.read(cx).menu_open()),
+            ("explorer.menu", self.explorer.read(cx).menu_open()),
             ("terminal.menu", self.terminal.menu.is_some()),
             ("accounts.menu", self.accounts.menu.is_some()),
             ("chats.files", self.chats.files.is_some()),
@@ -523,7 +772,7 @@ impl Desktop {
             key.key,
             window.is_window_active(),
             self.screen,
-            self.session_tree().is_some(),
+            self.session_tree(cx).is_some(),
             self.shown_create(cx).is_some(),
             self.overlay.is_some(),
             c.replying.is_some(),
@@ -540,11 +789,11 @@ impl Desktop {
         if self.chat_mode(terminal, cx) != Mode::Prompt {
             return;
         }
-        let (busy, caps) = (self.chat_busy(a), self.chat_caps(&a.provider));
+        let (busy, caps) = (self.chat_busy(a, cx), self.chat_caps(&a.provider));
         if busy && !caps.send_while_working {
             return;
         }
-        let steer = busy && !self.chat_stopping(a) && !queue;
+        let steer = busy && !self.chat_stopping(a, cx) && !queue;
         let (agent, provider, cwd, chat_only) = (a.id.clone(), a.provider.clone(), a.cwd.clone(), a.chat_only);
         if self.chats.copying.contains(&agent) {
             return;
@@ -552,7 +801,7 @@ impl Desktop {
         self.chat_take_input(&agent, window, cx);
         let typed = self.chats.input.read(cx).value().to_string();
         let copied = self.chats.copied.get(&agent).cloned().unwrap_or_default();
-        let text = self.chats.composer.draft.prompt_with(&typed, &copied);
+        let text = self.chats.composer.read(cx).draft.prompt_with(&typed, &copied);
         if text.is_empty() {
             return;
         }
@@ -561,16 +810,16 @@ impl Desktop {
         if let Some((Kind::Unsupported, name, _)) = slash {
             return self.show_notice(Notice::InChat { agent, icon: "terminal", text: terminal_only_said(&format!("/{name}"), &provider, chat_only) }, cx);
         }
-        match crate::composer::host_copies(&self.chats.composer.draft, &cwd, &self.store.home().join("attachments")) {
+        match crate::composer::host_copies(&self.chats.composer.read(cx).draft, &cwd, &self.store.home().join("attachments")) {
             Ok(Some(copies)) if copies.files != copied => return self.chat_copy_first(terminal, agent, &cwd, queue, copies, window, cx),
             Ok(_) => {}
             Err(host) => {
-                self.error = Some(format!("{} isn't connected", self.host_name(&host)));
+                self.fail(format!("{} isn't connected", self.host_name(&host)), cx);
                 return cx.notify();
             }
         }
         self.chats.copied.remove(&agent);
-        self.chats.composer.draft.clear();
+        self.chats.composer.update(cx, |c, _| c.draft.clear());
         self.chats.input.update(cx, |s, cx| s.set_value("", window, cx));
         if let Some((Kind::Local(local), _, arg)) = slash {
             return self.chat_local(&agent, local, &arg, window, cx);
@@ -580,7 +829,7 @@ impl Desktop {
             return cx.notify();
         }
         // A command's name must lead what it sends.
-        let text = if slash.is_some() { text } else { self.chats.composer.suggest.with_mcp_context(&agent, &provider, &text) };
+        let text = if slash.is_some() { text } else { self.chats.composer.read(cx).suggest.with_mcp_context(&agent, &provider, &text) };
         if chat::skips_queue(&typed) {
             self.outbox.prompt(&agent, &text);
             return cx.notify();
@@ -589,12 +838,8 @@ impl Desktop {
             return self.chat_command(&agent, Command::Send(text), cx);
         }
         let request = self.outbox.prompt(&agent, &text);
-        if let Some(v) = self.chats.views.get_mut(&agent) {
-            let send = v.session.outgoing.steer_text(text, now_ms());
-            if let Some(request) = request {
-                v.session.outgoing.sent_as(send, request);
-            }
-            v.steered();
+        if let Some(v) = self.chats.views.get(&agent) {
+            v.update(cx, |v, _| v.steer(text, request));
         }
         cx.notify();
     }
@@ -622,13 +867,13 @@ impl Desktop {
                 d.chats.copying.remove(&agent);
                 match copied {
                     Ok(files) => {
-                        let held = d.chats.drafts.owner() == Some(agent.as_str());
+                        let held = d.chats.composer.read(cx).holds(&agent);
                         d.chats.copied.insert(agent, files);
                         if held {
                             d.chat_send(&terminal, queue, window, cx);
                         }
                     }
-                    Err(e) => d.error = Some(format!("Couldn't copy the attachments to {host}: {e}")),
+                    Err(e) => d.fail(format!("Couldn't copy the attachments to {host}: {e}"), cx),
                 }
                 cx.notify();
             })
@@ -647,7 +892,7 @@ impl Desktop {
                 self.show_notice(Notice::InChat { agent, icon: "check", text: remote_control_said(&url).into() }, cx);
             }
             Err(reason) => {
-                self.error = Some(reason);
+                self.fail(reason, cx);
                 cx.notify();
             }
         }
@@ -658,8 +903,9 @@ impl Desktop {
     fn chat_local(&mut self, agent: &str, local: Local, arg: &str, window: &mut Window, cx: &mut Context<Self>) {
         match (local, arg) {
             (Local::Model | Local::Effort, "") => {
-                if self.chats.composer.draft.menu != Some(Menu::Model) && self.chats.composer.draft.toggle(Menu::Model) {
-                    let search = self.chats.composer.search.clone();
+                let (opened, search) =
+                    self.chats.composer.update(cx, |c, _| (c.draft.menu != Some(Menu::Model) && c.draft.toggle(Menu::Model), c.search.clone()));
+                if opened {
                     focus_search(&search, window, cx);
                     self.chat_models_opened(agent, cx);
                 }
@@ -669,7 +915,7 @@ impl Desktop {
             (Local::Compact, _) => self.chat_command(agent, Command::Compact, cx),
             (Local::New, _) => self.new_chat_tab(Place::Pane(None), cx),
             (Local::Btw, "") => {}
-            (Local::Btw, question) => self.chat_btw_ask(agent, question),
+            (Local::Btw, question) => self.chat_btw_ask(agent, question, cx),
             (Local::Mcp, query) => self.type_text(Prompt::Chat, &format!("{}{query}", chat::mcp::TAG), window, cx),
             (Local::RemoteControl, arg) => match remote_control_on(arg) {
                 Some(on) => self.outbox.remote_control(agent, on),
@@ -684,8 +930,8 @@ impl Desktop {
         let Some(agent) = self.summary(terminal).map(|a| a.id.clone()) else { return };
         if action != Action::Stop {
             self.chat_send(terminal, false, window, cx);
-            self.chats.composer.clicked_send = Some((agent, now_ms()));
-        } else if !guards_stop(self.chats.composer.clicked_send.as_ref(), &agent, now_ms()) {
+            self.chats.composer.update(cx, |c, _| c.clicked_send = Some((agent, now_ms())));
+        } else if !guards_stop(self.chats.composer.read(cx).clicked_send.as_ref(), &agent, now_ms()) {
             self.chat_command(&agent, Command::Interrupt, cx);
         }
     }
@@ -693,7 +939,7 @@ impl Desktop {
     /// Esc stops a working agent, but only from an empty input, where the agent can be interrupted and isn't being already.
     fn chat_escape(&mut self, terminal: &str, cx: &mut Context<Self>) {
         let Some(a) = self.summary(terminal) else { return };
-        let action = chat::action(self.chat_busy(a), self.chat_stopping(a), self.chats.input.read(cx).value().is_empty());
+        let action = chat::action(self.chat_busy(a, cx), self.chat_stopping(a, cx), self.chats.input.read(cx).value().is_empty());
         if action != Action::Stop || !self.chat_caps(&a.provider).interrupt {
             return;
         }
@@ -702,36 +948,18 @@ impl Desktop {
     }
 
     /// What `agent`'s chat has typed and attached: the input's while it holds that chat, else what waits for it.
-    pub(crate) fn chat_draft(&self, agent: &str, cx: &App) -> (String, Option<&Draft>) {
-        if self.chats.drafts.owner() == Some(agent) {
-            return (self.chats.input.read(cx).value().to_string(), Some(&self.chats.composer.draft));
-        }
-        self.chats.drafts.parked(agent).map_or((String::new(), None), |(text, draft)| (text.clone(), Some(draft)))
+    pub(crate) fn chat_draft<'a>(&'a self, agent: &str, cx: &'a App) -> (String, Option<&'a Draft>) {
+        self.chats.composer.read(cx).draft_of(agent, cx)
     }
 
     /// Adds `text` to the end of `agent`'s draft, in the input when its chat holds it.
     pub(crate) fn chat_add_text(&mut self, agent: &str, text: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if self.chats.drafts.owner() != Some(agent) {
-            let (draft, _) = self.chats.drafts.parked_mut(agent);
-            *draft = added(draft, text);
-            return;
-        }
-        let value = added(&self.chats.input.read(cx).value(), text);
-        self.chats.input.update(cx, |s, cx| {
-            let end = value.len();
-            s.set_value(crate::composer::pills::kept_pills(&s.content(), value, None), window, cx);
-            let end = s.text().offset_to_position(end);
-            s.set_cursor_position(end, window, cx);
-        });
+        self.chats.composer.update(cx, |c, cx| c.add_text(agent, text, window, cx));
         cx.notify();
     }
 
-    /// `agent`'s draft to attach to: the input's while its chat holds it, else the one parked for it.
-    pub(crate) fn chat_draft_mut(&mut self, agent: &str) -> &mut Draft {
-        if self.chats.drafts.owner() == Some(agent) {
-            return &mut self.chats.composer.draft;
-        }
-        &mut self.chats.drafts.parked_mut(agent).1
+    pub(crate) fn chat_draft_edit<R>(&mut self, agent: &str, cx: &mut App, f: impl FnOnce(&mut Draft) -> R) -> R {
+        self.chats.composer.update(cx, |c, cx| c.edit_draft(agent, cx, f))
     }
 
     /// `set_value` emits no change, so the composer redraws here.
@@ -742,98 +970,43 @@ impl Desktop {
 
     fn chat_answer_enter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(t) = self.focused_chat() else { return };
-        if self.chats.composer.replying.is_some() {
-            self.chat_reply(&t, window, cx);
-        } else {
-            self.wizard_advance(&t, window, cx);
-        }
+        let Some(agent) = self.summary(&t) else { return };
+        let asked = self.chat_ask(&t).map(|(ask, _)| Rc::new(question::Asked { agent: agent.id.clone(), cwd: agent.cwd.clone(), ask }));
+        let agent = agent.id.clone();
+        self.chats.composer.update(cx, |c, cx| match (c.replying.is_some(), &asked) {
+            (true, _) => c.reply(&agent, window, cx),
+            (false, Some(asked)) => c.wizard_advance(asked, window, cx),
+            (false, None) => {}
+        });
     }
 
     /// `terminal`'s chat composer: the prompt box, or the agent's open ask in its place, over where the agent works and what Enter does.
     pub(crate) fn chat_composer(&self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let Some(agent) = self.summary(terminal) else { return div() };
-        let dock = div().flex_none().flex().justify_center().px(px(32.)).pb(px(16.));
         let ask = self.chat_ask(terminal);
         let mark = self.handoff_mark(&agent.id, cx);
         let mode = self.chat_mode(terminal, cx);
-        let c = &self.chats.composer;
-        let input = self.chats.input.read(cx).focus_handle(cx);
-        let handoff = match mode {
-            _ if self.focused_chat().as_deref() != Some(terminal) => None,
-            Mode::Prompt => {
-                let mut from = vec![c.ask_focus.clone(), c.answer.read(cx).focus_handle(cx)];
-                // The search or the effort slider takes the keys while the model panel is open; closing it would leave them nowhere.
-                if c.draft.menu != Some(Menu::Model) {
-                    from.push(c.search.read(cx).focus_handle(cx));
-                    from.extend(c.draft.slider.borrow().focus.clone());
-                }
-                Some(hand_focus(from, input))
-            }
-            Mode::Permission { answerable: true } | Mode::Question { answerable: true } => Some(hand_focus(vec![input], c.ask_focus.clone())),
-            _ => None,
-        };
-        let can_queue = self.chat_caps(&agent.provider).send_while_working;
-        let (busy, stopping) = (self.chat_busy(agent), self.chat_stopping(agent));
-        let placeholder = placeholder(busy, stopping, can_queue);
-        if c.placeholder.replace(placeholder) != placeholder {
-            self.chats.input.update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
-        }
-        let body = match (mode, ask) {
-            (Mode::Permission { answerable }, Some((ask, feedback))) => {
-                fade_in(id(format!("chat-ask:{}", ask.request_id)), self.permission_card(terminal, &ask, feedback, answerable, cx)).into_any_element()
-            }
-            (Mode::Question { answerable }, Some((ask, _))) => {
-                fade_in(id(format!("chat-ask:{}", ask.request_id)), self.question_panel(terminal, &ask, answerable, cx)).into_any_element()
-            }
-            _ => {
-                let locked = (mode == Mode::ViewOnly).then_some(mark.as_ref().map_or("View only", crate::handoff::Mark::composer));
-                self.prompt_box(terminal, agent, locked, window, cx).into_any_element()
-            }
-        };
-        let view = self.chats.views.get(&agent.id);
-        let pending = view.map_or(&[][..], |v| v.session.outgoing.list());
-        let paused = view.is_some_and(|v| v.session.outgoing.paused(&v.session.transcript));
-        let tray = (mode == Mode::Prompt).then(|| self.queue_tray(&agent.id, pending, paused, cx)).flatten();
-        let tray = tray.map(|t| fade_in(id(format!("chat-queue:{terminal}")), t));
-        let interrupt = self.chat_caps(&agent.provider).interrupt;
-        let stop = |tasks: &[&chat::ToolCall]| mode == Mode::Prompt && background::stops(agent.chat_only, interrupt, busy, tasks);
-        let background = matches!(mode, Mode::Prompt | Mode::ViewOnly)
-            .then(|| view.and_then(|v| self.background_tray(&agent.id, &v.session.transcript, stop, cx)))
-            .flatten();
-        let background = background.map(|t| fade_in(id(format!("chat-background-in:{terminal}")), t));
-        let btw = matches!(mode, Mode::Prompt).then(|| self.btw_card(&agent.id, cx)).flatten();
-        let (typed, draft) = self.chat_draft(&agent.id, cx);
-        let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
-        let asking = matches!(mode, Mode::Permission { .. } | Mode::Question { .. });
-        let said = said_in_chat(self.explorer.notice.as_ref().map(|(n, _)| n), &agent.id);
-        let account = (mode != Mode::ViewOnly).then(|| self.chat_account_chip(agent, cx)).flatten();
-        let footer = self.composer_footer(agent, account, hint(mode, busy, stopping, empty, can_queue), said, asking, cx.reduce_motion());
-        let map = view.and_then(|v| self.chat_agent_map(agent, &v.session.transcript, cx));
-        let column = div()
-            .w_full()
-            .max_w(px(MAX_WIDTH))
-            .flex()
-            .flex_col()
-            .children(map)
-            .children(btw)
-            .children(background)
-            .children(tray)
-            .child(body)
-            .child(footer)
-            .children(handoff);
-        dock.child(column)
-    }
-
-    /// The agent's branch and `account`, then `hint`, amber while the agent asks; `said` stands in for the hint while it shows.
-    fn composer_footer(
-        &self,
-        agent: &Summary,
-        account: Option<Div>,
-        hint: Option<&'static str>,
-        said: Option<(&'static str, &str)>,
-        asking: bool,
-        reduce_motion: bool,
-    ) -> Div {
+        let (busy, stopping) = (self.chat_busy(agent, cx), self.chat_stopping(agent, cx));
+        let composer = self.chats.composer.clone();
+        let asked = matches!((mode, &ask), (Mode::Permission { .. } | Mode::Question { .. }, Some(_)));
+        let face = (!asked).then(|| {
+            let locked = (mode == Mode::ViewOnly).then_some(mark.as_ref().map_or("View only", crate::handoff::Mark::composer));
+            self.prompt_face(terminal, agent, locked, cx)
+        });
+        let held = self.chats.views.get(&agent.id).map(|v| {
+            let s = v.read(cx).session();
+            (s.outgoing.list().to_vec(), s.outgoing.paused(&s.transcript), s.transcript.clone())
+        });
+        let (pending, paused) = held.as_ref().map_or((&[][..], false), |(pending, paused, _)| (pending.as_slice(), *paused));
+        let tray = (mode == Mode::Prompt).then(|| self.queue_of(&agent.id, pending, paused));
+        let transcript = held.map(|(_, _, t)| t);
+        let tools = self.chats.views.get(&agent.id).map(|v| v.read(cx).tools());
+        let map = transcript.as_ref().zip(tools).and_then(|(t, tools)| self.chats.map.update(cx, |m, cx| m.view(agent, t, &tools, cx)));
+        let open = matches!(composer.read(cx).draft.menu, Some(Menu::Usage { .. } | Menu::Switch));
+        let chip = (mode != Mode::ViewOnly).then(|| self.chat_account_chip(agent, open)).flatten();
+        let notice = self.explorer.read(cx).notice.as_ref().map(|(n, _)| n.clone());
+        let said = said_in_chat(notice.as_ref(), &agent.id).map(|(glyph, said)| (glyph, said.to_string()));
+        let reduce_motion = cx.reduce_motion();
         let branch = self.worktree_of(&agent.cwd).filter(|t| !t.branch.is_empty()).map(|t| {
             div().min_w_0().flex().items_center().gap(px(6.)).child(icon("worktree", 13., TEXT_3)).child(
                 div().min_w_0().truncate().font_family(code_font()).text_size(px(11.5)).text_color(TEXT_2).child(renames::branch_label(
@@ -846,31 +1019,25 @@ impl Desktop {
                 )),
             )
         });
-        div()
-            .min_w_0()
-            .pt(px(8.))
-            .px(px(8.))
-            .flex()
-            .items_center()
-            .gap(px(10.))
-            .text_size(px(12.))
-            .text_color(TEXT_3)
-            .children(branch)
-            .children(account)
-            .child(div().flex_1())
-            .children(match said {
-                Some((glyph, said)) => Some(
-                    div()
-                        .min_w_0()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .text_color(TEXT_2)
-                        .child(icon(glyph, 13., TEXT_3))
-                        .child(div().min_w_0().truncate().child(said.to_string())),
-                ),
-                None => hint.map(|h| div().flex_none().whitespace_nowrap().text_color(if asking { WAITING_TEXT } else { TEXT_4 }).child(h)),
-            })
+        let frame = Frame {
+            terminal: terminal.to_string(),
+            agent: agent.clone(),
+            name: self.agent_name(&agent.provider),
+            mode,
+            ask,
+            focused: self.focused_chat().as_deref() == Some(terminal),
+            caps: self.chat_caps(&agent.provider),
+            busy,
+            stopping,
+            face,
+            tray,
+            transcript,
+            map,
+            chip,
+            said,
+            branch,
+        };
+        composer.update(cx, |c, cx| c.view(frame, window, cx))
     }
 
     /// Where files dropped on `terminal`'s chat go to its input, while its prompt box is the one shown and takes them.
@@ -879,98 +1046,7 @@ impl Desktop {
         if composer_mode(self.agents.observe_only(), self.chat_ask(terminal).as_ref().map(|(a, _)| a)) != Mode::Prompt {
             return None;
         }
-        let (desktop, input) = (cx.entity().downgrade(), self.chats.input.clone());
-        // Not a `cx.listener`: the input's drop handler updates `Desktop`.
-        Some(drop_zone(move |paths, window, cx| {
-            desktop.update(cx, |d, cx| d.chat_take_input(&agent, window, cx)).ok();
-            input.update(cx, |s, cx| s.drop_paths(paths, window, cx));
-        }))
-    }
-
-    /// `locked` names why the box takes no prompt; `None` takes one.
-    fn prompt_box(&self, terminal: &str, agent: &Summary, locked: Option<&'static str>, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let view_only = locked.is_some();
-        let caps = self.chat_caps(&agent.provider);
-        let held = self.chats.drafts.owner() == Some(agent.id.as_str());
-        let (typed, draft) = self.chat_draft(&agent.id, cx);
-        let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
-        let typing = !empty || (held && self.chats.input.read(cx).focus_handle(cx).is_focused(window));
-        let stopping = self.chat_stopping(agent);
-        let action = chat::action(self.chat_busy(agent), stopping, empty);
-        let blocked = !caps.allows(action);
-        let press = |t: &str| {
-            let t = t.to_string();
-            cx.listener(move |this, _: &ClickEvent, window, cx| this.chat_press(&t, action, window, cx))
-        };
-        let left = cx.listener(|this, over: &bool, _, _| {
-            if pointer_left(*over, this.chats.composer.pressing_send) {
-                this.chats.composer.clicked_send = None;
-            }
-        });
-        let released = || cx.listener(|this, _: &MouseUpEvent, _, _| this.chats.composer.pressing_send = false);
-        // The id names the action so the tooltip of the button a send was clicked on doesn't stay on the Stop that replaced it.
-        let send = (!view_only && shows_button(action, empty)).then(|| {
-            send_button::send_button(id(format!("chat-send:{terminal}:{action:?}")), action, empty, blocked)
-                .on_hover(left)
-                .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, _, _| this.chats.composer.pressing_send = true))
-                .on_mouse_up(MouseButton::Left, released())
-                .on_mouse_up_out(MouseButton::Left, released())
-                .when(!blocked, |b| b.on_click(press(terminal)))
-        });
-        let attach = (!view_only).then(|| attachments::attach_button(id(format!("chat-attach:{terminal}")), |d| &mut d.chats.composer.draft, cx));
-        let strip = draft.and_then(|d| attachments::strip(d, cx));
-        let input = if let Some(why) = locked {
-            div().px(px(10.)).py(px(8.)).text_color(TEXT_3).child(why).into_any_element()
-        } else if !held {
-            // Another chat's draft is in the input; this one's shows until a press here takes the input.
-            let shown = if typed.is_empty() { (self.chats.composer.placeholder.get().to_string(), TEXT_3) } else { (typed, TEXT) };
-            div()
-                .px(px(10.))
-                .py(px(8.))
-                .min_h(px(MIN_ROWS as f32 * INPUT_LINE_HEIGHT + 16.))
-                .line_height(px(INPUT_LINE_HEIGHT))
-                .text_color(shown.1)
-                .child(shown.0)
-                .into_any_element()
-        } else {
-            let (desktop, input) = (cx.entity().downgrade(), self.chats.input.clone());
-            let textarea = crate::composer::pills::with_pills(Textarea::new(&self.chats.input), &self.chats.input)
-                .appearance(false)
-                .text_size(px(INPUT_TEXT_SIZE))
-                .line_height(px(INPUT_LINE_HEIGHT))
-                .on_paste(move |item, window, cx| {
-                    let unsaved = |d: &mut Desktop, (title, detail): (String, String)| d.error = Some(format!("{title}: {detail}"));
-                    crate::composer::paste(&desktop, &input, |d| &mut d.chats.composer.draft, unsaved, item, window, cx)
-                });
-            div().child(textarea).child(marks_overlay(self.chats.input.clone())).into_any_element()
-        };
-        let (t, a) = (terminal.to_string(), agent.id.clone());
-        let text = crate::composer::prompt_text().child(input);
-        let bar = crate::composer::prompt_bar()
-            .children(self.chat_goal_pill(agent, view_only, cx))
-            .child(self.chat_model_pill(agent, view_only, cx))
-            .children(self.chat_access_pill(agent, view_only, cx))
-            .children(self.chats.views.get(&agent.id).and_then(|v| self.chat_agents_chip(agent, &v.session.transcript, cx)))
-            .child(div().flex_1())
-            .children(attach)
-            .children(send);
-        let suggestions = (!view_only && held).then(|| self.suggest_list(Prompt::Chat, cx)).flatten();
-        let keyed = self.suggest_keys(Prompt::Chat, frame(typing), cx);
-        self.rich_keys(Prompt::Chat, keyed, cx)
-            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| this.chat_focus_input(&a, window, cx)))
-            .on_key_down(cx.listener(move |this, e: &KeyDownEvent, _, cx| {
-                if e.keystroke.key == "escape" {
-                    if this.escape_composer_menu() {
-                        cx.stop_propagation();
-                        return cx.notify();
-                    }
-                    this.chat_escape(&t, cx);
-                }
-            }))
-            .children(suggestions)
-            .children(strip)
-            .child(text)
-            .child(bar)
+        Some(self.chats.composer.update(cx, |c, cx| c.drop_zone(&agent, cx)))
     }
 }
 
@@ -1003,7 +1079,7 @@ mod tests {
 
     fn session(turns: Vec<Turn>) -> Session {
         let mut s = Session::default();
-        s.transcript = Transcript { turns };
+        s.transcript = Transcript { turns }.into();
         s
     }
 
@@ -1062,7 +1138,7 @@ mod tests {
         let mut s = session(vec![turn(Some(End::Done { duration_ms: 5, usage: None }))]);
         s.outgoing.push("Next".into(), false, 0);
         assert!(busy(&agent("idle"), Some(&s)));
-        s.transcript = Transcript::default();
+        s.transcript = Default::default();
         assert!(busy(&agent("idle"), Some(&s)));
     }
 

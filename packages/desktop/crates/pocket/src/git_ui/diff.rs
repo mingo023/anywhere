@@ -1,14 +1,17 @@
 mod row;
+use row::{add_button, fold_start};
 pub(crate) use row::{code, hunk};
 
-use crate::add_to_chat::{Body, Quote};
+use crate::add_to_chat::{Body, ChatComposer, Quote};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Side, doc_bar, empty};
 use crate::explorer::preview::image_format;
+use crate::git_ui::pull_request::PrSide;
 use crate::syntax::{Spans, language_for, line_spans};
 use crate::util::{ago_long, now_ms};
 use git::github::Thread;
 use git::{self, Kind, Line};
+use gpui_kit::component::input::TextareaState;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::{HashMap, HashSet};
@@ -382,6 +385,10 @@ impl DiffView {
         self.file.as_deref().filter(|_| matches!(self.at, At::Working | At::Compare(_)))
     }
 
+    pub fn quote(&self) -> Option<Quote> {
+        self.pick.composing.then(|| self.pick.quote(&self.lines, self.followed_file()?)).flatten()
+    }
+
     fn set_lines(&mut self, lines: Vec<Line>) -> bool {
         if lines == self.lines {
             return false;
@@ -392,7 +399,7 @@ impl DiffView {
     }
 
     /// Rebuilds the rows; without `reset` only the rows that changed are remeasured and the scroll position stays.
-    fn layout(&mut self, reset: bool, split: bool) {
+    pub(crate) fn layout(&mut self, reset: bool, split: bool) {
         let rows = rows(&self.lines, split, self.pick.composer_line(), &self.pins);
         if reset {
             self.list.reset(rows.len());
@@ -402,12 +409,320 @@ impl DiffView {
         }
         self.rows = rows;
     }
+
+    fn apply(&mut self, load: DiffLoad, options: git::Options, split: bool) -> bool {
+        if self.file.as_ref() != Some(&load.path)
+            || self.at != load.at
+            || load.open != self.open
+            || load.options != options
+            || load.colors.is_some() && load.dark != theme::is_dark()
+        {
+            return false;
+        }
+        self.source = load.source;
+        let recolored = load.colors.map(|(syntax, hl)| (self.syntax, self.hl) = (syntax, hl)).is_some();
+        let reimaged = self.images != load.images;
+        if reimaged {
+            self.images = load.images;
+        }
+        let changed = self.set_lines(load.lines);
+        if changed {
+            self.layout(true, split);
+        }
+        changed | recolored | reimaged
+    }
+
+    fn select(&mut self, path: String, at: At, split: bool) {
+        if self.shows(&path, &at) {
+            return;
+        }
+        self.pick.range = None;
+        self.open.clear();
+        self.pins.clear();
+        self.images = None;
+        if self.set_lines(Vec::new()) {
+            self.layout(true, split);
+        }
+        (self.file, self.at) = (Some(path), at);
+    }
+
+    fn expand(&mut self, start: usize, options: git::Options, split: bool) {
+        self.open.insert(start);
+        let lines = git::diff_texts(&self.source.0, &self.source.1, &self.open, options);
+        self.hl = highlights(&lines, &self.syntax.0, &self.syntax.1);
+        if self.set_lines(lines) {
+            self.layout(false, split);
+        }
+    }
+
+    fn pin(&mut self, threads: &[Thread], pr_base: Option<&str>, split: bool) {
+        if !self.at.pins_threads(pr_base) {
+            return;
+        }
+        let pins = self.file.as_deref().map(|f| pins(f, threads)).unwrap_or_default();
+        if pins != self.pins {
+            self.pins = pins;
+            self.layout(false, split);
+        }
+    }
+
+    fn drop_pick(&mut self, split: bool) {
+        if self.pick != Pick::default() {
+            self.pick = Pick::default();
+            self.layout(false, split);
+        }
+    }
+
+    fn thread_row(&self, id: &str) -> Option<usize> {
+        self.rows.iter().position(|r| matches!(r, Row::Thread(k) if self.pins[*k].id == id))
+    }
 }
 
-/// The diff each pane shows, and the pane whose pick is being asked about.
+/// Scrolls to the thread asked for, with a few lines of the code above it, once a pane shows it.
+fn reveal_thread<'a>(reveal: &mut Option<String>, views: impl IntoIterator<Item = &'a DiffView>) {
+    let Some(id) = reveal.as_deref() else { return };
+    let found = views.into_iter().find_map(|v| Some((v, v.thread_row(id)?)));
+    if let Some((v, ix)) = found {
+        v.list.scroll_to(ListOffset { item_ix: ix.saturating_sub(3), offset_in_item: px(0.) });
+        *reveal = None;
+    }
+}
+
+/// What a pane's composer and PR thread rows draw from: the entities that build them, which a row asks each time it renders.
+#[derive(Default)]
+pub(crate) struct Cards {
+    pub(crate) composer: Option<(Entity<ChatComposer>, Quote)>,
+    pub(crate) threads: Option<(Entity<PrSide>, Vec<String>)>,
+}
+
+pub(crate) enum DiffEvent {
+    Claimed,
+    Split(bool),
+    More(Point<Pixels>),
+}
+
+pub(crate) struct Head {
+    crumbs: Vec<String>,
+    meta: Vec<Meta>,
+    image: bool,
+}
+
+enum Meta {
+    Sha(String),
+    Subject(String),
+    Against(String),
+    Totals(usize, usize),
+    By { provider: String, text: String },
+}
+
+pub struct DiffPane {
+    pub(crate) view: DiffView,
+    pub(crate) split: bool,
+    pub(crate) options: git::Options,
+    pub(crate) code_size: u32,
+    pub(crate) cards: Cards,
+    head: Option<Head>,
+    chat: Entity<TextareaState>,
+}
+
+impl EventEmitter<DiffEvent> for DiffPane {}
+
+impl DiffPane {
+    fn new(chat: Entity<TextareaState>) -> Self {
+        Self { view: DiffView::default(), split: false, options: git::Options::default(), code_size: 0, cards: Cards::default(), head: None, chat }
+    }
+
+    /// One side of a row: pressing picks its line, dragging or shift-clicking stretches the pick; "+" or a drag opens the composer.
+    fn cell(&self, id: &'static str, i: usize, numbers: Vec<Option<usize>>, add_at: f32, cx: &mut Context<Self>) -> Stateful<Div> {
+        let v = &self.view;
+        if v.lines[i].kind == Kind::Hunk {
+            return self.fold(id, i, cx);
+        }
+        let row = code(&v.lines[i], v.hl.get(i), numbers, v.pick.picked(&v.lines, i)).id((id, i));
+        if v.followed_file().is_none() {
+            return row;
+        }
+        let last = v.pick.last() == Some(i);
+        row.group("diff-line")
+            .cursor_pointer()
+            .child(
+                add_button(add_at)
+                    .when(!last, |b| b.opacity(0.).group_hover("diff-line", |s| s.opacity(1.)))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_up(MouseButton::Left, cx.listener(move |this, _, window, cx| this.open_composer(i, window, cx))),
+            )
+            .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, window, cx| this.select_line(i, ev.modifiers.shift, window, cx)))
+            .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, window, cx| this.drag_to(i, ev.dragging(), window, cx)))
+    }
+
+    /// A hunk header; clicking it unfolds the lines hidden above it.
+    fn fold(&self, id: &'static str, i: usize, cx: &mut Context<Self>) -> Stateful<Div> {
+        let row = hunk(&self.view.lines, i).id((id, i));
+        match fold_start(&self.view.lines, i) {
+            Some(start) => row.cursor_pointer().hover(|s| s.bg(FILL_2)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.expand(start, cx))),
+            None => row,
+        }
+    }
+
+    fn row(&mut self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+        let Some(&row) = self.view.rows.get(ix) else { return Empty.into_any_element() };
+        match row {
+            Row::Unified(i) => self.cell("line", i, vec![self.view.lines[i].old, self.view.lines[i].new], 2. * NUM - 10., cx).w_full().into_any_element(),
+            Row::Split(Some(i), _) | Row::Split(None, Some(i)) if self.view.lines[i].kind == Kind::Hunk => self.fold("fold", i, cx).w_full().into_any_element(),
+            Row::Split(l, r) => {
+                let lines = &self.view.lines;
+                let mut side = |id, i: Option<usize>, n: fn(&Line) -> Option<usize>| match i {
+                    Some(i) => self.cell(id, i, vec![n(&lines[i])], NUM - 10., cx).flex_1().min_w_0().into_any_element(),
+                    None => div().flex_1().min_h(px(ROW)).bg(SURFACE_SUNKEN).into_any_element(),
+                };
+                div().w_full().flex().child(side("old", l, |l| l.old)).child(side("new", r, |l| l.new)).into_any_element()
+            }
+            Row::Composer => {
+                let card = self.cards.composer.as_ref().map(|(chat, q)| chat.update(cx, |c, cx| c.card(q, false, cx)));
+                div().w_full().children(card.map(|c| c.mt(px(6.)).mb(px(10.)).mr(px(20.)).ml(px(self.card_margin())))).into_any_element()
+            }
+            Row::Thread(k) => {
+                let thread = self.cards.threads.as_ref().and_then(|(pr, ids)| {
+                    let id = ids.get(k)?;
+                    pr.update(cx, |p, cx| p.pinned_thread(k, id, cx))
+                });
+                let card = thread.map(|t| {
+                    div()
+                        .mt(px(6.))
+                        .mb(px(10.))
+                        .mr(px(20.))
+                        .ml(px(self.card_margin()))
+                        .max_w(px(720.))
+                        .font_family(ui_font())
+                        .text_size(px(13.))
+                        .line_height(relative(1.2))
+                        .child(t)
+                });
+                div().w_full().children(card).into_any_element()
+            }
+        }
+    }
+
+    fn card_margin(&self) -> f32 {
+        if self.split { NUM + SIGN } else { 2. * NUM + SIGN }
+    }
+
+    fn expand(&mut self, start: usize, cx: &mut Context<Self>) {
+        self.view.expand(start, self.options, self.split);
+        cx.notify();
+    }
+
+    fn select_line(&mut self, i: usize, extend: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.view.pick.press(&self.view.lines, i, extend) {
+            self.chat.update(cx, |s, cx| s.set_value("", window, cx));
+        }
+        self.view.layout(false, self.split);
+        cx.emit(DiffEvent::Claimed);
+        cx.notify();
+    }
+
+    fn drag_to(&mut self, i: usize, pressed: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !pressed && self.view.pick.held() {
+            return self.end_drag(window, cx);
+        }
+        if self.view.pick.drag(&self.view.lines, i) {
+            cx.notify();
+        }
+    }
+
+    fn end_drag(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.view.pick.release() {
+            return;
+        }
+        self.view.layout(false, self.split);
+        if self.view.pick.composing {
+            self.chat.update(cx, |s, cx| s.focus(window, cx));
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn open_composer(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.view.pick.open(&self.view.lines, i) {
+            self.chat.update(cx, |s, cx| s.set_value("", window, cx));
+        }
+        self.view.layout(false, self.split);
+        self.chat.update(cx, |s, cx| s.focus(window, cx));
+        cx.emit(DiffEvent::Claimed);
+        cx.notify();
+    }
+}
+
+impl DiffPane {
+    fn bar(&self, head: &Head, cx: &mut Context<Self>) -> Div {
+        let right = div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .when(!head.image, |d| {
+                d.child(div().id("diff-mode").child(ui::segmented(
+                    vec![
+                        Segment { icon: None, value: false, label: "Unified".into(), badge: None },
+                        Segment { icon: None, value: true, label: "Split".into(), badge: None },
+                    ],
+                    self.split,
+                    true,
+                    false,
+                    |_, v, cx| cx.emit(DiffEvent::Split(v)),
+                    cx,
+                )))
+            })
+            .child(ui::icon_group([
+                ui::group_button("diff-more", "more").on_click(cx.listener(|_, e: &ClickEvent, _, cx| cx.emit(DiffEvent::More(e.position()))))
+            ]));
+        let meta = head
+            .meta
+            .iter()
+            .map(|m| match m {
+                Meta::Sha(sha) => ui::meta_item().child(ui::meta_value(sha.clone())).into_any_element(),
+                Meta::Subject(subject) => ui::meta_item().child(div().max_w(px(320.)).truncate().child(subject.clone())).into_any_element(),
+                Meta::Against(against) => ui::meta_item().child("against").child(ui::meta_value(against.clone())).into_any_element(),
+                Meta::Totals(added, removed) => ui::meta_item().child(ui::meta_diff(*added, *removed, 11.5)).into_any_element(),
+                Meta::By { provider, text } => {
+                    ui::meta_item().child(provider_icon(provider, 13., TEXT_2)).child("by").child(ui::meta_value(text.clone())).into_any_element()
+                }
+            })
+            .collect();
+        doc_bar(head.crumbs.clone(), meta, right)
+    }
+}
+
+impl Render for DiffPane {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let bar = self.head.as_ref().map(|head| self.bar(head, cx));
+        let body = match self.view.images.clone() {
+            Some(images) => image_sides(images).into_any_element(),
+            None => {
+                let rows = list(self.view.list.clone(), cx.processor(|this, ix, _, cx| this.row(ix, cx))).pb(px(8.));
+                code_text(div(), self.code_size)
+                    .flex_1()
+                    .min_h_0()
+                    .bg(PAGE)
+                    .border_t(px(0.5))
+                    .border_color(SEPARATOR)
+                    .overflow_hidden()
+                    .child(rows.size_full())
+                    .on_mouse_up(MouseButton::Left, cx.listener(|this, _, window, cx| this.end_drag(window, cx)))
+                    .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _, window, cx| this.end_drag(window, cx)))
+                    .into_any_element()
+            }
+        };
+        div().flex_1().min_h_0().flex().flex_col().children(bar).child(body)
+    }
+}
+
+pub(crate) struct Slot {
+    pub(crate) view: Entity<DiffPane>,
+    _sub: Subscription,
+}
+
 #[derive(Default)]
 pub struct DiffState {
-    pub(crate) panes: HashMap<PaneId, DiffView>,
+    pub(crate) panes: HashMap<PaneId, Slot>,
     pub(crate) split: bool,
     pub(crate) options: git::Options,
     /// The pane whose pick the composer is about; `MAIN` is 0, so it's the default.
@@ -421,119 +736,85 @@ impl DiffState {
         Self { split: prefs.split, options: options(prefs), ..Self::default() }
     }
 
-    pub fn view(&self, pane: PaneId) -> Option<&DiffView> {
-        self.panes.get(&pane)
+    pub fn get(&self, pane: PaneId) -> Option<&Entity<DiffPane>> {
+        self.panes.get(&pane).map(|s| &s.view)
     }
 
-    /// The pane the composer is in.
-    pub fn draft(&self) -> Option<&DiffView> {
-        self.panes.get(&self.drafting)
+    pub fn view<'a>(&self, pane: PaneId, cx: &'a App) -> Option<&'a DiffView> {
+        self.get(pane).map(|p| &p.read(cx).view)
     }
 
-    pub fn draft_quote(&self) -> Option<Quote> {
-        let v = self.draft().filter(|v| v.pick.composing)?;
-        v.pick.quote(&v.lines, v.followed_file()?)
+    pub fn draft_quote(&self, cx: &App) -> Option<Quote> {
+        self.view(self.drafting, cx)?.quote()
+    }
+
+    pub(crate) fn views<'a>(&'a self, cx: &'a App) -> impl Iterator<Item = (PaneId, &'a DiffView)> {
+        self.panes.iter().map(|(p, s)| (*p, &s.view.read(cx).view))
     }
 
     /// Shows `load` in `pane` unless another file, fold state, diff option or appearance was picked while it ran.
-    pub fn apply(&mut self, pane: PaneId, load: DiffLoad) -> bool {
-        let Some(v) = self.panes.get_mut(&pane) else { return false };
-        if v.file.as_ref() != Some(&load.path)
-            || v.at != load.at
-            || load.open != v.open
-            || load.options != self.options
-            || load.colors.is_some() && load.dark != theme::is_dark()
-        {
-            return false;
-        }
-        v.source = load.source;
-        let recolored = load.colors.map(|(syntax, hl)| (v.syntax, v.hl) = (syntax, hl)).is_some();
-        let reimaged = v.images != load.images;
-        if reimaged {
-            v.images = load.images;
-        }
-        let changed = v.set_lines(load.lines);
-        if changed {
-            v.layout(true, self.split);
-        }
-        self.reveal_thread();
-        changed | recolored | reimaged
+    pub fn apply(&mut self, pane: PaneId, load: DiffLoad, cx: &mut App) -> bool {
+        let Some(entity) = self.get(pane).cloned() else { return false };
+        let (options, split) = (self.options, self.split);
+        let changed = entity.update(cx, |p, cx| {
+            let changed = p.view.apply(load, options, split);
+            if changed {
+                cx.notify();
+            }
+            changed
+        });
+        self.reveal_thread(cx);
+        changed
     }
 
     /// Pins `threads`, of a PR into `pr_base`, to the PR diffs on show, keeping their scroll position, then scrolls to the thread asked for.
-    pub fn pin(&mut self, threads: &[Thread], pr_base: Option<&str>) {
-        for v in self.panes.values_mut().filter(|v| v.at.pins_threads(pr_base)) {
-            let pins = v.file.as_deref().map(|f| pins(f, threads)).unwrap_or_default();
-            if pins != v.pins {
-                v.pins = pins;
-                v.layout(false, self.split);
-            }
+    pub fn pin(&mut self, threads: &[Thread], pr_base: Option<&str>, cx: &mut App) {
+        let split = self.split;
+        for s in self.panes.values() {
+            s.view.update(cx, |p, cx| {
+                p.view.pin(threads, pr_base, split);
+                cx.notify();
+            });
         }
-        self.reveal_thread();
+        self.reveal_thread(cx);
     }
 
-    /// Scrolls to the thread asked for, with a few lines of the code above it, once a pane shows it.
-    fn reveal_thread(&mut self) {
-        let Some(id) = self.reveal.as_deref() else { return };
-        let found = self.panes.values().find_map(|v| Some((v, v.rows.iter().position(|r| matches!(r, Row::Thread(k) if v.pins[*k].id == id))?)));
-        if let Some((v, ix)) = found {
-            v.list.scroll_to(ListOffset { item_ix: ix.saturating_sub(3), offset_in_item: px(0.) });
-            self.reveal = None;
-        }
+    fn reveal_thread(&mut self, cx: &App) {
+        let Self { panes, reveal, .. } = self;
+        reveal_thread(reveal, panes.values().map(|s| &s.view.read(cx).view));
     }
 
-    /// Shows `path` in `pane` as `at` compares it, dropping the pick, folds and lines of another file.
-    pub fn select(&mut self, pane: PaneId, path: String, at: At) {
-        let v = self.panes.entry(pane).or_default();
-        if v.shows(&path, &at) {
-            return;
-        }
-        v.pick.range = None;
-        v.open.clear();
-        v.pins.clear();
-        v.images = None;
-        if v.set_lines(Vec::new()) {
-            v.layout(true, self.split);
-        }
-        (v.file, v.at) = (Some(path), at);
-    }
-
-    /// Shows the unchanged lines folded away from `start` on in `pane`, keeping the scroll position.
-    fn expand(&mut self, pane: PaneId, start: usize) {
-        let Some(v) = self.panes.get_mut(&pane) else { return };
-        v.open.insert(start);
-        let lines = git::diff_texts(&v.source.0, &v.source.1, &v.open, self.options);
-        v.hl = highlights(&lines, &v.syntax.0, &v.syntax.1);
-        if v.set_lines(lines) {
-            v.layout(false, self.split);
-        }
-    }
-
-    pub fn layout(&mut self, pane: PaneId, reset: bool) {
-        if let Some(v) = self.panes.get_mut(&pane) {
-            v.layout(reset, self.split);
-        }
-    }
-
-    pub fn relayout(&mut self, reset: bool) {
-        for v in self.panes.values_mut() {
-            v.layout(reset, self.split);
+    pub fn relayout(&self, reset: bool, cx: &mut App) {
+        let split = self.split;
+        for s in self.panes.values() {
+            s.view.update(cx, |p, cx| {
+                p.split = split;
+                p.view.layout(reset, split);
+                cx.notify();
+            });
         }
     }
 
     /// Moves the composer to `pane`, dropping the pick another pane held.
-    pub fn draft_in(&mut self, pane: PaneId) {
+    pub fn draft_in(&mut self, pane: PaneId, cx: &mut App) {
         self.drafting = pane;
-        for (_, v) in self.panes.iter_mut().filter(|(p, v)| **p != pane && v.pick != Pick::default()) {
-            v.pick = Pick::default();
-            v.layout(false, self.split);
+        let split = self.split;
+        for s in self.panes.iter().filter(|(p, _)| **p != pane).map(|(_, s)| s) {
+            s.view.update(cx, |p, cx| {
+                p.view.drop_pick(split);
+                cx.notify();
+            });
         }
     }
 
-    pub fn cancel_draft(&mut self) {
-        if let Some(v) = self.panes.get_mut(&self.drafting) {
-            v.pick.cancel();
-            v.layout(false, self.split);
+    pub fn cancel_draft(&self, cx: &mut App) {
+        let split = self.split;
+        if let Some(entity) = self.get(self.drafting) {
+            entity.update(cx, |p, cx| {
+                p.view.pick.cancel();
+                p.view.layout(false, split);
+                cx.notify();
+            });
         }
     }
 
@@ -565,57 +846,70 @@ fn image_sides((old, new): Images) -> Div {
 }
 
 impl Desktop {
-    pub fn diff_view(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Div {
-        let Some((path, at)) = self.diff.view(pane).and_then(|v| Some((v.file.clone()?, v.at.clone()))) else {
-            return empty("No changes.");
+    pub(crate) fn diff_entity(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Entity<DiffPane> {
+        let (split, options, code_size) = (self.diff.split, self.diff.options, self.store.appearance.code_size());
+        let entity = match self.diff.get(pane) {
+            Some(entity) => entity.clone(),
+            None => {
+                let chat = self.chat.read(cx).input.clone();
+                let entity = cx.new(|_| DiffPane::new(chat));
+                let sub = cx.subscribe(&entity, move |this, _, ev: &DiffEvent, cx| this.on_diff_pane(pane, ev, cx));
+                self.diff.panes.insert(pane, Slot { view: entity.clone(), _sub: sub });
+                entity
+            }
         };
-        let file = self.repo().and_then(|r| r.files.iter().find(|f| f.path == path)).cloned().filter(|_| at == At::Working);
-        let image = image_format(&path).is_some();
-        let right = div()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .when(!image, |d| {
-                d.child(div().id("diff-mode").child(ui::segmented(
-                    vec![
-                        Segment { icon: None, value: false, label: "Unified".into(), badge: None },
-                        Segment { icon: None, value: true, label: "Split".into(), badge: None },
-                    ],
-                    self.diff.split,
-                    true,
-                    false,
-                    |this, v, cx| {
-                        this.store.diff.split = v;
-                        this.apply_diff_style();
-                        this.save_soon(cx);
-                        cx.notify();
-                    },
-                    cx,
-                )))
-            })
-            .child(ui::icon_group([
-                ui::group_button("diff-more", "more").on_click(cx.listener(|this, e: &ClickEvent, window, cx| this.open_more(e.position(), window, cx)))
-            ]));
+        entity.update(cx, |p, _| (p.split, p.options, p.code_size) = (split, options, code_size));
+        entity
+    }
+
+    fn on_diff_pane(&mut self, pane: PaneId, ev: &DiffEvent, cx: &mut Context<Self>) {
+        match ev {
+            DiffEvent::Claimed => {
+                self.chat.update(cx, |c, cx| c.clear_file(cx));
+                self.diff.draft_in(pane, cx);
+            }
+            DiffEvent::Split(split) => {
+                self.store.diff.split = *split;
+                self.apply_diff_style(cx);
+                self.save_soon(cx);
+            }
+            DiffEvent::More(at) => self.open_more(*at, cx),
+        }
+        cx.notify();
+    }
+
+    /// Shows `path` in `pane` as `at` compares it, dropping the pick, folds and lines of another file.
+    pub(crate) fn select_diff(&mut self, pane: PaneId, path: String, at: At, cx: &mut Context<Self>) {
+        let split = self.diff.split;
+        self.diff_entity(pane, cx).update(cx, |p, _| p.view.select(path, at, split));
+    }
+
+    pub fn diff_view(&mut self, pane: PaneId, cx: &mut Context<Self>) -> AnyElement {
+        let Some((path, at)) = self.diff.view(pane, cx).and_then(|v| Some((v.file.clone()?, v.at.clone()))) else {
+            return empty("No changes.").into_any_element();
+        };
+        let file = self.repo(cx).and_then(|r| r.files.iter().find(|f| f.path == path)).cloned().filter(|_| at == At::Working);
         let mut meta = Vec::new();
         if let At::Commit(sha) = &at {
-            meta.push(ui::meta_item().child(ui::meta_value(git::short_sha(sha).to_string())).into_any_element());
+            meta.push(Meta::Sha(git::short_sha(sha).to_string()));
             if let Some(c) = self.graph.read(cx).commit(sha) {
-                meta.push(ui::meta_item().child(div().max_w(px(320.)).truncate().child(c.subject.clone())).into_any_element());
+                meta.push(Meta::Subject(c.subject.clone()));
             }
         }
         if let At::Base(against) | At::Compare(against) = &at {
-            meta.push(ui::meta_item().child("against").child(ui::meta_value(against.clone())).into_any_element());
+            meta.push(Meta::Against(against.clone()));
         }
         if let Some(f) = &file {
-            meta.push(ui::meta_item().child(ui::meta_diff(f.added, f.removed, 11.5)).into_any_element());
+            meta.push(Meta::Totals(f.added, f.removed));
         }
         if at == At::Working {
-            let abs = self.cwd().map(|c| format!("{c}/{path}")).unwrap_or_default();
+            let abs = self.cwd(cx).map(|c| format!("{c}/{path}")).unwrap_or_default();
             if let Some((a, ts)) = self.agents.last_edit(&abs) {
-                let by = format!("{} · {}", self.agent_name(&a.provider), ago_long(ts, now_ms()));
-                meta.push(ui::meta_item().child(provider_icon(&a.provider, 13., TEXT_2)).child("by").child(ui::meta_value(by)).into_any_element());
+                let text = format!("{} · {}", self.agent_name(&a.provider), ago_long(ts, now_ms()));
+                meta.push(Meta::By { provider: a.provider.clone(), text });
             }
         }
+        let image = image_format(&path).is_some();
         let (dir, name) = path.rsplit_once('/').map_or((None, path.clone()), |(d, n)| (Some(d.to_string()), n.to_string()));
         let first = match &at {
             At::Working => "Changes".to_string(),
@@ -624,37 +918,29 @@ impl Desktop {
             At::Compare(_) => "Compare".to_string(),
         };
         let crumbs = std::iter::once(first).chain(dir).chain([name]).collect();
-        div().flex_1().min_h_0().flex().flex_col().child(doc_bar(crumbs, meta, right)).child(self.diff_box(pane, cx))
+        let cards = self.diff_cards(pane, cx);
+        let entity = self.diff_entity(pane, cx);
+        entity.update(cx, |p, _| (p.cards, p.head) = (cards, Some(Head { crumbs, meta, image })));
+        entity.into_any_element()
     }
 
-    pub fn diff_box(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Div {
-        let Some(v) = self.diff.view(pane) else { return div().flex_1() };
-        if let Some(images) = v.images.clone() {
-            return image_sides(images);
-        }
-        let state = v.list.clone();
-        let rows = list(state, cx.processor(move |this, ix, _, cx| this.diff_row(pane, ix, cx))).pb(px(8.));
-        code_text(div(), self.store.appearance.code_size())
-            .flex_1()
-            .min_h_0()
-            .bg(PAGE)
-            .border_t(px(0.5))
-            .border_color(SEPARATOR)
-            .overflow_hidden()
-            .child(rows.size_full())
-            .on_mouse_up(MouseButton::Left, cx.listener(move |this, _, window, cx| this.end_drag(pane, window, cx)))
-            .on_mouse_up_out(MouseButton::Left, cx.listener(move |this, _, window, cx| this.end_drag(pane, window, cx)))
-    }
-
-    fn expand(&mut self, pane: PaneId, start: usize, cx: &mut Context<Self>) {
-        self.diff.expand(pane, start);
-        cx.notify();
+    fn diff_cards(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Cards {
+        let Some(v) = self.diff.view(pane, cx) else { return Cards::default() };
+        let composing = v.rows.contains(&Row::Composer);
+        let ids = v.pins.iter().map(|p| p.id.clone()).collect();
+        let composer = composing.then(|| self.diff.draft_quote(cx)).flatten().map(|q| {
+            let side = self.chat_side(cx);
+            self.chat.update(cx, |c, cx| c.hand(side, cx));
+            (self.chat.clone(), q)
+        });
+        Cards { composer, threads: Some((self.pr.clone(), ids)) }
     }
 
     pub fn open_changes(&mut self, path: Option<String>, pin: bool, cx: &mut Context<Self>) {
-        let shown = self.diff.view(self.focused_pane()).and_then(|v| v.working_file()).map(str::to_string);
-        let path = path.or(shown).or_else(|| self.repo()?.files.first().map(|f| f.path.clone()));
-        (self.side, self.sidebar.panel_open) = (Side::Changes, true);
+        let shown = self.diff.view(self.focused_pane(cx), cx).and_then(|v| v.working_file()).map(str::to_string);
+        let path = path.or(shown).or_else(|| self.repo(cx)?.files.first().map(|f| f.path.clone()));
+        self.side = Side::Changes;
+        self.sidebar.update(cx, |s, cx| s.set_panel_open(true, cx));
         match path {
             Some(path) => self.open_doc(Doc::Diff(path), pin, cx),
             None => cx.notify(),
@@ -662,13 +948,13 @@ impl Desktop {
     }
 
     pub(crate) fn load_diff(&mut self, pane: PaneId, cx: &mut Context<Self>) {
-        let shown = self.diff.view(pane).map(|v| v.lines.clone()).unwrap_or_default();
+        let shown = self.diff.view(pane, cx).map(|v| v.lines.clone()).unwrap_or_default();
         self.read_diff_in_background(pane, shown, cx);
     }
 
-    pub(crate) fn apply_diff_style(&mut self) {
+    pub(crate) fn apply_diff_style(&mut self, cx: &mut Context<Self>) {
         self.diff.split = self.store.diff.split;
-        self.diff.relayout(true);
+        self.diff.relayout(true, cx);
     }
 
     /// Reads every pane's diff again, for a new appearance or diff option.
@@ -679,7 +965,8 @@ impl Desktop {
     }
 
     fn read_diff_in_background(&mut self, pane: PaneId, shown: Vec<Line>, cx: &mut Context<Self>) {
-        let Some((cwd, (path, at, open))) = self.cwd().zip(self.diff.view(pane).and_then(|v| Some((v.file.clone()?, v.at.clone(), v.open.clone())))) else {
+        let Some((cwd, (path, at, open))) = self.cwd(cx).zip(self.diff.view(pane, cx).and_then(|v| Some((v.file.clone()?, v.at.clone(), v.open.clone()))))
+        else {
             return;
         };
         let options = self.diff.options;
@@ -687,7 +974,7 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             let load = task.await;
             this.update(cx, |d, cx| {
-                if d.diff.apply(pane, load) {
+                if d.diff.apply(pane, load, cx) {
                     cx.notify();
                 }
             })
@@ -696,68 +983,26 @@ impl Desktop {
         .detach();
     }
 
-    /// Picks line `i` of `pane`'s diff, or with `extend` stretches the pick to it.
-    pub fn select_line(&mut self, pane: PaneId, i: usize, extend: bool, window: &mut Window, cx: &mut Context<Self>) {
-        self.chat.file = None;
-        self.diff.draft_in(pane);
-        let Some(v) = self.diff.panes.get_mut(&pane) else { return };
-        if v.pick.press(&v.lines, i, extend) {
-            self.chat.input.update(cx, |s, cx| s.set_value("", window, cx));
-        }
-        self.diff.layout(pane, false);
-        cx.notify();
-    }
-
-    pub fn drag_to(&mut self, pane: PaneId, i: usize, pressed: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(v) = self.diff.panes.get_mut(&pane) else { return };
-        if !pressed && v.pick.held() {
-            return self.end_drag(pane, window, cx);
-        }
-        if v.pick.drag(&v.lines, i) {
-            cx.notify();
-        }
-    }
-
-    pub fn end_drag(&mut self, pane: PaneId, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.diff.panes.get_mut(&pane).is_some_and(|v| v.pick.release()) {
-            return;
-        }
-        self.diff.layout(pane, false);
-        if self.diff.view(pane).is_some_and(|v| v.pick.composing) {
-            self.chat.input.update(cx, |s, cx| s.focus(window, cx));
-        }
-        cx.notify();
-    }
-
     pub fn open_composer(&mut self, pane: PaneId, i: usize, window: &mut Window, cx: &mut Context<Self>) {
-        self.chat.file = None;
-        self.diff.draft_in(pane);
-        let Some(v) = self.diff.panes.get_mut(&pane) else { return };
-        if v.pick.open(&v.lines, i) {
-            self.chat.input.update(cx, |s, cx| s.set_value("", window, cx));
+        if let Some(entity) = self.diff.get(pane).cloned() {
+            entity.update(cx, |p, cx| p.open_composer(i, window, cx));
         }
-        self.diff.layout(pane, false);
-        self.chat.input.update(cx, |s, cx| s.focus(window, cx));
-        cx.notify();
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{At, DiffLoad, DiffState, Pick, Pin, ROW, Row, changed, code_line, highlights, pins, remap, rows};
+    use super::{At, DiffLoad, DiffView, Pick, Pin, ROW, Row, changed, code_line, highlights, pins, remap, reveal_thread, rows};
     use crate::add_to_chat::{Body, Quote};
-    use crate::desktop::MAIN;
     use git::github::Thread;
     use git::parse;
     use gpui_kit::{HighlightStyle, Image, ImageFormat};
     use std::collections::HashSet;
     use std::sync::Arc;
     use theme::{DIFF_ADD_WORD, DIFF_DEL_WORD, SYN_FN, SYN_KEYWORD, SYN_STRING, Token};
-    use workspace::tree::PaneId;
 
     const DIFF: &str = "@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n";
     const TWO_HUNKS: &str = "@@ -1,2 +1,2 @@\n a\n-b\n+c\n@@ -9,1 +9,1 @@\n-x\n+y\n";
-    const OTHER: PaneId = 1;
 
     #[test]
     fn pressing_a_line_holds_it_as_a_fresh_pick() {
@@ -952,22 +1197,24 @@ mod tests {
     #[test]
     fn a_thread_asked_for_is_scrolled_to_once_its_file_is_laid_out() {
         let base = At::Base("origin/main".into());
-        let mut state = DiffState::default();
-        state.select(MAIN, "a.rs".into(), base.clone());
-        state.reveal = Some("on-d".into());
-        state.pin(&[Thread { id: "on-d".into(), path: "a.rs".into(), line: Some(3), ..Thread::default() }], Some("origin/main"));
-        assert_eq!(state.reveal.as_deref(), Some("on-d"));
-        assert!(state.apply(MAIN, DiffLoad { at: base, ..load("a.rs", DIFF) }));
-        assert_eq!(state.reveal, None);
-        assert_eq!(state.view(MAIN).unwrap().rows[5], Row::Thread(0));
-        assert_eq!(state.view(MAIN).unwrap().list.logical_scroll_top().item_ix, 2);
+        let mut v = DiffView::default();
+        v.select("a.rs".into(), base.clone(), false);
+        let mut reveal = Some("on-d".to_string());
+        v.pin(&[Thread { id: "on-d".into(), path: "a.rs".into(), line: Some(3), ..Thread::default() }], Some("origin/main"), false);
+        reveal_thread(&mut reveal, [&v]);
+        assert_eq!(reveal.as_deref(), Some("on-d"));
+        assert!(v.apply(DiffLoad { at: base, ..load("a.rs", DIFF) }, git::Options::default(), false));
+        reveal_thread(&mut reveal, [&v]);
+        assert_eq!(reveal, None);
+        assert_eq!(v.rows[5], Row::Thread(0));
+        assert_eq!(v.list.logical_scroll_top().item_ix, 2);
     }
 
     #[test]
     fn threads_pin_only_to_diffs_of_the_pr() {
-        let mut state = showing(&[(MAIN, "a.rs")]);
-        state.pin(&[Thread { id: "t".into(), path: "a.rs".into(), line: Some(3), ..Thread::default() }], Some("origin/main"));
-        assert!(state.view(MAIN).unwrap().pins.is_empty());
+        let mut v = showing("a.rs");
+        v.pin(&[Thread { id: "t".into(), path: "a.rs".into(), line: Some(3), ..Thread::default() }], Some("origin/main"), false);
+        assert!(v.pins.is_empty());
     }
 
     fn compare(against: &str) -> At {
@@ -978,21 +1225,21 @@ mod tests {
     fn threads_pin_to_a_compare_only_against_the_prs_base() {
         let thread = Thread { id: "t".into(), path: "a.rs".into(), line: Some(3), ..Thread::default() };
         for (at, pinned) in [(compare("origin/main"), true), (compare("origin/dev"), false)] {
-            let mut state = DiffState::default();
-            state.select(MAIN, "a.rs".into(), at.clone());
-            state.apply(MAIN, DiffLoad { at: at.clone(), ..load("a.rs", DIFF) });
-            state.pin(std::slice::from_ref(&thread), Some("origin/main"));
-            assert_eq!(!state.view(MAIN).unwrap().pins.is_empty(), pinned, "{at:?}");
+            let mut v = DiffView::default();
+            v.select("a.rs".into(), at.clone(), false);
+            v.apply(DiffLoad { at: at.clone(), ..load("a.rs", DIFF) }, git::Options::default(), false);
+            v.pin(std::slice::from_ref(&thread), Some("origin/main"), false);
+            assert_eq!(!v.pins.is_empty(), pinned, "{at:?}");
         }
     }
 
     #[test]
     fn a_compare_diff_quotes_its_pick_into_a_chat() {
-        let mut state = DiffState::default();
-        state.select(MAIN, "a.rs".into(), compare("origin/main"));
-        state.apply(MAIN, DiffLoad { at: compare("origin/main"), ..load("a.rs", DIFF) });
-        state.panes.get_mut(&MAIN).unwrap().pick = Pick { range: Some((3, 3)), dragging: false, composing: true };
-        assert_eq!(state.draft_quote().map(|q| q.path), Some("a.rs".to_string()));
+        let mut v = DiffView::default();
+        v.select("a.rs".into(), compare("origin/main"), false);
+        v.apply(DiffLoad { at: compare("origin/main"), ..load("a.rs", DIFF) }, git::Options::default(), false);
+        v.pick = Pick { range: Some((3, 3)), dragging: false, composing: true };
+        assert_eq!(v.quote().map(|q| q.path), Some("a.rs".to_string()));
     }
 
     #[test]
@@ -1057,71 +1304,60 @@ mod tests {
         }
     }
 
-    fn showing(panes: &[(PaneId, &str)]) -> DiffState {
-        let mut state = DiffState::default();
-        for &(pane, path) in panes {
-            state.select(pane, path.into(), At::Working);
-            state.apply(pane, load(path, DIFF));
-        }
-        state
+    fn showing(path: &str) -> DiffView {
+        let mut v = DiffView::default();
+        v.select(path.into(), At::Working, false);
+        v.apply(load(path, DIFF), git::Options::default(), false);
+        v
     }
 
     #[test]
     fn a_diff_load_lands_only_in_a_pane_still_showing_its_file() {
-        let mut state = showing(&[(MAIN, "a.rs")]);
-        state.select(OTHER, "b.rs".into(), At::Working);
-        assert!(!state.apply(OTHER, load("a.rs", DIFF)));
-        assert!(state.apply(OTHER, load("b.rs", DIFF)));
-        assert_eq!(state.view(MAIN).unwrap().lines, parse(DIFF));
-        assert!(state.view(OTHER).unwrap().shows("b.rs", &At::Working));
+        let mut v = DiffView::default();
+        v.select("b.rs".into(), At::Working, false);
+        assert!(!v.apply(load("a.rs", DIFF), git::Options::default(), false));
+        assert!(v.apply(load("b.rs", DIFF), git::Options::default(), false));
+        assert!(v.shows("b.rs", &At::Working));
     }
 
     #[test]
     fn a_diff_read_before_the_options_changed_is_dropped() {
-        let mut state = showing(&[(MAIN, "a.rs")]);
-        state.options.context = 5;
-        assert!(!state.apply(MAIN, DiffLoad { lines: Vec::new(), ..load("a.rs", DIFF) }));
-        assert_eq!(state.view(MAIN).unwrap().lines, parse(DIFF));
+        let mut v = showing("a.rs");
+        let options = git::Options { context: 5, ..git::Options::default() };
+        assert!(!v.apply(DiffLoad { lines: Vec::new(), ..load("a.rs", DIFF) }, options, false));
+        assert_eq!(v.lines, parse(DIFF));
     }
 
     #[test]
     fn asking_in_one_pane_drops_the_pick_in_another() {
-        let mut state = showing(&[(MAIN, "a.rs"), (OTHER, "a.rs")]);
-        state.draft_in(MAIN);
-        state.panes.get_mut(&MAIN).unwrap().pick.open(&parse(DIFF), 2);
-        state.layout(MAIN, false);
-        assert!(state.view(MAIN).unwrap().rows.contains(&Row::Composer));
-        state.draft_in(OTHER);
-        assert_eq!(state.view(MAIN).unwrap().pick, Pick::default());
-        assert!(!state.view(MAIN).unwrap().rows.contains(&Row::Composer));
-        assert_eq!(state.drafting, OTHER);
+        let mut v = showing("a.rs");
+        v.pick.open(&parse(DIFF), 2);
+        v.layout(false, false);
+        assert!(v.rows.contains(&Row::Composer));
+        v.drop_pick(false);
+        assert_eq!(v.pick, Pick::default());
+        assert!(!v.rows.contains(&Row::Composer));
     }
 
     #[test]
     fn an_image_shows_until_another_file_is_picked() {
-        let mut state = showing(&[(MAIN, "a.rs")]);
-        state.select(MAIN, "logo.png".into(), At::Working);
+        let mut v = showing("a.rs");
+        let options = git::Options::default();
+        v.select("logo.png".into(), At::Working, false);
         let png = Some(Arc::new(Image::from_bytes(ImageFormat::Png, b"\x89PNG".to_vec())));
-        assert!(state.apply(MAIN, DiffLoad { images: Some((None, png.clone())), ..load("logo.png", "") }));
-        assert!(!state.apply(MAIN, DiffLoad { images: Some((None, png.clone())), ..load("logo.png", "") }), "the same image again changes nothing");
-        assert_eq!(state.view(MAIN).unwrap().images, Some((None, png)));
-        state.select(MAIN, "a.rs".into(), At::Working);
-        assert_eq!(state.view(MAIN).unwrap().images, None);
+        assert!(v.apply(DiffLoad { images: Some((None, png.clone())), ..load("logo.png", "") }, options, false));
+        assert!(!v.apply(DiffLoad { images: Some((None, png.clone())), ..load("logo.png", "") }, options, false), "the same image again changes nothing");
+        assert_eq!(v.images, Some((None, png)));
+        v.select("a.rs".into(), At::Working, false);
+        assert_eq!(v.images, None);
     }
 
     #[test]
-    fn switching_to_split_lays_out_every_pane() {
-        let mut state = showing(&[(MAIN, "a.rs"), (OTHER, "b.rs")]);
-        state.split = true;
-        state.relayout(true);
-        assert!(state.panes.values().all(|v| v.rows.iter().all(|r| matches!(r, Row::Split(..)))));
-    }
-
-    #[test]
-    fn a_closed_panes_diff_is_dropped() {
-        let mut state = showing(&[(MAIN, "a.rs"), (OTHER, "b.rs")]);
-        state.retain_panes(&[MAIN]);
-        assert!(state.view(OTHER).is_none() && state.view(MAIN).is_some());
+    fn switching_to_split_lays_the_rows_out_in_pairs() {
+        let mut v = showing("a.rs");
+        assert!(v.rows.iter().all(|r| matches!(r, Row::Unified(..))));
+        v.layout(true, true);
+        assert!(v.rows.iter().all(|r| matches!(r, Row::Split(..))));
     }
 
     #[test]
@@ -1141,11 +1377,11 @@ mod tests {
 
     #[test]
     fn a_draft_quotes_its_pick_only_while_composing() {
-        let mut state = showing(&[(MAIN, "a.rs")]);
-        state.panes.get_mut(&MAIN).unwrap().pick = Pick { range: Some((3, 3)), dragging: false, composing: false };
-        assert_eq!(state.draft_quote(), None);
-        state.panes.get_mut(&MAIN).unwrap().pick.composing = true;
-        assert_eq!(state.draft_quote().map(|q| q.path), Some("a.rs".to_string()));
+        let mut v = showing("a.rs");
+        v.pick = Pick { range: Some((3, 3)), dragging: false, composing: false };
+        assert_eq!(v.quote(), None);
+        v.pick.composing = true;
+        assert_eq!(v.quote().map(|q| q.path), Some("a.rs".to_string()));
     }
 
     #[test]

@@ -2,7 +2,7 @@ mod permission;
 mod sounds;
 
 use super::catalog::{self, Look, Setting};
-use super::{Section, action};
+use super::{Section, Settings, action};
 use crate::desktop::Desktop;
 use crate::desktop::sounds::sound_name;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -67,15 +67,15 @@ pub(super) const ROWS: &[Setting] = &[
     .hint("When a program in a terminal rings the bell"),
 ];
 
-impl Desktop {
+impl Settings {
     /// Re-reads whether macOS allows banners; it changes in System Settings.
     pub(crate) fn load_banner_permission(&mut self, cx: &mut Context<Self>) {
         let Some(answer) = permission::denied() else { return };
         cx.spawn(async |this, cx| {
             let Ok(denied) = answer.await else { return };
-            this.update(cx, |d, cx| {
-                if d.settings.banners_denied != denied {
-                    d.settings.banners_denied = denied;
+            this.update(cx, |s, cx| {
+                if s.banners_denied != denied {
+                    s.banners_denied = denied;
                     cx.notify();
                 }
             })
@@ -89,7 +89,7 @@ impl Desktop {
             .into_iter()
             .filter_map(|g| if g == SOUND { self.sound_group(cx) } else { self.setting_group(Section::Notifications, g, cx) })
             .collect();
-        div().flex().flex_col().gap(px(22.)).when(self.settings.banners_denied, |d| d.child(denied_banner())).children(groups)
+        div().flex().flex_col().gap(px(22.)).when(self.banners_denied, |d| d.child(denied_banner())).children(groups)
     }
 }
 

@@ -1,4 +1,8 @@
+use crate::add_to_chat::toast::added;
 use crate::desktop::Desktop;
+use crate::explorer::toast::{Notice, notice};
+use crate::git_ui::pull_request::PrSide;
+use crate::region::notify_after_draw;
 use gpui_kit::*;
 use theme::*;
 use workspace::Tab;
@@ -6,17 +10,69 @@ use workspace::Tab;
 /// The pane tab strip's height.
 const STRIP: f32 = 40.;
 
-impl Desktop {
-    /// Floats `toast` `offset` in from the main area's bottom-right corner, or from its top-right under the pane strip while a chat shows, clear of the chat's composer.
-    pub(crate) fn float<E: Styled>(&self, toast: E, offset: f32) -> E {
-        let shown = self.session_tree().and_then(|t| self.workspaces.get(&t)).map(|w| w.shown()).unwrap_or_default();
-        let toast = toast.absolute().right(px(16.));
-        if over_chat(shown.iter().map(|(_, t)| *t), |t| self.chat_shown(t)) { toast.top(px(STRIP + offset)) } else { toast.bottom(px(offset)) }
+#[derive(Clone, Default, PartialEq)]
+pub(crate) struct Frame {
+    pub over_chat: bool,
+    pub deleting: Option<String>,
+    pub added: Option<String>,
+    pub tree: Option<Notice>,
+}
+
+struct Failure {
+    message: String,
+    copy: Option<String>,
+}
+
+pub(crate) enum ToastEvent {
+    UndoTrash,
+}
+
+impl EventEmitter<ToastEvent> for Toasts {}
+
+pub(crate) struct Toasts {
+    error: Option<Failure>,
+    pr: Entity<PrSide>,
+    frame: Frame,
+    _subs: Vec<Subscription>,
+}
+
+impl Toasts {
+    pub(crate) fn new(pr: Entity<PrSide>, cx: &mut Context<Self>) -> Self {
+        let _subs = vec![cx.observe(&pr, |_, _, cx| cx.notify())];
+        Self { error: None, pr, frame: Frame::default(), _subs }
     }
 
-    /// The last error, floated over the main area's corner until dismissed or replaced.
-    pub(crate) fn error_toast(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let error = self.error.clone()?;
+    pub(crate) fn fail(&mut self, message: String, cx: &mut Context<Self>) {
+        self.error = Some(Failure { message, copy: None });
+        cx.notify();
+    }
+
+    pub(crate) fn fail_with_copy(&mut self, message: String, copy: String, cx: &mut Context<Self>) {
+        self.error = Some(Failure { message, copy: Some(copy) });
+        cx.notify();
+    }
+
+    pub(crate) fn clear_error(&mut self, cx: &mut Context<Self>) {
+        if self.error.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn hand(&mut self, frame: Frame, cx: &mut Context<Self>) {
+        if self.frame != frame {
+            self.frame = frame;
+            notify_after_draw(cx);
+        }
+    }
+
+    /// Floats `toast` `offset` in from the main area's bottom-right corner, or from its top-right under the pane strip while a chat shows, clear of the chat's composer.
+    pub(crate) fn float<E: Styled>(&self, toast: E, offset: f32) -> E {
+        let toast = toast.absolute().right(px(16.));
+        if self.frame.over_chat { toast.top(px(STRIP + offset)) } else { toast.bottom(px(offset)) }
+    }
+
+    fn error_toast(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let Failure { message, copy } = self.error.as_ref()?;
         let mark =
             div().mt(px(1.)).size(px(18.)).flex().flex_none().items_center().justify_center().rounded(px(9.)).bg(FAILED).child(icon("x-bold", 9., WHITE));
         let dismiss = div()
@@ -30,20 +86,15 @@ impl Desktop {
             .cursor_pointer()
             .hover(|s| s.bg(FILL_3))
             .child(icon("x", 12., TEXT_3))
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.error = None;
-                cx.notify();
-            }));
-        let copy = self.chats.unsent.as_ref().filter(|(message, _)| *message == error).map(|(_, text)| {
-            let text = text.clone();
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.clear_error(cx)));
+        let copy = copy.clone().map(|text| {
             ui::link("error-toast-copy", "Copy").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
-                (this.error, this.chats.unsent) = (None, None);
-                cx.notify();
+                this.clear_error(cx);
             }))
         });
         let toast = self
-            .float(ui::pop(div()).id("error-toast"), if self.removals.label().is_some() { 56. } else { 16. })
+            .float(ui::pop(div()).id("error-toast"), if self.frame.deleting.is_some() { 56. } else { 16. })
             .w(px(300.))
             .pl(px(12.))
             .pr(px(10.))
@@ -54,14 +105,16 @@ impl Desktop {
             .rounded(px(14.))
             .occlude()
             .child(mark)
-            .child(div().flex_1().min_w_0().flex().flex_col().items_start().gap(px(6.)).text_size(px(13.)).text_color(TEXT).child(error).children(copy))
+            .child(
+                div().flex_1().min_w_0().flex().flex_col().items_start().gap(px(6.)).text_size(px(13.)).text_color(TEXT).child(message.clone()).children(copy),
+            )
             .child(dismiss);
         Some(toast.with_animation("error-toast-in", Animation::new(MENU_IN).with_easing(ease_out_quint()), |d, t| d.opacity(t)))
     }
 
     /// Worktrees being deleted, floated under the error toast until their folders are gone from git.
-    pub(crate) fn deleting_toast(&self) -> Option<impl IntoElement> {
-        let label = self.removals.label()?;
+    fn deleting_toast(&self) -> Option<impl IntoElement + use<>> {
+        let label = self.frame.deleting.clone()?;
         let toast = self
             .float(ui::pop(div()), 16.)
             .h(px(32.))
@@ -76,6 +129,65 @@ impl Desktop {
             .child(spinner("deleting-toast-spinner", 12., TEXT_3))
             .child(label);
         Some(toast.with_animation("deleting-toast-in", Animation::new(MENU_IN).with_easing(ease_out_quint()), |d, t| d.opacity(t)))
+    }
+
+    fn added_toast(&self) -> Option<impl IntoElement + use<>> {
+        let toast = self.float(added(self.frame.added.as_deref()?), 16.);
+        Some(toast.with_animation("added-toast-in", Animation::new(MENU_IN).with_easing(ease_out_quint()), |d, t| d.opacity(t)))
+    }
+
+    fn tree_toast(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let toast = self.float(notice(self.frame.tree.as_ref()?, cx)?, 16.);
+        Some(toast.with_animation("tree-toast-in", Animation::new(MENU_IN).with_easing(ease_out_quint()), |d, t| d.opacity(t)))
+    }
+
+    fn pr_notice(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        if self.error.is_some() {
+            return None;
+        }
+        let raised = self.frame.deleting.is_some() || self.frame.added.is_some();
+        let toast = self.pr.update(cx, |p, cx| p.toast(cx))?;
+        Some(
+            self.float(toast, if raised { 56. } else { 16. })
+                .with_animation("pr-notice-in", Animation::new(MENU_IN).with_easing(ease_out_quint()), |d, t| d.opacity(t)),
+        )
+    }
+}
+
+impl Render for Toasts {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .absolute()
+            .inset_0()
+            .children(self.error_toast(cx))
+            .children(self.deleting_toast())
+            .children(self.added_toast())
+            .children(self.tree_toast(cx))
+            .children(self.pr_notice(cx))
+    }
+}
+
+impl Desktop {
+    pub(crate) fn fail(&self, message: impl Into<String>, cx: &mut Context<Self>) {
+        self.toasts.update(cx, |t, cx| t.fail(message.into(), cx));
+    }
+
+    pub(crate) fn toasts_view(&self, cx: &mut Context<Self>) -> Entity<Toasts> {
+        let shown = self.session_tree(cx).and_then(|t| self.workspaces.read(cx).get(&t)).map(|w| w.shown()).unwrap_or_default();
+        let frame = Frame {
+            over_chat: over_chat(shown.iter().map(|(_, t)| *t), |t| self.chat_shown(t)),
+            deleting: self.removals.label(),
+            added: self.chat.read(cx).added().map(|p| self.agent_name(p)),
+            tree: self.explorer.read(cx).notice.as_ref().map(|(n, _)| n.clone()),
+        };
+        self.toasts.update(cx, |t, cx| t.hand(frame, cx));
+        self.toasts.clone()
+    }
+
+    pub(crate) fn on_toasts_event(&mut self, _: &Entity<Toasts>, ev: &ToastEvent, _: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            ToastEvent::UndoTrash => _ = self.undo_trash(cx),
+        }
     }
 }
 

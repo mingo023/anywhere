@@ -1,4 +1,5 @@
 use crate::desktop::Desktop;
+use crate::terminals::Terminals;
 use gpui_kit::*;
 use std::time::{Duration, Instant};
 use store::prefs::terminal::Bell as Ring;
@@ -25,10 +26,9 @@ impl Bell {
     }
 }
 
-impl Desktop {
-    pub(crate) fn ring(&mut self, id: &str, cx: &mut Context<Self>) {
-        let ring = self.store.terminal.bell;
-        if ring == Ring::Off || !self.terminals.bell.rings(Instant::now()) {
+impl Terminals {
+    pub(crate) fn ring(&mut self, id: &str, ring: Ring, cx: &mut Context<Self>) {
+        if ring == Ring::Off || !self.bell.rings(Instant::now()) {
             return;
         }
         // Elsewhere a sound bell flashes, having no system beep to play.
@@ -37,19 +37,26 @@ impl Desktop {
             objc2_app_kit::NSBeep();
             return;
         }
-        self.terminals.bell.flashing = Some(id.to_string());
+        self.bell.flashing = Some(id.to_string());
         let id = id.to_string();
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(FLASH).await;
-            this.update(cx, |d, cx| {
-                if d.terminals.bell.flashing.as_ref() == Some(&id) {
-                    d.terminals.bell.flashing = None;
+            this.update(cx, |t, cx| {
+                if t.bell.flashing.as_ref() == Some(&id) {
+                    t.bell.flashing = None;
                     cx.notify();
                 }
             })
             .ok();
         })
         .detach();
+    }
+}
+
+impl Desktop {
+    pub(crate) fn ring(&mut self, id: &str, cx: &mut Context<Self>) {
+        let ring = self.store.terminal.bell;
+        self.terminals.update(cx, |t, cx| t.ring(id, ring, cx));
     }
 }
 

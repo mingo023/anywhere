@@ -4,62 +4,48 @@ pub(crate) mod link;
 pub(crate) mod menu;
 pub(crate) mod mouse;
 pub(crate) mod pane;
+pub(crate) mod pointer;
 pub(crate) mod scroll;
 pub(crate) mod surface;
 
 use crate::actions::{CopySelection, NewTab, Paste, SelectAll};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
+use crate::desktop::chrome::Confirm;
 use gpui_kit::*;
-use mouse::{Move, Reporting};
-use scroll::{Wheel, WheelRows};
-use std::ops::Range;
-use std::time::Duration;
-use term::{Autoscroll, Button, MouseAction, Pointer, Scroll};
+use std::collections::HashMap;
+use term::{Pointer, Scroll};
 use workspace::Place;
+
+pub(crate) struct Slot {
+    pub(crate) view: Entity<pane::TerminalPane>,
+    pub(crate) _sub: Subscription,
+}
 
 pub struct TerminalViewState {
     pub(crate) focus: FocusHandle,
     pub(crate) focused: Option<String>,
-    /// The IME's uncommitted text, drawn at the cursor until it commits.
-    pub(crate) marked: Option<String>,
-    pub(crate) selection: Option<Drag>,
-    pub(crate) reporting: Reporting,
-    pub(crate) wheel: WheelRows,
-    pub(crate) autoscroll: Option<Task<()>>,
-    blink: Option<Task<()>>,
-    pub(crate) blink_on: bool,
-    /// Typing reaches the terminal: it holds keyboard focus and no overlay is open.
-    pub(crate) keyboard: bool,
-    /// Set by the focused pane as it draws, so the next frame knows whether its cursor should blink.
-    pub(crate) cursor_blinks: bool,
-    /// The focused pane's cursor cell on screen, where the IME puts its candidate window.
-    pub(crate) caret: Option<Bounds<Pixels>>,
     /// The pane whose right-click menu is open, and where the click was.
     pub(crate) menu: Option<(String, Point<Pixels>)>,
-    /// The pane whose link is under the mouse and would open on a click, drawn with a pointing hand.
-    pub(crate) link_hover: Option<String>,
     pub(crate) dismissed: pane::DismissedBanners,
+    panes: HashMap<String, Slot>,
 }
 
 impl TerminalViewState {
     pub fn new(cx: &mut Context<Desktop>) -> Self {
-        Self {
-            focus: cx.focus_handle(),
-            focused: None,
-            marked: None,
-            selection: None,
-            reporting: Reporting::default(),
-            wheel: WheelRows::default(),
-            autoscroll: None,
-            blink: None,
-            blink_on: true,
-            keyboard: false,
-            cursor_blinks: false,
-            caret: None,
-            menu: None,
-            link_hover: None,
-            dismissed: pane::DismissedBanners::default(),
+        Self { focus: cx.focus_handle(), focused: None, menu: None, dismissed: pane::DismissedBanners::default(), panes: HashMap::new() }
+    }
+
+    pub(crate) fn forget_panes(&mut self, live: impl Fn(&str) -> bool) {
+        self.panes.retain(|id, _| live(id));
+    }
+
+    pub(crate) fn pane(&self, id: &str) -> Option<&Entity<pane::TerminalPane>> {
+        self.panes.get(id).map(|s| &s.view)
+    }
+
+    pub(crate) fn forget_selections(&self, cx: &mut App) {
+        for slot in self.panes.values() {
+            slot.view.update(cx, |p, _| p.forget_selection());
         }
     }
 }
@@ -67,10 +53,10 @@ impl TerminalViewState {
 /// A mouse selection in one pane while its button is down; the selection itself lives in the pane's `Term`.
 pub struct Drag {
     pub pane: String,
-    at: Pointer,
-    line: f32,
+    pub(super) at: Pointer,
+    pub(super) line: f32,
     /// Shift-clicked onto an existing selection, so moves drag its far end.
-    extend: bool,
+    pub(super) extend: bool,
 }
 
 impl Drag {
@@ -93,7 +79,19 @@ pub enum Release {
     Nothing,
 }
 
-pub fn release(selected: Option<String>, t: &store::prefs::Terminal) -> Release {
+#[derive(Clone, Copy, Default)]
+pub struct Clicks {
+    pub copy_on_select: bool,
+    pub click_opens_links: bool,
+}
+
+impl From<&store::prefs::Terminal> for Clicks {
+    fn from(t: &store::prefs::Terminal) -> Self {
+        Self { copy_on_select: t.copy_on_select, click_opens_links: t.click_opens_links }
+    }
+}
+
+pub fn release(selected: Option<String>, t: &Clicks) -> Release {
     match selected {
         Some(text) if t.copy_on_select => Release::Copy(text),
         None if t.click_opens_links => Release::OpenLink,
@@ -102,7 +100,7 @@ pub fn release(selected: Option<String>, t: &store::prefs::Terminal) -> Release 
 }
 
 /// Whether a left click opens the link under it: ⌘ (Ctrl off macOS) always does; a plain click only when asked, and only if a program tracking the mouse doesn't take it.
-pub fn click_opens_link(cmd: bool, shift: bool, tracking: bool, t: &store::prefs::Terminal) -> bool {
+pub fn click_opens_link(cmd: bool, shift: bool, tracking: bool, t: &Clicks) -> bool {
     cmd || (t.click_opens_links && !(tracking && !shift))
 }
 
@@ -139,150 +137,67 @@ impl Desktop {
         cx.notify();
     }
 
-    pub(crate) fn select_start(&mut self, pane: &str, at: Pointer, clicks: usize, shift: bool, line: f32, cx: &mut Context<Self>) {
-        let Some(t) = self.terminals.sessions.term(pane) else { return };
-        let extend = shift && t.extend(at);
-        if !extend {
-            t.press(at, clicks);
-        }
-        self.terminal.selection = Some(Drag { pane: pane.to_string(), at, line, extend });
-        cx.notify();
-    }
-
-    /// Hands the press to a program tracking the mouse; false leaves it for selecting text.
-    pub(crate) fn mouse_press(&mut self, pane: &str, at: Pointer, button: Button, mods: Modifiers, cx: &mut Context<Self>) -> bool {
-        let Some(t) = self.terminals.sessions.term(pane) else { return false };
-        let tracking = t.mouse_tracking() && !self.agents.observe_only();
-        if !self.terminal.reporting.press(pane, button, tracking, mods.shift) {
-            return false;
-        }
-        t.select_none();
-        self.send_mouse(pane, at, MouseAction::Press, Some(button), mods);
-        cx.notify();
-        true
-    }
-
-    pub(crate) fn mouse_motion(&mut self, pane: &str, at: Pointer, hovered: bool, pressed: bool, mods: Modifiers) {
-        let button = match self.terminal.reporting.motion(pane, hovered, pressed) {
-            Move::Drag(b) => Some(b),
-            Move::Hover => None,
-            Move::Skip => return,
-        };
-        self.send_mouse(pane, at, MouseAction::Motion, button, mods);
-    }
-
-    pub(crate) fn mouse_release(&mut self, pane: &str, at: Pointer, button: Button, mods: Modifiers) {
-        if self.terminal.reporting.release(pane, button) {
-            self.send_mouse(pane, at, MouseAction::Release, Some(button), mods);
-        }
-    }
-
-    /// Unlike `send_input`, leaves the selection and scroll alone: hovering a program that tracks the mouse mustn't clear them.
-    fn send_mouse(&mut self, pane: &str, at: Pointer, action: MouseAction, button: Option<Button>, mods: Modifiers) {
-        if !self.terminals.may_send(pane, self.agents.observe_only()) {
-            return;
-        }
-        let Some(t) = self.terminals.sessions.term(pane) else { return };
-        let bytes = t.mouse_report(at, action, button, mods.control, mods.alt);
-        if !bytes.is_empty() {
-            self.daemon.input(pane, &bytes);
-        }
-    }
-
-    /// Opens the link under `at` in a browser tab; false if there is none.
-    pub(crate) fn open_link(&mut self, pane: &str, at: Pointer, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let Some(t) = self.terminals.sessions.term(pane) else { return false };
-        let (f, cells) = t.frame();
-        let Some(url) = link::link_at(cells, f.cols, at.row, at.col) else { return false };
-        if self.store.terminal.system_browser {
-            cx.open_url(&url);
-        } else {
-            self.open_browser(Some(url), window, cx);
-        }
-        true
-    }
-
-    /// Notes whether the mouse, at `at` over `pane` (None once it leaves), is on a link a click would open.
-    pub(crate) fn hover_link(&mut self, pane: &str, at: Option<Pointer>, mods: Modifiers, cx: &mut Context<Self>) {
-        let observe_only = self.agents.observe_only();
-        let over = at.is_some_and(|at| {
-            let Some(t) = self.terminals.sessions.term(pane) else { return false };
-            if !click_opens_link(mods.secondary(cx), mods.shift, t.mouse_tracking() && !observe_only, &self.store.terminal) {
-                return false;
-            }
-            let (f, cells) = t.frame();
-            link::link_at(cells, f.cols, at.row, at.col).is_some()
-        });
-        if over != (self.terminal.link_hover.as_deref() == Some(pane)) {
-            self.terminal.link_hover = over.then(|| pane.to_string());
-            cx.notify();
-        }
-    }
-
-    pub(crate) fn select_extend(&mut self, pane: &str, at: Pointer, cx: &mut Context<Self>) {
-        let Some(d) = self.terminal.selection.as_mut() else { return };
-        if !d.follow(pane, at) {
-            return;
-        }
-        let extend = d.extend;
-        let Some(t) = self.terminals.sessions.term(pane) else { return };
-        let edge = if extend {
-            t.extend(at);
-            Autoscroll::None
-        } else {
-            t.drag(at)
-        };
-        if edge != Autoscroll::None && self.terminal.autoscroll.is_none() {
-            self.terminal.autoscroll = Some(cx.spawn(async move |this, cx| {
-                loop {
-                    cx.background_executor().timer(Duration::from_millis(24)).await;
-                    if !this.update(cx, |d, cx| d.autoscroll_tick(cx)).unwrap_or(false) {
-                        break;
-                    }
+    pub(crate) fn on_terminal_pane(&mut self, id: &str, ev: &pane::PaneEvent, window: &mut Window, cx: &mut Context<Self>) {
+        use pane::PaneEvent::*;
+        match ev {
+            Fit(cols, rows) => self.fit(id, *cols, *rows, cx),
+            Focus => self.focus_pane(id.to_string(), window, cx),
+            Dropped(text) => {
+                if self.overlay.is_none() {
+                    self.focus_pane(id.to_string(), window, cx);
+                    self.offer_paste(id.to_string(), text.clone(), cx);
                 }
-            }));
-        }
-        cx.notify();
-    }
-
-    /// Moves one tick toward the edge the drag is held past; false once the drag is back inside the grid or over.
-    fn autoscroll_tick(&mut self, cx: &mut Context<Self>) -> bool {
-        let going = match &self.terminal.selection {
-            Some(d) => {
-                let (at, n) = (d.at, tick_rows(&d.at, d.line));
-                self.terminals.sessions.term(&d.pane).is_some_and(|t| (0..n).all(|_| t.autoscroll(at) != Autoscroll::None))
             }
-            None => false,
-        };
-        if !going {
-            self.terminal.autoscroll = None;
-        }
-        cx.notify();
-        going
-    }
-
-    pub(crate) fn select_release(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.terminal.autoscroll = None;
-        let Some(d) = self.terminal.selection.take() else { return };
-        let Some(t) = self.terminals.sessions.term(&d.pane) else { return };
-        t.release();
-        match release(t.selection_text(), &self.store.terminal) {
-            Release::Copy(text) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
-            Release::OpenLink => _ = self.open_link(&d.pane, d.at, window, cx),
-            Release::Nothing => {}
+            Input(bytes) => self.send_input(id, bytes, cx),
+            Report(bytes) => {
+                if self.terminals.read(cx).may_send(id, self.agents.observe_only()) {
+                    self.daemon.input(id, bytes);
+                }
+            }
+            OpenLink(url) => {
+                if self.store.terminal.system_browser {
+                    cx.open_url(url);
+                } else {
+                    self.open_browser(Some(url.clone()), window, cx);
+                }
+            }
+            OpenMenu(at) => {
+                self.close_menus(cx);
+                self.terminal.menu = Some((id.to_string(), *at));
+                cx.notify();
+            }
+            CloseMenu => {
+                self.terminal.menu = None;
+                cx.notify();
+            }
+            Pick(item) => {
+                self.terminal.menu = None;
+                match item {
+                    menu::Item::Copy => self.copy_selection(&CopySelection, window, cx),
+                    menu::Item::Paste => self.paste(&Paste, window, cx),
+                    menu::Item::Clear => self.clear_pane(id, cx),
+                    menu::Item::Close => self.close_terminal(id, cx),
+                    menu::Item::Kill => self.kill_pane(id, cx),
+                }
+                cx.notify();
+            }
+            Banner(agent, text) => {
+                self.terminal.dismissed.dismiss(agent, text);
+                cx.notify();
+            }
         }
     }
 
     pub(crate) fn copy_selection(&mut self, _: &CopySelection, _: &mut Window, cx: &mut Context<Self>) {
         let Some(id) = &self.terminal.focused else { return };
-        let Some(text) = self.terminals.sessions.get(id).and_then(|s| s.term.as_ref()).and_then(|t| t.selection_text()) else { return };
+        let Some(text) = self.terminals.read(cx).sessions.term(id).and_then(|t| t.selection_text()) else { return };
         cx.write_to_clipboard(ClipboardItem::new_string(text));
     }
 
     pub(crate) fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
         let Some(id) = self.terminal.focused.clone() else { return };
-        if let Some(t) = self.terminals.sessions.term(&id) {
-            t.select_all();
+        if let Some(grid) = self.terminals.read(cx).sessions.grid(&id).cloned() {
+            grid.get().select_all();
             cx.notify();
         }
     }
@@ -296,110 +211,55 @@ impl Desktop {
         }
     }
 
-    pub(crate) fn drop_paths(&mut self, pane: String, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
-        if self.overlay.is_some() {
-            return;
-        }
-        self.focus_pane(pane.clone(), window, cx);
-        self.offer_paste(pane, term::dropped_paths(paths.paths()), cx);
-    }
-
     fn offer_paste(&mut self, pane: String, text: String, cx: &mut Context<Self>) {
-        let Some(t) = self.terminals.sessions.term(&pane) else { return };
-        if !asks_before_paste(self.store.terminal.confirm_paste, t.mode(2004), &text) {
+        let Some(bracketed) = self.terminals.read(cx).sessions.term(&pane).map(|t| t.mode(2004)) else { return };
+        if !asks_before_paste(self.store.terminal.confirm_paste, bracketed, &text) {
             self.paste_into(&pane, &text, cx);
         } else {
-            self.confirm = Some(Confirm::Paste { pane, text });
-            self.overlay = Some(Overlay::Confirm);
+            self.ask(Confirm::Paste { pane, text }, cx);
             cx.notify();
         }
     }
 
     /// Re-reads bracketed mode, since the program may have changed it while the confirm was open.
     pub(crate) fn paste_into(&mut self, pane: &str, text: &str, cx: &mut Context<Self>) {
-        let Some(bracketed) = self.terminals.sessions.term(pane).map(|t| t.mode(2004)) else { return };
+        let Some(bracketed) = self.terminals.read(cx).sessions.term(pane).map(|t| t.mode(2004)) else { return };
         self.send_input(pane, &term::paste_bytes(text, bracketed), cx);
     }
 
     /// Wipes the screen and scrollback, as ⌘K does in Ghostty, and has an idle shell redraw its prompt at the top.
     pub(crate) fn clear_pane(&mut self, pane: &str, cx: &mut Context<Self>) {
-        let idle = self.terminals.sessions.get(pane).is_some_and(|s| s.busy().is_none());
-        let Some(t) = self.terminals.sessions.term(pane) else { return };
+        let idle = self.terminals.read(cx).sessions.get(pane).is_some_and(|s| s.busy().is_none());
+        let Some(mut t) = self.terminals.read(cx).sessions.term(pane) else { return };
         // Only this window's copy: pocketd keeps the scrollback, so a reattach brings it back.
         t.write(b"\x1b[H\x1b[2J\x1b[3J");
+        drop(t);
         if idle {
             self.send_input(pane, b"\x0c", cx);
         }
         cx.notify();
     }
 
-    pub(crate) fn wheel(&mut self, pane: &str, e: &ScrollEvent, at: Pointer, line: f32, cx: &mut Context<Self>) {
-        let rows = self.terminal.wheel.rows(pane, e.delta, e.touch_phase, line);
-        let Some(t) = self.terminals.sessions.term(pane).filter(|_| rows != 0) else { return };
-        match scroll::route(rows, e.modifiers.shift, t.mouse_tracking(), t.alt_screen(), t.mode(1007)) {
-            Wheel::Viewport(d) => t.scroll(Scroll::Delta(d)),
-            Wheel::Arrows { up, n } => {
-                let bytes = scroll::arrows(up, n, t.app_cursor());
-                self.send_input(pane, &bytes, cx);
-            }
-            Wheel::Report { up, n } => {
-                let bytes = t.wheel_report(at, up, e.modifiers.control, e.modifiers.alt).repeat(n);
-                if !bytes.is_empty() {
-                    self.send_input(pane, &bytes, cx);
-                }
-            }
-        }
-        cx.notify();
-    }
-
-    pub(crate) fn scroll_to_bottom(&mut self, pane: &str, cx: &mut Context<Self>) {
-        if let Some(t) = self.terminals.sessions.term(pane) {
-            t.scroll(Scroll::Bottom);
-            cx.notify();
-        }
-    }
-
-    /// Notes whether typing reaches the terminal, and keeps one blink timer running while the focused pane's cursor should blink.
-    pub(crate) fn sync_cursor(&mut self, window: &Window, cx: &mut Context<Self>) {
-        self.terminal.keyboard = self.terminal.focus.is_focused(window) && self.overlay.is_none();
-        let frame_blink = std::mem::take(&mut self.terminal.cursor_blinks) && self.terminal.keyboard;
-        let on = cursor::blinks(frame_blink, cx.reduce_motion(), window.is_window_active());
-        if on == self.terminal.blink.is_some() {
-            return;
-        }
-        self.terminal.blink_on = true;
-        self.terminal.blink = on.then(|| {
-            cx.spawn(async move |this, cx| {
-                loop {
-                    cx.background_executor().timer(Duration::from_millis(530)).await;
-                    let toggled = this.update(cx, |d, cx| {
-                        d.terminal.blink_on = !d.terminal.blink_on;
-                        cx.notify();
-                    });
-                    if toggled.is_err() {
-                        break;
-                    }
-                }
-            })
-        });
-    }
-
     /// The one way input reaches a pane, so the view always returns to the prompt.
     pub(crate) fn send_input(&mut self, pane: &str, bytes: &[u8], cx: &mut Context<Self>) {
-        if !self.terminals.may_send(pane, self.agents.observe_only()) {
+        if !self.terminals.read(cx).may_send(pane, self.agents.observe_only()) {
             return;
         }
-        self.terminal.blink_on = true;
-        self.terminal.blink = None;
-        if let Some(t) = self.terminals.sessions.term(pane) {
-            t.select_none();
+        if let Some(view) = self.terminal.pane(pane) {
+            view.update(cx, |p, _| p.typed());
         }
-        self.scroll_to_bottom(pane, cx);
+        if let Some(grid) = self.terminals.read(cx).sessions.grid(pane).cloned() {
+            let mut t = grid.get();
+            t.select_none();
+            t.scroll(Scroll::Bottom);
+            drop(t);
+            cx.notify();
+        }
         self.daemon.input(pane, bytes);
     }
 
     pub fn new_tab(&mut self, _: &NewTab, _: &mut Window, cx: &mut Context<Self>) {
-        self.panels.menu = None;
+        self.panels.update(cx, |p, cx| p.set_menu(None, cx));
         self.open_tab(Place::Pane(None), cx);
     }
 
@@ -408,9 +268,16 @@ impl Desktop {
         if keys::option_types(&ev.keystroke) && !self.store.terminal.option_as_meta.takes(option_held(true), option_held(false)) {
             return;
         }
-        let Some(t) = self.terminals.sessions.term(&id) else { return };
-        if let Some(bytes) = keys::key_bytes(&ev.keystroke, t) {
-            self.send_input(&id, &bytes, cx);
+        let bytes = {
+            let Some(mut t) = self.terminals.read(cx).sessions.term(&id) else { return };
+            keys::key_bytes(&ev.keystroke, &mut t)
+        };
+        if let Some(bytes) = bytes {
+            // Through the pane's event, as IME text is, so keys and composed text reach the terminal in the order they came.
+            match self.terminal.pane(&id) {
+                Some(view) => view.update(cx, |_, cx| cx.emit(pane::PaneEvent::Input(bytes))),
+                None => self.send_input(&id, &bytes, cx),
+            }
             cx.stop_propagation();
         }
     }
@@ -432,50 +299,10 @@ fn option_held(left: bool) -> bool {
     }
 }
 
-/// Typed text arrives here rather than as key-downs so IMEs (Telex, dead keys, CJK) can compose it.
-impl EntityInputHandler for Desktop {
-    fn text_for_range(&mut self, _: Range<usize>, _: &mut Option<Range<usize>>, _: &mut Window, _: &mut Context<Self>) -> Option<String> {
-        None
-    }
-
-    fn selected_text_range(&mut self, _: bool, _: &mut Window, _: &mut Context<Self>) -> Option<UTF16Selection> {
-        Some(UTF16Selection { range: 0..0, reversed: false })
-    }
-
-    fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
-        self.terminal.marked.as_ref().map(|text| 0..text.encode_utf16().count())
-    }
-
-    fn unmark_text(&mut self, _: &mut Window, _: &mut Context<Self>) {
-        self.terminal.marked = None;
-    }
-
-    fn replace_text_in_range(&mut self, _: Option<Range<usize>>, text: &str, _: &mut Window, cx: &mut Context<Self>) {
-        self.terminal.marked = None;
-        if let Some(id) = self.terminal.focused.clone().filter(|_| self.overlay.is_none()) {
-            self.send_input(&id, text.as_bytes(), cx);
-        }
-    }
-
-    fn replace_and_mark_text_in_range(&mut self, _: Option<Range<usize>>, text: &str, _: Option<Range<usize>>, _: &mut Window, cx: &mut Context<Self>) {
-        self.terminal.marked = (!text.is_empty() && self.overlay.is_none()).then(|| text.to_string());
-        cx.notify();
-    }
-
-    fn bounds_for_range(&mut self, _: Range<usize>, _: Bounds<Pixels>, _: &mut Window, _: &mut Context<Self>) -> Option<Bounds<Pixels>> {
-        self.terminal.caret
-    }
-
-    fn character_index_for_point(&mut self, _: Point<Pixels>, _: &mut Window, _: &mut Context<Self>) -> Option<usize> {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Drag, Pasted, Release, asks_before_paste, click_opens_link, pasted, release, tick_rows};
+    use super::{Clicks, Drag, Pasted, Release, asks_before_paste, click_opens_link, pasted, release, tick_rows};
     use gpui_kit::{ClipboardItem, Image, ImageFormat};
-    use store::prefs::Terminal;
     use term::Pointer;
 
     fn at(row: u16, col: u16) -> Pointer {
@@ -512,24 +339,24 @@ mod tests {
 
     #[test]
     fn letting_go_of_a_selection_copies_it_only_when_asked() {
-        let copying = Terminal { copy_on_select: true, ..Terminal::default() };
+        let copying = Clicks { copy_on_select: true, ..Clicks::default() };
         assert_eq!(release(Some("ls".into()), &copying), Release::Copy("ls".into()));
-        assert_eq!(release(Some("ls".into()), &Terminal::default()), Release::Nothing);
+        assert_eq!(release(Some("ls".into()), &Clicks::default()), Release::Nothing);
     }
 
     #[test]
     fn a_plain_click_opens_a_link_only_when_asked() {
-        let clicking = Terminal { click_opens_links: true, ..Terminal::default() };
+        let clicking = Clicks { click_opens_links: true, ..Clicks::default() };
         assert_eq!(release(None, &clicking), Release::OpenLink);
         assert_eq!(release(Some("x".into()), &clicking), Release::Nothing);
-        assert_eq!(release(None, &Terminal::default()), Release::Nothing);
+        assert_eq!(release(None, &Clicks::default()), Release::Nothing);
     }
 
     #[test]
     fn a_link_is_clickable_with_cmd_or_a_plain_click_a_tracking_program_does_not_take() {
-        let clicking = Terminal { click_opens_links: true, ..Terminal::default() };
-        assert!(click_opens_link(true, false, true, &Terminal::default()));
-        assert!(!click_opens_link(false, false, false, &Terminal::default()));
+        let clicking = Clicks { click_opens_links: true, ..Clicks::default() };
+        assert!(click_opens_link(true, false, true, &Clicks::default()));
+        assert!(!click_opens_link(false, false, false, &Clicks::default()));
         assert!(click_opens_link(false, false, false, &clicking));
         assert!(!click_opens_link(false, false, true, &clicking));
         assert!(click_opens_link(false, true, true, &clicking));

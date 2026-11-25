@@ -170,8 +170,8 @@ fn detect(dir: &str, accounts: &[Gh], active: &str) -> Option<String> {
 
 impl Desktop {
     /// How `gh` runs in `dir`: as its project's account, while that's signed in.
-    pub(crate) fn gh_in(&self, dir: &str) -> Gh {
-        let projects = self.projects();
+    pub(crate) fn gh_in(&self, dir: &str, cx: &App) -> Gh {
+        let projects = self.projects(cx);
         let account = self.project_of(dir, &projects).and_then(|p| self.gh_accounts.chosen(&self.store.repos, p)).map(str::to_string);
         self.gh_accounts.gh(account)
     }
@@ -216,7 +216,7 @@ impl Desktop {
 
     /// Asks `gh` about the project's PRs again, as the account now chosen.
     fn gh_account_changed(&mut self, project: &str, cx: &mut Context<Self>) {
-        for w in self.listed_trees(project).unwrap_or_default() {
+        for w in self.listed_trees(project, cx).unwrap_or_default() {
             self.prs.forget(&w.path);
         }
         self.save_soon(cx);

@@ -1,4 +1,3 @@
-use crate::desktop::Desktop;
 use gpui_kit::*;
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
@@ -116,39 +115,44 @@ pub(crate) fn backdrop(path: String, tint: f32) -> impl IntoElement {
         .child(div().absolute().inset_0().bg(linear_gradient(180., linear_color_stop(page.opacity(0.), 0.45), linear_color_stop(page, 1.))))
 }
 
-impl Desktop {
-    /// A prompt page: `content`, a column at most 600px wide, centred over `field`, which fades around it.
-    pub(crate) fn with_field(&mut self, field: fn(&mut Desktop) -> &mut Field, id: &'static str, content: Div, cx: &mut Context<Self>) -> Div {
-        let moving = field(self).tick(Instant::now(), cx.reduce_motion());
-        let bounds = Rc::new(Cell::new(None));
-        let measured = bounds.clone();
-        let body = div()
-            .id(id)
-            .relative()
-            .flex_1()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .pt(px(72.))
-            .px(px(24.))
-            .pb(px(56.))
-            .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {
-                field(this).aim(ev.position);
+/// A prompt page: `content`, a column at most 600px wide, centred over `field`, which fades around it.
+pub(crate) fn with_field<V: 'static>(
+    field: &mut Field,
+    aim: fn(&mut V) -> &mut Field,
+    background: Option<String>,
+    id: &'static str,
+    content: Div,
+    cx: &mut Context<V>,
+) -> Div {
+    let moving = field.tick(Instant::now(), cx.reduce_motion());
+    let bounds = Rc::new(Cell::new(None));
+    let measured = bounds.clone();
+    let body = div()
+        .id(id)
+        .relative()
+        .flex_1()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .pt(px(72.))
+        .px(px(24.))
+        .pb(px(56.))
+        .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {
+            aim(this).aim(ev.position);
+            cx.notify();
+        }))
+        .on_hover(cx.listener(move |this, over: &bool, _, cx| {
+            if !over {
+                aim(this).leave();
                 cx.notify();
-            }))
-            .on_hover(cx.listener(move |this, over: &bool, _, cx| {
-                if !over {
-                    field(this).leave();
-                    cx.notify();
-                }
-            }))
-            .children(self.store.appearance.background.clone().map(|path| backdrop(path, PROMPT_PAGE_TINT)))
-            .child(field(self).view(bounds, moving))
-            // Measured before the field paints, so its dots clear the content.
-            .child(content.relative().w_full().max_w(px(600.)).child(canvas(move |b, _, _| measured.set(Some(b)), |_, _, _, _| {}).absolute().inset_0()));
-        div().flex_1().flex().flex_col().child(body)
-    }
+            }
+        }))
+        .children(background.map(|path| backdrop(path, PROMPT_PAGE_TINT)))
+        .child(field.view(bounds, moving))
+        // Measured before the field paints, so its dots clear the content.
+        .child(content.relative().w_full().max_w(px(600.)).child(canvas(move |b, _, _| measured.set(Some(b)), |_, _, _, _| {}).absolute().inset_0()));
+    div().flex_1().flex().flex_col().child(body)
 }
 
 /// What a cell shows: nothing near the content, a dot, or under the lens a glyph of the map.

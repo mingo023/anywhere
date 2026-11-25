@@ -1,14 +1,18 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Column, HEADER, SEAM, Side, drag_area};
-use crate::git_ui::pull_request::pr_wants_you;
+use crate::desktop::chrome::{Column, HEADER, SEAM, Side, drag_area, seam_handle_in};
+use crate::explorer::Explorer;
+use crate::git_ui::changes::Changes;
+use crate::git_ui::pull_request::{PrSide, pr_wants_you};
 use crate::git_ui::pull_requests::glyph;
 use crate::region;
 use crate::sidebar::column::changes_badge;
 use crate::sidebar::rail::{rail_button, rail_slot};
+use crate::sidebar::sessions::SessionList;
 use crate::status::Status;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
+use ui::icon_button_sized;
 use workspace::tree::Axis;
 
 const MIN: f32 = 280.;
@@ -32,9 +36,11 @@ fn edge_width(wide: f32) -> Option<f32> {
 
 impl Desktop {
     pub(crate) fn pick_side(&mut self, side: Side, cx: &mut Context<Self>) {
-        (self.side, self.sidebar.panel_open) = rail_pick(self.side, self.sidebar.panel_open, side);
+        let (side, open) = rail_pick(self.side, self.sidebar.read(cx).panel_open(), side);
+        self.side = side;
+        self.sidebar.update(cx, |s, cx| s.set_panel_open(open, cx));
         self.refresh_graph(cx);
-        if self.side == Side::Changes && self.sidebar.panel_open {
+        if self.side == Side::Changes && open {
             self.load_compare(cx);
         }
         cx.notify();
@@ -44,10 +50,10 @@ impl Desktop {
         let width = edge_width(wide);
         let col = Column::Sessions as usize;
         // A drag move comes every frame, moved or not; notifying on each would redraw forever.
-        if self.sidebar.panel_open == width.is_some() && width.is_none_or(|w| self.widths[col] == Some(w)) {
+        if self.sidebar.read(cx).panel_open() == width.is_some() && width.is_none_or(|w| self.widths[col] == Some(w)) {
             return;
         }
-        self.sidebar.panel_open = width.is_some();
+        self.sidebar.update(cx, |s, cx| s.set_panel_open(width.is_some(), cx));
         if width.is_some() {
             self.widths[col] = width;
             self.save_soon(cx);
@@ -56,81 +62,232 @@ impl Desktop {
     }
 
     /// How wide the right-hand panel is now: none once collapsed.
-    pub(crate) fn workspace_panel_width(&self) -> f32 {
-        self.sidebar.panel.at() * self.width(Column::Sessions, OPEN)
+    pub(crate) fn workspace_panel_width(&self, cx: &App) -> f32 {
+        self.sidebar.read(cx).panel.at() * self.width(Column::Sessions, OPEN)
     }
 
     /// The right-hand panel and its rail, sliding off the window's edge in Focus.
-    pub(crate) fn workspace_side(&self) -> Div {
-        let panel = self.workspace_panel_width();
+    pub(crate) fn workspace_side(&mut self, cx: &mut Context<Self>) -> Div {
+        self.sync_panel_rail(cx);
+        let panel = self.workspace_panel_width(cx);
+        self.sync_panel(cx);
+        let body = region::cached(&self.sidebar.read(cx).panel_view, region::column(panel));
         div()
             .flex()
             .flex_none()
             .h_full()
-            .w(px((panel + RAIL_WIDTH) * self.sidebar.unfocused()))
+            .w(px((panel + RAIL_WIDTH) * self.sidebar.read(cx).unfocused()))
             .overflow_hidden()
-            .child(region::cached(&self.regions.panel, region::column(panel)))
-            .child(region::cached(&self.regions.rail, region::column(RAIL_WIDTH)))
+            .child(body)
+            .child(region::cached(&self.sidebar.read(cx).panel_rail, region::column(RAIL_WIDTH)))
     }
 
-    /// The right-hand panel, empty once collapsed; a drag that collapses it can still bring it back.
-    pub(crate) fn workspace_panel(&mut self, cx: &mut Context<Self>) -> Div {
-        let open = self.sidebar.panel_open;
-        let reset = |this: &mut Self, cx: &mut Context<Self>| this.reset_width(Column::Sessions, cx);
-        let seam = self.seam("panel-seam", Axis::Row, reset, cx).filter(|_| open).map(|handle| {
-            handle.left(px(-SEAM / 2.)).on_drag(PanelEdge, |_, _, _, cx| {
-                cx.stop_propagation();
-                cx.new(|_| EmptyView)
-            })
+    fn panel_frame(&self, cx: &App) -> PanelFrame {
+        let open = self.sidebar.read(cx).panel_open();
+        PanelFrame {
+            open,
+            width: self.width(Column::Sessions, OPEN),
+            shown: self.sidebar.read(cx).panel.at() > 0.,
+            seam: open && self.overlay.is_none(),
+            title: self.place(cx).map(|t| self.place_name(&t)).or_else(|| self.project.as_deref().map(|p| self.repo_name(p))).unwrap_or_default(),
+        }
+    }
+
+    fn sync_panel(&mut self, cx: &mut Context<Self>) {
+        let frame = self.panel_frame(cx);
+        let body = frame.shown.then(|| match self.side {
+            Side::Sessions => PanelBody::Sessions(self.sessions_view(cx)),
+            Side::Explorer => PanelBody::Explorer(self.explorer_view(cx)),
+            Side::Changes => PanelBody::Changes(self.changes_list(cx)),
+            Side::PullRequest => PanelBody::PullRequest(self.pr.clone()),
         });
-        // At its full width while the panel slides, so its rows don't reflow.
-        let width = self.width(Column::Sessions, OPEN);
-        let body = (self.sidebar.panel.at() > 0.).then(|| self.workspace_column(cx).w(px(width)).flex_none().border_l(px(0.5)).border_color(SEPARATOR));
-        div()
-            .relative()
-            .flex()
-            .flex_none()
-            .h_full()
-            .overflow_hidden()
-            .children(body)
-            // Deferred so the handle paints over the page it straddles.
-            .children(seam.map(deferred))
-            .on_drag_move(cx.listener(|this, e: &DragMoveEvent<PanelEdge>, _, cx| {
-                this.drag_panel_edge(f32::from(e.bounds.right() - e.event.position.x), cx);
-            }))
+        self.sidebar.read(cx).panel_view.clone().update(cx, |p, cx| p.set(frame, body, cx));
     }
 
-    /// The rail at the window's right edge: an icon per side, each opening the panel on it or closing it when shown.
-    pub(crate) fn workspace_rail(&self, cx: &mut Context<Self>) -> Div {
-        let open = self.sidebar.panel_open;
-        let waiting = self.sessions_matching("").iter().any(|c| c.status == Status::NeedsYou);
-        let changed = self.repo().map_or(0, |r| r.files.len());
-        let pr = self.shown_pr().map(|(_, pr)| pr);
+    pub(crate) fn on_panel_view_event(&mut self, _: &Entity<Panel>, ev: &PanelEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match *ev {
+            PanelEvent::Drag(wide) => self.drag_panel_edge(wide, cx),
+            PanelEvent::Reset => self.reset_width(Column::Sessions, cx),
+            PanelEvent::NewSession => self.new_session(None, false, window, cx),
+        }
+    }
+
+    pub(crate) fn sync_panel_rail(&self, cx: &mut Context<Self>) {
+        let pr = self.shown_pr(cx).map(|(_, pr)| pr);
+        let frame = PanelRailFrame {
+            open: self.sidebar.read(cx).panel_open(),
+            side: self.side,
+            waiting: self.sessions_matching("", cx).iter().any(|c| c.status == Status::NeedsYou),
+            changed: self.repo(cx).map_or(0, |r| r.files.len()),
+            pr: pr.map(|pr| (glyph(pr).1, pr_wants_you(pr))),
+        };
+        self.sidebar.read(cx).panel_rail.clone().update(cx, |r, cx| r.set(frame, cx));
+    }
+
+    pub(crate) fn on_panel_rail_event(&mut self, _: &Entity<PanelRail>, PanelRailEvent::Pick(side): &PanelRailEvent, _: &mut Window, cx: &mut Context<Self>) {
+        self.pick_side(*side, cx);
+    }
+}
+
+#[derive(PartialEq)]
+pub(crate) struct PanelFrame {
+    pub(crate) open: bool,
+    pub(crate) width: f32,
+    pub(crate) shown: bool,
+    pub(crate) seam: bool,
+    pub(crate) title: String,
+}
+
+#[derive(PartialEq)]
+pub(crate) enum PanelBody {
+    Sessions(Entity<SessionList>),
+    Explorer(Entity<Explorer>),
+    Changes(Entity<Changes>),
+    PullRequest(Entity<PrSide>),
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum PanelEvent {
+    Drag(f32),
+    Reset,
+    NewSession,
+}
+
+impl EventEmitter<PanelEvent> for Panel {}
+
+fn panel_chrome(f: &PanelFrame, body: Option<AnyElement>, cx: &mut Context<Panel>) -> Div {
+    let seam = f.seam.then(|| {
+        seam_handle_in("panel-seam", Axis::Row, |_: &mut Panel, _, cx| cx.emit(PanelEvent::Reset), cx).left(px(-SEAM / 2.)).on_drag(PanelEdge, |_, _, _, cx| {
+            cx.stop_propagation();
+            cx.new(|_| EmptyView)
+        })
+    });
+    let add = icon_button_sized("column-add", "plus", 28., TEXT_2).on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(PanelEvent::NewSession)));
+    let header = div()
+        .pl(px(18.))
+        .pr(px(12.))
+        .flex()
+        .items_center()
+        .gap(px(4.))
+        .child(div().flex_1().text_size(px(16.)).font_weight(FontWeight::BOLD).truncate().child(f.title.clone()));
+    // At its full width while the panel slides, so its rows don't reflow.
+    let body = body.map(|body| {
+        div()
+            .bg(SIDE)
+            .h_full()
+            .w(px(f.width))
+            .flex_none()
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .border_l(px(0.5))
+            .border_color(SEPARATOR)
+            .child(drag_area(header.child(add)).h(px(HEADER)).flex_none().border_b(px(0.5)).border_color(SEPARATOR))
+            .child(body)
+    });
+    div()
+        .relative()
+        .flex()
+        .flex_none()
+        .h_full()
+        .overflow_hidden()
+        .children(body)
+        // Deferred so the handle paints over the page it straddles.
+        .children(seam.map(deferred))
+        .on_drag_move(cx.listener(|_, e: &DragMoveEvent<PanelEdge>, _, cx| cx.emit(PanelEvent::Drag(f32::from(e.bounds.right() - e.event.position.x)))))
+}
+
+/// The right-hand panel, empty once collapsed; a drag that collapses it can still bring it back.
+#[derive(Default)]
+pub(crate) struct Panel {
+    drawn: Option<(PanelFrame, Option<PanelBody>)>,
+}
+
+impl Panel {
+    pub(crate) fn set(&mut self, frame: PanelFrame, body: Option<PanelBody>, cx: &mut Context<Self>) {
+        if self.drawn.as_ref().is_none_or(|(f, b)| *f != frame || *b != body) {
+            self.drawn = Some((frame, body));
+            crate::region::notify_after_draw(cx);
+        }
+    }
+}
+
+impl Render for Panel {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let root = div().size_full().flex().flex_col();
+        let Some((frame, body)) = self.drawn.as_ref() else { return root };
+        let body = body.as_ref().map(|b| match b {
+            PanelBody::Sessions(e) => e.clone().into_any_element(),
+            PanelBody::Explorer(e) => e.clone().into_any_element(),
+            PanelBody::Changes(e) => e.clone().into_any_element(),
+            PanelBody::PullRequest(e) => e.clone().into_any_element(),
+        });
+        let chrome = panel_chrome(frame, body, cx);
+        root.child(chrome)
+    }
+}
+
+pub(crate) enum PanelRailEvent {
+    Pick(Side),
+}
+
+impl EventEmitter<PanelRailEvent> for PanelRail {}
+
+#[derive(PartialEq)]
+pub(crate) struct PanelRailFrame {
+    open: bool,
+    side: Side,
+    waiting: bool,
+    changed: usize,
+    pr: Option<(Token, bool)>,
+}
+
+/// The rail at the window's right edge: an icon per side, each opening the panel on it or closing it when shown.
+#[derive(Default)]
+pub(crate) struct PanelRail {
+    frame: Option<PanelRailFrame>,
+}
+
+impl PanelRail {
+    pub(crate) fn set(&mut self, frame: PanelRailFrame, cx: &mut Context<Self>) {
+        if self.frame.as_ref() != Some(&frame) {
+            self.frame = Some(frame);
+            crate::region::notify_after_draw(cx);
+        }
+    }
+}
+
+impl Render for PanelRail {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let root = div().size_full().flex().flex_col();
+        let Some(f) = self.frame.as_ref() else { return root };
         let sides = [(Side::Sessions, "sessions"), (Side::Explorer, "explorer"), (Side::Changes, "branch"), (Side::PullRequest, "github")];
         let sides = sides.into_iter().enumerate().map(|(i, (side, name))| {
-            let active = open && self.side == side;
-            let button = match pr.map(|pr| glyph(pr).1).filter(|_| side == Side::PullRequest) {
+            let active = f.open && f.side == side;
+            let button = match f.pr.map(|(color, _)| color).filter(|_| side == Side::PullRequest) {
                 Some(color) => rail_slot(("panel-side", i), active).child(icon(name, 17., color)),
                 None => rail_button(("panel-side", i), name, active),
             };
             button
-                .when(side == Side::Sessions && waiting, |d| d.child(ui::dot(6., WAITING_DOT).absolute().top(px(5.)).right(px(5.))))
-                .when(side == Side::Changes && changed > 0, |d| d.child(changes_badge(changed)))
-                .when(side == Side::PullRequest && pr.is_some_and(pr_wants_you), |d| d.child(ui::dot(6., FAILED).absolute().top(px(5.)).right(px(5.))))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_side(side, cx)))
+                .when(side == Side::Sessions && f.waiting, |d| d.child(ui::dot(6., WAITING_DOT).absolute().top(px(5.)).right(px(5.))))
+                .when(side == Side::Changes && f.changed > 0, |d| d.child(changes_badge(f.changed)))
+                .when(side == Side::PullRequest && f.pr.is_some_and(|(_, wants)| wants), |d| d.child(ui::dot(6., FAILED).absolute().top(px(5.)).right(px(5.))))
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(PanelRailEvent::Pick(side))))
         });
-        drag_area(div().bg(SIDE))
-            .w(px(RAIL_WIDTH))
-            .flex_none()
-            .h_full()
-            .pt(px((HEADER - 32.) / 2.))
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap(px(6.))
-            .border_l(px(0.5))
-            .border_color(SEPARATOR)
-            .children(sides)
+        root.child(
+            drag_area(div().bg(SIDE))
+                .w(px(RAIL_WIDTH))
+                .flex_none()
+                .h_full()
+                .pt(px((HEADER - 32.) / 2.))
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(6.))
+                .border_l(px(0.5))
+                .border_color(SEPARATOR)
+                .children(sides),
+        )
     }
 }
 

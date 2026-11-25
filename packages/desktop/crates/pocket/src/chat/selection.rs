@@ -8,9 +8,17 @@ use theme::*;
 
 #[derive(Default)]
 pub(crate) struct Select {
-    pub(crate) offer: Option<Offer>,
+    offer: Option<Offer>,
     drag_from: Point<Pixels>,
 }
+
+pub(crate) enum SelectEvent {
+    OpenLink { agent: String, link: String },
+    Quote { agent: String, text: String },
+    Menu { agent: String, at: Point<Pixels> },
+}
+
+impl EventEmitter<SelectEvent> for Select {}
 
 impl Select {
     pub(crate) fn menu_open(&self) -> bool {
@@ -21,6 +29,139 @@ impl Select {
         if self.menu_open() {
             self.offer = None;
         }
+    }
+
+    pub(crate) fn dismiss(&mut self) {
+        self.offer = None;
+    }
+
+    pub(crate) fn pressed(&mut self, at: Point<Pixels>) {
+        self.drag_from = at;
+    }
+
+    pub(crate) fn scrolled(&mut self, cx: &mut Context<Self>) {
+        if self.offer.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn released(&mut self, agent: String, up: Point<Pixels>, writable: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.menu_open() {
+            return;
+        }
+        let text = TextSelection::selected_text(window, cx).trim().to_string();
+        let shown = self.offer.is_some();
+        self.offer = (!text.is_empty() && writable).then(|| Offer { agent, at: pill_at(self.drag_from, up), text, kind: Kind::Pill });
+        if shown || self.offer.is_some() {
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn menu(&mut self, agent: String, at: Point<Pixels>, link: Option<String>, writable: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let text = TextSelection::selected_text(window, cx).trim().to_string();
+        let shown = !items(!text.is_empty(), link.is_some(), writable).is_empty();
+        self.offer = shown.then_some(Offer { agent, at, text, kind: Kind::Menu { link } });
+        cx.notify();
+    }
+
+    fn pick(&mut self, item: Item, cx: &mut Context<Self>) {
+        let Some(Offer { agent, text, kind, .. }) = self.offer.take() else { return };
+        let link = match kind {
+            Kind::Menu { link } => link,
+            Kind::Pill => None,
+        };
+        match (item, link) {
+            (Item::OpenLink, Some(link)) => cx.emit(SelectEvent::OpenLink { agent, link }),
+            (Item::CopyLink, Some(link)) => cx.write_to_clipboard(ClipboardItem::new_string(link)),
+            (Item::Copy, _) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
+            (Item::AddToChat, _) => cx.emit(SelectEvent::Quote { agent, text }),
+            _ => {}
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn offers(&self, agent: &str, transcript: AnyElement, writable: bool, cx: &mut Context<Self>) -> Div {
+        let (up, right) = (agent.to_string(), agent.to_string());
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .capture_any_mouse_down(cx.listener(|this, ev: &MouseDownEvent, _, _| {
+                if ev.button == MouseButton::Left {
+                    this.pressed(ev.position);
+                }
+            }))
+            .capture_any_mouse_up(cx.listener(move |_, ev: &MouseUpEvent, window, cx| {
+                if ev.button != MouseButton::Left {
+                    return;
+                }
+                let (agent, at) = (up.clone(), ev.position);
+                // The window settles its selection in its own mouse-up, which runs after this capture.
+                cx.defer_in(window, move |this, window, cx| this.released(agent, at, writable, window, cx));
+            }))
+            // On release, so a link under the pointer, whose handler stops the event, opens its own menu instead.
+            .on_mouse_up(
+                MouseButton::Right,
+                cx.listener(move |_, ev: &MouseUpEvent, _, cx| cx.emit(SelectEvent::Menu { agent: right.clone(), at: ev.position })),
+            )
+            .on_scroll(cx.listener(|this, _: &ScrollEvent, _, cx| this.scrolled(cx)))
+            .child(transcript)
+    }
+
+    pub(crate) fn view(&self, shown: &str, writable: bool, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let offer = self.offer.as_ref().filter(|o| o.agent == shown)?;
+        let close = cx.listener(|this, _: &MouseDownEvent, _, cx| {
+            this.offer = None;
+            cx.notify();
+        });
+        let el = match &offer.kind {
+            Kind::Pill => {
+                let pill = div()
+                    .id("chat-select-pill")
+                    .h(px(32.))
+                    .px(px(12.))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .cursor_pointer()
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(TEXT)
+                    .child("Add to chat")
+                    .child(ui::kbd("⌘L"))
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.pick(Item::AddToChat, cx)))
+                    .on_mouse_down_out(close);
+                anchored()
+                    .anchor(Anchor::BottomLeft)
+                    .position(offer.at)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(ui::pop(pill).rounded(px(10.)))
+                    .into_any_element()
+            }
+            Kind::Menu { link } => {
+                let mut menu = ui::pop(div().id("chat-select-menu")).w(px(220.)).p(px(6.)).flex().flex_col().occlude().on_mouse_down_out(close);
+                let mut prev = None;
+                for item in items(!offer.text.is_empty(), link.is_some(), writable) {
+                    let group = matches!(item, Item::OpenLink | Item::CopyLink);
+                    if prev.is_some_and(|p| p != group) {
+                        menu = menu.child(ui::menu_divider());
+                    }
+                    prev = Some(group);
+                    let row = match item {
+                        Item::OpenLink => ui::menu_row("chat-select-open-link", "external", "Open link", None),
+                        Item::CopyLink => ui::menu_row("chat-select-copy-link", "copy", "Copy link address", None),
+                        Item::Copy => ui::menu_row("chat-select-copy", "copy", "Copy", Some("⌘C")),
+                        Item::AddToChat => ui::menu_row("chat-select-add", "comment", "Add to chat", Some("⌘L")),
+                    };
+                    menu = menu.child(row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick(item, cx))));
+                }
+                anchored().position(offer.at).snap_to_window_with_margin(px(8.)).child(ui::menu_in("chat-select-menu-in", menu)).into_any_element()
+            }
+        };
+        Some(deferred(el).with_priority(2).into_any_element())
     }
 }
 
@@ -72,49 +213,8 @@ pub(crate) fn quoted(draft: &str, text: &str) -> String {
 
 impl Desktop {
     pub(super) fn offers_selection(&self, agent: &str, transcript: AnyElement, cx: &mut Context<Self>) -> Div {
-        let (up, right) = (agent.to_string(), agent.to_string());
-        div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .capture_any_mouse_down(cx.listener(|this, ev: &MouseDownEvent, _, _| {
-                if ev.button == MouseButton::Left {
-                    this.chats.select.drag_from = ev.position;
-                }
-            }))
-            .capture_any_mouse_up(cx.listener(move |_, ev: &MouseUpEvent, window, cx| {
-                if ev.button != MouseButton::Left {
-                    return;
-                }
-                let (agent, at) = (up.clone(), ev.position);
-                // The window settles its selection in its own mouse-up, which runs after this capture.
-                cx.defer_in(window, move |this, window, cx| this.offer_pill(agent, at, window, cx));
-            }))
-            // On release, so a link under the pointer, whose handler stops the event, opens its own menu instead.
-            .on_mouse_up(
-                MouseButton::Right,
-                cx.listener(move |this, ev: &MouseUpEvent, window, cx| this.offer_menu(right.clone(), ev.position, None, window, cx)),
-            )
-            .on_scroll(cx.listener(|this, _: &ScrollEvent, _, cx| {
-                if this.chats.select.offer.take().is_some() {
-                    cx.notify();
-                }
-            }))
-            .child(transcript)
-    }
-
-    fn offer_pill(&mut self, agent: String, up: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
-        if self.chats.select.menu_open() {
-            return;
-        }
-        let text = TextSelection::selected_text(window, cx).trim().to_string();
-        let shown = self.chats.select.offer.is_some();
-        self.chats.select.offer =
-            (!text.is_empty() && !self.agents.observe_only()).then(|| Offer { agent, at: pill_at(self.chats.select.drag_from, up), text, kind: Kind::Pill });
-        if shown || self.chats.select.offer.is_some() {
-            cx.notify();
-        }
+        let writable = !self.agents.observe_only();
+        self.chats.select.update(cx, |s, cx| s.offers(agent, transcript, writable, cx))
     }
 
     pub(super) fn chat_link(&mut self, agent: &str, link: &str, cwd: &str, press: Press, window: &mut Window, cx: &mut Context<Self>) {
@@ -126,14 +226,23 @@ impl Desktop {
 
     fn offer_menu(&mut self, agent: String, at: Point<Pixels>, link: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         self.close_menus(cx);
-        let text = TextSelection::selected_text(window, cx).trim().to_string();
-        let shown = !items(!text.is_empty(), link.is_some(), !self.agents.observe_only()).is_empty();
-        self.chats.select.offer = shown.then_some(Offer { agent, at, text, kind: Kind::Menu { link } });
-        cx.notify();
+        let writable = !self.agents.observe_only();
+        self.chats.select.update(cx, |s, cx| s.menu(agent, at, link, writable, window, cx));
+    }
+
+    pub(super) fn on_select_event(&mut self, ev: &SelectEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            SelectEvent::OpenLink { agent, link } => {
+                let cwd = self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default();
+                self.chat_open(agent, link, &cwd, window, cx);
+            }
+            SelectEvent::Quote { agent, text } => self.quote_in_chat(agent, text, window, cx),
+            SelectEvent::Menu { agent, at } => self.offer_menu(agent.clone(), *at, None, window, cx),
+        }
     }
 
     fn quote_in_chat(&mut self, agent: &str, text: &str, window: &mut Window, cx: &mut Context<Self>) {
-        self.chats.select.offer = None;
+        self.chats.select.update(cx, |s, _| s.dismiss());
         if text.trim().is_empty() || self.agents.observe_only() {
             return cx.notify();
         }
@@ -149,84 +258,13 @@ impl Desktop {
         self.quote_in_chat(&agent, &text, window, cx);
     }
 
-    fn pick_offer(&mut self, item: Item, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(Offer { agent, text, kind, .. }) = self.chats.select.offer.take() else { return };
-        let link = match kind {
-            Kind::Menu { link } => link,
-            Kind::Pill => None,
-        };
-        match (item, link) {
-            (Item::OpenLink, Some(link)) => {
-                let cwd = self.agents.get(&agent).map(|a| a.cwd.clone()).unwrap_or_default();
-                self.chat_open(&agent, &link, &cwd, window, cx);
-            }
-            (Item::CopyLink, Some(link)) => cx.write_to_clipboard(ClipboardItem::new_string(link)),
-            (Item::Copy, _) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
-            (Item::AddToChat, _) => return self.quote_in_chat(&agent, &text, window, cx),
-            _ => {}
-        }
-        cx.notify();
-    }
-
     pub(crate) fn chat_select_offer(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         // Nothing else drops the offer when a key or the app leaves its chat.
-        let offer = self
-            .chats
-            .select
-            .offer
-            .as_ref()
-            .filter(|o| self.screen == Screen::Sessions && self.overlay.is_none() && self.session() == Some(o.agent.as_str()))?;
-        let close = cx.listener(|this, _: &MouseDownEvent, _, cx| {
-            this.chats.select.offer = None;
-            cx.notify();
-        });
-        let el = match &offer.kind {
-            Kind::Pill => {
-                let pill = div()
-                    .id("chat-select-pill")
-                    .h(px(32.))
-                    .px(px(12.))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .cursor_pointer()
-                    .text_size(px(13.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(TEXT)
-                    .child("Add to chat")
-                    .child(ui::kbd("⌘L"))
-                    .occlude()
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.pick_offer(Item::AddToChat, window, cx)))
-                    .on_mouse_down_out(close);
-                anchored()
-                    .anchor(Anchor::BottomLeft)
-                    .position(offer.at)
-                    .snap_to_window_with_margin(px(8.))
-                    .child(ui::pop(pill).rounded(px(10.)))
-                    .into_any_element()
-            }
-            Kind::Menu { link } => {
-                let mut menu = ui::pop(div().id("chat-select-menu")).w(px(220.)).p(px(6.)).flex().flex_col().occlude().on_mouse_down_out(close);
-                let mut prev = None;
-                for item in items(!offer.text.is_empty(), link.is_some(), !self.agents.observe_only()) {
-                    let group = matches!(item, Item::OpenLink | Item::CopyLink);
-                    if prev.is_some_and(|p| p != group) {
-                        menu = menu.child(ui::menu_divider());
-                    }
-                    prev = Some(group);
-                    let row = match item {
-                        Item::OpenLink => ui::menu_row("chat-select-open-link", "external", "Open link", None),
-                        Item::CopyLink => ui::menu_row("chat-select-copy-link", "copy", "Copy link address", None),
-                        Item::Copy => ui::menu_row("chat-select-copy", "copy", "Copy", Some("⌘C")),
-                        Item::AddToChat => ui::menu_row("chat-select-add", "comment", "Add to chat", Some("⌘L")),
-                    };
-                    menu = menu.child(row.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.pick_offer(item, window, cx))));
-                }
-                anchored().position(offer.at).snap_to_window_with_margin(px(8.)).child(ui::menu_in("chat-select-menu-in", menu)).into_any_element()
-            }
-        };
-        Some(deferred(el).with_priority(2).into_any_element())
+        if self.screen != Screen::Sessions || self.overlay.is_some() {
+            return None;
+        }
+        let (shown, writable) = (self.session()?.to_string(), !self.agents.observe_only());
+        self.chats.select.update(cx, |s, cx| s.view(&shown, writable, cx))
     }
 }
 

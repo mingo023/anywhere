@@ -313,6 +313,15 @@ pub(crate) fn seam_handle<T: 'static>(
     reset: impl Fn(&mut T, &mut Context<T>) + 'static,
     cx: &mut Context<T>,
 ) -> Stateful<Div> {
+    seam_handle_in(id, axis, move |this, _, cx| reset(this, cx), cx)
+}
+
+pub(crate) fn seam_handle_in<T: 'static>(
+    id: impl Into<ElementId>,
+    axis: Axis,
+    reset: impl Fn(&mut T, &mut Window, &mut Context<T>) + 'static,
+    cx: &mut Context<T>,
+) -> Stateful<Div> {
     let line = div().absolute().group_hover("seam", |s| s.bg(SEPARATOR_STRONG));
     // Occludes so the press starts a resize, not the drag area's window move.
     let handle = div().id(id).group("seam").absolute().occlude();
@@ -322,27 +331,15 @@ pub(crate) fn seam_handle<T: 'static>(
     };
     handle.child(line).on_mouse_down(
         MouseButton::Left,
-        cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+        cx.listener(move |this, e: &MouseDownEvent, window, cx| {
             if e.click_count == 2 {
-                reset(this, cx);
+                reset(this, window, cx);
             }
         }),
     )
 }
 
 impl Desktop {
-    /// A floating menu of `width` that a click outside closes.
-    pub(crate) fn popup(&self, id: &'static str, width: f32, cx: &mut Context<Self>) -> Stateful<Div> {
-        popup_closing(
-            id,
-            width,
-            cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.close_menus(cx);
-                cx.notify();
-            }),
-        )
-    }
-
     pub(crate) fn detail_bar(&self, crumb: Div, right: impl IntoElement, cx: &mut Context<Self>) -> Div {
         let (pad, toggle) = self.bar_start(14., cx);
         drag_area(div())
@@ -364,7 +361,7 @@ impl Desktop {
     pub(crate) fn toggle_rail(&mut self, _: &ToggleRail, _: &mut Window, cx: &mut Context<Self>) {
         // The panel shows only on the Sessions screen; flipping it elsewhere would surprise on the way back.
         if self.layout != Layout::Focus && self.screen == Screen::Sessions {
-            self.sidebar.panel_open = !self.sidebar.panel_open;
+            self.sidebar.update(cx, |s, cx| s.set_panel_open(!s.panel_open(), cx));
             cx.notify();
         }
     }
@@ -412,38 +409,7 @@ impl Desktop {
         self.widths[col as usize].map_or(fallback, |w| w.clamp(min, max))
     }
 
-    pub(crate) fn seam(
-        &self,
-        id: impl Into<ElementId>,
-        axis: Axis,
-        reset: impl Fn(&mut Self, &mut Context<Self>) + 'static,
-        cx: &mut Context<Self>,
-    ) -> Option<Stateful<Div>> {
-        // The deferred handle paints above overlays, so it would steal their clicks.
-        if self.overlay.is_some() {
-            return None;
-        }
-        Some(seam_handle(id, axis, reset, cx))
-    }
-
-    /// Lets the user drag `d`'s right edge to resize `col`, or double-click it to reset.
-    pub fn resizable(&self, d: Div, col: Column, cx: &mut Context<Self>) -> Div {
-        let Some(handle) = self.seam(("resize-column", col as usize), Axis::Row, move |this, cx| this.reset_width(col, cx), cx) else {
-            return d;
-        };
-        let handle = handle.right(px(-SEAM / 2.)).on_drag(col, |_, _, _, cx| {
-            cx.stop_propagation();
-            cx.new(|_| EmptyView)
-        });
-        // Deferred so the handle straddles the edge: `column()` clips its children.
-        d.relative().child(deferred(handle)).on_drag_move(cx.listener(move |this, e: &DragMoveEvent<Column>, _, cx| {
-            if *e.drag(cx) == col {
-                this.drag_edge(col, f32::from(e.event.position.x - e.bounds.left()), cx);
-            }
-        }))
-    }
-
-    fn drag_edge(&mut self, col: Column, width: f32, cx: &mut Context<Self>) {
+    pub(crate) fn drag_edge(&mut self, col: Column, width: f32, cx: &mut Context<Self>) {
         match dragged(col, self.layout, width) {
             Edge::Width(width) => self.widths[col as usize] = Some(width),
             Edge::Collapse => self.layout = Layout::Compact,
@@ -465,8 +431,9 @@ impl Desktop {
             icon_button_sized("focus-toggle", name, 28., TEXT_2)
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_focus(&crate::actions::ToggleFocus, window, cx)))
         };
-        let pad = bar_pad(self.layout, self.screen, self.lead_width(), pad, self.store.appearance.zoom_factor());
-        let toggle = (self.layout == Layout::Focus).then(|| toggle("sidebar-expand", cx).relative().when(has_changes(self.repo()), |d| d.child(changes_dot())));
+        let pad = bar_pad(self.layout, self.screen, self.lead_width(cx), pad, self.store.appearance.zoom_factor());
+        let toggle =
+            (self.layout == Layout::Focus).then(|| toggle("sidebar-expand", cx).relative().when(has_changes(self.repo(cx)), |d| d.child(changes_dot())));
         (pad, toggle)
     }
 

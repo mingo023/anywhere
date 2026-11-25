@@ -1,5 +1,5 @@
 use super::catalog::{Look, Setting};
-use super::{action, row, themes};
+use super::{Settings, SettingsEvent, action, row, themes};
 use crate::desktop::Desktop;
 use crate::git_ui::diff::{code, code_text};
 use git::{Kind, Line};
@@ -150,16 +150,16 @@ fn installed<'a>(saved: Option<&'a str>, families: &[String]) -> Option<&'a str>
 }
 
 /// Lists the installed fonts off the UI thread, then drops a saved font that's gone.
-pub(crate) fn load_fonts(cx: &mut Context<Desktop>) {
+pub(crate) fn load_fonts(cx: &mut Context<Settings>) {
     let text = cx.text_system().clone();
     let names = cx.background_spawn(async move { text.all_font_names() });
     cx.spawn(async move |this, cx| {
         let names = names.await;
-        this.update(cx, |d, cx| {
-            d.settings.fonts = names;
-            let a = &d.store.appearance;
+        this.update(cx, |s, cx| {
+            s.fonts = names;
+            let a = &s.store.appearance;
             if a.ui_font.is_some() || a.code_font.is_some() {
-                apply_fonts(d, cx);
+                cx.emit(SettingsEvent::FontsLoaded);
             }
         })
     })
@@ -171,10 +171,11 @@ fn apply_accent(d: &mut Desktop, cx: &mut Context<Desktop>) {
 }
 
 // Rows keep the heights they were measured at.
-fn apply_fonts(d: &mut Desktop, cx: &mut Context<Desktop>) {
-    let (a, fonts) = (&d.store.appearance, &d.settings.fonts);
-    theme::set_fonts(installed(a.ui_font.as_deref(), fonts), installed(a.code_font.as_deref(), fonts), cx);
-    d.diff.relayout(true);
+pub(crate) fn apply_fonts(d: &mut Desktop, cx: &mut Context<Desktop>) {
+    let fonts = d.settings.read(cx).fonts.clone();
+    let a = &d.store.appearance;
+    theme::set_fonts(installed(a.ui_font.as_deref(), &fonts), installed(a.code_font.as_deref(), &fonts), cx);
+    d.diff.relayout(true, cx);
     d.recolor_commit(cx);
 }
 
@@ -183,22 +184,22 @@ fn apply_glass(d: &mut Desktop, _: &mut Context<Desktop>) {
 }
 
 /// The opacity slider, saving and repainting as it's dragged.
-pub(super) fn glass_slider(store: &Store, window: &mut Window, cx: &mut Context<Desktop>) -> (Entity<SliderState>, Subscription) {
+pub(super) fn glass_slider(store: &Store, window: &mut Window, cx: &mut Context<Settings>) -> (Entity<SliderState>, Subscription) {
     let (min, max) = Appearance::GLASS;
     let slider = cx.new(|_| SliderState::new().min(min as f32).max(max as f32).step(1.).default_value(store.appearance.glass() as f32));
     let setting: &'static Setting = &GLASS;
     let sub = cx.subscribe_in(&slider, window, move |this, _, ev: &SliderEvent, _, cx| {
         let SliderEvent::Change(v) = ev else { return };
-        this.store.appearance.glass = Some(v.start().round() as u32);
-        this.changed(setting, cx);
+        let glass = v.start().round() as u32;
+        this.set(setting, cx, move |s| s.appearance.glass = Some(glass));
     });
     (slider, sub)
 }
 
-fn glass_row(d: &mut Desktop, setting: &'static Setting, _: &mut Context<Desktop>) -> Div {
+fn glass_row(d: &mut Settings, setting: &'static Setting, _: &mut Context<Settings>) -> Div {
     let percent = div().w(px(40.)).text_right().text_size(px(13.)).text_color(TEXT_2).child(format!("{}%", d.store.appearance.glass()));
     let dark = theme::is_dark();
-    let slider = Slider::new(&d.settings.glass).disabled(!dark).w(px(180.));
+    let slider = Slider::new(&d.glass).disabled(!dark).w(px(180.));
     row(setting.label, setting.hint, div().flex().items_center().gap(px(10.)).when(!dark, |d| d.opacity(0.45)).child(slider).child(percent))
 }
 
@@ -222,7 +223,7 @@ fn background_name(s: &Store) -> String {
     s.appearance.background.as_deref().map_or("None".into(), |p| store::backgrounds::original_name(p).to_string())
 }
 
-fn choose_background(setting: &'static Setting, cx: &mut Context<Desktop>) {
+pub(crate) fn choose_background(setting: &'static Setting, cx: &mut Context<Desktop>) {
     let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: None });
     cx.spawn(async move |this, cx| {
         let Ok(Ok(Some(paths))) = rx.await else { return };
@@ -244,7 +245,7 @@ fn choose_background(setting: &'static Setting, cx: &mut Context<Desktop>) {
             Ok(_) if d.store.appearance.background != before => {}
             Ok(to) => set_background(d, Some(to.to_string_lossy().into_owned()), setting, cx),
             Err(why) => {
-                d.error = Some(why);
+                d.fail(why, cx);
                 cx.notify();
             }
         })
@@ -255,15 +256,17 @@ fn choose_background(setting: &'static Setting, cx: &mut Context<Desktop>) {
 
 fn set_background(d: &mut Desktop, path: Option<String>, setting: &'static Setting, cx: &mut Context<Desktop>) {
     d.store.appearance.background = path;
-    d.changed(setting, cx);
+    d.changed(Some(setting), cx);
 }
 
-fn background_row(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Desktop>) -> Div {
+fn background_row(d: &mut Settings, setting: &'static Setting, cx: &mut Context<Settings>) -> Div {
     let set = d.store.appearance.background.is_some();
     let choose = action("background-choose", if set { background_name(&d.store) } else { "Choose…".into() })
-        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| choose_background(setting, cx)));
-    let remove =
-        set.then(|| action("background-remove", "Remove").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| set_background(this, None, setting, cx))));
+        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::ChooseBackground(setting))));
+    let remove = set.then(|| {
+        action("background-remove", "Remove")
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set(setting, cx, |s| s.appearance.background = None)))
+    });
     row(setting.label, setting.hint, div().flex().items_center().gap(px(6.)).child(choose).children(remove))
 }
 
@@ -286,33 +289,29 @@ fn swatch(id: impl Into<ElementId>, fill: u32, chosen: bool) -> Stateful<Div> {
 }
 
 /// The theme's accent, or Graphite's ink where it has none, then `ACCENT_SWATCHES`.
-fn accent_row(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Desktop>) -> Div {
+fn accent_row(d: &mut Settings, setting: &'static Setting, cx: &mut Context<Settings>) -> Div {
     let chosen = d.store.appearance.accent;
     let dots = std::iter::once(None).chain(ACCENT_SWATCHES.map(Some)).enumerate().map(|(i, c)| {
-        swatch(("accent", i), c.or(theme_accent()).map_or(0x71717aff, |c| (c << 8) | 0xff), c == chosen).on_click(cx.listener(
-            move |this, _: &ClickEvent, _, cx| {
-                this.store.appearance.accent = c;
-                this.changed(setting, cx);
-            },
-        ))
+        swatch(("accent", i), c.or(theme_accent()).map_or(0x71717aff, |c| (c << 8) | 0xff), c == chosen)
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set(setting, cx, move |s| s.appearance.accent = c)))
     });
     row(setting.label, setting.hint, div().flex().items_center().gap(px(2.)).children(dots))
 }
 
 /// A dropdown of the default font then `menu`'s installed choices, scrolled rather than all drawn.
-pub(super) fn font_row(d: &mut Desktop, setting: &'static Setting, menu: &'static FontMenu, cx: &mut Context<Desktop>) -> Div {
+pub(super) fn font_row(d: &mut Settings, setting: &'static Setting, menu: &'static FontMenu, cx: &mut Context<Settings>) -> Div {
     let chosen = (menu.get)(&d.store).map(str::to_string);
-    let open = d.settings.menu == Some(setting.id);
+    let open = d.menu == Some(setting.id);
     let button = action(setting.id, "").gap(px(6.)).child(menu.name(&d.store)).child(icon("chevron-down", 12., TEXT_3)).on_click(cx.listener(
         move |this, _: &ClickEvent, _, cx| {
-            this.settings.menu = (!open).then_some(setting.id);
+            this.menu = (!open).then_some(setting.id);
             cx.notify();
         },
     ));
     if !open {
         return row(setting.label, setting.hint, button);
     }
-    let options: Rc<Vec<Option<String>>> = Rc::new(std::iter::once(None).chain(menu.choices(&d.settings.fonts).into_iter().map(Some)).collect());
+    let options: Rc<Vec<Option<String>>> = Rc::new(std::iter::once(None).chain(menu.choices(&d.fonts).into_iter().map(Some)).collect());
     let count = options.len();
     let rows = uniform_list(
         SharedString::from(format!("{}-options", setting.id)),
@@ -337,9 +336,9 @@ pub(super) fn font_row(d: &mut Desktop, setting: &'static Setting, menu: &'stati
                         .child(div().w(px(14.)).flex_none().when(font == chosen, |d| d.child(icon("check", 13., TEXT))))
                         .child(div().truncate().child(font.clone().unwrap_or(menu.default.to_string())))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.settings.menu = None;
-                            (menu.set)(&mut this.store, font.clone());
-                            this.changed(setting, cx);
+                            this.menu = None;
+                            let font = font.clone();
+                            this.set(setting, cx, move |s| (menu.set)(s, font.clone()));
                         }))
                 })
                 .collect::<Vec<_>>()
@@ -374,7 +373,7 @@ fn sample_spans(text: &str, palette: &Syntax) -> Vec<(Range<usize>, HighlightSty
     spans.into_iter().map(|(r, c)| (r, HighlightStyle { color: Some(c.into()), ..Default::default() })).collect()
 }
 
-fn preview(d: &Desktop, setting: &'static Setting) -> Div {
+fn preview(d: &Settings, setting: &'static Setting) -> Div {
     let palette = theme::syntax();
     let lines = SAMPLE.map(|(kind, text)| (Line { kind, old: None, new: None, text: text.into() }, sample_spans(text, &palette)));
     div()
@@ -424,17 +423,14 @@ fn custom_colors(s: &Store) -> String {
 }
 
 /// Added and removed, each a row of swatches led by the theme's own colour.
-fn custom_diff_colors(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Desktop>) -> Div {
+fn custom_diff_colors(d: &mut Settings, setting: &'static Setting, cx: &mut Context<Settings>) -> Div {
     let a = d.store.appearance.clone();
     let blue_orange = a.diff_colors == DiffColors::BlueOrange;
     let picker = |label: &'static str, theme_color: Token, chosen: Option<u32>, set: fn(&mut Store, Option<u32>)| {
         let options = std::iter::once(None).chain(DIFF_SWATCHES.map(Some));
         let dots = options.enumerate().map(|(i, c)| {
             let fill = c.map_or(theme_color.pick_with(is_dark(), blue_orange), |c| (c << 8) | 0xff);
-            swatch((label, i), fill, c == chosen).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                set(&mut this.store, c);
-                this.changed(setting, cx);
-            }))
+            swatch((label, i), fill, c == chosen).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set(setting, cx, move |s| set(s, c))))
         });
         div().flex().items_center().gap(px(2.)).child(div().w(px(64.)).text_size(px(12.)).text_color(TEXT_2).child(label)).children(dots)
     };

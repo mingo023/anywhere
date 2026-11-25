@@ -50,13 +50,13 @@ impl Geometry {
                 this.geometry.window = Some(snapshot(window.window_bounds(), display));
                 this.save_soon(cx);
             }),
-            cx.on_release(|this, _| {
-                if let Some((path, raw)) = this.remember_chrome() {
+            cx.on_release(|this, cx| {
+                if let Some((path, raw)) = this.remember_chrome(cx) {
                     store::write(&path, &raw);
                 }
             }),
-            cx.on_app_quit(|this, _| {
-                if let Some((path, raw)) = this.remember_chrome() {
+            cx.on_app_quit(|this, cx| {
+                if let Some((path, raw)) = this.remember_chrome(cx) {
                     store::write(&path, &raw);
                 }
                 async {}
@@ -70,16 +70,16 @@ impl Desktop {
     /// Writes `desktop.json` once the window, layout, widths, graph share and panels have held still for `SAVE_DELAY`,
     /// and sends each pocketd what changed of what it owns now.
     pub(crate) fn save_soon(&mut self, cx: &mut Context<Self>) {
-        self.publish_registry();
+        self.publish_registry(cx);
         self.geometry.save = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SAVE_DELAY).await;
-            let Ok(Some((path, raw))) = this.update(cx, |d, _| d.remember_chrome()) else { return };
+            let Ok(Some((path, raw))) = this.update(cx, |d, cx| d.remember_chrome(cx)) else { return };
             cx.background_executor().spawn(async move { store::write(&path, &raw) }).await;
         }));
     }
 
     /// Copies the window, layout, widths, graph share and panels into the store and encodes it; capture mode keeps none of them.
-    fn remember_chrome(&mut self) -> Option<(PathBuf, Vec<u8>)> {
+    fn remember_chrome(&mut self, cx: &App) -> Option<(PathBuf, Vec<u8>)> {
         if self.capturing {
             return None;
         }
@@ -88,7 +88,7 @@ impl Desktop {
         }
         self.store.layout = self.layout;
         self.store.widths = ColumnWidths { projects: self.widths[0], sessions: self.widths[1] };
-        self.remember_layouts();
+        self.remember_layouts(cx);
         self.store.encode()
     }
 }

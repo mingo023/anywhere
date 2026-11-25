@@ -1,16 +1,15 @@
-use super::{Body, Quote};
-use crate::desktop::Desktop;
+use super::{Body, ChatComposer, ChatEvent, Quote};
 use gpui_kit::component::input::{Escape, Textarea};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 use ui::Variant;
 
-impl Desktop {
-    pub(crate) fn chat_card(&self, quote: &Quote, quoted: bool, cx: &mut Context<Self>) -> Div {
-        let choices = self.chat_choices();
-        let target = self.chat_target(&choices);
-        let chosen = target.as_deref().and_then(|id| choices.iter().find(|c| c.id == id));
+impl ChatComposer {
+    pub(crate) fn card(&self, quote: &Quote, quoted: bool, cx: &mut Context<Self>) -> Div {
+        let choices = &self.side.choices;
+        let target = self.side.target.as_deref();
+        let chosen = target.and_then(|id| choices.iter().find(|c| c.id == id));
         let head = div()
             .px(px(16.))
             .pt(px(12.))
@@ -52,14 +51,13 @@ impl Desktop {
                 })
                 .child(quote.excerpt())
         });
-        let field = div().px(px(16.)).py(px(10.)).text_size(px(14.5)).line_height(px(21.75)).child(Textarea::new(&self.chat.input).appearance(false));
+        let field = div().px(px(16.)).py(px(10.)).text_size(px(14.5)).line_height(px(21.75)).child(Textarea::new(&self.input).appearance(false));
         let ready = chosen.is_some();
         let add = ui::button("chat-add", Variant::Accent, None, "Add to input")
             .child(ui::button_kbd("⌘↵"))
-            .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_to_input(window, cx))))
+            .when(ready, |d| d.on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ChatEvent::Add))))
             .when(!ready, |d| d.opacity(0.5).cursor_default());
-        let cancel = ui::button("chat-cancel", Variant::Secondary, None, "Cancel")
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_chat(window, cx)));
+        let cancel = ui::button("chat-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ChatEvent::Cancel)));
         let foot = div()
             .px(px(12.))
             .pt(px(10.))
@@ -70,7 +68,7 @@ impl Desktop {
             .gap(px(8.))
             .border_t_1()
             .border_color(HAIRLINE)
-            .child(self.chat_target_picker(chosen, &choices, cx))
+            .child(self.target_picker(chosen, cx))
             .child(div().ml_auto().flex().items_center().gap(px(8.)).child(cancel).child(add));
         div()
             .flex()
@@ -81,10 +79,10 @@ impl Desktop {
             .font_family(ui_font())
             .whitespace_normal()
             .on_action(cx.listener(|this, _: &Escape, window, cx| {
-                if this.chat.menu {
-                    this.close_chat_menu(window, cx);
+                if this.menu {
+                    this.close_menu(window, cx);
                 } else {
-                    this.cancel_chat(window, cx);
+                    cx.emit(ChatEvent::Cancel);
                 }
             }))
             .child(head)

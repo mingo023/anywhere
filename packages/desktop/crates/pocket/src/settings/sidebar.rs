@@ -1,6 +1,5 @@
 use super::catalog::{Look, Setting};
-use super::row;
-use crate::desktop::Desktop;
+use super::{Settings, row};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use store::Store;
@@ -103,10 +102,10 @@ pub(super) const ROWS: &[Setting] = &[
     ),
 ];
 
-impl Desktop {
+impl Settings {
     fn details_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
         let chips = DETAILS.into_iter().map(|(label, field)| {
-            let on = *field(&mut self.store.sidebar.details);
+            let on = *field(&mut self.store.sidebar.details.clone());
             div()
                 .id(label)
                 .h(px(24.))
@@ -123,9 +122,10 @@ impl Desktop {
                 })
                 .child(label)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let on = field(&mut this.store.sidebar.details);
-                    *on = !*on;
-                    this.changed(setting, cx);
+                    this.set(setting, cx, move |s| {
+                        let on = field(&mut s.sidebar.details);
+                        *on = !*on;
+                    })
                 }))
         });
         row(setting.label, None, div().flex().gap(px(6.)).children(chips))

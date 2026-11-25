@@ -1,7 +1,6 @@
 mod code;
 mod markdown;
 
-use crate::add_to_chat::offers_chat;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::empty;
 use crate::explorer::mermaid::Diagrams;
@@ -15,6 +14,7 @@ use gpui_kit::component::text::TextViewState;
 use gpui_kit::*;
 use markdown::markdown_pane;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -130,7 +130,7 @@ pub struct Views {
 }
 
 impl Views {
-    fn new(pane: PaneId, look @ (wrap, numbers, tab): Look, window: &mut Window, cx: &mut Context<Desktop>) -> Self {
+    fn new(pane: PaneId, look @ (wrap, numbers, tab): Look, window: &mut Window, cx: &mut Context<Previews>) -> Self {
         let code = cx
             .new(|cx| EditorState::new(window, cx).line_number(numbers).searchable(true).soft_wrap(wrap).tab_size(TabSize { tab_size: tab, hard_tabs: false }));
         let md = cx.new(|cx| TextViewState::markdown("", cx).shared_code_block_highlighter(markdown::code_highlighter()));
@@ -140,17 +140,10 @@ impl Views {
             if let InputEvent::Change = ev {
                 let text = code.read(cx).value();
                 this.edited(pane, text, cx);
-                if this.chat.pill.take().is_some() {
-                    cx.notify();
-                }
             }
         });
         let focus = code.focus_handle(cx);
-        let _blur = cx.on_blur(&focus, window, move |this, _, cx| {
-            if let (Autosave::OnBlur, Some(file)) = (this.store.files.autosave, this.preview.unsaved(pane)) {
-                this.save_file(file, false, cx);
-            }
-        });
+        let _blur = cx.on_blur(&focus, window, move |_, _, cx| cx.emit(PreviewEvent::Blurred(pane)));
         Self { code, md, diagrams, look, _edits, _blur }
     }
 }
@@ -321,6 +314,10 @@ impl<V> PreviewState<V> {
         self.drafts.contains_key(path)
     }
 
+    pub fn draft_paths(&self) -> Vec<String> {
+        self.drafts.keys().cloned().collect()
+    }
+
     /// The file `pane`'s editor holds, when it has edits not yet saved.
     pub fn unsaved(&self, pane: PaneId) -> Option<String> {
         self.pane(pane)?.code_file.clone().filter(|f| self.dirty(f))
@@ -360,105 +357,163 @@ impl<V> PreviewState<V> {
     }
 }
 
-impl Desktop {
-    fn edited(&mut self, pane: PaneId, text: SharedString, cx: &mut Context<Self>) {
-        if let Some(file) = self.preview.edit(pane, text) {
-            self.pin_doc(&Doc::File(file), cx);
-            cx.notify();
-        }
-        if self.store.files.autosave == Autosave::AfterDelay && self.preview.unsaved(pane).is_some() {
-            self.preview.autosave = Some(cx.spawn(async move |this, cx| {
-                cx.background_executor().timer(Duration::from_secs(1)).await;
-                this.update(cx, |d, cx| {
-                    let files: Vec<String> = d.preview.drafts.keys().cloned().collect();
-                    for file in files {
-                        d.save_file(file, false, cx);
-                    }
-                })
-                .ok();
-            }));
-        }
+pub(crate) enum PreviewEvent {
+    Edited { flipped: Option<String>, unsaved: bool },
+    Blurred(PaneId),
+    Offer { pane: PaneId, at: Point<Pixels> },
+}
+
+pub(crate) struct Previews {
+    pub(crate) state: PreviewState,
+    look: Look,
+    code_size: u32,
+    views: HashMap<PaneId, Entity<FileView>>,
+}
+
+impl EventEmitter<PreviewEvent> for Previews {}
+
+impl Deref for Previews {
+    type Target = PreviewState;
+
+    fn deref(&self) -> &PreviewState {
+        &self.state
+    }
+}
+
+impl Previews {
+    pub(crate) fn new() -> Self {
+        Self { state: PreviewState::default(), look: look(&Files::default()), code_size: 0, views: HashMap::new() }
     }
 
-    pub fn save(&mut self, _: &crate::actions::Save, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(Doc::File(path)) = self.active_doc() else { return };
-        self.pin_doc(&Doc::File(path.clone()), cx);
-        self.save_file(path, false, cx);
+    pub(crate) fn style(&mut self, files: &Files, code_size: u32) {
+        (self.look, self.code_size) = (look(files), code_size);
+    }
+
+    pub(crate) fn view(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Entity<FileView> {
+        let model = cx.weak_entity();
+        self.views.entry(pane).or_insert_with(|| cx.new(|_| FileView { pane, model })).clone()
+    }
+
+    pub(crate) fn retain_panes(&mut self, panes: &[PaneId]) {
+        self.state.retain_panes(panes);
+        self.views.retain(|p, _| panes.contains(p));
+    }
+
+    pub(crate) fn set_autosave(&mut self, task: Task<()>) {
+        self.state.autosave = Some(task);
+    }
+
+    fn edited(&mut self, pane: PaneId, text: SharedString, cx: &mut Context<Self>) {
+        let flipped = self.state.edit(pane, text);
+        cx.emit(PreviewEvent::Edited { flipped, unsaved: self.state.unsaved(pane).is_some() });
+    }
+
+    fn set_md_source(&mut self, pane: PaneId, source: bool, cx: &mut Context<Self>) {
+        let Some(f) = self.state.panes.get_mut(&pane) else { return };
+        f.md_source = source;
+        if let Some(views) = &f.views {
+            views.md.update(cx, |md, cx| md.set_text(&f.code_text, cx));
+        }
         cx.notify();
     }
 
-    /// Writes `path`'s draft off the UI thread, then closes its tab if `close`. A failed write keeps both.
-    pub(crate) fn save_file(&mut self, path: String, close: bool, cx: &mut Context<Self>) {
-        let Some(text) = self.preview.drafts.get(&path).cloned() else {
-            if close {
-                self.close_doc(&Doc::File(path), cx);
+    fn sync(&mut self, pane: PaneId, window: &mut Window, cx: &mut Context<Self>) {
+        let look @ (wrap, numbers, tab) = self.look;
+        if self.state.panes.get(&pane).is_some_and(|f| f.views.is_none()) {
+            let views = Views::new(pane, look, window, cx);
+            self.state.panes.entry(pane).or_default().views = Some(views);
+        }
+        if let Some(FilePane { views: Some(views), .. }) = self.state.panes.get_mut(&pane)
+            && views.look != look
+        {
+            views.look = look;
+            views.code.update(cx, |s, cx| {
+                s.set_soft_wrap(wrap, window, cx);
+                s.set_line_number(numbers, window, cx);
+                s.set_tab_size(TabSize { tab_size: tab, hard_tabs: false }, cx);
+            });
+        }
+        let Some(CodeSync { text, language, same, reload }) = self.state.take_sync(pane) else { return };
+        let Some(FilePane { views: Some(views), code_text, .. }) = self.state.pane(pane) else { return };
+        views.code.update(cx, |s, cx| {
+            if !same {
+                s.set_highlighter(language, cx);
             }
-            return;
-        };
-        let (dest, bytes) = (path.clone(), text.clone());
-        let task = cx.background_executor().spawn(async move { fs_for(&dest).write(Path::new(&dest), bytes.as_bytes()) });
-        cx.spawn(async move |this, cx| {
-            let res = task.await;
-            this.update(cx, |d, cx| {
-                match res {
-                    Ok(()) => {
-                        d.preview.saved(&path, &text);
-                        if close {
-                            d.close_doc(&Doc::File(path), cx);
-                        }
-                        d.refresh_git(cx);
-                    }
-                    Err(e) => d.error = Some(format!("Couldn't save {}: {e}", basename(&path))),
+            if reload {
+                let scroll = s.scroll_offset();
+                s.set_value(text, window, cx);
+                if same {
+                    s.set_scroll_offset(scroll, cx);
                 }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
+            }
+        });
+        if reload {
+            views.md.update(cx, |md, cx| {
+                md.set_text(code_text, cx);
+                if !same {
+                    md.list_state().scroll_to(ListOffset::default());
+                }
+            });
+        }
+    }
+}
+
+pub(crate) struct FileView {
+    pane: PaneId,
+    model: WeakEntity<Previews>,
+}
+
+impl FileView {
+    fn offer(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
+        let pane = self.pane;
+        if let Some(model) = self.model.upgrade() {
+            model.update(cx, |_, cx| cx.emit(PreviewEvent::Offer { pane, at }));
+        }
     }
 
-    pub fn load_file(&mut self, pane: PaneId, cx: &mut Context<Self>) {
-        let Some(path) = self.preview.file(pane).map(str::to_string) else { return };
-        let changed = self.file_status(&path).is_some();
-        let task = cx.background_executor().spawn(async move { load(&path, changed) });
-        cx.spawn(async move |this, cx| {
-            let file = task.await;
-            this.update(cx, |d, cx| {
-                if d.preview.apply(pane, file) {
-                    cx.notify();
-                }
-            })
-            .ok();
-        })
-        .detach();
+    fn offers_chat(body: Div, cx: &Context<Self>) -> Div {
+        body.capture_any_mouse_up(cx.listener(|_, ev: &MouseUpEvent, window, cx| {
+            if ev.button != MouseButton::Left {
+                return;
+            }
+            let at = ev.position;
+            // The view settles its selection in its own mouse-up, which runs after this capture.
+            cx.defer_in(window, move |this, _, cx| this.offer(at, cx));
+        }))
     }
+}
 
-    pub fn file_view(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Div {
-        let Some(path) = self.preview.file(pane).map(str::to_string) else { return div() };
-        let Some(file @ FilePane { views: Some(views), marks, .. }) = self.preview.pane(pane) else { return div() };
-        let switch = file.markdown().then(|| {
+impl Render for FileView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let pane = self.pane;
+        let Some(model) = self.model.upgrade() else { return div() };
+        model.update(cx, |m, cx| m.sync(pane, window, cx));
+        let m = model.read(cx);
+        let Some(path) = m.file(pane).map(str::to_string) else { return div() };
+        let Some(file @ FilePane { views: Some(views), marks, .. }) = m.pane(pane) else { return div() };
+        let (code, md, diagrams, marks) = (views.code.clone(), views.md.clone(), views.diagrams.clone(), marks.clone());
+        let (markdown, md_source, body, code_size) = (file.markdown(), file.md_source, m.body(pane), m.code_size);
+        let switch = markdown.then(|| {
             div().absolute().top(px(8.)).right(px(16.)).child(div().id("md-mode").child(ui::segmented(
                 vec![
                     Segment { icon: None, value: false, label: "Preview".into(), badge: None },
                     Segment { icon: None, value: true, label: "Source".into(), badge: None },
                 ],
-                file.md_source,
+                md_source,
                 true,
                 false,
-                move |this, v, cx| {
-                    let Some(f) = this.preview.panes.get_mut(&pane) else { return };
-                    f.md_source = v;
-                    if let Some(views) = &f.views {
-                        views.md.update(cx, |md, cx| md.set_text(&f.code_text, cx));
+                move |this: &mut Self, v, cx| {
+                    if let Some(model) = this.model.upgrade() {
+                        model.update(cx, |m, cx| m.set_md_source(pane, v, cx));
                     }
                     cx.notify();
                 },
                 cx,
             )))
         });
-        let body = match self.preview.body(pane) {
-            Body::Markdown => offers_chat(pane, markdown_pane(views, &path), cx).into_any_element(),
-            Body::Code => offers_chat(pane, code_pane(&views.code, marks.clone(), self.store.appearance.code_size() as f32), cx).into_any_element(),
+        let body = match body {
+            Body::Markdown => Self::offers_chat(markdown_pane(&md, &diagrams, &path), cx).into_any_element(),
+            Body::Code => Self::offers_chat(code_pane(&code, marks, code_size as f32), cx).into_any_element(),
             Body::Image(bytes) => frame()
                 .p(px(24.))
                 .flex()
@@ -477,49 +532,101 @@ impl Desktop {
         };
         div().relative().flex_1().min_h_0().flex().flex_col().child(body).children(switch)
     }
+}
 
-    /// Loads each pane's file into its code editor after it changed, keeping the scroll position when the same file refreshes.
-    pub fn sync_code(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let panes: Vec<PaneId> = self.preview.panes.keys().copied().collect();
-        let look @ (wrap, numbers, tab) = look(&self.store.files);
-        for pane in panes {
-            if self.preview.panes.get(&pane).is_some_and(|f| f.views.is_none()) {
-                let views = Views::new(pane, look, window, cx);
-                self.preview.panes.entry(pane).or_default().views = Some(views);
-            }
-            if let Some(FilePane { views: Some(views), .. }) = self.preview.panes.get_mut(&pane)
-                && views.look != look
-            {
-                views.look = look;
-                views.code.update(cx, |s, cx| {
-                    s.set_soft_wrap(wrap, window, cx);
-                    s.set_line_number(numbers, window, cx);
-                    s.set_tab_size(TabSize { tab_size: tab, hard_tabs: false }, cx);
-                });
-            }
-            let Some(CodeSync { text, language, same, reload }) = self.preview.take_sync(pane) else { continue };
-            let Some(FilePane { views: Some(views), code_text, .. }) = self.preview.pane(pane) else { continue };
-            views.code.update(cx, |s, cx| {
-                if !same {
-                    s.set_highlighter(language, cx);
+impl Desktop {
+    pub(crate) fn on_preview_event(&mut self, _: Entity<Previews>, ev: &PreviewEvent, cx: &mut Context<Self>) {
+        match ev {
+            PreviewEvent::Edited { flipped, unsaved } => {
+                if let Some(file) = flipped {
+                    self.pin_doc(&Doc::File(file.clone()), cx);
+                    cx.notify();
                 }
-                if reload {
-                    let scroll = s.scroll_offset();
-                    s.set_value(text, window, cx);
-                    if same {
-                        s.set_scroll_offset(scroll, cx);
-                    }
+                if self.store.files.autosave == Autosave::AfterDelay && *unsaved {
+                    let task = cx.spawn(async move |this, cx| {
+                        cx.background_executor().timer(Duration::from_secs(1)).await;
+                        this.update(cx, |d, cx| {
+                            for file in d.preview.read(cx).draft_paths() {
+                                d.save_file(file, false, cx);
+                            }
+                        })
+                        .ok();
+                    });
+                    self.preview.update(cx, |p, _| p.set_autosave(task));
                 }
-            });
-            if reload {
-                views.md.update(cx, |md, cx| {
-                    md.set_text(code_text, cx);
-                    if !same {
-                        md.list_state().scroll_to(ListOffset::default());
-                    }
-                });
+                if self.chat.update(cx, |c, _| c.drop_pill()) {
+                    cx.notify();
+                }
             }
+            PreviewEvent::Blurred(pane) => {
+                if let (Autosave::OnBlur, Some(file)) = (self.store.files.autosave, self.preview.read(cx).unsaved(*pane)) {
+                    self.save_file(file, false, cx);
+                }
+            }
+            PreviewEvent::Offer { pane, at } => self.offer_chat(*pane, *at, cx),
         }
+    }
+
+    pub fn save(&mut self, _: &crate::actions::Save, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(Doc::File(path)) = self.active_doc(cx) else { return };
+        self.pin_doc(&Doc::File(path.clone()), cx);
+        self.save_file(path, false, cx);
+        cx.notify();
+    }
+
+    /// Writes `path`'s draft off the UI thread, then closes its tab if `close`. A failed write keeps both.
+    pub(crate) fn save_file(&mut self, path: String, close: bool, cx: &mut Context<Self>) {
+        let Some(text) = self.preview.read(cx).drafts.get(&path).cloned() else {
+            if close {
+                self.close_doc(&Doc::File(path), cx);
+            }
+            return;
+        };
+        let (dest, bytes) = (path.clone(), text.clone());
+        let task = cx.background_executor().spawn(async move { fs_for(&dest).write(Path::new(&dest), bytes.as_bytes()) });
+        cx.spawn(async move |this, cx| {
+            let res = task.await;
+            this.update(cx, |d, cx| {
+                match res {
+                    Ok(()) => {
+                        d.preview.update(cx, |p, _| p.state.saved(&path, &text));
+                        if close {
+                            d.close_doc(&Doc::File(path), cx);
+                        }
+                        d.refresh_git(cx);
+                    }
+                    Err(e) => d.fail(format!("Couldn't save {}: {e}", basename(&path)), cx),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub fn load_file(&mut self, pane: PaneId, cx: &mut Context<Self>) {
+        let Some(path) = self.preview.read(cx).file(pane).map(str::to_string) else { return };
+        let changed = self.file_status(&path, cx).is_some();
+        let task = cx.background_executor().spawn(async move { load(&path, changed) });
+        cx.spawn(async move |this, cx| {
+            let file = task.await;
+            this.update(cx, |d, cx| {
+                if d.preview.update(cx, |p, _| p.state.apply(pane, file)) {
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub fn file_view(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Div {
+        let (files, code_size) = (&self.store.files, self.store.appearance.code_size());
+        let view = self.preview.update(cx, |p, cx| {
+            p.style(files, code_size);
+            p.view(pane, cx)
+        });
+        div().flex_1().min_h_0().flex().flex_col().child(view)
     }
 }
 

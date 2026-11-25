@@ -1,6 +1,6 @@
+use super::Settings;
 use super::catalog::{Look, Setting};
 use super::models::count_line;
-use crate::desktop::Desktop;
 use crate::models::not_found;
 use crate::status::Status;
 use crate::util::tilde;
@@ -137,7 +137,7 @@ pub(super) fn status_source(provider: &str) -> String {
     format!("Built in \u{b7} {how} for {needs}, {done} and {failed}")
 }
 
-impl Desktop {
+impl Settings {
     fn provider_status(&self) -> Div {
         let rows = LaunchPick::PROVIDERS.into_iter().filter(|p| self.installed(p)).map(|p| {
             div()
@@ -158,7 +158,7 @@ impl Desktop {
     /// One row per agent, as its page is opened from: its mark, name and what `provider_line` says; only an installed
     /// one can be turned off.
     fn providers_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let (default, listed) = (self.store.agents.default_agent(&self.agents), listed_providers(&self.agents));
+        let (default, listed) = (self.store.agents.default_agent(&self.live), listed_providers(&self.live));
         let rows = LaunchPick::PROVIDERS.into_iter().enumerate().filter(|(_, p)| listed.contains(p)).enumerate().map(|(row, (i, p))| {
             let (on, installed) = (!self.store.agents.disabled.contains(p), self.installed(p));
             let tile = div()
@@ -181,7 +181,7 @@ impl Desktop {
                 .child(self.agent_name(p))
                 .when(p == default, |d| d.child(div().px(px(5.)).rounded(px(4.)).bg(FILL_3).text_size(px(10.5)).text_color(TEXT_2).child("Default")));
             let models = Some(self.models_of(p).len()).filter(|n| *n > 0);
-            let line = provider_line(p, installed, models, self.settings.host.status.as_ref().and_then(|s| s.providers.get(p)).map(String::as_str));
+            let line = provider_line(p, installed, models, self.host.status.as_ref().and_then(|s| s.providers.get(p)).map(String::as_str));
             let text = div()
                 .flex_1()
                 .min_w_0()
@@ -194,9 +194,7 @@ impl Desktop {
                 div().id(("provider-enabled", i)).flex_none().cursor_pointer().child(ui::toggle("switch", on)).on_click(cx.listener(
                     move |this, _: &ClickEvent, _, cx| {
                         cx.stop_propagation();
-                        toggle_enabled(&mut this.store.agents, p, &this.agents);
-                        this.save_soon(cx);
-                        cx.notify();
+                        this.write(None, cx, move |s, live| toggle_enabled(&mut s.agents, p, live));
                     },
                 ))
             });

@@ -1,6 +1,7 @@
 use crate::desktop::Desktop;
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use store::{Appearance, Mode};
 use theme::{GRAPHITE_DARK, GRAPHITE_LIGHT, Theme};
 
@@ -25,7 +26,7 @@ impl Custom {
 #[derive(Default)]
 pub(crate) struct Themes {
     /// The imported themes, in slug order.
-    pub custom: Vec<Custom>,
+    pub custom: Arc<Vec<Custom>>,
     /// Why the last import or removal failed.
     pub error: Option<SharedString>,
     /// Counts changes to `custom`, so a reload that read the folder before one doesn't undo it.
@@ -34,28 +35,29 @@ pub(crate) struct Themes {
 
 impl Themes {
     pub fn new(custom: Vec<Custom>) -> Self {
-        Self { custom, ..Self::default() }
+        Self { custom: Arc::new(custom), ..Self::default() }
     }
 
     /// Adds an imported theme in place of the one kept under its slug.
     fn keep(&mut self, custom: Custom) {
-        self.custom.retain(|c| c.slug != custom.slug);
-        let at = self.custom.partition_point(|c| c.slug < custom.slug);
-        self.custom.insert(at, custom);
+        let list = Arc::make_mut(&mut self.custom);
+        list.retain(|c| c.slug != custom.slug);
+        let at = list.partition_point(|c| c.slug < custom.slug);
+        list.insert(at, custom);
         self.edits += 1;
     }
 
     fn remove(&mut self, slug: &str) -> Option<Custom> {
         let at = self.custom.iter().position(|c| c.slug == slug)?;
         self.edits += 1;
-        Some(self.custom.remove(at))
+        Some(Arc::make_mut(&mut self.custom).remove(at))
     }
 
     /// Takes the themes read from disk when `edits` was the count; false when it has moved on, or nothing changed.
     fn reload(&mut self, edits: usize, custom: Vec<Custom>) -> bool {
-        let changed = self.edits == edits && self.custom != custom;
+        let changed = self.edits == edits && *self.custom != custom;
         if changed {
-            self.custom = custom;
+            self.custom = Arc::new(custom);
             self.edits += 1;
         }
         changed

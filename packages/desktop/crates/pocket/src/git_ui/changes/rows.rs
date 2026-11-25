@@ -1,5 +1,4 @@
-use super::{Item, Section, renamed_from, toggle_fold};
-use crate::desktop::Desktop;
+use super::{Changes, ChangesEvent, Item, Section, renamed_from, toggle_fold};
 use crate::git_ui::diff::At;
 use git::FileStat;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -35,10 +34,10 @@ fn row(id: impl Into<ElementId>, depth: usize) -> Stateful<Div> {
     div().id(id).w_full().h(px(28.)).pl(px(8. + depth as f32 * 14.)).pr(px(6.)).flex().flex_none().items_center().gap(px(6.)).rounded(px(8.)).cursor_pointer()
 }
 
-impl Desktop {
+impl Changes {
     pub(super) fn section(&self, s: Section, paths: &[String], cx: &mut Context<Self>) -> Stateful<Div> {
         let key = s.key();
-        let open = !self.changes.folded.contains(key);
+        let open = !self.folded.contains(key);
         let count = paths.len();
         let paths = paths.to_vec();
         let actions = match s {
@@ -85,14 +84,14 @@ impl Desktop {
             .child(div().flex().gap(px(2.)).opacity(0.).group_hover(SECTION_GROUP, |st| st.opacity(1.)).children(actions))
             .child(count_pill(count))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                toggle_fold(&mut this.changes.folded, key);
+                toggle_fold(&mut this.folded, key);
                 cx.notify();
             }))
     }
 
     pub(super) fn tree_item(&self, s: Section, item: &Item, cx: &mut Context<Self>) -> AnyElement {
         match item {
-            Item::File { file, depth } => self.change_row(s, file, *depth, self.store.diff.tree, cx).into_any_element(),
+            Item::File { file, depth } => self.change_row(s, file, *depth, self.inputs.tree, cx).into_any_element(),
             Item::Dir { key, label, depth, open } => {
                 let (key, open) = (key.clone(), *open);
                 row(ElementId::Name(key.clone().into()), *depth)
@@ -103,7 +102,7 @@ impl Desktop {
                     .child(file_icon(label, true, open, 16.))
                     .child(div().flex_1().min_w_0().truncate().child(label.clone()))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        toggle_fold(&mut this.changes.folded, &key);
+                        toggle_fold(&mut this.folded, &key);
                         cx.notify();
                     }))
                     .into_any_element()
@@ -114,8 +113,8 @@ impl Desktop {
     /// In the tree a file sits under its folder, so only its name shows, indented past the folders' chevrons. A Compare's file shows its counts and, renamed, the name it had.
     fn change_row(&self, s: Section, f: &FileStat, depth: usize, in_tree: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         let compared = s == Section::Compared;
-        let at = if compared { self.compare.view.against().map(|a| At::Compare(a.to_string())) } else { Some(At::Working) };
-        let selected = at.is_some_and(|at| self.diff.view(self.focused_pane()).is_some_and(|v| v.shows(&f.path, &at)));
+        let at = if compared { self.view.against().map(|a| At::Compare(a.to_string())) } else { Some(At::Working) };
+        let selected = at.is_some_and(|at| self.inputs.shown.as_ref().is_some_and(|(file, shown)| *file == f.path && *shown == at));
         let (dir, name) = f.path.rsplit_once('/').unwrap_or(("", &f.path));
         let label = match &f.old_path {
             Some(old) => format!("{} → {name}", renamed_from(old, &f.path)),
@@ -191,7 +190,7 @@ impl Desktop {
                 if compared {
                     this.open_compare_file(open.clone(), pin, cx);
                 } else {
-                    this.open_changes(Some(open.clone()), pin, cx);
+                    cx.emit(ChangesEvent::Open { path: open.clone(), pin });
                 }
             }))
     }

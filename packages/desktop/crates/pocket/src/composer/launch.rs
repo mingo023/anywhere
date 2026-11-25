@@ -7,7 +7,7 @@ use store::prefs::agents::ACCESSES;
 use theme::*;
 
 /// Sets a composer's model, effort or access to the value picked.
-pub(crate) type Pick = Rc<dyn Fn(&mut Desktop, String, &mut Context<Desktop>)>;
+pub(crate) type Pick<V = Desktop> = Rc<dyn Fn(&mut V, String, &mut Context<V>)>;
 
 /// Each of `ACCESSES` as (label, hint); sized by it, so a new access won't build without its text.
 const ACCESS_TEXT: [(&str, &str); ACCESSES.len()] = [
@@ -59,14 +59,14 @@ pub(crate) fn full_access_chip(id: &'static str, agent: String) -> Stateful<Div>
 }
 
 /// A composer chip led by `glyph`; `toggle` opens or closes its menu.
-pub(crate) fn chip(
+pub(crate) fn chip<V: 'static>(
     id: &'static str,
     open: bool,
     glyph: &str,
     label: impl Into<SharedString>,
     color: Token,
-    toggle: impl Fn(&mut Desktop, &mut Context<Desktop>) + 'static,
-    cx: &mut Context<Desktop>,
+    toggle: impl Fn(&mut V, &mut Context<V>) + 'static,
+    cx: &mut Context<V>,
 ) -> Stateful<Div> {
     let chip = super::picker(
         super::pill().child(icon(glyph, 14., TEXT_2)).child(div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(color).child(label.into())),
@@ -76,19 +76,25 @@ pub(crate) fn chip(
     ui::popover_trigger(chip, open, cx.listener(move |this, _: &MouseDownEvent, _, cx| toggle(this, cx)))
 }
 
-pub(crate) fn access_chip(
+pub(crate) fn access_chip<V: 'static>(
     id: &'static str,
     open: bool,
     picked: &str,
     app: &str,
-    toggle: impl Fn(&mut Desktop, &mut Context<Desktop>) + 'static,
-    cx: &mut Context<Desktop>,
+    toggle: impl Fn(&mut V, &mut Context<V>) + 'static,
+    cx: &mut Context<V>,
 ) -> Stateful<Div> {
     let access = if picked.is_empty() { app } else { picked };
     chip(id, open, "shield", access_shown(picked, app), access_color(access), toggle, cx)
 }
 
-pub(crate) fn access_rows(id: &'static str, choices: Vec<(String, String, String)>, picked: &str, pick: Pick, cx: &mut Context<Desktop>) -> Vec<AnyElement> {
+pub(crate) fn access_rows<V: 'static>(
+    id: &'static str,
+    choices: Vec<(String, String, String)>,
+    picked: &str,
+    pick: Pick<V>,
+    cx: &mut Context<V>,
+) -> Vec<AnyElement> {
     choices
         .into_iter()
         .enumerate()

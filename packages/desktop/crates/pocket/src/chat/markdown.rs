@@ -156,7 +156,7 @@ fn path_in(code: &str) -> Option<bool> {
 pub(super) type Open = Arc<dyn Fn(&str, Press, &mut Window, &mut App) + Send + Sync>;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) enum Press {
+pub(crate) enum Press {
     Follow,
     Menu,
 }

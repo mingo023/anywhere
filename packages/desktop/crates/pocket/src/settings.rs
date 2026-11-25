@@ -18,12 +18,14 @@ mod phone;
 mod projects;
 pub(crate) mod provider;
 mod search;
+mod side;
 mod sidebar;
 pub(crate) mod ssh_hosts;
 mod terminal;
 mod themes;
 
 pub(crate) use appearance::{reduce_motion, show_background};
+pub(crate) use side::Side;
 
 use crate::actions::OpenSettings;
 use crate::desktop::Desktop;
@@ -35,6 +37,9 @@ use gpui_kit::component::slider::SliderState;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::Arc;
 use store::Store;
 use theme::*;
 use ui::Segment;
@@ -230,9 +235,68 @@ impl Return {
     }
 }
 
+pub(crate) type Setter = Rc<dyn Fn(&mut Store, &::agents::Agents)>;
+
+pub(crate) enum SettingsEvent {
+    Write { setting: Option<&'static Setting>, apply: Setter },
+    Shown(Section),
+    Close,
+    Ask(Confirm),
+    FocusRoot,
+    Error(String),
+    Port { port: u32, before: u32 },
+    RenamePhone { id: String, name: String },
+    RestartService,
+    RestartToUpdate,
+    CheckUpdates,
+    StarOnGithub,
+    FontsLoaded,
+    ImportTheme,
+    Launch { i: usize, f: provider::Launch, text: String, before: String },
+    OpenAutomations,
+    PairPhone,
+    CheckGh,
+    GhLogin,
+    PickGhAccount { project: String, account: String },
+    EditProject(String),
+    AddProject,
+    CloneProject,
+    RemoveTheme(String),
+    ChooseBackground(&'static Setting),
+    Hosts(HostsAct),
+    Accounts(AccountsAct),
+}
+
+pub(crate) enum HostsAct {
+    Open(crate::spaces::Space),
+    Install { id: String, update: bool },
+    Retry(String),
+    OpenPassword(String),
+    ClosePassword,
+    SignInWithPassword,
+    OpenAdd,
+    Suggest(String),
+    ClearKeyFile,
+    PickKeyFile,
+    CloseAdd,
+    Add,
+    DismissInstall(String),
+}
+
+pub(crate) enum AccountsAct {
+    Reload,
+    SignIn(crate::accounts::Key),
+    SetAuto { host: crate::accounts::Host, on: bool },
+    Menu(Option<crate::accounts::Key>),
+    Op { host: crate::accounts::Host, msg: serde_json::Value },
+    Rename { key: crate::accounts::Key, name: String },
+    Cancel { host: crate::accounts::Host, provider: String },
+    ToggleOutput { host: crate::accounts::Host, provider: String },
+}
+
 /// The section on show, the search, the row a result pointed at, and whether Keyboard's fixed keys are unfolded.
-pub struct SettingsState {
-    pub section: Section,
+pub struct Settings {
+    section: Section,
     back: Return,
     pub fixed_open: bool,
     pub(crate) search: Entity<InputState>,
@@ -241,7 +305,7 @@ pub struct SettingsState {
     /// Every text row's field, by row id.
     pub(crate) fields: HashMap<&'static str, Entity<InputState>>,
     /// The dropdown row whose menu is open.
-    pub(crate) menu: Option<&'static str>,
+    menu: Option<&'static str>,
     /// The project whose GitHub account menu is open, while `menu` is `git::ACCOUNT_MENU`.
     pub(crate) account_menu: Option<String>,
     pub(crate) host: host::Host,
@@ -260,10 +324,16 @@ pub struct SettingsState {
     /// When Start service was clicked.
     pub(crate) starting: Option<std::time::Instant>,
     pub(crate) glass: Entity<SliderState>,
+    pub(crate) store: Arc<Store>,
+    pub(crate) live: Arc<::agents::Agents>,
+    pub(crate) side: Side,
+    _subs: Vec<Subscription>,
 }
 
-impl SettingsState {
-    pub fn new(store: &Store, window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+impl EventEmitter<SettingsEvent> for Settings {}
+
+impl Settings {
+    pub fn new(store: &Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
         let mut subs = vec![cx.subscribe_in(&search, window, |this, _, ev: &InputEvent, window, cx| match ev {
             InputEvent::PressEnter { .. } => this.open_first_result(window, cx),
@@ -278,8 +348,8 @@ impl SettingsState {
             let field = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder).default_value(value));
             subs.push(cx.subscribe_in(&field, window, move |this, field, ev: &InputEvent, _, cx| {
                 if let InputEvent::Change = ev {
-                    set(&mut this.store, field.read(cx).value().to_string());
-                    this.changed(setting, cx);
+                    let text = field.read(cx).value().to_string();
+                    this.set(setting, cx, move |s| set(s, text.clone()));
                 }
             }));
             fields.insert(setting.id, field);
@@ -293,7 +363,7 @@ impl SettingsState {
         let (glass, glass_sub) = appearance::glass_slider(store, window, cx);
         subs.push(glass_sub);
         appearance::load_fonts(cx);
-        let state = Self {
+        Self {
             section: Section::General,
             back: Return::default(),
             fixed_open: false,
@@ -313,12 +383,37 @@ impl SettingsState {
             launch,
             starting: None,
             glass,
-        };
-        (state, subs)
+            store: Arc::new(store.settings_view()),
+            live: Arc::default(),
+            side: Side::default(),
+            _subs: subs,
+        }
+    }
+
+    pub(crate) fn hand(&mut self, store: Option<Arc<Store>>, live: Option<Arc<::agents::Agents>>, side: Side, cx: &mut Context<Self>) {
+        self.side = side;
+        if store.is_none() && live.is_none() {
+            return;
+        }
+        self.store = store.unwrap_or_else(|| self.store.clone());
+        self.live = live.unwrap_or_else(|| self.live.clone());
+        crate::region::notify_after_draw(cx);
+    }
+
+    pub(crate) fn holds(&self, store: &Store, live: &::agents::Agents) -> (bool, bool) {
+        (store.settings_unchanged(&self.store), self.live.providers == live.providers)
+    }
+
+    pub(crate) fn write(&mut self, setting: Option<&'static Setting>, cx: &mut Context<Self>, apply: impl Fn(&mut Store, &::agents::Agents) + 'static) {
+        cx.emit(SettingsEvent::Write { setting, apply: Rc::new(apply) });
+    }
+
+    pub(crate) fn set(&mut self, setting: &'static Setting, cx: &mut Context<Self>, apply: impl Fn(&mut Store) + 'static) {
+        self.write(Some(setting), cx, move |s, _| apply(s));
     }
 
     /// Back to General with nothing searched, as at launch.
-    pub fn reset(&mut self, window: &mut Window, cx: &mut App) {
+    pub fn reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         (self.section, self.back, self.fixed_open, self.found) = (Section::General, Return::default(), false, None);
         self.keyboard.stop();
         self.search.update(cx, |s, cx| s.set_value("", window, cx));
@@ -331,6 +426,81 @@ impl SettingsState {
     pub fn show(&mut self, section: Section) {
         (self.section, self.found, self.menu, self.swatch) = (section, None, None, None);
         self.keyboard.stop();
+    }
+
+    pub(crate) fn show_section(&mut self, section: Section, cx: &mut Context<Self>) {
+        self.show(section);
+        cx.emit(SettingsEvent::Shown(section));
+        cx.notify();
+    }
+
+    pub(crate) fn section(&self) -> Section {
+        self.section
+    }
+
+    pub(crate) fn set_section(&mut self, section: Section, cx: &mut Context<Self>) {
+        if self.section != section {
+            self.section = section;
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn set_menu(&mut self, menu: Option<&'static str>, cx: &mut Context<Self>) {
+        if self.menu != menu {
+            self.menu = menu;
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn sync_fields(&mut self, store: &Store, section: Section, moved: &[&'static Setting], window: &mut Window, cx: &mut Context<Self>) {
+        for setting in moved {
+            if let (Control::Text { get, .. }, Some(field)) = (setting.control, self.fields.get(setting.id)) {
+                let value = get(store);
+                field.update(cx, |f, cx| f.set_value(value, window, cx));
+            }
+        }
+        if section == Section::Browser {
+            self.load_dev_urls(window, cx);
+        }
+        let time = store.automations.time.clone();
+        if self.host.time.read(cx).value() != time {
+            self.host.time.update(cx, |f, cx| f.set_value(time, window, cx));
+        }
+        self.launch.sync(store, window, cx);
+        let glass = store.appearance.glass() as f32;
+        self.glass.update(cx, |s, cx| s.set_value(glass, window, cx));
+        let port = host::port_field(store.phone.port);
+        if self.host.port.read(cx).value() != port {
+            self.host.port.update(cx, |f, cx| f.set_value(port, window, cx));
+        }
+    }
+
+    pub(crate) fn installed(&self, provider: &str) -> bool {
+        self.live.provider_info(provider).available
+    }
+
+    pub(crate) fn agent_name(&self, provider: &str) -> String {
+        self.store.agents.label(provider).unwrap_or_else(|| theme::provider_name(provider).into())
+    }
+
+    pub(crate) fn models_of(&self, provider: &str) -> &[::agents::ListedModel] {
+        self.side.models.listed(provider)
+    }
+
+    pub(crate) fn offered_models(&self, provider: &str) -> &[::agents::ListedModel] {
+        self.side.models.offered(provider, self.installed(provider))
+    }
+
+    pub(crate) fn clear_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.search.update(cx, |s, cx| s.set_value("", window, cx));
+    }
+
+    pub(crate) fn back_to(&self) -> Screen {
+        self.back.0
+    }
+
+    pub(crate) fn opened_from(&mut self, from: Screen) {
+        self.back.open(from);
     }
 }
 
@@ -443,11 +613,11 @@ fn dropdown_menu(
     chosen: usize,
     store: &Store,
     live: &::agents::Agents,
-    cx: &mut Context<Desktop>,
+    cx: &mut Context<Settings>,
 ) -> impl IntoElement {
     let rows = options.iter().enumerate().filter(|(i, _)| setting.lists(store, live, *i)).map(|(i, label)| {
         dropdown::pick_row((setting.id, i), i == chosen).child(*label).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.settings.menu = None;
+            this.menu = None;
             this.choose(setting, i, cx);
         }))
     });
@@ -482,69 +652,24 @@ fn more_in_advanced(id: impl Into<ElementId>, n: usize) -> Stateful<Div> {
         .child(icon("chevron-down", 14., TEXT_3))
 }
 
-impl Desktop {
-    pub fn open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus(cx);
-        if self.overlay.is_some() {
-            self.close_overlay(window, cx);
-        }
-        self.settings.back.open(self.screen);
-        self.screen = Screen::Settings;
-        window.focus(&self.root, cx);
-        self.load_host(cx);
-        self.load_dev_urls(window, cx);
-        self.load_banner_permission(cx);
-        self.load_section(cx);
-        cx.notify();
-    }
-
-    pub(crate) fn show_section(&mut self, section: Section, cx: &mut Context<Self>) {
-        self.settings.show(section);
-        self.load_section(cx);
-    }
-
-    /// What the shown section reads from outside the app, fetched once.
-    fn load_section(&mut self, cx: &mut Context<Self>) {
-        if self.settings.section == Section::Git && self.prs.gh.is_none() {
-            self.check_gh(cx);
-        }
-        self.models.retry();
-        match self.settings.section {
-            // Agents counts every installed agent's models.
-            Section::Agents => self.load_models(cx),
-            Section::Git => self.load_models_of(&self.store.git.agent.clone(), cx),
-            Section::Provider(i) => self.load_models_of(providers::IDS[i], cx),
-            _ => {}
-        }
-        if self.settings.section == Section::Accounts {
-            self.refresh_accounts(cx);
-        }
-    }
-
-    pub(crate) fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.screen = self.settings.back.0;
-        if self.screen == Screen::Inbox {
-            let focus = self.inbox.read(cx).focus.clone();
-            window.focus(&focus, cx);
-        }
-        cx.notify();
-    }
-
-    /// Esc clears a search before it closes Settings.
-    pub(crate) fn escape_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.fleet.form.open {
-            return self.close_add_host(window, cx);
-        }
-        if self.settings.search.read(cx).value().is_empty() {
-            return self.close_settings(window, cx);
-        }
-        self.settings.search.update(cx, |s, cx| s.set_value("", window, cx));
-        window.focus(&self.root, cx);
-        cx.notify();
-    }
-
-    pub(crate) fn focus_settings_search(&mut self, _: &crate::actions::FocusSearch, window: &mut Window, cx: &mut Context<Self>) {
-        self.settings.search.update(cx, |s, cx| s.focus(window, cx));
+impl Settings {
+    pub(crate) fn pick_paths(
+        &mut self,
+        dirs: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        then: impl FnOnce(&mut Self, Vec<PathBuf>, &mut Context<Self>) + 'static,
+    ) {
+        let rx = cx.prompt_for_paths(PathPromptOptions { files: !dirs, directories: dirs, multiple: !dirs, prompt: None });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = rx.await else { return };
+            this.update(cx, |this, cx| {
+                then(this, paths, cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn advanced_open(&self, section: Section) -> bool {
@@ -552,77 +677,37 @@ impl Desktop {
     }
 
     fn set_advanced(&mut self, section: Section, open: bool, cx: &mut Context<Self>) {
-        if open {
-            self.store.advanced.insert(section.id().to_string());
-        } else {
-            self.store.advanced.remove(section.id());
-        }
-        self.save_soon(cx);
-        cx.notify();
+        self.write(None, cx, move |s, _| {
+            if open {
+                s.advanced.insert(section.id().to_string());
+            } else {
+                s.advanced.remove(section.id());
+            }
+        });
     }
 
     fn set_switch(&mut self, setting: &'static Setting, on: bool, cx: &mut Context<Self>) {
         if let Control::Switch { set, .. } = setting.control {
-            set(&mut self.store, on);
-            self.changed(setting, cx);
+            self.set(setting, cx, move |s| set(s, on));
         }
     }
 
-    pub(super) fn choose(&mut self, setting: &'static Setting, i: usize, cx: &mut Context<Self>) {
+    pub(crate) fn choose(&mut self, setting: &'static Setting, i: usize, cx: &mut Context<Self>) {
         if let Control::Choice { set, .. } = setting.control {
-            set(&mut self.store, i);
-            self.changed(setting, cx);
+            self.set(setting, cx, move |s| set(s, i));
         }
     }
 
     fn set_number(&mut self, setting: &'static Setting, n: i32, cx: &mut Context<Self>) {
         if let Control::Stepper { set, .. } = setting.control {
-            set(&mut self.store, n);
-            self.changed(setting, cx);
+            self.set(setting, cx, move |s| set(s, n));
         }
     }
 
     fn set_path(&mut self, setting: &'static Setting, path: String, cx: &mut Context<Self>) {
         if let Control::Path { set, .. } = setting.control {
-            set(&mut self.store, path);
-            self.changed(setting, cx);
+            self.set(setting, cx, move |s| set(s, path.clone()));
         }
-    }
-
-    fn changed(&mut self, setting: &'static Setting, cx: &mut Context<Self>) {
-        if let Some(apply) = setting.effect {
-            apply(self, cx);
-        }
-        self.save_soon(cx);
-        cx.notify();
-    }
-
-    pub(crate) fn reset_section(&mut self, section: Section, window: &mut Window, cx: &mut Context<Self>) {
-        for setting in catalog::reset(section.rows(), &mut self.store) {
-            if let Some(apply) = setting.effect {
-                apply(self, cx);
-            }
-            if let (Control::Text { get, .. }, Some(field)) = (setting.control, self.settings.fields.get(setting.id)) {
-                let value = get(&self.store);
-                field.update(cx, |f, cx| f.set_value(value, window, cx));
-            }
-        }
-        if section == Section::Browser {
-            self.load_dev_urls(window, cx);
-        }
-        let time = self.store.automations.time.clone();
-        if self.settings.host.time.read(cx).value() != time {
-            self.settings.host.time.update(cx, |f, cx| f.set_value(time, window, cx));
-        }
-        self.settings.launch.sync(&self.store, window, cx);
-        let glass = self.store.appearance.glass() as f32;
-        self.settings.glass.update(cx, |s, cx| s.set_value(glass, window, cx));
-        let port = host::port_field(self.store.phone.port);
-        if self.settings.host.port.read(cx).value() != port {
-            self.settings.host.port.update(cx, |f, cx| f.set_value(port, window, cx));
-        }
-        self.save_soon(cx);
-        cx.notify();
     }
 
     fn control(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> AnyElement {
@@ -642,19 +727,19 @@ impl Desktop {
                 .child(ui::segmented(segments(options), get(&self.store), true, false, move |this: &mut Self, i, cx| this.choose(setting, i, cx), cx))
                 .into_any_element(),
             Control::Choice { options, look: Look::Dropdown, .. } => {
-                let chosen = setting.chosen(&self.store, &self.agents);
-                let open = self.settings.menu == Some(setting.id);
+                let chosen = setting.chosen(&self.store, &self.live);
+                let open = self.menu == Some(setting.id);
                 let button = action(setting.id, options.get(chosen).copied().unwrap_or_default())
                     .gap(px(6.))
                     .child(icon("chevron-down", 12., TEXT_3))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.settings.menu = (!open).then_some(setting.id);
+                        this.menu = (!open).then_some(setting.id);
                         cx.notify();
                     }));
                 div()
                     .relative()
                     .child(button)
-                    .when(open, |d| d.child(ui::dropdown_right(30., dropdown_menu(setting, options, chosen, &self.store, &self.agents, cx))))
+                    .when(open, |d| d.child(ui::dropdown_right(30., dropdown_menu(setting, options, chosen, &self.store, &self.live, cx))))
                     .into_any_element()
             }
             Control::Stepper { min, max, step, unit, get, .. } => {
@@ -699,7 +784,7 @@ impl Desktop {
                     .child(button("more", "+", step, n < max))
                     .into_any_element()
             }
-            Control::Text { .. } => match self.settings.fields.get(setting.id) {
+            Control::Text { .. } => match self.fields.get(setting.id) {
                 Some(field) => field_box()
                     .child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(field).appearance(false).p_0().text_size(px(12.))))
                     .into_any_element(),
@@ -713,9 +798,9 @@ impl Desktop {
                     .child(div().flex_1().min_w_0().truncate().font_family(MONO).text_size(px(12.)).text_color(TEXT).child(crate::util::tilde(&path)));
                 let choose =
                     action(SharedString::from(format!("{}-choose", setting.id)), "Choose…").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        this.pick_path(true, window, cx, move |d, paths, _, cx| {
+                        this.pick_paths(true, window, cx, move |this, paths, cx| {
                             if let Some(p) = paths.into_iter().next() {
-                                d.set_path(setting, p.to_string_lossy().into_owned(), cx);
+                                this.set_path(setting, p.to_string_lossy().into_owned(), cx);
                             }
                         });
                     }));
@@ -742,7 +827,7 @@ impl Desktop {
                 row(title, note.as_deref().or(setting.hint), control)
             }
         };
-        row.when(self.settings.found == Some(setting.id), |d| d.bg(ACCENT_TINT))
+        row.when(self.found == Some(setting.id), |d| d.bg(ACCENT_TINT))
     }
 
     /// A group's card: its rows the parent allows, Advanced ones only while open, else a line counting them.
@@ -812,46 +897,16 @@ impl Desktop {
                 .text_color(TEXT_2)
                 .child(icon("discard", 13., TEXT_2))
                 .child(format!("Reset {} to defaults…", section.label()))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    (this.confirm, this.overlay) = (Some(Confirm::ResetSection(section)), Some(Overlay::Confirm));
-                    cx.notify();
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                    cx.emit(SettingsEvent::Ask(Confirm::ResetSection(section)));
                 }))
         });
         Some(div().pt(px(6.)).px(px(2.)).flex().items_center().justify_between().gap(px(12.)).child(div().children(toggle)).children(reset))
     }
 
-    /// The sheet listing what Reset would put back.
-    pub(crate) fn reset_sheet(&mut self, section: Section, cx: &mut Context<Self>) -> Div {
-        let changes = catalog::changed(section.rows(), &self.store);
-        let lead = match changes.len() {
-            0 => "Every setting here is already at its default.".to_string(),
-            1 => "Only this section changes. 1 setting you changed will go back:".to_string(),
-            n => format!("Only this section changes. {n} settings you changed will go back:"),
-        };
-        let lines = changes.into_iter().map(|c| {
-            div()
-                .py(px(5.))
-                .flex()
-                .justify_between()
-                .gap(px(12.))
-                .border_b(px(0.5))
-                .border_color(SEPARATOR)
-                .text_size(px(12.5))
-                .child(div().text_color(TEXT).child(c.label))
-                .child(div().flex_none().text_color(TEXT_3).child(format!("{} → {}", c.from, c.to)))
-                .into_any_element()
-        });
-        let body = std::iter::once(div().text_size(px(12.5)).line_height(px(18.)).text_color(TEXT_2).child(lead).into_any_element()).chain(lines);
-        let cancel = ui::button("confirm-cancel", ui::Variant::Secondary, None, "Cancel")
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
-        let reset =
-            ui::button("confirm-go", ui::Variant::Primary, None, "Reset").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.confirmed(window, cx)));
-        ui::dialog(&format!("Reset {} to defaults?", section.label()), body, [cancel, reset])
-    }
-
-    pub(crate) fn settings_page(&mut self, cx: &mut Context<Self>) -> Div {
-        let section = self.settings.section;
-        let words = self.settings.query(cx);
+    fn settings_page(&mut self, cx: &mut Context<Self>) -> Div {
+        let section = self.section;
+        let words = self.query(cx);
         let (title, column) = if words.is_empty() {
             let body = match section {
                 Section::Keyboard => self.keybinding_settings(cx),
@@ -882,6 +937,236 @@ impl Desktop {
             .flex_col()
             .child(bar)
             .child(div().id("settings-body").flex_1().min_h_0().overflow_y_scroll().child(div().w_full().flex().justify_center().child(column)))
+    }
+}
+
+impl Render for Settings {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.settings_page(cx)
+    }
+}
+
+/// The sheet listing what Reset would put back.
+fn reset_sheet(section: Section, store: &Store) -> crate::modals::confirm::Sheet {
+    let changes = catalog::changed(section.rows(), store);
+    let lead = match changes.len() {
+        0 => "Every setting here is already at its default.".to_string(),
+        1 => "Only this section changes. 1 setting you changed will go back:".to_string(),
+        n => format!("Only this section changes. {n} settings you changed will go back:"),
+    };
+    let lines = changes.into_iter().map(|c| (c.label.to_string(), format!("{} → {}", c.from, c.to))).collect();
+    crate::modals::confirm::Sheet::Reset { title: format!("Reset {} to defaults?", section.label()), lead, lines }
+}
+
+impl Desktop {
+    pub fn open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_menus(cx);
+        if self.overlay.is_some() {
+            self.close_overlay(window, cx);
+        }
+        let from = self.screen;
+        self.settings.update(cx, |s, _| s.opened_from(from));
+        self.screen = Screen::Settings;
+        window.focus(&self.root, cx);
+        self.sync_settings(cx);
+        self.load_host(cx);
+        self.settings.update(cx, |s, cx| {
+            s.load_dev_urls(window, cx);
+            s.load_banner_permission(cx);
+        });
+        let section = self.settings.read(cx).section();
+        self.load_section(section, cx);
+        cx.notify();
+    }
+
+    pub(crate) fn show_section(&mut self, section: Section, cx: &mut Context<Self>) {
+        self.settings.update(cx, |s, cx| s.show_section(section, cx));
+    }
+
+    pub(crate) fn shortcut_record_hook(cx: &mut Context<Self>) -> Subscription {
+        let desktop = cx.entity().downgrade();
+        // Ahead of the keymap, so ⌘K becomes the new keys instead of opening the palette.
+        cx.intercept_keystrokes(move |ev, _, cx| {
+            let taken = desktop.update(cx, |d, cx| {
+                let shown = d.screen == Screen::Settings;
+                d.settings.update(cx, |s, cx| s.record_shortcut(&ev.keystroke, shown, cx))
+            });
+            if taken.unwrap_or(false) {
+                cx.stop_propagation();
+            }
+        })
+    }
+
+    pub(crate) fn sync_settings(&mut self, cx: &mut Context<Self>) {
+        let (store_held, live_held) = self.settings.read(cx).holds(&self.store, &self.agents);
+        let store = (!store_held).then(|| Arc::new(self.store.settings_view()));
+        let live = (!live_held).then(|| Arc::new(::agents::Agents { providers: self.agents.providers.clone(), ..Default::default() }));
+        let side = self.settings_side(cx);
+        self.settings.update(cx, |s, cx| s.hand(store, live, side, cx));
+    }
+
+    /// What the shown section reads from outside the app, fetched once.
+    fn load_section(&mut self, section: Section, cx: &mut Context<Self>) {
+        if section == Section::Git && self.prs.gh.is_none() {
+            self.check_gh(cx);
+        }
+        self.models.retry();
+        match section {
+            // Agents counts every installed agent's models.
+            Section::Agents => self.load_models(cx),
+            Section::Git => self.load_models_of(&self.store.git.agent.clone(), cx),
+            Section::Provider(i) => self.load_models_of(providers::IDS[i], cx),
+            _ => {}
+        }
+        if section == Section::Accounts {
+            self.refresh_accounts(cx);
+        }
+    }
+
+    pub(crate) fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.screen = self.settings.read(cx).back_to();
+        if self.screen == Screen::Inbox {
+            let focus = self.inbox.read(cx).focus.clone();
+            window.focus(&focus, cx);
+        }
+        cx.notify();
+    }
+
+    /// Esc clears a search before it closes Settings.
+    pub(crate) fn escape_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.fleet.form.open {
+            return self.close_add_host(window, cx);
+        }
+        if self.settings.read(cx).search.read(cx).value().is_empty() {
+            return self.close_settings(window, cx);
+        }
+        self.settings.update(cx, |s, cx| s.clear_search(window, cx));
+        window.focus(&self.root, cx);
+        cx.notify();
+    }
+
+    pub(crate) fn focus_settings_search(&mut self, _: &crate::actions::FocusSearch, window: &mut Window, cx: &mut Context<Self>) {
+        let search = self.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.focus(window, cx));
+    }
+
+    pub(crate) fn reset_sheet(&self, section: Section) -> crate::modals::confirm::Sheet {
+        reset_sheet(section, &self.store)
+    }
+
+    pub(crate) fn on_settings_event(&mut self, _: &Entity<Settings>, ev: &SettingsEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            SettingsEvent::Write { setting, apply } => {
+                apply(&mut self.store, &self.agents);
+                self.changed(*setting, cx);
+            }
+            SettingsEvent::EditProject(p) => self.edit_project(Some(p.clone()), window, cx),
+            SettingsEvent::AddProject => self.add_local_project(window, cx),
+            SettingsEvent::CloneProject => self.clone_project(window, cx),
+            SettingsEvent::CheckGh => self.check_gh(cx),
+            SettingsEvent::GhLogin => {
+                let argv = ["gh", "auth", "login"].map(String::from);
+                self.close_settings(window, cx);
+                self.run_in_tree(workspace::Place::Pane(None), &argv, None, |cwd| daemon::agent_op(&argv, cwd), cx);
+            }
+            SettingsEvent::PickGhAccount { project, account } => {
+                self.pick_gh_account(project, account.clone(), cx);
+                cx.notify();
+            }
+            SettingsEvent::PairPhone => self.open(Overlay::PairPhone, window, cx),
+            SettingsEvent::OpenAutomations => self.open_automations(window, cx),
+            SettingsEvent::Launch { i, f, text, before } => self.set_launch(*i, *f, text.clone(), before.clone(), window, cx),
+            SettingsEvent::ImportTheme => self.pick_theme_file(window, cx),
+            SettingsEvent::RemoveTheme(slug) => self.remove_theme(slug, cx),
+            SettingsEvent::FontsLoaded => appearance::apply_fonts(self, cx),
+            SettingsEvent::ChooseBackground(setting) => appearance::choose_background(setting, cx),
+            SettingsEvent::Shown(section) => self.load_section(*section, cx),
+            SettingsEvent::Close => self.close_settings(window, cx),
+            SettingsEvent::FocusRoot => window.focus(&self.root, cx),
+            SettingsEvent::Error(e) => {
+                self.fail(e.clone(), cx);
+                cx.notify();
+            }
+            SettingsEvent::Port { port, before } => self.set_port(*port, *before, window, cx),
+            SettingsEvent::RenamePhone { id, name } => self.rename_phone(id.clone(), name.clone(), cx),
+            SettingsEvent::RestartService => self.restart_service(cx),
+            SettingsEvent::RestartToUpdate => self.restart_to_update(cx),
+            SettingsEvent::CheckUpdates => self.updates.check(),
+            SettingsEvent::StarOnGithub => self.star_on_github(cx),
+            SettingsEvent::Ask(confirm) => {
+                self.ask(confirm.clone(), cx);
+                cx.notify();
+            }
+            SettingsEvent::Hosts(act) => self.on_hosts_act(act, window, cx),
+            SettingsEvent::Accounts(act) => self.on_accounts_act(act, window, cx),
+        }
+    }
+
+    fn on_hosts_act(&mut self, act: &HostsAct, window: &mut Window, cx: &mut Context<Self>) {
+        match act {
+            HostsAct::Open(space) => self.switch_space(space.clone(), window, cx),
+            HostsAct::Install { id, update } => self.install_host(id, *update, cx),
+            HostsAct::Retry(id) => self.retry_host(id),
+            HostsAct::OpenPassword(id) => self.open_password(id.clone(), window, cx),
+            HostsAct::ClosePassword => self.close_password(window, cx),
+            HostsAct::SignInWithPassword => self.sign_in_with_password(window, cx),
+            HostsAct::OpenAdd => self.open_add_host(None, window, cx),
+            HostsAct::Suggest(alias) => self.suggest_host(alias.clone(), window, cx),
+            HostsAct::ClearKeyFile => {
+                self.fleet.form.key_file = None;
+                cx.notify();
+            }
+            HostsAct::PickKeyFile => self.pick_key_file(window, cx),
+            HostsAct::CloseAdd => self.close_add_host(window, cx),
+            HostsAct::Add => self.add_host(cx),
+            HostsAct::DismissInstall(id) => {
+                self.fleet.installs.remove(id);
+                cx.notify();
+            }
+        }
+    }
+
+    fn on_accounts_act(&mut self, act: &AccountsAct, window: &mut Window, cx: &mut Context<Self>) {
+        match act {
+            AccountsAct::Reload => self.refresh_accounts(cx),
+            AccountsAct::SignIn(key) => self.sign_in_account(key.clone(), window, cx),
+            AccountsAct::SetAuto { host, on } => self.set_auto_switch(host.clone(), *on, cx),
+            AccountsAct::Menu(key) => {
+                self.accounts.menu = key.clone();
+                cx.notify();
+            }
+            AccountsAct::Op { host, msg } => self.account_op(host.clone(), msg.clone(), cx),
+            AccountsAct::Rename { key, name } => self.start_account_rename(key.clone(), name.clone(), window, cx),
+            AccountsAct::Cancel { host, provider } => self.cancel_sign_in(host, provider, cx),
+            AccountsAct::ToggleOutput { host, provider } => {
+                if let Some(s) = self.accounts.signins.iter_mut().find(|s| s.on(host, provider)) {
+                    s.output_open = !s.output_open;
+                }
+                cx.notify();
+            }
+        }
+    }
+
+    pub(crate) fn changed(&mut self, setting: Option<&'static Setting>, cx: &mut Context<Self>) {
+        if let Some(effect) = setting.and_then(|s| s.effect) {
+            effect(self, cx);
+        }
+        self.save_soon(cx);
+        cx.notify();
+    }
+
+    pub(crate) fn reset_section(&mut self, section: Section, window: &mut Window, cx: &mut Context<Self>) {
+        let moved = catalog::reset(section.rows(), &mut self.store);
+        for setting in &moved {
+            if let Some(apply) = setting.effect {
+                apply(self, cx);
+            }
+        }
+        self.sync_settings(cx);
+        let store = &self.store;
+        self.settings.update(cx, |s, cx| s.sync_fields(store, section, &moved, window, cx));
+        self.save_soon(cx);
+        cx.notify();
     }
 }
 

@@ -1,19 +1,19 @@
+use super::Automations;
 use super::logic::{Entry, Tab};
-use crate::desktop::Desktop;
-use crate::desktop::chrome::{HEADER, column, drag_area, empty, past_lights};
+use crate::desktop::chrome::{HEADER, column, drag_area, empty};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 use ui::{self, Variant, icon_button_sized};
 
-impl Desktop {
-    pub(crate) fn automations_column(&mut self, cx: &mut Context<Self>) -> Div {
-        let tab = self.automations.tab;
-        let draft = (self.automations.form.open && self.automations.form.v.id.is_none()).then(|| self.draft_row(cx));
+impl Automations {
+    pub(crate) fn column(&mut self, cx: &mut Context<Self>) -> Div {
+        let tab = self.tab;
+        let draft = (self.form.open && self.form.v.id.is_none()).then(|| self.draft_row(cx));
         let body = match tab {
             Tab::Automations => self.automations_list(cx).into_any_element(),
-            Tab::Runs => self.runs_list(cx).into_any_element(),
+            Tab::Runs => self.runs_column(cx).into_any_element(),
         };
         column()
             .child(drag_area(self.automations_header(cx)).h(px(HEADER)).flex_none().border_b(px(0.5)).border_color(SEPARATOR))
@@ -24,10 +24,10 @@ impl Desktop {
     }
 
     fn automations_header(&self, cx: &mut Context<Self>) -> Div {
-        let add = icon_button_sized("automation-add", "plus", 28., TEXT_2)
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.edit_automation(None, window, cx)));
+        let add =
+            icon_button_sized("automation-add", "plus", 28., TEXT_2).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.edit(None, window, cx)));
         div()
-            .pl(px(past_lights(self.store.appearance.zoom_factor(), self.lead_width(), 18.)))
+            .pl(px(self.side.lead))
             .pr(px(12.))
             .flex()
             .items_center()
@@ -37,9 +37,9 @@ impl Desktop {
     }
 
     fn automations_tabs(&self, cx: &mut Context<Self>) -> Div {
-        let waiting = self.agents.automations.waiting().count();
+        let waiting = self.data.waiting().count();
         let tabs = [(Tab::Automations, "Automations"), (Tab::Runs, "Runs")].into_iter().enumerate().map(|(i, (tab, label))| {
-            let selected = self.automations.tab == tab;
+            let selected = self.tab == tab;
             let badge = (tab == Tab::Runs && waiting > 0).then(|| {
                 div()
                     .min_w(px(16.))
@@ -77,14 +77,14 @@ impl Desktop {
 
     /// The newest run waiting on the user.
     fn needs_banner(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let a = &self.agents.automations;
-        let run = a.waiting().next().filter(|_| !self.automations.form.open)?;
+        let a = &self.data;
+        let run = a.waiting().next().filter(|_| !self.form.open)?;
         let name = a.items.iter().find(|x| x.id == run.automation_id).map_or("An automation", |x| x.name.as_str());
         let line = self.run_ask(run, "Needs your answer".into());
         let run = run.clone();
         let answer = ui::button("needs-answer", Variant::Primary, None, "Answer").h(px(26.)).px(px(12.)).rounded(px(13.)).on_click(cx.listener(
-            move |this, _: &ClickEvent, window, cx| {
-                this.answer_run(&run, window, cx);
+            move |this, _: &ClickEvent, _, cx| {
+                this.answer_run(&run, cx);
             },
         ));
         Some(
@@ -118,7 +118,7 @@ impl Desktop {
 
     /// The editor's automation, listed at the top while it is open.
     fn draft_row(&self, cx: &mut Context<Self>) -> Div {
-        let v = self.automations.form.values(cx);
+        let v = self.form.values(cx);
         let title = if !v.title.trim().is_empty() { v.title.trim().to_string() } else { "New automation".into() };
         let when = v.label().unwrap_or_else(|| "No trigger yet".into());
         div().mx(px(8.)).my(px(2.)).p(px(10.)).flex().flex_col().flex_none().gap(px(3.)).rounded(px(10.)).bg(FILL_3).child(
@@ -142,7 +142,7 @@ impl Desktop {
     }
 
     fn automations_list(&mut self, cx: &mut Context<Self>) -> Div {
-        let a = &self.agents.automations;
+        let a = &self.data;
         let body = div().flex_1().min_h_0();
         if !a.loaded {
             return body;
@@ -151,8 +151,8 @@ impl Desktop {
             return body.child(empty("No automations yet."));
         }
         let list = list(
-            self.automations.list.clone(),
-            cx.processor(|this, ix, _, cx| match this.automations.entries.get(ix).copied() {
+            self.list.clone(),
+            cx.processor(|this, ix, _, cx| match this.entries.get(ix).copied() {
                 Some(Entry::Head { active, count, open }) => this.group_head(active, count, open, cx),
                 Some(Entry::Item(i)) => this.automation_row(i, cx),
                 None => Empty.into_any_element(),
@@ -161,7 +161,7 @@ impl Desktop {
         .size_full()
         .px(px(8.))
         .pb(px(12.));
-        body.relative().child(list).vertical_scrollbar(&self.automations.list)
+        body.relative().child(list).vertical_scrollbar(&self.list)
     }
 
     /// "Active 3" over its group; a press folds or unfolds it.

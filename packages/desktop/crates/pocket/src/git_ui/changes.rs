@@ -1,17 +1,29 @@
 pub(crate) mod commit_box;
+mod compare;
 mod header;
 mod rows;
 mod scope;
 
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay, empty};
-use git::FileStat;
-use gpui_kit::component::input::{InputEvent, TextareaState};
+use crate::desktop::chrome::{Confirm, empty};
+use crate::git_ui::diff::At;
+use crate::git_ui::graph::{Graph, with_graph};
+use crate::git_ui::pull_requests::PrItem;
+use crate::region;
+use crate::renames::Slot;
+use compare::CompareView;
+use git::github::Pr;
+use git::{FileStat, Repo};
+use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::*;
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Range;
-use theme::TEXT_3;
+use std::sync::Arc;
+use std::time::Instant;
+use store::scope::Scope;
+use theme::{TEXT_3, Token};
+use workspace::Doc;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum CommitKind {
@@ -179,27 +191,134 @@ fn toggle_fold(folded: &mut HashSet<String>, key: &str) {
     }
 }
 
-pub struct ChangesState {
-    pub(crate) input: Entity<TextareaState>,
-    /// What the commit button says while git works.
-    pub(crate) busy: Option<&'static str>,
-    pub(crate) writing: bool,
-    pub(crate) error: Option<String>,
-    pub(crate) commit_menu: bool,
-    pub(crate) menu: bool,
-    pub(crate) folded: HashSet<String>,
-    pub(crate) scroll: UniformListScrollHandle,
+#[derive(PartialEq)]
+pub(crate) enum Offer {
+    Open(String),
+    Create,
+    Hint(&'static str),
 }
 
-impl ChangesState {
-    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+impl Offer {
+    fn of(item: PrItem) -> Self {
+        match item {
+            PrItem::Open(url) => Offer::Open(url.to_string()),
+            PrItem::Create => Offer::Create,
+            PrItem::Hint(text) => Offer::Hint(text),
+        }
+    }
+
+    fn item(&self) -> PrItem<'_> {
+        match self {
+            Offer::Open(url) => PrItem::Open(url),
+            Offer::Create => PrItem::Create,
+            Offer::Hint(text) => PrItem::Hint(text),
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct Inputs {
+    pub(crate) cwd: Option<String>,
+    pub(crate) repo: Option<Arc<Repo>>,
+    pub(crate) scope: Scope,
+    pub(crate) tree: bool,
+    pub(crate) git: Arc<store::prefs::Git>,
+    pub(crate) shown: Option<(String, At)>,
+    pub(crate) pr: Option<(Arc<Pr>, Token)>,
+    pub(crate) offer: Option<Offer>,
+    pub(crate) composing: bool,
+    pub(crate) ship_menu: bool,
+    pub(crate) branch_was: Option<(String, Instant)>,
+    pub(crate) seamed: bool,
+    pub(crate) viewing: Option<(String, String)>,
+}
+
+impl PartialEq for Inputs {
+    fn eq(&self, other: &Self) -> bool {
+        let Self { cwd, repo, scope, tree, git, shown, pr, offer, composing, ship_menu, branch_was, seamed, viewing } = self;
+        let same_repo = match (repo, &other.repo) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        same_repo
+            && *cwd == other.cwd
+            && *scope == other.scope
+            && *tree == other.tree
+            && *git == other.git
+            && *shown == other.shown
+            && *pr == other.pr
+            && *offer == other.offer
+            && *composing == other.composing
+            && *ship_menu == other.ship_menu
+            && *branch_was == other.branch_was
+            && *seamed == other.seamed
+            && *viewing == other.viewing
+    }
+}
+
+pub(crate) enum ChangesEvent {
+    Stage { paths: Vec<String>, staged: bool },
+    Discard(Vec<String>),
+    Open { path: String, pin: bool },
+    OpenDoc(Doc, bool),
+    Scope(String, Scope),
+    ToggleTree,
+    ToggleDraft,
+    ShowPr,
+    OpenPr(String),
+    CreatePr,
+    ShipMenu(bool),
+    Refresh,
+    WriteMessage,
+    Compared { cwd: String, against: String, read: Result<Option<Vec<FileStat>>, String> },
+    Shipped(String, Repo),
+}
+
+pub struct Changes {
+    input: Entity<TextareaState>,
+    /// What the commit button says while git works.
+    busy: Option<&'static str>,
+    writing: bool,
+    error: Option<String>,
+    pub(crate) commit_menu: bool,
+    pub(crate) menu: bool,
+    folded: HashSet<String>,
+    scroll: UniformListScrollHandle,
+    view: CompareView,
+    pub(crate) compare_menu: bool,
+    search: Entity<InputState>,
+    /// The local branches, with their last commit's time, and origin's, of the worktree the menu last opened in.
+    branches: Vec<(String, Option<i64>)>,
+    remote: Vec<String>,
+    graph: Entity<Graph>,
+    inputs: Inputs,
+    _subs: Vec<Subscription>,
+}
+
+impl EventEmitter<ChangesEvent> for Changes {}
+
+impl Changes {
+    pub fn new(graph: Entity<Graph>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input = cx.new(|cx| TextareaState::new(window, cx).placeholder(format!("Message ({} to commit)", ui::os_keys("⌘↩"))).auto_grow(1, 8));
-        let subs = vec![cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| match ev {
-            InputEvent::PressEnter { secondary: true, .. } => this.commit(CommitKind::Commit, window, cx),
-            InputEvent::Change => cx.notify(),
-            _ => {}
-        })];
-        let state = Self {
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search branches…"));
+        let _subs = vec![
+            cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| match ev {
+                InputEvent::PressEnter { secondary: true, .. } => this.commit(CommitKind::Commit, window, cx),
+                InputEvent::Change => cx.notify(),
+                _ => {}
+            }),
+            cx.subscribe_in(&search, window, |this, _, ev: &InputEvent, _, cx| match ev {
+                InputEvent::PressEnter { .. } => {
+                    if let Some(choice) = this.compare_choices(cx).into_iter().next() {
+                        this.pick_compare(choice, cx);
+                    }
+                }
+                InputEvent::Change => cx.notify(),
+                _ => {}
+            }),
+        ];
+        Self {
             input,
             busy: None,
             writing: false,
@@ -208,57 +327,90 @@ impl ChangesState {
             menu: false,
             folded: HashSet::new(),
             scroll: UniformListScrollHandle::new(),
-        };
-        (state, subs)
+            view: CompareView::default(),
+            compare_menu: false,
+            search,
+            branches: Vec::new(),
+            remote: Vec::new(),
+            graph,
+            inputs: Inputs::default(),
+            _subs,
+        }
+    }
+
+    pub(crate) fn inputs(&self) -> &Inputs {
+        &self.inputs
+    }
+
+    /// Lets go of the repo handed down, which the next hand-down gives back and so draws again.
+    pub(crate) fn let_go_of_repo(&mut self) {
+        self.inputs.repo = None;
+    }
+
+    pub(crate) fn hand(&mut self, inputs: Inputs, cx: &mut Context<Self>) {
+        if self.inputs != inputs {
+            self.inputs = inputs;
+            region::notify_after_draw(cx);
+        }
+    }
+
+    pub(crate) fn menu_open(&self) -> bool {
+        self.commit_menu || self.menu || self.compare_menu
+    }
+
+    pub(crate) fn shut_menus(&mut self, cx: &mut Context<Self>) {
+        if self.menu_open() {
+            (self.commit_menu, self.menu, self.compare_menu) = (false, false, false);
+            cx.notify();
+        }
     }
 }
 
-impl Desktop {
-    pub fn changes_list(&mut self, cx: &mut Context<Self>) -> Div {
+impl Render for Changes {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let panel = div().flex_1().min_h_0().flex().flex_col();
-        let Some(repo) = self.repo().cloned() else {
+        let Some(repo) = self.inputs.repo.clone() else {
             return panel.child(empty("Not a git repository."));
         };
-        let cwd = self.cwd().unwrap_or_default();
-        let scope = self.scope(&cwd);
-        let against = self.compare_branch(&cwd);
+        let cwd = self.inputs.cwd.clone().unwrap_or_default();
+        let scope = self.inputs.scope.clone();
+        let against = self.compare_branch();
         let changes = if scope.compare {
             self.compare_list(&cwd, against.as_deref(), cx)
         } else if repo.files.is_empty() {
             div().flex_1().child(empty("No changes."))
         } else {
-            self.rows_list(change_rows(&repo.files, self.store.diff.tree, &self.changes.folded), cx)
+            self.rows_list(change_rows(&repo.files, self.inputs.tree, &self.folded), cx)
         };
-        let notice = self
-            .compare
-            .view
-            .notice(&cwd)
-            .filter(|_| scope.compare)
-            .map(|n| div().px(px(16.)).pb(px(6.)).text_size(px(12.)).text_color(TEXT_3).child(n.to_string()));
+        let notice =
+            self.view.notice(&cwd).filter(|_| scope.compare).map(|n| div().px(px(16.)).pb(px(6.)).text_size(px(12.)).text_color(TEXT_3).child(n.to_string()));
+        let (graph, seamed, viewing) = (self.graph.clone(), self.inputs.seamed, self.inputs.viewing.clone());
         panel
             .child(self.changes_header(&repo, cx))
             .child(self.scope_bar(&scope, against.as_deref(), cx))
             .children(notice)
             .children((!scope.compare).then(|| self.commit_box(&repo, cx)))
-            .child(self.with_graph(changes, cx))
+            .child(with_graph(&graph, changes, self.inputs.cwd.clone(), seamed, viewing, cx))
     }
+}
 
+impl Changes {
     /// A Compare's files, once read; reading them here when the worktree or ref changed since and no read is under way.
     fn compare_list(&mut self, cwd: &str, against: Option<&str>, cx: &mut Context<Self>) -> Div {
         let Some(against) = against else {
             return div().flex_1().child(empty("No base to compare with."));
         };
-        if self.compare.view.needs_read(cwd, against) {
+        if self.view.needs_read(cwd, against) {
             self.load_compare(cx);
         }
-        let Some(shown) = self.compare.view.get(cwd, against) else {
+        let Some(shown) = self.view.get(cwd, against) else {
             return div().flex_1().child(empty("Comparing…"));
         };
         match &shown.files {
             None => div().flex_1().child(empty(format!("Can't find {against}."))),
             Some(files) if files.is_empty() => div().flex_1().child(empty(format!("No differences with {against}."))),
             Some(files) => {
-                let rows = compare_rows(files, self.store.diff.tree, &self.changes.folded);
+                let rows = compare_rows(files, self.inputs.tree, &self.folded);
                 self.rows_list(rows, cx)
             }
         }
@@ -278,67 +430,42 @@ impl Desktop {
                     .collect::<Vec<_>>()
             }),
         )
-        .track_scroll(&self.changes.scroll)
+        .track_scroll(&self.scroll)
         .size_full()
         .px(px(8.))
         .pt(px(6.))
         .pb(px(8.));
-        div().relative().flex_1().min_h_0().child(list).vertical_scrollbar(&self.changes.scroll)
+        div().relative().flex_1().min_h_0().child(list).vertical_scrollbar(&self.scroll)
     }
 
-    /// Flips the rows at once: `git add -A` and `git reset` leave each path wholly staged or wholly unstaged.
-    pub fn stage(&mut self, paths: Vec<String>, staged: bool, cx: &mut Context<Self>) {
-        let Some(cwd) = self.cwd() else { return };
-        if let Some(repo) = self.repos.get_mut(&cwd) {
-            flip_staged(&mut repo.files, &paths, staged);
-        }
-        // Drops refreshes already running: they read the index from before this change.
-        self.git_run += 1;
-        cx.notify();
-        let task = cx.background_executor().spawn(async move { git::set_staged(&hosts::runner_for(&cwd), &cwd, &paths, staged) });
-        cx.spawn(async move |this, cx| {
-            task.await;
-            this.update(cx, |d, cx| d.refresh_git(cx)).ok();
-        })
-        .detach();
+    fn stage(&mut self, paths: Vec<String>, staged: bool, cx: &mut Context<Self>) {
+        cx.emit(ChangesEvent::Stage { paths, staged });
     }
 
     fn ask_discard(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
-        self.confirm = Some(Confirm::Discard(paths));
-        self.overlay = Some(Overlay::Confirm);
-        cx.notify();
+        cx.emit(ChangesEvent::Discard(paths));
     }
 
-    pub fn discard(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
-        let Some(cwd) = self.cwd() else { return };
-        let task = cx.background_executor().spawn(async move { git::discard(&hosts::runner_for(&cwd), &cwd, &paths) });
-        cx.spawn(async move |this, cx| {
-            task.await;
-            this.update(cx, |d, cx| d.refresh_git(cx)).ok();
-        })
-        .detach();
-    }
-
-    pub fn commit(&mut self, kind: CommitKind, window: &mut Window, cx: &mut Context<Self>) {
-        self.changes.commit_menu = false;
-        let (Some(cwd), Some(repo)) = (self.cwd(), self.repo()) else { return };
-        let message = self.changes.input.read(cx).value().trim().to_string();
-        let (all, busy) = match commit_step(&repo.files, kind, &message, self.changes.busy.is_some(), self.store.git.commit_all) {
+    fn commit(&mut self, kind: CommitKind, window: &mut Window, cx: &mut Context<Self>) {
+        self.commit_menu = false;
+        let (Some(cwd), Some(repo)) = (self.inputs.cwd.clone(), self.inputs.repo.clone()) else { return };
+        let message = self.input.read(cx).value().trim().to_string();
+        let (all, busy) = match commit_step(&repo.files, kind, &message, self.busy.is_some(), self.inputs.git.commit_all) {
             CommitStep::Skip => return cx.notify(),
             CommitStep::StageFirst => {
-                self.changes.error = Some("Stage the changes to commit first.".into());
+                self.error = Some("Stage the changes to commit first.".into());
                 return cx.notify();
             }
             CommitStep::AskMessage => {
-                self.changes.input.update(cx, |s, cx| s.focus(window, cx));
+                self.input.update(cx, |s, cx| s.focus(window, cx));
                 return cx.notify();
             }
             CommitStep::Run { stage, busy } => (stage, busy),
         };
         let amend = kind == CommitKind::Amend;
-        let (push_argv, untracked, tree) = (self.push_argv(), self.store.git.untracked, cwd.clone());
-        self.changes.busy = Some(busy);
-        self.changes.error = None;
+        let (push_argv, untracked, tree) = (self.push_argv(), self.inputs.git.untracked, cwd.clone());
+        self.busy = Some(busy);
+        self.error = None;
         let task = cx.background_executor().spawn(async move {
             let runner = hosts::runner_for(&cwd);
             if !all.is_empty() {
@@ -352,41 +479,36 @@ impl Desktop {
         });
         cx.spawn_in(window, async move |this, cx| {
             let (committed, pushed, shipped) = task.await;
-            this.update_in(cx, |d, window, cx| {
-                d.changes.busy = None;
+            this.update_in(cx, |c, window, cx| {
+                c.busy = None;
                 if committed.is_ok() {
-                    d.changes.input.update(cx, |s, cx| s.set_value("", window, cx));
+                    c.input.update(cx, |s, cx| s.set_value("", window, cx));
                 }
-                d.changes.error = committed.err().or(pushed.err());
-                if let Some(repo) = shipped {
-                    let shown = d.cwd().as_ref() == Some(&tree);
-                    d.repos.insert(tree, repo);
-                    if shown {
-                        d.open_pr_composer(window, cx);
-                    }
-                }
-                d.refresh_git(cx);
+                c.error = committed.err().or(pushed.err());
+                cx.emit(match shipped {
+                    Some(repo) => ChangesEvent::Shipped(tree, repo),
+                    None => ChangesEvent::Refresh,
+                });
                 cx.notify();
             })
-            .ok();
         })
         .detach();
         cx.notify();
     }
 
     fn push(&mut self, cx: &mut Context<Self>) {
-        self.changes.menu = false;
-        let Some(cwd) = self.cwd().filter(|_| self.changes.busy.is_none()) else { return cx.notify() };
+        self.menu = false;
+        let Some(cwd) = self.inputs.cwd.clone().filter(|_| self.busy.is_none()) else { return cx.notify() };
         let argv = self.push_argv();
-        self.changes.busy = Some("Pushing…");
-        self.changes.error = None;
+        self.busy = Some("Pushing…");
+        self.error = None;
         let task = cx.background_executor().spawn(async move { push(&cwd, &argv) });
         cx.spawn(async move |this, cx| {
             let res = task.await;
-            this.update(cx, |d, cx| {
-                d.changes.busy = None;
-                d.changes.error = res.err();
-                d.refresh_git(cx);
+            this.update(cx, |c, cx| {
+                c.busy = None;
+                c.error = res.err();
+                cx.emit(ChangesEvent::Refresh);
                 cx.notify();
             })
             .ok();
@@ -395,42 +517,34 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Pushes to the remote picked in Settings when this repo has it.
-    pub(crate) fn push_argv(&self) -> Vec<String> {
-        let remote = &self.store.git.remote;
-        git::push_argv(self.repo().filter(|r| r.remotes.contains(remote)).map(|_| remote.as_str()), self.store.git.force_with_lease)
+    fn push_argv(&self) -> Vec<String> {
+        push_argv(self.inputs.repo.as_deref(), &self.inputs.git)
     }
 
-    /// Opens a pull request where Settings say: a browser tab, or the system browser.
-    pub(crate) fn open_pr(&mut self, url: String, window: &mut Window, cx: &mut Context<Self>) {
-        if self.store.git.in_app && self.cwd().is_some() {
-            self.open_browser(Some(url), window, cx);
-        } else {
-            cx.open_url(&url);
-        }
+    fn ask_message(&mut self, cx: &mut Context<Self>) {
+        cx.emit(ChangesEvent::WriteMessage);
     }
 
-    /// Asks the agent picked in Settings for a message from what the commit would hold.
-    fn write_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(cwd), Some(repo)) = (self.cwd(), self.repo()) else { return };
-        if self.changes.writing || repo.files.is_empty() {
+    pub(crate) fn write_message(&mut self, argv: Vec<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(cwd), Some(repo)) = (self.inputs.cwd.clone(), self.inputs.repo.clone()) else { return };
+        if self.writing || repo.files.is_empty() {
             return;
         }
         let staged = repo.files.iter().any(|f| f.staged);
-        let (argv, untracked) = (self.store.git.message_argv(&self.store.agents.command(&self.store.git.agent)), self.store.git.untracked);
-        self.changes.writing = true;
-        self.changes.error = None;
+        let untracked = self.inputs.git.untracked;
+        self.writing = true;
+        self.error = None;
         let task = cx.background_executor().spawn(async move {
             let context = git::commit_context(&hosts::runner_for(&cwd), &cwd, staged, untracked);
             crate::util::run_login(&argv.iter().map(String::as_str).collect::<Vec<_>>(), &cwd, &context)
         });
         cx.spawn_in(window, async move |this, cx| {
             let res = task.await;
-            this.update_in(cx, |d, window, cx| {
-                d.changes.writing = false;
+            this.update_in(cx, |c, window, cx| {
+                c.writing = false;
                 match res {
-                    Ok(text) => d.changes.input.update(cx, |s, cx| s.set_value(text, window, cx)),
-                    Err(e) => d.changes.error = Some(format!("Couldn't write a message: {e}")),
+                    Ok(text) => c.input.update(cx, |s, cx| s.set_value(text, window, cx)),
+                    Err(e) => c.error = Some(format!("Couldn't write a message: {e}")),
                 }
                 cx.notify();
             })
@@ -438,6 +552,165 @@ impl Desktop {
         })
         .detach();
         cx.notify();
+    }
+}
+
+pub(crate) fn push_argv(repo: Option<&Repo>, git: &store::prefs::Git) -> Vec<String> {
+    git::push_argv(repo.filter(|r| r.remotes.contains(&git.remote)).map(|_| git.remote.as_str()), git.force_with_lease)
+}
+
+impl Desktop {
+    fn changes_inputs(&self, held: &Inputs, cx: &App) -> Inputs {
+        let cwd = self.cwd(cx);
+        let repo = self.repo_handle(cx);
+        let scope = cwd.as_deref().map(|c| self.scope(c)).unwrap_or_default();
+        let shown = self.diff.view(self.focused_pane(cx), cx).and_then(|v| Some((v.file.clone()?, v.at.clone())));
+        let pr = cwd.as_deref().and_then(|tree| {
+            let pr = self.prs.get(tree)?;
+            let shared = held.pr.as_ref().map(|(p, _)| p).filter(|p| ***p == *pr).cloned();
+            Some((shared.unwrap_or_else(|| Arc::new(pr.clone())), self.pr_verdict(tree, pr, cx).0))
+        });
+        let offer = cwd.as_deref().zip(repo.as_deref()).and_then(|(tree, r)| self.prs.item(tree, &r.branch, r.base.as_deref())).map(Offer::of);
+        let branch_was = cwd
+            .as_deref()
+            .zip(repo.as_deref())
+            .and_then(|(tree, r)| self.renames.was(tree, Slot::Branch, &r.branch, Instant::now()).map(|(from, at)| (from.to_string(), at)));
+        Inputs {
+            composing: cwd.is_some() && self.pr.read(cx).composing == cwd,
+            cwd,
+            repo,
+            scope,
+            tree: self.store.diff.tree,
+            git: if *held.git == self.store.git { held.git.clone() } else { Arc::new(self.store.git.clone()) },
+            shown,
+            pr,
+            offer,
+            ship_menu: self.pr.read(cx).ship_menu,
+            branch_was,
+            seamed: self.overlay.is_none(),
+            viewing: self.viewing_commit_file(cx),
+        }
+    }
+
+    /// Hands the panel what it reads of `Desktop`; before it draws and before anything calls into it.
+    pub(crate) fn sync_changes(&mut self, cx: &mut Context<Self>) {
+        let inputs = self.changes_inputs(self.changes.read(cx).inputs(), cx);
+        self.changes.update(cx, |c, cx| c.hand(inputs, cx));
+    }
+
+    pub fn changes_list(&mut self, cx: &mut Context<Self>) -> Entity<Changes> {
+        self.sync_changes(cx);
+        self.changes.clone()
+    }
+
+    pub(crate) fn load_compare(&mut self, cx: &mut Context<Self>) {
+        self.sync_changes(cx);
+        self.changes.update(cx, |c, cx| c.load_compare(cx));
+    }
+
+    /// Flips the rows at once: `git add -A` and `git reset` leave each path wholly staged or wholly unstaged.
+    fn stage(&mut self, paths: Vec<String>, staged: bool, cx: &mut Context<Self>) {
+        let Some(cwd) = self.cwd(cx) else { return };
+        // The panel and the tree let go of their handles first, so `repos` holds the only one and the flip is in place rather than a copy of every file.
+        self.changes.update(cx, |c, _| c.let_go_of_repo());
+        self.explorer.update(cx, |e, _| e.let_go_of_repo());
+        if let Some(repo) = self.repos.get_mut(&cwd) {
+            flip_staged(&mut Arc::make_mut(repo).files, &paths, staged);
+        }
+        self.sync_changes(cx);
+        self.sync_explorer(cx);
+        // Drops refreshes already running: they read the index from before this change.
+        self.git_run += 1;
+        cx.notify();
+        let task = cx.background_executor().spawn(async move { git::set_staged(&hosts::runner_for(&cwd), &cwd, &paths, staged) });
+        cx.spawn(async move |this, cx| {
+            task.await;
+            this.update(cx, |d, cx| d.refresh_git(cx)).ok();
+        })
+        .detach();
+    }
+
+    fn ask_discard(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
+        self.ask(Confirm::Discard(paths), cx);
+        cx.notify();
+    }
+
+    pub fn discard(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
+        let Some(cwd) = self.cwd(cx) else { return };
+        let task = cx.background_executor().spawn(async move { git::discard(&hosts::runner_for(&cwd), &cwd, &paths) });
+        cx.spawn(async move |this, cx| {
+            task.await;
+            this.update(cx, |d, cx| d.refresh_git(cx)).ok();
+        })
+        .detach();
+    }
+
+    /// Pushes to the remote picked in Settings when this repo has it.
+    pub(crate) fn push_argv(&self, cx: &App) -> Vec<String> {
+        push_argv(self.repo(cx), &self.store.git)
+    }
+
+    /// Opens a pull request where Settings say: a browser tab, or the system browser.
+    pub(crate) fn open_pr(&mut self, url: String, window: &mut Window, cx: &mut Context<Self>) {
+        if self.store.git.in_app && self.cwd(cx).is_some() {
+            self.open_browser(Some(url), window, cx);
+        } else {
+            cx.open_url(&url);
+        }
+    }
+
+    pub(crate) fn on_changes_event(&mut self, _: &Entity<Changes>, ev: &ChangesEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            ChangesEvent::Stage { paths, staged } => self.stage(paths.clone(), *staged, cx),
+            ChangesEvent::Compared { cwd, against, read } => {
+                if self.cwd(cx).as_ref() != Some(cwd) {
+                    return;
+                }
+                self.sync_changes(cx);
+                self.changes.update(cx, |c, cx| c.land_compare(cwd.clone(), against.clone(), read.clone(), cx));
+            }
+            ChangesEvent::Discard(paths) => self.ask_discard(paths.clone(), cx),
+            ChangesEvent::Open { path, pin } => self.open_changes(Some(path.clone()), *pin, cx),
+            ChangesEvent::OpenDoc(doc, pin) => self.open_doc(doc.clone(), *pin, cx),
+            ChangesEvent::Scope(cwd, scope) => self.set_scope(cwd.clone(), scope.clone(), cx),
+            ChangesEvent::ToggleTree => {
+                self.store.diff.tree = !self.store.diff.tree;
+                self.save_soon(cx);
+                cx.notify();
+            }
+            ChangesEvent::ToggleDraft => {
+                self.store.git.draft = !self.store.git.draft;
+                self.save_soon(cx);
+                cx.notify();
+            }
+            ChangesEvent::ShowPr => self.show_pr_side(cx),
+            ChangesEvent::OpenPr(url) => self.open_pr(url.clone(), window, cx),
+            ChangesEvent::CreatePr => self.open_pr_composer(window, cx),
+            ChangesEvent::ShipMenu(open) => {
+                self.pr.update(cx, |p, cx| {
+                    p.ship_menu = *open;
+                    cx.notify();
+                });
+                cx.notify();
+            }
+            ChangesEvent::Refresh => {
+                self.refresh_git(cx);
+                cx.notify();
+            }
+            ChangesEvent::WriteMessage => {
+                let argv = self.store.git.message_argv(&self.store.agents.command(&self.store.git.agent));
+                self.changes.update(cx, |c, cx| c.write_message(argv, window, cx));
+            }
+            ChangesEvent::Shipped(tree, repo) => {
+                let shown = self.cwd(cx).as_ref() == Some(tree);
+                self.repos.insert(tree.clone(), Arc::new(repo.clone()));
+                if shown {
+                    self.open_pr_composer(window, cx);
+                }
+                self.refresh_git(cx);
+                cx.notify();
+            }
+        }
     }
 }
 

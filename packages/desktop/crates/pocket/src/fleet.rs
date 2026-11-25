@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 const STATUS_RETRY: Duration = Duration::from_secs(2);
 
 /// Each host's link as last reported; a host is listed only while it's in Settings.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct Links(pub(crate) HashMap<String, Link>);
 
 impl Links {
@@ -465,7 +465,7 @@ impl Desktop {
                 }
                 d.fleet.tokens.insert(id.clone(), endpoint.token.clone());
                 hosts::remote::register(client);
-                d.finder_host_back(&id, window, cx);
+                d.host_finder.update(cx, |f, cx| f.host_back(&id, window, cx));
                 d.handoff_host_back(&id, cx);
                 d.sweep_host_leftovers(cx);
                 d.clone_form.update(cx, |f, cx| f.fetch_home(window, cx));
@@ -597,7 +597,7 @@ impl Desktop {
     }
 
     fn leave_host(&mut self, id: &str, leave: Leave, cx: &mut Context<Self>) {
-        for step in removal(id, leave, &self.projects()) {
+        for step in removal(id, leave, &self.projects(cx)) {
             match step {
                 Removing::Uninstall => return self.uninstall_host(id, cx),
                 Removing::Host => {
@@ -686,8 +686,10 @@ impl Desktop {
         self.close_host_agents(id);
         self.registry.forget(id);
         hosts::remote::forget(id);
-        let left = self.terminals.lists.forget(id);
-        self.terminals.listed(left);
+        self.terminals.update(cx, |t, _| {
+            let left = t.lists.forget(id);
+            t.listed(left);
+        });
         self.activity_changed(cx);
         cx.notify();
     }

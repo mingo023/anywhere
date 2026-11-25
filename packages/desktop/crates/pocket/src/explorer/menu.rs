@@ -1,10 +1,7 @@
-use super::ExplorerState;
 use super::edit::Naming;
 use super::toast::Notice;
-use crate::actions::{TreeMenuArrow, TreeMenuChoose, TreeMenuItem};
+use super::{Explorer, ExplorerEvent};
 use crate::add_to_chat::Choice;
-use crate::chat::Route;
-use crate::desktop::Desktop;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
@@ -298,50 +295,44 @@ fn next_ready(ready: &[bool], at: usize, down: bool) -> Option<usize> {
     (1..=n).map(|k| if down { (at + k) % n } else { (at + n - k) % n }).find(|i| ready[*i])
 }
 
-impl ExplorerState {
+impl Explorer {
     /// Closes the menu, leaving it to fade out.
     pub(crate) fn close_menu(&mut self) -> Option<TreeMenu> {
         let menu = self.menu.take();
         self.leaving = menu.clone().map(|m| (m, Instant::now()));
         menu
     }
-}
 
-impl Desktop {
+    pub(crate) fn open_menu(&mut self, target: Option<(PathBuf, bool)>, at: Point<Pixels>, alt: bool, width: Pixels, cx: &mut Context<Self>) {
+        self.leaving = None;
+        self.menu = Some(TreeMenu::new(target, at, alt, self.inputs.local, width));
+        cx.notify();
+    }
+
     pub(crate) fn open_tree_menu(&self, target: Option<(PathBuf, bool)>, cx: &mut Context<Self>) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static {
         cx.listener(move |this, e: &MouseDownEvent, window, cx| {
             cx.stop_propagation();
             this.commit_edit(false, cx);
-            // The menu's key equivalents bind on the window; a focused terminal or page would take the keys first.
-            window.focus(&this.root, cx);
-            this.close_menus(cx);
-            this.explorer.leaving = None;
-            let local = this.local_explore_root().is_some();
-            this.explorer.menu = Some(TreeMenu::new(target.clone(), e.position, window.modifiers().alt, local, window.viewport_size().width));
-            cx.notify();
+            cx.emit(ExplorerEvent::MenuRequested { target: target.clone(), at: e.position, alt: window.modifiers().alt, width: window.viewport_size().width });
         })
     }
 
     fn reach(&self) -> Reach {
-        let choices = self.chat_choices();
-        let plan = if self.agents.observe_only() { Plan::Off } else { plan(self.session(), &choices) };
+        let choices = &self.inputs.chats;
+        let plan = if self.inputs.observe_only { Plan::Off } else { plan(self.inputs.session.as_deref(), choices) };
         Reach { plan, ready: choices.iter().map(|c| c.ready).collect() }
     }
 
-    pub(crate) fn tree_menu_item(&mut self, item: &TreeMenuItem, window: &mut Window, cx: &mut Context<Self>) {
-        self.choose_in_tree_menu(Pick::Item(item.0), window, cx);
-    }
-
-    pub(crate) fn tree_menu_choose(&mut self, _: &TreeMenuChoose, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(pick) = self.explorer.menu.as_ref().and_then(TreeMenu::enter) {
+    pub(crate) fn tree_menu_choose(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(pick) = self.menu.as_ref().and_then(TreeMenu::enter) {
             self.choose_in_tree_menu(pick, window, cx);
         }
     }
 
-    pub(crate) fn tree_menu_arrow(&mut self, arrow: &TreeMenuArrow, _: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn tree_menu_arrow(&mut self, arrow: Arrow, cx: &mut Context<Self>) {
         let reach = self.reach();
-        if let Some(menu) = self.explorer.menu.as_mut().filter(|m| !m.busy()) {
-            menu.arrow(arrow.0, &reach);
+        if let Some(menu) = self.menu.as_mut().filter(|m| !m.busy()) {
+            menu.arrow(arrow, &reach);
             cx.notify();
         }
     }
@@ -349,11 +340,11 @@ impl Desktop {
     /// Takes an unmodified letter as typeahead while the menu is open, and any key while it blinks; returns whether it did.
     pub(crate) fn type_tree_menu(&mut self, key: &Keystroke, cx: &mut Context<Self>) -> bool {
         let m = key.modifiers;
-        if self.explorer.menu.is_none() || m.platform || m.control || m.alt || m.function {
+        if self.menu.is_none() || m.platform || m.control || m.alt || m.function {
             return false;
         }
         let reach = self.reach();
-        let Some(menu) = self.explorer.menu.as_mut() else { return false };
+        let Some(menu) = self.menu.as_mut() else { return false };
         if menu.busy() {
             return true;
         }
@@ -362,10 +353,16 @@ impl Desktop {
         took
     }
 
+    pub(crate) fn set_menu_alt(&mut self, alt: bool, cx: &mut Context<Self>) {
+        if self.menu.as_mut().is_some_and(|m| m.set_alt(alt)) {
+            cx.notify();
+        }
+    }
+
     /// Blinks `pick`, then runs it; a Mention that asks which chat opens the list at once.
-    fn choose_in_tree_menu(&mut self, pick: Pick, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn choose_in_tree_menu(&mut self, pick: Pick, window: &mut Window, cx: &mut Context<Self>) {
         let reach = self.reach();
-        let Some(menu) = self.explorer.menu.as_mut().filter(|m| !m.busy() && m.offers(pick, &reach)) else { return };
+        let Some(menu) = self.menu.as_mut().filter(|m| !m.busy() && m.offers(pick, &reach)) else { return };
         if cx.reduce_motion() || (pick == Pick::Item(Item::Mention) && reach.plan == Plan::Ask) {
             return self.run_pick(pick, window, cx);
         }
@@ -373,10 +370,10 @@ impl Desktop {
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             cx.background_executor().timer(BLINK).await;
-            this.update_in(cx, |d, window, cx| {
+            this.update_in(cx, |e, window, cx| {
                 // A menu opened elsewhere during the blink isn't the one this was chosen in.
-                if d.explorer.menu.as_ref().is_some_and(|m| m.chosen == Some(pick)) {
-                    d.run_pick(pick, window, cx);
+                if e.menu.as_ref().is_some_and(|m| m.chosen == Some(pick)) {
+                    e.run_pick(pick, window, cx);
                 }
             })
             .ok();
@@ -385,14 +382,14 @@ impl Desktop {
     }
 
     fn run_pick(&mut self, pick: Pick, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(menu), Some(root)) = (self.explorer.menu.as_ref(), self.explore_root().map(PathBuf::from)) else { return };
+        let (Some(menu), Some(root)) = (self.menu.as_ref(), self.inputs.root.clone().map(PathBuf::from)) else { return };
         let target = menu.target.clone();
         let item = match pick {
             Pick::Item(item) => item,
             Pick::Chat(i) => {
-                let (Some(chat), Some((path, folder))) = (self.chat_choices().into_iter().nth(i), target) else { return };
-                self.mention(&chat.id, &path, folder, window, cx);
-                self.explorer.close_menu();
+                let (Some(chat), Some((path, folder))) = (self.inputs.chats.get(i), target) else { return };
+                cx.emit(ExplorerEvent::Mention { id: chat.id.clone(), path, folder });
+                self.close_menu();
                 return cx.notify();
             }
         };
@@ -400,9 +397,9 @@ impl Desktop {
             (Item::Mention, Some((path, folder))) => {
                 let reach = self.reach();
                 match &reach.plan {
-                    Plan::To(id) => self.mention(id, &path, folder, window, cx),
+                    Plan::To(id) => cx.emit(ExplorerEvent::Mention { id: id.clone(), path, folder }),
                     Plan::Ask => {
-                        if let Some(menu) = self.explorer.menu.as_mut() {
+                        if let Some(menu) = self.menu.as_mut() {
                             menu.open_chats(&reach);
                         }
                         return cx.notify();
@@ -424,28 +421,12 @@ impl Desktop {
             (Item::Trash, Some((path, _))) => self.trash_file(path, cx),
             (Item::Mention | Item::Rename | Item::Trash, None) => return,
         }
-        self.explorer.close_menu();
+        self.close_menu();
         cx.notify();
     }
 
-    fn mention(&mut self, id: &str, path: &Path, folder: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((terminal, provider, cwd)) = self.agents.get(id).map(|a| (a.terminal_id.clone(), a.provider.clone(), a.cwd.clone())) else { return };
-        let text = mention_text(path, folder, Path::new(&cwd));
-        if self.route(&terminal) == Route::Chat {
-            self.chat_add_text(id, &text, window, cx);
-        } else {
-            let Some(bracketed) = self.terminals.sessions.term(&terminal).map(|t| t.mode(2004)) else { return };
-            self.send_input(&terminal, &term::paste_bytes(&text, bracketed), cx);
-        }
-        // The focused chat shows the mention landing in its input; any other gets a toast.
-        if self.session() != Some(id) {
-            let title = self.chat_choices().into_iter().find(|c| c.id == id).map(|c| c.title).unwrap_or_default();
-            self.show_notice(Notice::Mentioned { provider, title }, cx);
-        }
-    }
-
     fn hover_tree_menu(&mut self, hover: impl FnOnce(&mut TreeMenu), cx: &mut Context<Self>) {
-        if let Some(menu) = self.explorer.menu.as_mut().filter(|m| !m.busy()) {
+        if let Some(menu) = self.menu.as_mut().filter(|m| !m.busy()) {
             hover(menu);
             cx.notify();
         }
@@ -453,17 +434,17 @@ impl Desktop {
 
     /// Chooses `pick` when the right button let go on it is the press that opened the menu.
     fn let_go_tree_menu(&mut self, pick: Pick, to: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
-        if self.explorer.menu.as_mut().is_some_and(|m| m.let_go(to)) {
+        if self.menu.as_mut().is_some_and(|m| m.let_go(to)) {
             self.choose_in_tree_menu(pick, window, cx);
         }
     }
 
     /// The open menu, or the one just closed while it fades.
     pub(crate) fn tree_menu(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if let Some(menu) = &self.explorer.menu {
+        if let Some(menu) = &self.menu {
             return Some(self.menu_body(menu, true, cx));
         }
-        let (menu, _) = self.explorer.leaving.as_ref().filter(|(_, at)| at.elapsed() < LEAVE && !cx.reduce_motion())?;
+        let (menu, _) = self.leaving.as_ref().filter(|(_, at)| at.elapsed() < LEAVE && !cx.reduce_motion())?;
         Some(self.menu_body(menu, false, cx))
     }
 
@@ -487,11 +468,11 @@ impl Desktop {
             .children(chats);
         let body = if open {
             let close = cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.explorer.close_menu();
+                this.close_menu();
                 cx.notify();
             });
             let let_go = |this: &mut Self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>| {
-                if let Some(menu) = this.explorer.menu.as_mut() {
+                if let Some(menu) = this.menu.as_mut() {
                     menu.pressing = false;
                 }
             };
@@ -543,7 +524,7 @@ impl Desktop {
     }
 
     fn chat_list(&self, reach: &Reach, menu: &TreeMenu, open: bool, cx: &mut Context<Self>) -> Stateful<Div> {
-        let rows = self.chat_choices().into_iter().enumerate().map(|(i, c)| {
+        let rows = self.inputs.chats.iter().enumerate().map(|(i, c)| {
             let trailing = if !c.ready {
                 Some(div().text_size(px(12.)).text_color(TEXT_3).child("Needs you"))
             } else {

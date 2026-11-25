@@ -1,6 +1,7 @@
 use super::{HOST_ICONS, Reach, Space, colour, glyph, kept_name, space_of};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
+use crate::desktop::chrome::Confirm;
+use crate::region;
 use crate::settings::ssh_hosts::link_color;
 use crate::sidebar::rename::rename_field;
 use gpui_kit::component::input::{Input, InputState};
@@ -16,6 +17,7 @@ struct HostRename {
     _sub: Subscription,
 }
 
+#[derive(PartialEq)]
 pub(crate) struct Head {
     pub(crate) space: Space,
     pub(crate) name: String,
@@ -74,8 +76,11 @@ impl SpaceHeader {
         }
     }
 
-    pub(crate) fn set(&mut self, head: Head) {
-        self.head = head;
+    pub(crate) fn set(&mut self, head: Head, cx: &mut Context<Self>) {
+        if self.head != head {
+            self.head = head;
+            region::notify_after_draw(cx);
+        }
     }
 
     pub(crate) fn menu_open(&self) -> bool {
@@ -87,16 +92,24 @@ impl SpaceHeader {
         cx.notify();
     }
 
-    pub(crate) fn shut(&mut self) {
-        self.menu = false;
+    pub(crate) fn shut(&mut self, cx: &mut Context<Self>) {
+        if self.menu {
+            self.menu = false;
+            cx.notify();
+        }
     }
 
-    pub(crate) fn cancel_rename(&mut self) -> bool {
-        self.rename.take().is_some()
+    pub(crate) fn cancel_rename(&mut self, cx: &mut Context<Self>) -> bool {
+        let was = self.rename.take().is_some();
+        if was {
+            cx.notify();
+        }
+        was
     }
 
-    pub(crate) fn reset(&mut self) {
+    pub(crate) fn reset(&mut self, cx: &mut Context<Self>) {
         (self.menu, self.rename) = (false, None);
+        cx.notify();
     }
 
     fn start_rename(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -275,14 +288,14 @@ impl Desktop {
             reach: self.space_reach(space),
             terminal: self.space_terminal_target(space).is_some() && self.space_reach(space) == Reach::Online,
         };
-        self.sidebar.space_header.update(cx, |h, _| h.set(head));
+        self.sidebar.read(cx).space_header.clone().update(cx, |h, cx| h.set(head, cx));
     }
 
     pub(crate) fn on_space_header_event(&mut self, _: &Entity<SpaceHeader>, ev: &HeaderEvent, window: &mut Window, cx: &mut Context<Self>) {
         match ev {
             HeaderEvent::OpenMenu => {
                 self.close_menus(cx);
-                self.sidebar.space_header.update(cx, |h, cx| h.open(cx));
+                self.sidebar.read(cx).space_header.clone().update(cx, |h, cx| h.open(cx));
             }
             HeaderEvent::OpenTerminal => self.open_space_terminal(cx),
             HeaderEvent::HostSettings => self.show_hosts(window, cx),
@@ -305,7 +318,7 @@ impl Desktop {
                 self.save_soon(cx);
             }
             HeaderEvent::Remove { id, name } => {
-                (self.confirm, self.overlay) = (Some(Confirm::RemoveHost { id: id.clone(), name: name.clone() }), Some(Overlay::Confirm));
+                self.ask(Confirm::RemoveHost { id: id.clone(), name: name.clone() }, cx);
             }
         }
         cx.notify();

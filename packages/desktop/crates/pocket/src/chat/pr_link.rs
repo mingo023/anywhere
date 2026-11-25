@@ -1,8 +1,8 @@
 mod card;
 
 use super::markdown::{Open, Press, press};
-use crate::desktop::Desktop;
-use crate::git_ui::pull_request::{PullRequest, Sent, card_busy, to_fix, verdict};
+use super::transcript::View;
+use crate::git_ui::pull_request::{PrSide, Sent, card_busy, to_fix, verdict};
 use crate::git_ui::pull_requests::{PullRequests, glyph};
 use git::github::{Pr, PrState};
 use gpui_kit::base::HoverCard;
@@ -54,10 +54,10 @@ impl PrRef {
 }
 
 /// Where fixes from a card go: the worktree on screen and its agent, if it takes them.
-pub(super) struct FixTo {
-    pub(super) tree: Option<String>,
-    pub(super) agent: &'static str,
-    pub(super) can_send: bool,
+pub(crate) struct FixTo {
+    pub(crate) tree: Option<String>,
+    pub(crate) agent: &'static str,
+    pub(crate) can_send: bool,
 }
 
 /// The failed checks, by name, and the unresolved threads, by id, a card can hand to the agent.
@@ -78,7 +78,8 @@ fn fix_offer(pr: &Pr, fixing: Option<&Sent>, here: bool, can_send: bool) -> Opti
 }
 
 /// A PR a chat message links to, as one of the worktrees knows it.
-pub(super) struct Peek {
+#[derive(Clone)]
+pub(crate) struct Peek {
     at: PrRef,
     pr: Pr,
     verdict: (Token, String),
@@ -88,11 +89,9 @@ pub(super) struct Peek {
     agent: &'static str,
 }
 
-/// The PRs `text` links to, among those the worktrees have.
-pub(super) fn peeks(text: &str, prs: &PullRequests, state: &PullRequest, to: &FixTo) -> Arc<[Peek]> {
-    let lower = text.to_lowercase();
+pub(crate) fn peeks(prs: &PullRequests, state: &PrSide, to: &FixTo) -> Arc<[Peek]> {
     prs.all()
-        .filter_map(|(tree, pr)| Some((tree, pr, PrRef::parse(&pr.url).filter(|at| at.in_text(&lower))?)))
+        .filter_map(|(tree, pr)| Some((tree, pr, PrRef::parse(&pr.url)?)))
         .map(|(tree, pr, at)| {
             let fixing = state.track.fixing(tree, pr);
             let busy = card_busy(state.busy.as_ref(), state.composing.as_deref(), tree);
@@ -101,6 +100,11 @@ pub(super) fn peeks(text: &str, prs: &PullRequests, state: &PullRequest, to: &Fi
             Peek { at, pr: pr.clone(), verdict: verdict(pr, fixing.as_ref(), busy, to.agent), here, fix, agent: to.agent }
         })
         .collect()
+}
+
+pub(super) fn within(all: &[Peek], text: &str) -> Arc<[Peek]> {
+    let lower = text.to_lowercase();
+    all.iter().filter(|p| p.at.in_text(&lower)).cloned().collect()
 }
 
 /// What the plugin keeps of a PR link: where it points and the words it showed.
@@ -114,7 +118,7 @@ struct Link {
 pub(super) struct PrLinks {
     pub(super) peeks: Arc<[Peek]>,
     pub(super) open: Open,
-    pub(super) desktop: WeakEntity<Desktop>,
+    pub(super) view: WeakEntity<View>,
 }
 
 impl MarkdownPlugin for PrLinks {
@@ -172,13 +176,13 @@ impl MarkdownPlugin for PrLinks {
             });
         let baseline = size * 0.15 + ascent;
         let Some(i) = known else { return Some(InlineElement::new(chip).with_baseline(baseline)) };
-        let (peeks, open, url, desktop) = (self.peeks.clone(), self.open.clone(), link.url.clone(), self.desktop.clone());
+        let (peeks, open, url, view) = (self.peeks.clone(), self.open.clone(), link.url.clone(), self.view.clone());
         let hover = HoverCard::new(SharedString::from(format!("pr-peek-{}", link.url)))
             // Above the chip: a PR link mostly sits in the latest reply, just over the composer.
             .anchor(Anchor::BottomLeft)
             .open_delay(Duration::from_millis(350))
             .trigger(chip)
-            .content(move |_, _, _| div().id("pr-peek").pb(px(6.)).child(ui::menu_in("pr-peek-in", card::card(&peeks[i], open, url, desktop))));
+            .content(move |_, _, _| div().id("pr-peek").pb(px(6.)).child(ui::menu_in("pr-peek-in", card::card(&peeks[i], open, url, view))));
         Some(InlineElement::new(hover).with_baseline(baseline))
     }
 }

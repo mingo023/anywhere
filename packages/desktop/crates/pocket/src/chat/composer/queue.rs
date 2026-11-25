@@ -1,7 +1,6 @@
-use super::RADIUS;
+use super::{ChatBoxEvent, ComposerState, RADIUS};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
-use crate::util::now_ms;
 use agents::queue::Entry;
 use chat::{Delivery, Pending};
 use gpui_kit::component::input::RopeExt as _;
@@ -58,26 +57,54 @@ pub(super) fn control(key: String, tip: &'static str) -> Stateful<Div> {
         .tooltip(move |window, cx| Tooltip::new(tip).build(window, cx))
 }
 
-impl Desktop {
+pub(crate) struct Tray {
+    pub(crate) agent: String,
+    pub(crate) sends: Vec<Pending>,
+    pub(crate) entries: Vec<Waiting>,
+    pub(crate) paused: bool,
+    pub(crate) held: bool,
+}
+
+pub(crate) struct Waiting {
+    pub(crate) entry: Entry,
+    pub(crate) up: bool,
+    pub(crate) down: bool,
+}
+
+#[derive(Clone)]
+pub(crate) enum Queue {
+    Resume,
+    Steer(u64),
+    Edit(u64),
+    Remove(u64),
+    EntrySendNow(String),
+    EntryUp(String),
+    EntryDown(String),
+    EntryEdit(String),
+    EntryCancel(String),
+}
+
+impl ComposerState {
     /// The tray over the box: what waits, numbered in the order it goes, each with Steer, Edit and Remove; none when nothing waits.
     /// Once the user stopped the turn, or it failed, nothing goes until Resume.
     /// A pocketd that keeps the queue lists its entries first, with Send now, Move and Remove; a send held here follows.
-    pub(super) fn queue_tray(&self, agent: &str, sends: &[Pending], paused: bool, cx: &mut Context<Self>) -> Option<Div> {
-        let rows = waiting(sends);
-        let entries = self.agents.queues.of(agent);
+    pub(super) fn queue_tray(&self, tray: &Tray, cx: &mut Context<Self>) -> Option<Div> {
+        let Tray { agent, sends: rows, entries, paused, held } = tray;
         if rows.is_empty() && entries.is_empty() {
             return None;
         }
-        let held = self.agents.queues.paused(agent);
+        let ask = |agent: &String, what: Queue| {
+            let agent = agent.clone();
+            cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(ChatBoxEvent::Queue { agent: agent.clone(), what: what.clone() }))
+        };
         let resume = paused.then(|| {
-            let agent = agent.to_string();
             control(format!("chat-queue-resume:{agent}"), "Send the queued messages in order")
                 .px(px(8.))
                 .gap(px(5.))
                 .text_color(TEXT_2)
                 .child(icon("play", 12., TEXT_2))
                 .child("Resume")
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_queue_resume(&agent, cx)))
+                .on_click(ask(agent, Queue::Resume))
         });
         let header = div()
             .min_h(px(26.))
@@ -88,14 +115,10 @@ impl Desktop {
             .text_color(TEXT_2)
             .child(icon("list", 13., TEXT_2))
             .child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(format!("{} queued", rows.len() + entries.len())))
-            .child(header_note(paused, held))
+            .child(header_note(*paused, *held))
             .child(div().flex_1())
             .children(resume);
-        let row = |(n, p): (usize, &&Pending)| {
-            let on = |f: fn(&mut Self, &str, u64, &mut Window, &mut Context<Self>)| {
-                let (agent, send) = (agent.to_string(), p.id);
-                cx.listener(move |this, _: &ClickEvent, window, cx| f(this, &agent, send, window, cx))
-            };
+        let row = |(n, p): (usize, &Pending)| {
             let key = |what: &str| format!("chat-queue-{what}:{agent}:{}", p.id);
             let steer = control(key("steer"), "Send into the turn underway")
                 .px(px(8.))
@@ -104,7 +127,7 @@ impl Desktop {
                 .text_color(TEXT_2)
                 .child(icon("forward", 12., TEXT_2))
                 .child("Steer")
-                .on_click(on(Self::chat_queue_steer));
+                .on_click(ask(agent, Queue::Steer(p.id)));
             div()
                 .min_h(px(32.))
                 .flex()
@@ -114,20 +137,20 @@ impl Desktop {
                 .child(number(n))
                 .child(div().flex_1().min_w_0().truncate().text_color(TEXT_BODY).child(p.text.lines().next().unwrap_or_default().to_string()))
                 .child(steer)
-                .child(control(key("edit"), "Edit queued message").child(icon("pencil", 13., TEXT_3)).on_click(on(Self::chat_queue_edit)))
-                .child(control(key("remove"), "Remove queued message").child(icon("x", 13., TEXT_3)).on_click(on(Self::chat_queue_remove)))
+                .child(control(key("edit"), "Edit queued message").child(icon("pencil", 13., TEXT_3)).on_click(ask(agent, Queue::Edit(p.id))))
+                .child(control(key("remove"), "Remove queued message").child(icon("x", 13., TEXT_3)).on_click(ask(agent, Queue::Remove(p.id))))
         };
-        let entry_row = |(n, e): (usize, &Entry)| {
-            let on = |f: fn(&mut Self, &str, &str, &mut Window, &mut Context<Self>)| {
-                let (agent, entry) = (agent.to_string(), e.id.clone());
-                cx.listener(move |this, _: &ClickEvent, window, cx| f(this, &agent, &entry, window, cx))
-            };
+        let entry_row = |(n, w): (usize, &Waiting)| {
+            let e = &w.entry;
             let key = |what: &str| format!("chat-queue-{what}:{agent}:{}", e.id);
-            let queues = &self.agents.queues;
             let move_by = |up: bool, tip: &'static str, name: &'static str| {
-                let to = queues.before_move(agent, &e.id, up).is_some();
+                let to = if up { w.up } else { w.down };
                 let button = control(key(if up { "up" } else { "down" }), tip).child(icon(name, 12., if to { TEXT_3 } else { TEXT_6 }));
-                if to { button.on_click(on(if up { Self::chat_entry_up } else { Self::chat_entry_down })) } else { button.cursor_default() }
+                if to {
+                    button.on_click(ask(agent, if up { Queue::EntryUp(e.id.clone()) } else { Queue::EntryDown(e.id.clone()) }))
+                } else {
+                    button.cursor_default()
+                }
             };
             let sending = e.state == "sending";
             let controls = (!sending).then(|| {
@@ -144,10 +167,10 @@ impl Desktop {
                             .text_color(TEXT_2)
                             .child(icon("forward", 12., TEXT_2))
                             .child("Send now")
-                            .on_click(on(Self::chat_entry_send_now)),
+                            .on_click(ask(agent, Queue::EntrySendNow(e.id.clone()))),
                     )
-                    .child(control(key("edit"), "Edit queued message").child(icon("pencil", 13., TEXT_3)).on_click(on(Self::chat_entry_edit)))
-                    .child(control(key("remove"), "Remove queued message").child(icon("x", 13., TEXT_3)).on_click(on(Self::chat_entry_cancel)))
+                    .child(control(key("edit"), "Edit queued message").child(icon("pencil", 13., TEXT_3)).on_click(ask(agent, Queue::EntryEdit(e.id.clone()))))
+                    .child(control(key("remove"), "Remove queued message").child(icon("x", 13., TEXT_3)).on_click(ask(agent, Queue::EntryCancel(e.id.clone()))))
             });
             div()
                 .min_h(px(32.))
@@ -172,6 +195,36 @@ impl Desktop {
                 .children(entries.iter().enumerate().map(entry_row))
                 .children(rows.iter().enumerate().map(|(n, p)| row((entries.len() + n, p)))),
         )
+    }
+}
+
+impl Desktop {
+    pub(super) fn queue_of(&self, agent: &str, sends: &[Pending], paused: bool) -> Tray {
+        let queues = &self.agents.queues;
+        let entries = queues
+            .of(agent)
+            .iter()
+            .map(|e| Waiting {
+                entry: e.clone(),
+                up: queues.before_move(agent, &e.id, true).is_some(),
+                down: queues.before_move(agent, &e.id, false).is_some(),
+            })
+            .collect();
+        Tray { agent: agent.to_string(), sends: waiting(sends).into_iter().cloned().collect(), entries, paused, held: queues.paused(agent) }
+    }
+
+    pub(super) fn on_queue(&mut self, agent: &str, what: &Queue, window: &mut Window, cx: &mut Context<Self>) {
+        match what {
+            Queue::Resume => self.chat_queue_resume(agent, cx),
+            Queue::Steer(send) => self.chat_queue_steer(agent, *send, window, cx),
+            Queue::Edit(send) => self.chat_queue_edit(agent, *send, window, cx),
+            Queue::Remove(send) => self.chat_queue_remove(agent, *send, window, cx),
+            Queue::EntrySendNow(entry) => self.chat_entry_send_now(agent, entry, window, cx),
+            Queue::EntryUp(entry) => self.chat_entry_up(agent, entry, window, cx),
+            Queue::EntryDown(entry) => self.chat_entry_down(agent, entry, window, cx),
+            Queue::EntryEdit(entry) => self.chat_entry_edit(agent, entry, window, cx),
+            Queue::EntryCancel(entry) => self.chat_entry_cancel(agent, entry, window, cx),
+        }
     }
 
     fn entry_do(&mut self, agent: &str, entry: &str, send: impl FnOnce(&Self)) {
@@ -219,15 +272,15 @@ impl Desktop {
     }
 
     pub(crate) fn chat_queue_remove(&mut self, agent: &str, send: u64, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(v) = self.chats.views.get_mut(agent) {
-            v.session.outgoing.withdraw(send);
+        if let Some(v) = self.chats.views.get(agent) {
+            v.update(cx, |v, _| v.withdraw(send));
             cx.notify();
         }
     }
 
     /// Takes a held send back into the composer to rework.
     pub(crate) fn chat_queue_edit(&mut self, agent: &str, send: u64, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(text) = self.chats.views.get_mut(agent).and_then(|v| v.session.outgoing.withdraw(send)) else { return };
+        let Some(text) = self.chats.views.get(agent).and_then(|v| v.update(cx, |v, _| v.withdraw(send))) else { return };
         self.chat_take_back(agent, &text, window, cx);
     }
 
@@ -244,20 +297,19 @@ impl Desktop {
 
     /// Lets the queue go on past the turn it was paused behind; the next send goes once the agent is idle.
     pub(crate) fn chat_queue_resume(&mut self, agent: &str, cx: &mut Context<Self>) {
-        if let Some(v) = self.chats.views.get_mut(agent) {
-            v.session.outgoing.resume(&v.session.transcript);
-            self.refresh_chats();
+        if let Some(v) = self.chats.views.get(agent) {
+            v.update(cx, |v, _| v.resume_queue());
+            self.refresh_chats(cx);
             cx.notify();
         }
     }
 
     /// Sends a held send now: the agent takes it mid-turn.
     pub(crate) fn chat_queue_steer(&mut self, agent: &str, send: u64, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(v) = self.chats.views.get_mut(agent) else { return };
-        let Some(text) = v.session.outgoing.steer(send, now_ms()) else { return };
-        v.steered();
+        let Some(v) = self.chats.views.get(agent) else { return };
+        let Some(text) = v.update(cx, |v, _| v.steer_held(send)) else { return };
         if let Some(request) = self.outbox.prompt(agent, &text) {
-            v.session.outgoing.sent_as(send, request);
+            v.update(cx, |v, _| v.sent_as(send, request));
         }
         cx.notify();
     }

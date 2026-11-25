@@ -1,6 +1,7 @@
 use crate::rows::{Span, at_work, group_start, rows_from};
 use crate::{Backend, Block, Delivery, Fold, Outgoing, Row, Transcript, Turn, splice};
 use std::ops::Range;
+use std::sync::Arc;
 
 /// Open/closed choices the user made, by row id: folds, phases and sub-agents.
 pub type Folds = std::collections::HashMap<String, bool>;
@@ -12,7 +13,8 @@ pub type Change = (Range<usize>, Range<usize>, usize);
 /// One agent's chat as the view shows it; rebuilt only when the agent's items change.
 #[derive(Default)]
 pub struct Session {
-    pub transcript: Transcript,
+    /// Shared, so a view draws from it without borrowing the session; an update copies it only while a draw still holds it.
+    pub transcript: Arc<Transcript>,
     pub rows: Vec<Row>,
     pub ids: Vec<String>,
     pub folds: Folds,
@@ -36,7 +38,7 @@ impl Session {
             self.revision = revision;
             self.outgoing.moved();
             let turns = self.transcript.turns.len();
-            let replaced = backend.refold(items, &mut self.transcript, &mut self.fold);
+            let replaced = backend.refold(items, Arc::make_mut(&mut self.transcript), &mut self.fold);
             (turns - replaced.len(), replaced)
         });
         self.outgoing.settle(&self.transcript, working, now_ms);
@@ -65,11 +67,11 @@ impl Session {
 
     /// Shows a transcript folded elsewhere, such as a sub-agent's inside its parent's, and returns how the rows moved, if they did.
     pub fn show(&mut self, transcript: Transcript) -> Option<Change> {
-        if transcript == self.transcript {
+        if transcript == *self.transcript {
             return None;
         }
         self.fold = Fold::default();
-        let old = std::mem::replace(&mut self.transcript, transcript);
+        let old = std::mem::replace(&mut self.transcript, Arc::new(transcript));
         self.resplice(0, &old.turns)
     }
 
@@ -426,7 +428,7 @@ mod tests {
             let splice = s.update(backend, n as u64 + 1, &items, false, 0);
             let full = backend.transcript(&items);
             let rows = rows(&full, 0, false);
-            assert_eq!(s.transcript, full, "update {n}");
+            assert_eq!(*s.transcript, full, "update {n}");
             assert_eq!(s.rows, rows, "update {n}");
             assert_eq!(s.ids, rows.iter().map(|r| r.id(&full)).collect::<Vec<_>>(), "update {n}");
             assert_eq!(splice, full_splice(&shown, &full), "update {n}");

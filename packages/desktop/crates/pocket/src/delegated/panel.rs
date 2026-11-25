@@ -1,4 +1,4 @@
-use super::{Slot, shown};
+use super::shown;
 use crate::chat::sub_agent::{self, Mark};
 use crate::chat::user_bubble::text_lines;
 use crate::desktop::{Desktop, ReduceTransparency};
@@ -364,7 +364,7 @@ impl Desktop {
         let view = cx.new(|_| PanelView::new());
         let id = parent.to_string();
         let sub = cx.subscribe_in(&view, window, move |this, _, ev, window, cx| this.on_delegated_panel(&id, ev, window, cx));
-        self.delegated.panels.insert(parent.to_string(), Slot { view: view.clone(), _sub: sub });
+        self.delegated.panels.insert(parent.to_string(), super::Slot { view: view.clone(), _sub: sub });
         view
     }
 

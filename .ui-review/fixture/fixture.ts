@@ -170,6 +170,11 @@ for (const r of [...scenario.repos, ...(process.env.FIXTURE_REGISTRY ? ["app-ext
   git(p, "config", "user.email", "dev@example.com");
   for (const a of scenario.agents.filter((a) => a.repo === r)) for (const [f, , removed] of a.diff ?? []) write(join(p, f), lines("base", removed + 10));
   write(join(p, "README.md"), `# ${r}\n`);
+  // FIXTURE_PREVIEWS=1 adds a markdown file with a mermaid diagram and a PNG to the first repo, for previewing.
+  if (process.env.FIXTURE_PREVIEWS && r === scenario.repos[0]) {
+    write(join(p, "docs/diagram.md"), "# Flow\n\n```mermaid\nflowchart LR\n  A[Start] --> B[Build]\n  B --> C[Ship]\n```\n\nAfter the diagram.\n");
+    writeFileSync(join(p, "docs/logo.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAEklEQVR4nGP4z8DwH4YZRgUBAEZbCf8w0yX9AAAAAElFTkSuQmCC", "base64"));
+  }
   if (CHANGED && r === scenario.repos[0]) for (let i = 0; i < CHANGED; i++) write(join(p, changedFile(i)), lines("base", 6));
   git(p, "add", "-A");
   git(p, "commit", "-q", "-m", "Initial commit");
@@ -185,7 +190,8 @@ for (const [key, agents] of trees) {
     git(w, "add", "-A");
     git(w, "commit", "-q", "-m", `Start ${b}`);
   }
-  for (const [f, added, removed] of agents.flatMap((a) => a.diff ?? [])) write(join(w, f), lines("next", added) + lines("base", removed + 10).split("\n").slice(removed).join("\n"));
+  // FIXTURE_DIFF_LINES=n makes the first worktree's first changed file n added lines, a big single-file diff.
+  for (const [f, added0, removed] of agents.flatMap((a) => a.diff ?? [])) write(join(w, f), lines("next", process.env.FIXTURE_DIFF_LINES && f === RESTORE[0][0] ? Number(process.env.FIXTURE_DIFF_LINES) : added0) + lines("base", removed + 10).split("\n").slice(removed).join("\n"));
   if (CHANGED && r === scenario.repos[0] && trees.keys().next().value === key) for (let i = 0; i < CHANGED; i++) write(join(w, changedFile(i)), lines("next", 2) + lines("base", 6));
 }
 
@@ -273,6 +279,26 @@ if (chatWorking && scenario.agents[0]?.id === CHAT_AGENT) scenario.agents[0].sta
 // FIXTURE_IDLE: nothing running anywhere, so no sidebar spinner redraws the window; for measuring idle cost.
 if (process.env.FIXTURE_IDLE) for (const a of scenario.agents) a.status = "idle";
 
+// FIXTURE_GH_STUB=1 puts a `gh` on this Mac's login-shell PATH: one account, `pr view` always refused (so the PRs a capture step set stay), and
+// comment, create, merge, ready and graphql mutations succeed. Each call is appended to <home>/gh.log, argv then the working directory.
+if (process.env.FIXTURE_GH_STUB) {
+  const script = `#!/bin/sh
+echo "$* (in $PWD)" >> "$HOME/gh.log"
+case "$1 $2" in
+  "--version "*) echo "gh version 2.81.0 (2026-01-01)";;
+  "auth status") printf 'github.com\\n  ✓ Logged in to github.com account me (keyring)\\n  - Active account: true\\n';;
+  "auth token") echo stubtoken;;
+  "pr create") cat > /dev/null; echo "https://github.com/acme/app/pull/130";;
+  "pr comment") cat > /dev/null; echo "https://github.com/acme/app/pull/128#issuecomment-9";;
+  "pr merge"|"pr ready"|"api graphql") exit 0;;
+  *) echo "stub: gh $*" >&2; exit 1;;
+esac
+`;
+  write(join(home, "bin", "gh"), script);
+  Bun.spawnSync(["chmod", "+x", join(home, "bin", "gh")]);
+  write(join(home, ".config", "fish", "config.fish"), "set -gx PATH $HOME/bin $PATH\n");
+  for (const f of [".zprofile", ".profile", ".bash_profile"]) write(join(home, f), 'export PATH="$HOME/bin:$PATH"\n');
+}
 const now = Date.now();
 if (process.env.FIXTURE_LOOSE) {
   for (const d of ["Downloads", "notes"]) mkdirSync(join(home, d), { recursive: true });
@@ -427,6 +453,7 @@ const CODEX = [
 ];
 const ROWS = 37;
 const screen = (id: string) => {
+  if (id.startsWith("sh")) return "dev@fixture ~ % ";
   const body = scenario.agents.find((a) => a.id === id)?.term === "codex" ? CODEX : [];
   return `${ESC}?25l` + [...Array(ROWS - body.length).fill(""), ...body].join("\r\n");
 };
@@ -485,6 +512,7 @@ const ACCOUNTS = [
 
 // The sockets of the desktop's line-JSON channel, to tell of terminals that appear while it runs.
 const conns = new Set<Socket>();
+let spawned = 0;
 // This Mac's pocketd's lineage: the worktrees each tree's subagents worked in.
 const macLineage = new Map<string, string[]>();
 const ops = (c: Socket, first: Buffer) => {
@@ -507,6 +535,16 @@ const ops = (c: Socket, first: Buffer) => {
         reply({ ev: "spawned", id, text: op.id || "added" });
         announce();
       }
+      if (process.env.FIXTURE_LOG && ["input", "resize", "spawn", "close"].includes(op.op))
+        appendFileSync(process.env.FIXTURE_LOG.replace(/\.jsonl$/, "-terminals.jsonl"), JSON.stringify({ ...op, ...(op.data && { data: Buffer.from(op.data, "base64").toString("latin1") }) }) + "\n");
+      // A new terminal (a split, a new tab) is a shell with a prompt; input is echoed back as output.
+      if (op.op === "spawn") {
+        const id = `sh${++spawned}`;
+        sessions.push({ id, cmd: "/bin/zsh", args: ["-l"], cwd: op.cwd ?? "/" });
+        reply({ ev: "spawned", id });
+        announce();
+      }
+      if (op.op === "input") reply({ ev: "output", id: op.id, data: op.data });
     }
   };
   read(first);

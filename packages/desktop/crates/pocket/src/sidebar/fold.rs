@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use theme::SPRING;
 
 /// Long enough for `SPRING` to settle, so a fold's rows stay drawn until it has closed over them.
-const SHUTTING: Duration = Duration::from_millis(500);
+pub(super) const SHUTTING: Duration = Duration::from_millis(500);
 
 /// A sidebar fold: a project's trees, a group's projects, Pinned, or Sessions.
 #[derive(Clone, PartialEq, Eq, Hash)]

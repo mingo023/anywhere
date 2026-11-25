@@ -1,13 +1,17 @@
-use crate::desktop::Desktop;
-use crate::desktop::chrome::{SEAM, id};
+use super::{Panels, PanelsEvent};
+use crate::desktop::chrome::{SEAM, id, seam_handle};
 use gpui_kit::*;
 use workspace::tree::{Axis, Divider, UNIT};
 
-impl Desktop {
+impl Panels {
     /// The seam before cell `j` of the split at `path`: drag it to resize, double-click it to even the split out.
-    pub(super) fn divider(&self, path: &[usize], j: usize, axis: Axis, cx: &mut Context<Self>) -> Option<Deferred> {
+    pub(super) fn divider(&self, path: &[usize], j: usize, axis: Axis, seams: bool, cx: &mut Context<Self>) -> Option<Deferred> {
+        // The deferred handle paints above overlays, so it would steal their clicks.
+        if !seams {
+            return None;
+        }
         let at = path.to_vec();
-        let handle = self.seam(id(format!("divider:{path:?}:{j}")), axis, move |this, cx| this.equalize_split(&at, cx), cx)?;
+        let handle = seam_handle(id(format!("divider:{path:?}:{j}")), axis, move |this: &mut Self, cx| this.equalize_split(&at, cx), cx);
         let handle = match axis {
             Axis::Row => handle.left(px(-SEAM / 2.)),
             Axis::Column => handle.top(px(-SEAM / 2.)),
@@ -19,21 +23,20 @@ impl Desktop {
     }
 
     pub(super) fn resize_split(&mut self, d: &Divider, at: f32, len: f32, cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
-        let t = &mut self.workspace(&tree).tree;
-        let before = t.layout(UNIT);
-        t.resize(d, at, len);
+        let moved = self.edit(cx, |w| {
+            let t = &mut w.tree;
+            let before = t.layout(UNIT);
+            t.resize(d, at, len);
+            t.layout(UNIT) != before
+        });
         // A drag move comes every frame, moved or not; notifying on each would redraw forever.
-        if t.layout(UNIT) != before {
-            self.save_soon(cx);
-            cx.notify();
+        if moved == Some(true) {
+            cx.emit(PanelsEvent::Changed);
         }
     }
 
     fn equalize_split(&mut self, path: &[usize], cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
-        self.workspace(&tree).tree.equalize(path);
-        self.save_soon(cx);
-        cx.notify();
+        self.edit(cx, |w| w.tree.equalize(path));
+        cx.emit(PanelsEvent::Changed);
     }
 }

@@ -392,6 +392,40 @@ pub struct Subtree {
     pub started: u64,
 }
 
+/// Calls `$to` with the names of the fields Settings reads of the store.
+macro_rules! settings_fields {
+    ($to:ident) => {
+        $to!(
+            projects,
+            repos,
+            collapsed,
+            layout,
+            widths,
+            sounds,
+            notifications,
+            appearance,
+            worktree,
+            tracked,
+            scratch,
+            scratch_folded,
+            advanced,
+            general,
+            agents,
+            automations,
+            phone,
+            sidebar,
+            terminal,
+            files,
+            browser,
+            git,
+            diff,
+            keys,
+            sections,
+            path
+        )
+    };
+}
+
 /// What the desktop remembers across launches, in `desktop.json` next to pocketd's socket.
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
 #[serde(default)]
@@ -504,6 +538,23 @@ impl Store {
         if let Some((path, raw)) = self.encode() {
             write(&path, &raw);
         }
+    }
+
+    /// A copy of what Settings reads, leaving out the panel layouts, scopes, subtree records, window and Board views, which
+    /// are large, not `Clone` or never shown there.
+    pub fn settings_view(&self) -> Store {
+        macro_rules! copy {
+            ($($field:ident),*) => { Store { $($field: Clone::clone(&self.$field),)* ..Store::default() } };
+        }
+        settings_fields!(copy)
+    }
+
+    /// Whether `view`, as `settings_view` made it, still holds what Settings reads.
+    pub fn settings_unchanged(&self, view: &Store) -> bool {
+        macro_rules! same {
+            ($($field:ident),*) => { true $(&& self.$field == view.$field)* };
+        }
+        settings_fields!(same)
     }
 
     /// The file and bytes `save` would write, for writing off the UI thread.
@@ -662,6 +713,34 @@ fn write_private(path: &Path, raw: &[u8]) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_settings_view_keeps_what_settings_shows_and_drops_the_rest() {
+        let mut store = Store::default();
+        store.add("/w/app");
+        store.advanced.insert("general".into());
+        store.keys.insert("desktop::NewTab".into(), "cmd-t".into());
+        store.scopes.insert("/w/app".into(), scope::Scope { compare: true, against: scope::Against::Ref("origin/dev".into()) });
+        let view = store.settings_view();
+        assert_eq!((&view.projects, &view.advanced, &view.keys), (&store.projects, &store.advanced, &store.keys));
+        assert!(view.scopes.is_empty());
+    }
+
+    #[test]
+    fn a_settings_view_is_unchanged_until_something_it_shows_is_written() {
+        let mut store = Store::default();
+        store.add("/w/app");
+        let view = store.settings_view();
+        assert!(store.settings_unchanged(&view));
+        store.window = Some(WindowGeometry { display: None, x: 1., y: 2., width: 3., height: 4. });
+        store.scopes.insert("/w/app".into(), scope::Scope::default());
+        assert!(store.settings_unchanged(&view));
+        store.keys.insert("desktop::NewTab".into(), "cmd-t".into());
+        assert!(!store.settings_unchanged(&view));
+        assert!(store.settings_unchanged(&store.settings_view()));
+        store.git.remote = "upstream".into();
+        assert!(!store.settings_unchanged(&view));
+    }
 
     #[test]
     fn a_worktrees_compare_scope_is_remembered() {

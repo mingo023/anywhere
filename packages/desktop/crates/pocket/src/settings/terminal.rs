@@ -1,6 +1,6 @@
 use super::appearance::{FontMenu, font_row, monospaced};
 use super::catalog::{Look, Setting};
-use super::{action, field_box, row};
+use super::{Settings, SettingsEvent, action, field_box, row};
 use crate::desktop::Desktop;
 use crate::terminal_view::surface::Metrics;
 use crate::terminals::sessions::config;
@@ -108,8 +108,9 @@ pub(super) const ROWS: &[Setting] = &[
         .effect(configure),
 ];
 
-fn configure(d: &mut Desktop, _: &mut Context<Desktop>) {
-    d.terminals.sessions.configure(config(&d.store.terminal));
+fn configure(d: &mut Desktop, cx: &mut Context<Desktop>) {
+    let config = config(&d.store.terminal);
+    d.terminals.update(cx, |t, _| t.sessions.configure(config));
 }
 
 fn hex(c: u32) -> Hsla {
@@ -117,7 +118,7 @@ fn hex(c: u32) -> Hsla {
 }
 
 /// A prompt, a command and its result in the chosen font and colors, ANSI-coloured as a shell would.
-fn preview(d: &mut Desktop, setting: &'static Setting, _: &mut Context<Desktop>) -> Div {
+fn preview(d: &mut Settings, setting: &'static Setting, _: &mut Context<Settings>) -> Div {
     let t = &d.store.terminal;
     let m = Metrics::of(t);
     let ansi = t.colors().map(hex);
@@ -182,7 +183,7 @@ fn ansi_name(i: usize) -> String {
 }
 
 /// Opens colour `i` in a hex field that recolours the terminals as it's typed.
-fn edit_swatch(d: &mut Desktop, setting: &'static Setting, i: usize, window: &mut Window, cx: &mut Context<Desktop>) {
+fn edit_swatch(d: &mut Settings, setting: &'static Setting, i: usize, window: &mut Window, cx: &mut Context<Settings>) {
     let value = format!("#{:06X}", d.store.terminal.colors()[i]);
     let field = cx.new(|cx| InputState::new(window, cx).placeholder("#RRGGBB").default_value(value));
     let changes = cx.subscribe_in(&field, window, move |this, field, ev: &InputEvent, _, cx| match ev {
@@ -190,22 +191,21 @@ fn edit_swatch(d: &mut Desktop, setting: &'static Setting, i: usize, window: &mu
             if let Some(c) = parse_hex(&field.read(cx).value())
                 && this.store.terminal.colors()[i] != c
             {
-                this.store.terminal.set_color(i, c);
-                this.changed(setting, cx);
+                this.set(setting, cx, move |s| s.terminal.set_color(i, c));
             }
         }
         InputEvent::PressEnter { .. } => {
-            this.settings.swatch = None;
+            this.swatch = None;
             cx.notify();
         }
         _ => {}
     });
     field.update(cx, |f, cx| f.focus(window, cx));
-    d.settings.swatch = Some(Swatch { index: i, field, _changes: changes });
+    d.swatch = Some(Swatch { index: i, field, _changes: changes });
     cx.notify();
 }
 
-impl Desktop {
+impl Settings {
     pub(crate) fn edit_terminal_color(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
         let setting = ROWS.iter().find(|s| s.id == "swatches").expect("the swatches row");
         edit_swatch(self, setting, i, window, cx);
@@ -213,9 +213,9 @@ impl Desktop {
 }
 
 /// The scheme's 16 colors, normal above and bright below; clicking one opens it for editing.
-fn swatches(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Desktop>) -> Div {
+fn swatches(d: &mut Settings, setting: &'static Setting, cx: &mut Context<Settings>) -> Div {
     let colors = d.store.terminal.colors();
-    let editing = d.settings.swatch.as_ref().map(|s| s.index);
+    let editing = d.swatch.as_ref().map(|s| s.index);
     let cell = |i: usize| {
         div()
             .id(("terminal-swatch", i))
@@ -227,11 +227,11 @@ fn swatches(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Desktop
             .shadow(vec![if editing == Some(i) { ui::ring(TEXT, 1.5) } else { ui::ring(SEPARATOR, 0.5) }])
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| edit_swatch(this, setting, i, window, cx)))
     };
-    let editor = d.settings.swatch.as_ref().map(|s| {
+    let editor = d.swatch.as_ref().map(|s| {
         let field =
             field_box().w(px(110.)).child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(&s.field).appearance(false).p_0().text_size(px(12.))));
         let done = action("terminal-swatch-done", "Done").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.settings.swatch = None;
+            this.swatch = None;
             cx.notify();
         }));
         div()
@@ -249,28 +249,22 @@ fn swatches(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Desktop
 }
 
 /// The custom shell, chosen as a file; one that can't run is refused, so new terminals never fail to open.
-fn shell_path(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Desktop>) -> Div {
+fn shell_path(d: &mut Settings, setting: &'static Setting, cx: &mut Context<Settings>) -> Div {
     let path = d.store.terminal.shell_path.clone();
     let shown = if path.is_empty() { "Not set".to_string() } else { crate::util::tilde(&path) };
     let field = field_box()
         .child(icon("terminal", 13., TEXT_3))
         .child(div().flex_1().min_w_0().truncate().font_family(MONO).text_size(px(12.)).text_color(if path.is_empty() { TEXT_3 } else { TEXT }).child(shown));
     let choose = action("shell-path-choose", "Choose…").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-        this.pick_path(false, window, cx, move |_, paths, _, cx| {
+        this.pick_paths(false, window, cx, move |_, paths, cx| {
             let Some(p) = paths.into_iter().next() else { return };
             let p = p.to_string_lossy().into_owned();
             let check = p.clone();
             cx.spawn(async move |this, cx| {
                 let problem = cx.background_executor().spawn(async move { shell_problem(&check, runs) }).await;
-                this.update(cx, |d, cx| match problem {
-                    Some(problem) => {
-                        d.error = Some(problem);
-                        cx.notify();
-                    }
-                    None => {
-                        d.store.terminal.shell_path = p;
-                        d.changed(setting, cx);
-                    }
+                this.update(cx, |s, cx| match problem {
+                    Some(problem) => cx.emit(SettingsEvent::Error(problem)),
+                    None => s.set(setting, cx, move |s| s.terminal.shell_path = p.clone()),
                 })
                 .ok();
             })

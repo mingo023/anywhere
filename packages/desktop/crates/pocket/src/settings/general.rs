@@ -1,6 +1,6 @@
 use super::catalog::{Look, Setting};
 use super::host::service_line;
-use super::{action, row};
+use super::{Settings, SettingsEvent, action, row};
 use crate::desktop::Desktop;
 use crate::updates::Update;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -186,7 +186,7 @@ impl Desktop {
             let result = cx.background_executor().spawn(async move { daemon::service::open_at_login(on) }).await;
             this.update(cx, |d, cx| {
                 if let Err(e) = result {
-                    d.error = Some(format!("Couldn't change opening at login: {e}"));
+                    d.fail(format!("Couldn't change opening at login: {e}"), cx);
                     d.store.general.open_at_login = !on;
                     d.save_soon(cx);
                     cx.notify();
@@ -195,19 +195,21 @@ impl Desktop {
         })
         .detach();
     }
+}
 
+impl Settings {
     fn service_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let line = service_line(!self.terminals.link.is_down(), self.settings.host.status.as_ref());
+        let line = service_line(!self.side.link_down, self.host.status.as_ref());
         let title = div()
             .flex()
             .flex_col()
             .gap(px(1.))
             .child("Background service")
             .child(div().text_size(px(12.)).line_height(px(16.)).font_weight(FontWeight::NORMAL).text_color(TEXT_3).child(line));
-        let restart = self.terminals.link.service.is_some().then(|| {
+        let restart = self.side.service.then(|| {
             action("settings-restart-service", "Restart service").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.settings.host.status = None;
-                this.restart_service(cx);
+                this.host.status = None;
+                cx.emit(SettingsEvent::RestartService);
             }))
         });
         row(title, None, div().when_some(restart, |d, c| d.child(c)))
@@ -215,7 +217,7 @@ impl Desktop {
 
     fn cli_row(&mut self, cx: &mut Context<Self>) -> Div {
         let available = cfg!(target_os = "macos") && channel::is_release();
-        let installed = self.settings.host.cli;
+        let installed = self.host.cli;
         let title =
             div().flex().flex_col().gap(px(1.)).child("Command line tool").child(
                 div().text_size(px(12.)).line_height(px(16.)).font_weight(FontWeight::NORMAL).text_color(TEXT_3).child(cli_status(available, installed)),
@@ -228,10 +230,10 @@ impl Desktop {
     fn install_cli(&mut self, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
             let result = cx.background_executor().spawn(async { daemon::cli::install() }).await;
-            this.update(cx, |d, cx| {
+            this.update(cx, |s, cx| {
                 match result {
-                    Ok(()) => d.settings.host.cli = true,
-                    Err(e) => d.error = Some(format!("Couldn't install the command line tool: {e}")),
+                    Ok(()) => s.host.cli = true,
+                    Err(e) => cx.emit(SettingsEvent::Error(format!("Couldn't install the command line tool: {e}"))),
                 }
                 cx.notify();
             })
@@ -240,19 +242,19 @@ impl Desktop {
     }
 
     fn star_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let thanked = self.star.read(cx).thanked;
+        let thanked = self.side.thanked;
         let label = div()
             .flex()
             .items_center()
             .gap(px(6.))
             .child(crate::star::glyph("settings-star-pop", thanked, 13., cx.reduce_motion()))
             .child(if thanked { "Thank you" } else { "Star" });
-        let star = action("settings-star", label).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.star_on_github(cx)));
+        let star = action("settings-star", label).on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::StarOnGithub)));
         row("Star Anywhere on GitHub", Some(STAR_HINT), star)
     }
 
     fn update_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let (dot, status) = update_status(&self.updates.update, self.updates.available());
+        let (dot, status) = update_status(&self.side.update, self.side.updates_available);
         let title = div().flex().flex_col().gap(px(1.)).child(format!("Anywhere {}", channel::version())).child(
             div()
                 .flex()
@@ -265,16 +267,16 @@ impl Desktop {
                 .children(dot.map(|c| ui::dot(8., c)))
                 .child(status),
         );
-        let control = match self.updates.update {
+        let control = match self.side.update {
             Update::Ready { .. } => Some(
                 action("settings-restart-update", "Restart to update")
                     .bg(TEXT)
                     .text_color(ON_TEXT)
                     .hover(|d| d.bg(TEXT))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.restart_to_update(cx))),
+                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::RestartToUpdate))),
             ),
-            _ if self.updates.available() => {
-                Some(action("settings-check-updates", "Check now").on_click(cx.listener(|this, _: &ClickEvent, _, _| this.updates.check())))
+            _ if self.side.updates_available => {
+                Some(action("settings-check-updates", "Check now").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::CheckUpdates))))
             }
             _ => None,
         };

@@ -5,7 +5,7 @@ pub(crate) mod sessions;
 pub(crate) mod updating;
 
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
+use crate::desktop::chrome::Confirm;
 use crate::terminals::bell::Bell;
 use crate::terminals::link::Link;
 use crate::terminals::sessions::Sessions;
@@ -31,6 +31,13 @@ pub(crate) enum Fit {
     Later,
     Same,
 }
+
+pub(crate) enum TerminalsEvent {
+    Resize { id: String, cols: u16, rows: u16 },
+    RestartService,
+}
+
+impl EventEmitter<TerminalsEvent> for Terminals {}
 
 pub struct Terminals {
     pub(crate) sessions: Sessions,
@@ -233,6 +240,37 @@ impl Terminals {
         Fit::Later
     }
 
+    pub(crate) fn request_fit(&mut self, id: &str, cols: u16, rows: u16, cx: &mut Context<Self>) -> Fit {
+        let fit = self.fit(id, cols, rows);
+        if fit == Fit::Later {
+            self.settle = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(Duration::from_millis(80)).await;
+                this.update(cx, |t, cx| {
+                    for (id, cols, rows) in t.settled() {
+                        cx.emit(TerminalsEvent::Resize { id, cols, rows });
+                    }
+                })
+                .ok();
+            }));
+        }
+        fit
+    }
+
+    pub(crate) fn watch_link(&mut self, cx: &mut Context<Self>) {
+        if channel::is_release() {
+            cx.spawn(async |this, cx| {
+                let service = cx.background_executor().spawn(async { daemon::service::status() }).await;
+                this.update(cx, |t, _| t.link.service = Some(service))
+            })
+            .detach();
+        }
+        cx.spawn(async |this, cx| {
+            cx.background_executor().timer(link::HINT_AFTER).await;
+            this.update(cx, |_, cx| cx.notify())
+        })
+        .detach();
+    }
+
     /// Takes the sizes that settled and returns the ones pocketd must apply.
     pub(crate) fn settled(&mut self) -> Vec<(String, u16, u16)> {
         let pending = std::mem::take(&mut self.pending);
@@ -261,11 +299,11 @@ impl Desktop {
     pub(crate) fn on_msg_from(&mut self, host: Option<&str>, m: Msg, window: &mut Window, cx: &mut Context<Self>) {
         match (m.ev.as_str(), host) {
             ("terminals", _) => {
-                let (unclosed, items) = self.terminals.heard(host, m.items);
+                let (unclosed, items) = self.terminals.update(cx, |t, _| t.heard(host, m.items));
                 for id in unclosed {
                     self.daemon.send(json!({"op": "close", "id": id}));
                 }
-                for id in self.terminals.listed(items) {
+                for id in self.terminals.update(cx, |t, _| t.listed(items)) {
                     self.daemon.send(json!({"op": "attach", "id": id}));
                 }
                 self.look_up_trees(cx);
@@ -274,29 +312,29 @@ impl Desktop {
                     self.sweep_host_leftovers(cx);
                 }
                 self.activity_changed(cx);
-                let restoring = !self.panels.restored;
+                let restoring = !self.workspaces.read(cx).is_restored();
                 match host {
-                    None => self.restore_layouts(),
-                    Some(h) => self.restore_host_layouts(h),
+                    None => self.restore_layouts(cx),
+                    Some(h) => self.restore_host_layouts(h, cx),
                 }
                 let arrived: Vec<_> = self
                     .terminals
-                    .arrived()
+                    .update(cx, |t, _| t.arrived())
                     .into_iter()
                     .map(|(id, c)| {
-                        let local = self.terminals.sessions.get(&id).map(|s| s.info.local.clone()).filter(|l| !l.is_empty());
+                        let local = self.terminals.read(cx).sessions.get(&id).map(|s| s.info.local.clone()).filter(|l| !l.is_empty());
                         (id, local.unwrap_or(c.tree), c.place)
                     })
                     .collect();
                 // Already listed, so adopting syncs them into the top-left pane unless each has its tab first.
                 for (id, tree, place) in &arrived {
-                    self.workspaces.entry(tree.clone()).or_default().open_term(id.clone(), *place);
+                    self.workspaces.update(cx, |all, _| all.entry(tree).open_term(id.clone(), *place));
                 }
                 for (id, tree, place) in arrived {
                     self.adopt(id, tree, place, window, cx);
                 }
                 if self.project.is_none() {
-                    self.project = self.projects().into_iter().next();
+                    self.project = self.projects(cx).into_iter().next();
                 }
                 // Restored docs load into the worktree on screen, which needs the project chosen above.
                 if restoring {
@@ -304,49 +342,38 @@ impl Desktop {
                 }
             }
             ("spawned", _) => {
-                self.error = None;
-                if let Some(Intent(tree, place)) = self.terminals.spawned(host) {
+                self.toasts.update(cx, |t, cx| t.clear_error(cx));
+                if let Some(Intent(tree, place)) = self.terminals.update(cx, |t, _| t.spawned(host)) {
                     self.adopt(m.id, tree, place, window, cx);
                 }
                 self.daemon.send_to(host, json!({"op": "list"}));
             }
             ("error", _) => {
-                self.terminals.errored(host, &m.id);
-                self.error = Some(m.error);
+                self.terminals.update(cx, |t, _| t.errored(host, &m.id));
+                self.fail(m.error, cx);
             }
             ("exit", _) => {
                 self.sign_in_ended(&m.id, cx);
-                if self.terminals.exited(&m) {
+                if self.terminals.update(cx, |t, _| t.exited(&m)) {
                     self.close_pane(&m.id, cx);
                 }
             }
             ("up", Some(h)) => {
-                self.terminals.forget_screens(Some(h));
+                self.terminals.update(cx, |t, _| t.forget_screens(Some(h)));
                 self.daemon.send_to(host, json!({"op": "list"}));
             }
-            ("down", Some(h)) => self.terminals.host_down(h),
+            ("down", Some(h)) => self.terminals.update(cx, |t, _| t.host_down(h)),
             ("up", None) => {
-                self.terminals.reconnected();
-                self.terminal.selection = None;
+                self.terminals.update(cx, |t, _| t.reconnected());
+                self.terminal.forget_selections(cx);
                 self.daemon.send(json!({"op": "list"}));
             }
             ("down", None) => {
-                self.terminals.disconnected(Instant::now());
-                if channel::is_release() {
-                    cx.spawn(async |this, cx| {
-                        let service = cx.background_executor().spawn(async { daemon::service::status() }).await;
-                        this.update(cx, |d, _| d.terminals.link.service = Some(service))
-                    })
-                    .detach();
-                }
-                cx.spawn(async |this, cx| {
-                    cx.background_executor().timer(link::HINT_AFTER).await;
-                    this.update(cx, |_, cx| cx.notify())
-                })
-                .detach();
+                self.terminals.update(cx, |t, _| t.disconnected(Instant::now()));
+                self.terminals.update(cx, |t, cx| t.watch_link(cx));
             }
             _ => {
-                if self.terminals.sessions.apply(&m) {
+                if self.terminals.update(cx, |t, _| t.sessions.apply(&m)) {
                     self.ring(&m.id, cx);
                 }
             }
@@ -356,8 +383,8 @@ impl Desktop {
 
     /// Opens a terminal in its worktree, focusing it only if that worktree is still on screen: it arrives after the user may have moved on.
     fn adopt(&mut self, id: String, tree: String, place: Place, window: &mut Window, cx: &mut Context<Self>) {
-        self.workspace(&tree).open_term(id.clone(), place);
-        if self.place().as_deref() == Some(tree.as_str()) {
+        self.workspace(&tree, cx, |w| w.open_term(id.clone(), place));
+        if self.place(cx).as_deref() == Some(tree.as_str()) {
             self.show_tree(&tree, cx);
             self.load_active(cx);
             self.focus_chat_or_terminal(id, window, cx);
@@ -371,18 +398,21 @@ impl Desktop {
         }
         let host = hosts::split(&intent.0).0.map(str::to_string);
         let sent = self.daemon.send_to(host.as_deref(), op);
-        self.terminals.spawn_sent(sent, intent);
-        self.error = host.filter(|_| !sent).map(|h| format!("{} isn't connected", self.host_name(&h)));
+        self.terminals.update(cx, |t, _| t.spawn_sent(sent, intent));
+        match host.filter(|_| !sent).map(|h| format!("{} isn't connected", self.host_name(&h))) {
+            Some(error) => self.fail(error, cx),
+            None => self.toasts.update(cx, |t, cx| t.clear_error(cx)),
+        }
         cx.notify();
     }
 
     /// Sends a create to the pocketd holding `spec`'s project; `None`, with the error shown, when that's a host that isn't connected.
-    pub(crate) fn send_create(&mut self, mut spec: serde_json::Value) -> Option<String> {
+    pub(crate) fn send_create(&mut self, mut spec: serde_json::Value, cx: &mut Context<Self>) -> Option<String> {
         self.accounts.offer(&mut spec);
         match self.outbox.create(spec) {
             Ok(request) => Some(request),
             Err(host) => {
-                self.error = Some(format!("{} isn't connected", self.host_name(&host)));
+                self.fail(format!("{} isn't connected", self.host_name(&host)), cx);
                 None
             }
         }
@@ -395,7 +425,7 @@ impl Desktop {
         let missing = t.skipped(&shell).map(|p| p.trim().to_string());
         self.run_in_tree(place, &[], None, |cwd| daemon::shell_op(&shell, args, cwd), cx);
         if let Some(missing) = missing {
-            self.error = Some(format!("Can't run {missing}, so this terminal opened your login shell"));
+            self.fail(format!("Can't run {missing}, so this terminal opened your login shell"), cx);
         }
     }
 
@@ -414,9 +444,9 @@ impl Desktop {
 
     /// Starts the agent last picked here as a chat in the worktree on screen, its tab at `place`.
     pub(crate) fn new_chat_tab(&mut self, place: Place, cx: &mut Context<Self>) {
-        let (Some(project), Some(tree)) = (self.project.clone(), self.place()) else { return };
-        if self.terminals.link.stale().is_some() {
-            self.error = Some(link::UPDATING.into());
+        let (Some(project), Some(tree)) = (self.project.clone(), self.place(cx)) else { return };
+        if self.terminals.read(cx).link.stale().is_some() {
+            self.fail(link::UPDATING, cx);
             return cx.notify();
         }
         let pick = self.last_pick(Some(&project));
@@ -424,8 +454,8 @@ impl Desktop {
         spec["chat"] = true.into();
         let efforts = self.launch_efforts(&pick.provider, &pick.model);
         self.store.agents.launch(&mut spec, &self.agents, &efforts);
-        if let Some(request) = self.send_create(spec) {
-            self.terminals.tab_chats.insert(request, place);
+        if let Some(request) = self.send_create(spec, cx) {
+            self.terminals.update(cx, |t, _| _ = t.tab_chats.insert(request, place));
         }
         cx.notify();
     }
@@ -440,8 +470,8 @@ impl Desktop {
         op: impl FnOnce(&str) -> serde_json::Value,
         cx: &mut Context<Self>,
     ) {
-        let Some(tree) = self.place() else { return };
-        let Some(cwd) = self.folder_of(&tree) else { return };
+        let Some(tree) = self.place(cx) else { return };
+        let Some(cwd) = self.folder_of(&tree, cx) else { return };
         let mut op = match hosts::split(&cwd) {
             (Some(_), path) => hosts::session::spawn_op(path, argv),
             (None, _) => op(&cwd),
@@ -456,10 +486,10 @@ impl Desktop {
     }
 
     pub fn close_pane(&mut self, id: &str, cx: &mut Context<Self>) {
-        if !self.terminals.may_close(id, self.agents.observe_only()) {
+        if !self.terminals.read(cx).may_close(id, self.agents.observe_only()) {
             return;
         }
-        if self.terminals.close(id) {
+        if self.terminals.update(cx, |t, _| t.close(id)) {
             self.daemon.send(json!({"op": "close", "id": id}));
         }
         self.store.chats.remove(id);
@@ -467,45 +497,42 @@ impl Desktop {
             self.terminal.menu = None;
         }
         let ids = [id.to_string()];
-        for w in self.workspaces.values_mut() {
-            w.remove(&ids);
-        }
+        self.workspaces.update(cx, |all, _| all.values_mut().for_each(|w| w.remove(&ids)));
         self.load_active(cx);
         self.save_soon(cx);
         cx.notify();
     }
 
     /// Ends a terminal's processes but leaves its pane on the last screen.
-    pub fn kill_pane(&mut self, id: &str) {
-        if self.terminals.may_send(id, self.agents.observe_only()) && self.terminals.kill(id) {
+    pub fn kill_pane(&mut self, id: &str, cx: &mut App) {
+        if self.terminals.read(cx).may_send(id, self.agents.observe_only()) && self.terminals.update(cx, |t, _| t.kill(id)) {
             self.daemon.send(json!({"op": "close", "id": id}));
         }
     }
 
     /// Closes a terminal and its tabs, asking first if it is busy.
     pub fn close_terminal(&mut self, id: &str, cx: &mut Context<Self>) {
-        if self.terminals.may_close(id, self.agents.observe_only()) && !self.ask_close(vec![id.to_string()], cx) {
+        if self.terminals.read(cx).may_close(id, self.agents.observe_only()) && !self.ask_close(vec![id.to_string()], cx) {
             self.close_pane(id, cx);
         }
     }
 
     pub fn close_tab(&mut self, pane: PaneId, i: usize, cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
-        let ids = match self.workspace(&tree).tree.pane(pane).and_then(|p| p.tabs.get(i)).cloned() {
+        let Some(tree) = self.place(cx) else { return };
+        let ids = match self.workspace(&tree, cx, |w| w.tree.pane(pane).and_then(|p| p.tabs.get(i)).cloned()) {
             Some(Tab::Term(id)) => vec![id],
-            Some(Tab::Doc(Doc::File(path))) if self.preview.dirty(&path) => {
-                self.confirm = Some(Confirm::CloseFile(path));
-                self.overlay = Some(Overlay::Confirm);
+            Some(Tab::Doc(Doc::File(path))) if self.preview.read(cx).dirty(&path) => {
+                self.ask(Confirm::CloseFile(path), cx);
                 cx.notify();
                 return;
             }
             _ => Vec::new(),
         };
         let observe = self.agents.observe_only();
-        if !ids.iter().all(|id| self.terminals.may_close(id, observe)) || self.ask_close(ids.clone(), cx) {
+        if !ids.iter().all(|id| self.terminals.read(cx).may_close(id, observe)) || self.ask_close(ids.clone(), cx) {
             return;
         }
-        self.workspace(&tree).close(pane, i);
+        self.workspace(&tree, cx, |w| w.close(pane, i));
         for id in ids {
             self.close_pane(&id, cx);
         }
@@ -516,21 +543,23 @@ impl Desktop {
 
     /// Closes top tab `i` with all its tabs, asking first as `close_tab` does: an unsaved file is shown and asked about, busy terminals are asked about together.
     pub fn close_top(&mut self, i: usize, cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
-        let Some(tabs) = self.workspace(&tree).tops().get(i).map(|t| t.panes().iter().flat_map(|p| p.tabs.clone()).collect::<Vec<_>>()) else { return };
+        let Some(tree) = self.place(cx) else { return };
+        let Some(tabs) = self.workspace(&tree, cx, |w| w.tops().get(i).map(|t| t.panes().iter().flat_map(|p| p.tabs.clone()).collect::<Vec<_>>())) else {
+            return;
+        };
         let unsaved = tabs.iter().find_map(|t| match t {
-            Tab::Doc(Doc::File(path)) if self.preview.dirty(path) => Some(path.clone()),
+            Tab::Doc(Doc::File(path)) if self.preview.read(cx).dirty(path) => Some(path.clone()),
             _ => None,
         });
         if let Some(path) = unsaved {
-            let w = self.workspace(&tree);
-            w.switch(i);
-            if let Some((pane, j)) = w.tree.find(|t| matches!(t, Tab::Doc(Doc::File(p)) if *p == path)) {
-                w.tree.select(pane, j);
-            }
+            self.workspace(&tree, cx, |w| {
+                w.switch(i);
+                if let Some((pane, j)) = w.tree.find(|t| matches!(t, Tab::Doc(Doc::File(p)) if *p == path)) {
+                    w.tree.select(pane, j);
+                }
+            });
             self.load_active(cx);
-            self.confirm = Some(Confirm::CloseFile(path));
-            self.overlay = Some(Overlay::Confirm);
+            self.ask(Confirm::CloseFile(path), cx);
             cx.notify();
             return;
         }
@@ -542,10 +571,10 @@ impl Desktop {
             })
             .collect();
         let observe = self.agents.observe_only();
-        if !ids.iter().all(|id| self.terminals.may_close(id, observe)) || self.ask_close(ids.clone(), cx) {
+        if !ids.iter().all(|id| self.terminals.read(cx).may_close(id, observe)) || self.ask_close(ids.clone(), cx) {
             return;
         }
-        self.workspace(&tree).close_top(i);
+        self.workspace(&tree, cx, |w| w.close_top(i));
         for id in ids {
             self.close_pane(&id, cx);
         }
@@ -559,22 +588,17 @@ impl Desktop {
         if self.capturing {
             return;
         }
-        match self.terminals.fit(id, cols, rows) {
-            Fit::Now => {
+        if self.terminals.update(cx, |t, cx| t.request_fit(id, cols, rows, cx)) == Fit::Now {
+            self.daemon.send(json!({"op": "resize", "id": id, "cols": cols, "rows": rows}));
+        }
+    }
+
+    pub(crate) fn on_terminals_event(&mut self, ev: &TerminalsEvent, cx: &mut Context<Self>) {
+        match ev {
+            TerminalsEvent::Resize { id, cols, rows } => {
                 self.daemon.send(json!({"op": "resize", "id": id, "cols": cols, "rows": rows}));
             }
-            Fit::Later => {
-                self.terminals.settle = Some(cx.spawn(async move |this, cx| {
-                    cx.background_executor().timer(Duration::from_millis(80)).await;
-                    this.update(cx, |d, _| {
-                        for (id, cols, rows) in d.terminals.settled() {
-                            d.daemon.send(json!({"op": "resize", "id": id, "cols": cols, "rows": rows}));
-                        }
-                    })
-                    .ok();
-                }));
-            }
-            Fit::Same => {}
+            TerminalsEvent::RestartService => self.relaunch_or_restart_service(cx),
         }
     }
 }

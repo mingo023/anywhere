@@ -14,7 +14,7 @@ pub(crate) mod toast;
 use crate::accounts::Accounts;
 use crate::activity::Activity;
 use crate::add_to_chat::ChatComposer;
-use crate::automations::AutomationsState;
+use crate::automations::Automations;
 use crate::board::Board;
 use crate::browser::Browsers;
 use crate::chat::ChatState;
@@ -25,16 +25,16 @@ use crate::desktop::dock::Badge;
 use crate::desktop::geometry::Geometry;
 use crate::desktop::jump::Chips;
 use crate::desktop::sounds::Chime;
-use crate::explorer::ExplorerState;
-use crate::explorer::preview::PreviewState;
+use crate::desktop::toast::Toasts;
+use crate::explorer::Explorer;
+use crate::explorer::preview::Previews;
 use crate::fleet::Fleet;
-use crate::git_ui::changes::ChangesState;
+use crate::git_ui::changes::Changes;
 use crate::git_ui::commit::Commits;
-use crate::git_ui::compare::CompareState;
 use crate::git_ui::diff::{At, DiffState};
 use crate::git_ui::gh_accounts::GhAccounts;
 use crate::git_ui::graph::Graph;
-use crate::git_ui::pull_request::PullRequest;
+use crate::git_ui::pull_request::PrSide;
 use crate::git_ui::pull_requests::PullRequests;
 use crate::host_agents::HostAgents;
 use crate::inbox::Inbox;
@@ -45,16 +45,15 @@ use crate::notch::Notch;
 use crate::open_in::OpenIn;
 use crate::palette::Palette;
 use crate::panels::Panels;
-use crate::region::Regions;
 use crate::removal::Removals;
 use crate::renames::Renames;
-use crate::settings::SettingsState;
-use crate::sidebar::SidebarState;
+use crate::settings::Settings;
+use crate::sidebar::Sidebar;
 use crate::spaces::Spaces;
 use crate::star::Star;
 use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
-use crate::terminals::link::{Hint, Update};
+use crate::terminals::link::Update;
 use crate::themes::Themes;
 use crate::updates::Updates;
 use crate::welcome::Welcome;
@@ -64,11 +63,12 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use hosts::session::{Daemons, Outboxes};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 use store::Store;
 use theme::*;
 use workspace::tree::PaneId;
-use workspace::{Doc, Tab, Workspace};
+use workspace::{Doc, Tab, Workspaces};
 
 /// The pane a worktree starts with.
 pub(crate) const MAIN: PaneId = 0;
@@ -80,7 +80,7 @@ pub struct Desktop {
     pub(crate) notch: Notch,
     pub(crate) chime: Chime,
     pub(crate) badge: Badge,
-    pub(crate) terminals: Terminals,
+    pub(crate) terminals: Entity<Terminals>,
     pub(crate) creates: Entity<Creates>,
     pub(crate) removals: Removals,
     pub(crate) renames: Renames,
@@ -94,37 +94,35 @@ pub struct Desktop {
     pub(crate) layout: Layout,
     /// Indexed by `Column`; `None` keeps the design's width.
     pub(crate) widths: [Option<f32>; 2],
-    pub(crate) workspaces: HashMap<String, Workspace>,
-    pub(crate) repos: HashMap<String, Repo>,
+    pub(crate) workspaces: Entity<Workspaces>,
+    pub(crate) repos: HashMap<String, Arc<Repo>>,
     pub(crate) diff: DiffState,
-    pub(crate) chat: ChatComposer,
+    pub(crate) chat: Entity<ChatComposer>,
     pub(crate) chats: ChatState,
-    pub(crate) changes: ChangesState,
-    pub(crate) compare: CompareState,
+    pub(crate) changes: Entity<Changes>,
     pub(crate) prs: PullRequests,
     pub(crate) gh_accounts: GhAccounts,
-    pub(crate) pr: PullRequest,
+    pub(crate) pr: Entity<PrSide>,
     pub(crate) graph: Entity<Graph>,
     pub(crate) commit: Commits,
     pub(crate) terminal: TerminalViewState,
-    pub(crate) panels: Panels,
+    pub(crate) panels: Entity<Panels>,
     pub(crate) open_in: Entity<OpenIn>,
     pub(crate) browsers: Browsers,
-    pub(crate) explorer: ExplorerState,
+    pub(crate) explorer: Entity<Explorer>,
     pub(crate) git_run: u64,
     pub(crate) git_done: u64,
     pub(crate) inbox: Entity<Inbox>,
     pub(crate) activity: Entity<Activity>,
     pub(crate) handoff: Entity<crate::handoff::HandoffState>,
-    pub(crate) automations: AutomationsState,
+    pub(crate) automations: Entity<Automations>,
     pub(crate) board: Entity<Board>,
-    pub(crate) error: Option<String>,
+    pub(crate) toasts: Entity<Toasts>,
     pub(crate) root: FocusHandle,
     pub(crate) palette: Entity<Palette>,
-    pub(crate) sidebar: SidebarState,
+    pub(crate) sidebar: Entity<Sidebar>,
     pub(crate) spaces: Spaces,
-    pub(crate) regions: Regions,
-    pub(crate) settings: SettingsState,
+    pub(crate) settings: Entity<Settings>,
     pub(crate) fleet: Fleet,
     pub(crate) host_agents: HostAgents,
     pub(crate) registry: crate::registry::Registry,
@@ -138,12 +136,12 @@ pub struct Desktop {
     pub(crate) worktrees: HashMap<String, Vec<git::Worktree>>,
     pub(crate) tree_lookups: ::project::Lookups,
     pub(crate) worktree: Option<String>,
-    pub(crate) confirm: Option<Confirm>,
+    pub(crate) confirm: Entity<crate::modals::confirm::ConfirmSheet>,
     pub(crate) row_menu: Option<RowMenu>,
-    pub(crate) preview: PreviewState,
-    pub(crate) new_form: new_session::NewForm,
-    pub(crate) repo_form: add_project::RepoForm,
-    pub(crate) host_finder: crate::modals::host_finder::HostFinder,
+    pub(crate) preview: Entity<Previews>,
+    pub(crate) new_form: Entity<new_session::NewForm>,
+    pub(crate) repo_form: Entity<add_project::RepoForm>,
+    pub(crate) host_finder: Entity<crate::modals::host_finder::HostFinder>,
     pub(crate) clone_form: Entity<clone_project::CloneForm>,
     pub(crate) pair: Entity<PairPhone>,
     pub(crate) capturing: bool,
@@ -157,25 +155,50 @@ impl Desktop {
         let palette_subs = cx.subscribe_in(&palette, window, Self::on_palette_event);
         let graph = cx.new(|_| Graph::new(store.graph_share, &store.diff));
         let graph_subs = cx.subscribe_in(&graph, window, Self::on_graph_event);
-        let (sidebar, sidebar_subs) = SidebarState::new(store.general.panel_open, window, cx);
+        let sidebar = cx.new(|cx| Sidebar::new(store.general.panel_open, window, cx));
+        let sidebar_subs = Self::sidebar_subs(&sidebar, window, cx);
         let spaces = Spaces::new(store.sidebar.space.as_deref());
-        let (settings, settings_subs) = SettingsState::new(&store, window, cx);
+        let settings = cx.new(|cx| Settings::new(&store, window, cx));
+        let settings_subs = [cx.subscribe_in(&settings, window, Self::on_settings_event), cx.observe(&settings, |_, _, cx| cx.notify())];
         let (fleet, fleet_subs) = Fleet::new(window, cx);
         let (chips, chips_subs) = Chips::new(window, cx);
-        let (chat, chat_subs) = ChatComposer::new(window, cx);
+        let chat = cx.new(|cx| ChatComposer::new(window, cx));
+        let chat_subs = [cx.subscribe_in(&chat, window, Self::on_chat_event), cx.observe(&chat, |_, _, cx| cx.notify())];
         let (chats, chats_subs) = ChatState::new(window, cx);
-        let regions = Regions::new(cx);
-        let (changes, changes_subs) = ChangesState::new(window, cx);
-        let (compare, compare_subs) = CompareState::new(window, cx);
-        let (pr, pr_subs) = PullRequest::new(window, cx);
-        let (new_form, new_subs) = new_session::NewForm::new(window, cx);
-        let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
-        let host_finder = crate::modals::host_finder::HostFinder::new(cx);
+        let workspaces = cx.new(|_| Workspaces::default());
+        let creates = cx.new(|_| Creates::default());
+        let panels = cx.new(|cx| Panels::new(workspaces.clone(), creates.clone(), cx));
+        let more = panels.read(cx).more.clone();
+        let panels_subs = [
+            cx.subscribe_in(&panels, window, Self::on_panels_event),
+            cx.observe(&panels, |_, _, cx| cx.notify()),
+            cx.subscribe_in(&more, window, Self::on_more_event),
+        ];
+        let changes = cx.new(|cx| Changes::new(graph.clone(), window, cx));
+        let changes_subs = cx.subscribe_in(&changes, window, Self::on_changes_event);
+        let explorer = cx.new(|_| Explorer::new());
+        let preview = cx.new(|_| Previews::new());
+        let preview_subs = cx.subscribe(&preview, Self::on_preview_event);
+        let explorer_subs = cx.subscribe_in(&explorer, window, Self::on_explorer_event);
+        let pr = cx.new(|cx| PrSide::new(window, cx));
+        let pr_subs = [cx.subscribe_in(&pr, window, Self::on_pr_event), cx.observe(&pr, |_, _, cx| cx.notify())];
+        let toasts = cx.new(|cx| Toasts::new(pr.clone(), cx));
+        let toasts_subs = [cx.subscribe_in(&toasts, window, Self::on_toasts_event), cx.observe(&toasts, |_, _, cx| cx.notify())];
+        let new_form = cx.new(|cx| new_session::NewForm::new(window, cx));
+        let new_subs = Self::watch_new_form(&new_form, window, cx);
+        let repo_form = cx.new(|cx| add_project::RepoForm::new(window, cx));
+        let repo_subs = cx.subscribe_in(&repo_form, window, Self::on_repo_event);
+        let host_finder = cx.new(|cx| crate::modals::host_finder::HostFinder::new(cx));
+        let host_finder_subs = cx.subscribe_in(&host_finder, window, Self::on_finder_event);
+        let confirm = cx.new(|_| crate::modals::confirm::ConfirmSheet::default());
+        let confirm_subs = cx.subscribe_in(&confirm, window, Self::on_confirm_event);
         let clone_form = cx.new(|cx| clone_project::CloneForm::new(window, cx));
         let clone_subs = cx.subscribe_in(&clone_form, window, Self::on_clone_event);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
-        let (automations, automations_subs) = AutomationsState::new(window, cx);
+        let automations = cx.new(|cx| Automations::new(window, cx));
+        let automations_subs = Self::watch_automations(&automations, window, cx);
         let board_start = Self::board_start_hook(cx);
+        let shortcut_record = Self::shortcut_record_hook(cx);
         let board = cx.new(|cx| Board::new(window, cx));
         let board_subs = cx.subscribe_in(&board, window, Self::on_board_event);
         let activity = cx.new(|cx| Activity::new(window, cx));
@@ -197,11 +220,14 @@ impl Desktop {
         let home = store.home().to_path_buf();
         let open_in = cx.new(|cx| OpenIn::new(&home, cx));
         let open_in_subs = cx.subscribe_in(&open_in, window, Self::on_open_in_event);
-        let creates = cx.new(|_| Creates::default());
         let creates_subs = cx.subscribe_in(&creates, window, Self::on_creates_event);
         let inbox = cx.new(Inbox::new);
         let inbox_subs = cx.subscribe_in(&inbox, window, Self::on_inbox_event);
-        let terminals = Terminals::new(crate::terminals::sessions::config(&store.terminal));
+        let terminals = cx.new(|_| Terminals::new(crate::terminals::sessions::config(&store.terminal)));
+        let terminals_subs = [
+            cx.subscribe(&terminals, |this, _, ev: &crate::terminals::TerminalsEvent, cx| this.on_terminals_event(ev, cx)),
+            cx.observe(&terminals, |_, _, cx| cx.notify()),
+        ];
         let root = cx.focus_handle();
         window.focus(&root, cx);
         crate::desktop::chrome::apply_zoom(store.appearance.zoom_factor(), window);
@@ -216,7 +242,7 @@ impl Desktop {
                 // Render tells alerts which panes are seen, but a hidden window renders no frame.
                 this.sync_view(window, cx);
                 if this.screen == Screen::Settings {
-                    this.load_banner_permission(cx);
+                    this.settings.update(cx, |s, cx| s.load_banner_permission(cx));
                 }
                 if window.is_window_active() {
                     this.reload_themes(cx);
@@ -240,15 +266,22 @@ impl Desktop {
         _subs.extend(chips_subs);
         _subs.extend(chat_subs);
         _subs.extend(chats_subs);
-        _subs.extend(changes_subs);
-        _subs.extend(compare_subs);
+        _subs.extend(panels_subs);
+        _subs.extend(terminals_subs);
+        _subs.push(changes_subs);
+        _subs.push(explorer_subs);
+        _subs.push(preview_subs);
         _subs.extend(pr_subs);
+        _subs.extend(toasts_subs);
         _subs.extend(new_subs);
-        _subs.extend(repo_subs);
+        _subs.push(repo_subs);
+        _subs.push(confirm_subs);
+        _subs.push(host_finder_subs);
         _subs.push(clone_subs);
         _subs.extend(geometry_subs);
         _subs.extend(automations_subs);
         _subs.push(board_start);
+        _subs.push(shortcut_record);
         _subs.push(board_subs);
         _subs.push(activity_subs);
         _subs.push(handoff_subs);
@@ -276,26 +309,24 @@ impl Desktop {
             side: Side::Sessions,
             layout,
             widths,
-            workspaces: HashMap::new(),
+            workspaces,
             repos: HashMap::new(),
             diff,
             chat,
             chats,
-            regions,
             changes,
-            compare,
             prs: PullRequests::default(),
             gh_accounts: GhAccounts::default(),
             pr,
             graph,
             commit: Commits::default(),
-            explorer: ExplorerState::new(),
+            explorer,
             git_run: 0,
             git_done: 0,
-            error: None,
+            toasts,
             root,
             terminal: TerminalViewState::new(cx),
-            panels: Panels::default(),
+            panels,
             open_in,
             browsers,
             inbox,
@@ -320,9 +351,9 @@ impl Desktop {
             worktrees: HashMap::new(),
             tree_lookups: ::project::Lookups::default(),
             worktree: None,
-            confirm: None,
+            confirm,
             row_menu: None,
-            preview: PreviewState::default(),
+            preview,
             new_form,
             repo_form,
             host_finder,
@@ -338,13 +369,14 @@ impl Desktop {
     pub fn focus_agent(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let id = &self.delegated_show(id);
         let Some(term) = self.agents.get(id).map(|a| a.terminal_id.clone()) else { return };
-        let Some(tree) = self.terminals.sessions.get(&term).and_then(|s| self.place_of(&s.info)) else { return };
+        let Some(tree) = self.terminals.read(cx).sessions.get(&term).and_then(|s| self.place_of(&s.info, cx)) else { return };
         self.show_tree(&tree, cx);
         self.side = Side::Sessions;
-        let w = self.workspace(&tree);
-        if let Some((pane, i)) = w.show_term(&term) {
-            w.tree.select(pane, i);
-        }
+        self.workspace(&tree, cx, |w| {
+            if let Some((pane, i)) = w.show_term(&term) {
+                w.tree.select(pane, i);
+            }
+        });
         self.load_active(cx);
         self.focus_pane(term, window, cx);
         self.save_soon(cx);
@@ -359,11 +391,12 @@ impl Desktop {
     }
 
     pub(crate) fn show_tree(&mut self, tree: &str, cx: &mut Context<Self>) {
-        if let Some(p) = self.folder_of(tree).and_then(|cwd| self.project_of(&cwd, &self.projects()).cloned()) {
+        if let Some(p) = self.folder_of(tree, cx).and_then(|cwd| self.project_of(&cwd, &self.projects(cx)).cloned()) {
             self.follow_space(&p, cx);
             self.project = Some(p);
         }
-        (self.screen, self.new_form.shown) = (Screen::Sessions, false);
+        self.screen = Screen::Sessions;
+        self.new_form.update(cx, |f, cx| f.set_shown(false, cx));
         self.worktree = Some(tree.to_string());
     }
 
@@ -378,13 +411,11 @@ impl Desktop {
         }
         self.project = p;
         self.worktree = None;
-        for v in self.diff.panes.values_mut() {
-            v.file = None;
+        for s in self.diff.panes.values() {
+            s.view.update(cx, |p, _| p.view.file = None);
         }
-        for p in self.preview.panes.values_mut() {
-            p.file = None;
-        }
-        self.explorer.tree.clear();
+        self.preview.update(cx, |p, _| p.state.panes.values_mut().for_each(|f| f.file = None));
+        self.explorer.update(cx, |e, cx| e.clear_tree(cx));
     }
 
     /// Shows worktree `tree` of project `p`; `None` is the project's main worktree.
@@ -394,7 +425,8 @@ impl Desktop {
         if moved {
             self.set_project(Some(p), cx);
         }
-        (self.screen, self.new_form.shown) = (Screen::Sessions, false);
+        self.screen = Screen::Sessions;
+        self.new_form.update(cx, |f, cx| f.set_shown(false, cx));
         if moved || self.worktree != tree {
             self.worktree = tree;
             self.refresh_git(cx);
@@ -407,9 +439,9 @@ impl Desktop {
 
     /// Shows tab `i` of `pane` and focuses the pane.
     pub fn select_tab(&mut self, pane: PaneId, i: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
-        self.workspace(&tree).tree.select(pane, i);
-        match self.pane_tab(pane) {
+        let Some(tree) = self.place(cx) else { return };
+        self.workspace(&tree, cx, |w| w.tree.select(pane, i));
+        match self.pane_tab(pane, cx) {
             Some(Tab::Term(id)) => {
                 if let Some(agent) = self.summary(&id).map(|a| a.id.clone()) {
                     self.delegated.leave(&agent);
@@ -425,22 +457,22 @@ impl Desktop {
     }
 
     /// The pane keys and actions go to.
-    pub(crate) fn focused_pane(&self) -> PaneId {
-        self.place().and_then(|t| self.workspaces.get(&t)).map_or(MAIN, |w| w.tree.focused)
+    pub(crate) fn focused_pane(&self, cx: &App) -> PaneId {
+        self.place(cx).and_then(|t| self.workspaces.read(cx).get(&t)).map_or(MAIN, |w| w.tree.focused)
     }
 
-    pub(crate) fn pane_ids(&self) -> Vec<PaneId> {
-        self.place().and_then(|t| self.workspaces.get(&t)).map_or(vec![MAIN], |w| w.tops().iter().flat_map(|t| t.panes()).map(|p| p.id).collect())
+    pub(crate) fn pane_ids(&self, cx: &App) -> Vec<PaneId> {
+        self.place(cx).and_then(|t| self.workspaces.read(cx).get(&t)).map_or(vec![MAIN], |w| w.tops().iter().flat_map(|t| t.panes()).map(|p| p.id).collect())
     }
 
     /// The tab `pane` shows in the worktree on screen.
-    pub(crate) fn pane_tab(&self, pane: PaneId) -> Option<Tab> {
-        self.workspaces.get(&self.place()?)?.tree.pane(pane)?.active().cloned()
+    pub(crate) fn pane_tab(&self, pane: PaneId, cx: &App) -> Option<Tab> {
+        self.workspaces.read(cx).get(&self.place(cx)?)?.tree.pane(pane)?.active().cloned()
     }
 
     /// The file or changes the focused pane shows.
-    pub fn active_doc(&self) -> Option<Doc> {
-        match self.pane_tab(self.focused_pane())? {
+    pub fn active_doc(&self, cx: &App) -> Option<Doc> {
+        match self.pane_tab(self.focused_pane(cx), cx)? {
             Tab::Doc(doc) => Some(doc),
             Tab::Term(_) | Tab::Web(_) => None,
         }
@@ -449,27 +481,29 @@ impl Desktop {
     /// Opens `doc` in its tab of the worktree on screen; unless `pin`, in the preview tab the next open takes over.
     /// With no pane holding docs it opens in a new pane right of the focused one, or in the focused one when that has no room to split.
     pub fn open_doc(&mut self, doc: Doc, pin: bool, cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
-        (self.screen, self.new_form.shown) = (Screen::Sessions, false);
-        let bounds = self.panels.bounds;
+        let Some(tree) = self.place(cx) else { return };
+        self.screen = Screen::Sessions;
+        self.new_form.update(cx, |f, cx| f.set_shown(false, cx));
+        let bounds = self.panels.read(cx).bounds;
         let files = &self.store.files;
         let (pin, next) = (pin || !files.preview_tabs, files.new_tabs == store::prefs::files::NewTabs::AfterCurrent);
-        let w = self.workspace(&tree);
-        let pane = w.doc_pane(bounds);
-        let (pane, _) = w.place_doc(doc.clone(), pin, pane, next);
+        let (pane, _) = self.workspace(&tree, cx, |w| {
+            let pane = w.doc_pane(bounds);
+            w.place_doc(doc.clone(), pin, pane, next)
+        });
         self.show_doc(pane, doc, cx);
         self.save_soon(cx);
     }
 
     pub(crate) fn pin_doc(&mut self, doc: &Doc, cx: &mut Context<Self>) {
-        if let Some(tree) = self.place() {
-            self.workspace(&tree).pin(doc);
+        if let Some(tree) = self.place(cx) {
+            self.workspace(&tree, cx, |w| w.pin(doc));
             self.save_soon(cx);
         }
     }
 
     pub(crate) fn close_doc(&mut self, doc: &Doc, cx: &mut Context<Self>) {
-        if let Some((pane, i)) = self.place().and_then(|t| self.workspaces.get(&t)?.doc_tab(doc)) {
+        if let Some((pane, i)) = self.place(cx).and_then(|t| self.workspaces.read(cx).get(&t)?.doc_tab(doc)) {
             self.close_tab(pane, i, cx);
         }
     }
@@ -477,25 +511,26 @@ impl Desktop {
     fn show_doc(&mut self, pane: PaneId, doc: Doc, cx: &mut Context<Self>) {
         match doc {
             Doc::File(path) => {
-                self.preview.open(pane, path, self.store.files.markdown_source);
+                let source = self.store.files.markdown_source;
+                self.preview.update(cx, |p, _| p.state.open(pane, path, source));
                 self.load_file(pane, cx);
             }
             Doc::Diff(path) => {
-                self.diff.select(pane, path, At::Working);
+                self.select_diff(pane, path, At::Working, cx);
                 self.load_diff(pane, cx);
             }
             Doc::CommitFile { sha, path } => {
-                self.diff.select(pane, path, At::Commit(sha));
+                self.select_diff(pane, path, At::Commit(sha), cx);
                 self.load_diff(pane, cx);
             }
             Doc::PrFile { base, path } => {
-                self.diff.select(pane, path, At::Base(base));
-                self.pin_threads();
+                self.select_diff(pane, path, At::Base(base), cx);
+                self.pin_threads(cx);
                 self.load_diff(pane, cx);
             }
             Doc::CompareFile { against, path } => {
-                self.diff.select(pane, path, At::Compare(against));
-                self.pin_threads();
+                self.select_diff(pane, path, At::Compare(against), cx);
+                self.pin_threads(cx);
                 self.load_diff(pane, cx);
             }
             Doc::Commit(sha) => self.show_commit(pane, sha, cx),
@@ -503,28 +538,28 @@ impl Desktop {
         cx.notify();
     }
 
-    pub fn loaded(&self, pane: PaneId, doc: &Doc) -> bool {
-        let diff = self.diff.view(pane);
+    pub fn loaded(&self, pane: PaneId, doc: &Doc, cx: &App) -> bool {
+        let diff = self.diff.view(pane, cx);
         match doc {
-            Doc::File(p) => self.preview.file(pane) == Some(p.as_str()),
+            Doc::File(p) => self.preview.read(cx).file(pane) == Some(p.as_str()),
             Doc::Diff(p) => diff.is_some_and(|v| v.shows(p, &At::Working)),
             Doc::CommitFile { sha, path } => diff.is_some_and(|v| v.shows(path, &At::Commit(sha.clone()))),
             Doc::PrFile { base, path } => diff.is_some_and(|v| v.shows(path, &At::Base(base.clone()))),
             Doc::CompareFile { against, path } => diff.is_some_and(|v| v.shows(path, &At::Compare(against.clone()))),
-            Doc::Commit(sha) => self.commit.get(pane).is_some_and(|c| c.sha.as_ref() == Some(sha)),
+            Doc::Commit(sha) => self.commit.shows(pane, sha, cx),
         }
     }
 
     /// Drops what closed panes showed, and loads the docs that tabs revealed by closing or switching worktrees show, unless they are loaded already.
     pub(crate) fn load_active(&mut self, cx: &mut Context<Self>) {
-        let panes = self.pane_ids();
+        let panes = self.pane_ids(cx);
         self.diff.retain_panes(&panes);
         self.commit.retain_panes(&panes);
-        self.preview.retain_panes(&panes);
+        self.preview.update(cx, |p, _| p.retain_panes(&panes));
         self.browsers.retain_panes(&panes);
         for pane in panes {
-            if let Some(Tab::Doc(doc)) = self.pane_tab(pane)
-                && !self.loaded(pane, &doc)
+            if let Some(Tab::Doc(doc)) = self.pane_tab(pane, cx)
+                && !self.loaded(pane, &doc, cx)
             {
                 self.show_doc(pane, doc, cx);
             }
@@ -533,27 +568,18 @@ impl Desktop {
 
     pub(crate) fn menu_open(&self, cx: &App) -> bool {
         self.board.read(cx).menu_open()
-            || self.panels.menu.is_some()
-            || self.panels.actions.is_some()
-            || self.panels.top_actions.is_some()
+            || self.panels.read(cx).menu_open()
             || self.row_menu.is_some()
-            || self.changes.commit_menu
-            || self.changes.menu
-            || self.compare.menu
-            || self.pr.ship_menu
-            || self.pr.merge_menu
-            || self.pr.create_menu
-            || self.sidebar.picker.open
-            || self.sidebar.add_menu
-            || self.sidebar.organize.menu
-            || self.sidebar.space_header.read(cx).menu_open()
-            || self.automations.menu.is_some()
-            || self.explorer.menu.is_some()
+            || self.changes.read(cx).menu_open()
+            || self.pr.read(cx).menu_open()
+            || self.sidebar.read(cx).menu_open(cx)
+            || self.automations.read(cx).menu_open()
+            || self.explorer.read(cx).menu_open()
             || self.terminal.menu.is_some()
             || self.accounts.menu.is_some()
             || self.clone_form.read(cx).machine_menu
             || self.chats.files.is_some()
-            || self.chats.select.menu_open()
+            || self.chats.select.read(cx).menu_open()
             || self.open_in.read(cx).menu.is_some()
             || self.activity.read(cx).menu.is_some()
     }
@@ -561,50 +587,54 @@ impl Desktop {
     /// Returns whether a menu was open.
     pub(crate) fn close_menus(&mut self, cx: &mut App) -> bool {
         let open = self.menu_open(cx);
-        (self.panels.menu, self.panels.actions, self.panels.top_actions, self.row_menu, self.changes.commit_menu, self.changes.menu) =
-            (None, None, None, None, false, false);
-        self.compare.menu = false;
-        (self.pr.ship_menu, self.pr.merge_menu, self.pr.create_menu) = (false, false, false);
-        self.sidebar.menu_at = None;
-        self.sidebar.picker.open = false;
-        self.sidebar.add_menu = false;
-        self.sidebar.organize.menu = false;
-        self.sidebar.space_header.update(cx, |h, _| h.shut());
-        self.automations.menu = None;
+        self.panels.update(cx, |p, cx| p.close_menus(cx));
+        self.row_menu = None;
+        self.changes.update(cx, |c, cx| c.shut_menus(cx));
+        self.pr.update(cx, |p, cx| p.shut_menus(cx));
+        self.sidebar.update(cx, |s, cx| s.shut_menus(cx));
+        self.automations.update(cx, |a, cx| a.shut_menu(cx));
         self.board.update(cx, |b, _| b.close_menu());
         self.activity.update(cx, |a, _| a.menu = None);
         self.accounts.menu = None;
         self.clone_form.update(cx, |f, _| f.close_menus());
-        self.explorer.close_menu();
+        self.explorer.update(cx, |e, cx| {
+            if e.close_menu().is_some() {
+                cx.notify();
+            }
+        });
         self.terminal.menu = None;
         self.chats.files = None;
-        self.chats.select.close_menu();
+        self.chats.select.update(cx, |s, _| s.close_menu());
         self.open_in.update(cx, |o, _| o.menu = None);
         open
     }
 
     /// Whether the main view shows panes with no overlay, menu or creating page over them.
     pub(crate) fn panes_on_screen(&self, cx: &App) -> bool {
-        self.session_tree().is_some() && self.shown_create(cx).is_none() && self.overlay.is_none() && !self.menu_open(cx)
+        self.session_tree(cx).is_some() && self.shown_create(cx).is_none() && self.overlay.is_none() && !self.menu_open(cx)
     }
 
     /// The worktree whose panes the main view shows.
-    pub(crate) fn session_tree(&self) -> Option<String> {
-        if self.terminals.link.is_down() || self.terminals.link.update(Instant::now()).is_some() || self.screen != Screen::Sessions || self.new_form.shown {
+    pub(crate) fn session_tree(&self, cx: &App) -> Option<String> {
+        if self.terminals.read(cx).link.is_down()
+            || self.terminals.read(cx).link.update(Instant::now()).is_some()
+            || self.screen != Screen::Sessions
+            || self.new_form.read(cx).shown()
+        {
             return None;
         }
-        self.place()
+        self.place(cx)
     }
 
     /// A git project's main checkout on screen with nothing open in it, once the saved layouts are back: the new session page stands in for its empty panes.
-    pub(crate) fn idle_main(&self) -> bool {
+    pub(crate) fn idle_main(&self, cx: &App) -> bool {
         let Some(p) = self.project.as_deref() else { return false };
-        let Some(main) = self.tree_of(p) else { return false };
-        self.panels.restored
+        let Some(main) = self.tree_of(p, cx) else { return false };
+        self.workspaces.read(cx).is_restored()
             && new_session::may_start(&self.agents)
             && self.worktrees.get(p).is_some_and(|w| !w.is_empty())
-            && self.place().as_ref() == Some(&main)
-            && !self.in_use(&main)
+            && self.place(cx).as_ref() == Some(&main)
+            && !self.in_use(&main, cx)
     }
 
     /// The provider's Label from Settings, else its own name.
@@ -615,76 +645,33 @@ impl Desktop {
     fn main_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let now = Instant::now();
         // The hand-back ends on time even when another page covers it, since it keeps the panes hidden.
-        if matches!(self.terminals.link.update(now), Some(Update::Back(_))) {
+        if matches!(self.terminals.read(cx).link.update(now), Some(Update::Back(_))) {
             window.request_animation_frame();
         }
-        let body = match self.session_tree() {
+        let body = match self.session_tree(cx) {
             _ if self.shown_create(cx).is_some() => self.creating_page(window, cx),
-            Some(_) if self.idle_main() => {
+            Some(_) if self.idle_main(cx) => {
                 // Every way onto the main checkout ends here, and opening the page needs the window; re-checked since the frame may be stale by then.
                 cx.defer_in(window, |this, window, cx| {
-                    if let Some(p) = this.project.clone().filter(|_| this.idle_main() && !this.new_form.shown && this.overlay.is_none()) {
+                    if let Some(p) = this.project.clone().filter(|_| this.idle_main(cx) && !this.new_form.read(cx).shown() && this.overlay.is_none()) {
                         this.new_place(p, window, cx);
                     }
                 });
                 div()
             }
             Some(tree) => self.panels_view(&tree, window, cx),
-            None if self.terminals.link.is_down() || self.terminals.link.update(now).is_some() => self.link_page(now, window, cx),
-            None if self.new_form.shown && self.screen == Screen::Sessions => self.new_session_page(window, cx),
+            None if self.terminals.read(cx).link.is_down() || self.terminals.read(cx).link.update(now).is_some() => self.link_page(cx),
+            None if self.new_form.read(cx).shown() && self.screen == Screen::Sessions => self.new_session_page(cx),
             None => match self.screen_view(window, cx) {
                 Some(page) => page,
                 None => self.blank_page(cx),
             },
         };
-        ui::page(div())
-            .relative()
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .flex()
-            .flex_col()
-            .overflow_hidden()
-            .child(body)
-            .children(self.error_toast(cx))
-            .children(self.deleting_toast())
-            .children(self.added_toast())
-            .children(self.tree_toast(cx))
-            .children(self.pr_notice(cx))
+        ui::page(div()).relative().flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).child(self.toasts_view(cx))
     }
 
-    fn link_page(&self, now: Instant, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let link = &self.terminals.link;
-        let hint = link.hint(now);
-        let tip = match hint {
-            None | Some(Hint::Stale) => Vec::new(),
-            Some(Hint::Install) => {
-                vec![div().child("Not starting? In Terminal:").into_any_element(), div().font_family(MONO).child("pocketd daemon install").into_any_element()]
-            }
-            Some(Hint::LoginItems) => vec![
-                div().child("Anywhere's background service is off.").into_any_element(),
-                ui::button("open-login-items", ui::Variant::Primary, None, "Open Login Items")
-                    .mt(px(6.))
-                    .on_click(|_, _, _| daemon::service::open_login_items())
-                    .into_any_element(),
-            ],
-            Some(Hint::Reopen) => vec![div().child("Not starting? Quit and reopen Anywhere.").into_any_element()],
-        };
-        let body = match link.update(now) {
-            Some(update) => self.updating_page(update, link.stale().unwrap_or_default(), tip, window, cx),
-            None => div()
-                .flex_1()
-                .flex()
-                .flex_col()
-                .items_center()
-                .justify_center()
-                .gap(px(6.))
-                .text_size(px(14.))
-                .text_color(TEXT_3)
-                .when(hint != Some(Hint::LoginItems), |d| d.child("Starting Anywhere's terminal service…"))
-                .children(tip),
-        };
-        div().flex_1().flex().flex_col().child(self.page_bar(vec!["Sessions".into()], Vec::new(), div(), cx)).child(body)
+    fn link_page(&self, cx: &mut Context<Self>) -> Div {
+        div().flex_1().flex().flex_col().child(self.page_bar(vec!["Sessions".into()], Vec::new(), div(), cx)).child(self.terminals.clone())
     }
 
     pub(crate) fn relaunch_if_replaced(&mut self, cx: &mut Context<Self>) {
@@ -703,8 +690,8 @@ impl Desktop {
             if replaced.await {
                 this.update(cx, |d, cx| {
                     if !d.relaunch(cx) {
-                        d.confirm = Some(Confirm::Relaunch(d.preview.drafts.len()));
-                        d.overlay = Some(Overlay::Confirm);
+                        let unsaved = d.preview.read(cx).drafts.len();
+                        d.ask(Confirm::Relaunch(unsaved), cx);
                         cx.notify();
                     }
                 })
@@ -718,7 +705,7 @@ impl Desktop {
 
     /// Unsaved edits live only in memory, so a relaunch waits for them as quitting does.
     fn relaunch(&mut self, cx: &mut Context<Self>) -> bool {
-        let clean = self.preview.drafts.is_empty();
+        let clean = self.preview.read(cx).drafts.is_empty();
         if clean {
             cx.restart();
         }
@@ -730,7 +717,7 @@ impl Desktop {
             let result = cx.background_executor().spawn(async { daemon::service::restart() }).await;
             this.update(cx, |d, cx| {
                 if let Err(e) = result {
-                    d.error = Some(format!("Couldn't restart the service: {e}"));
+                    d.fail(format!("Couldn't restart the service: {e}"), cx);
                     cx.notify();
                 }
             })
@@ -766,36 +753,39 @@ fn replaced_on_disk(cx: &App) -> Task<bool> {
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_panels(cx);
+        self.sync_pr_side(cx);
         // A capture draws one frame a step, which would catch a glide midway.
         let (now, capturing, reduce_motion) = (Instant::now(), self.capturing, cx.reduce_motion() || self.capturing);
         // Not `||`: each steps every frame.
-        if self.sidebar.tick(self.layout, now, reduce_motion)
-            | self.panels.tick(now, reduce_motion)
+        if self.sidebar.update(cx, |s, _| s.tick(self.layout, now, reduce_motion))
+            | self.panels.update(cx, |p, _| p.tick(now, reduce_motion))
             | self.star.update(cx, |s, _| s.tick(now, capturing))
-            | self.chats.dock.tick(now, reduce_motion)
+            | self.chats.dock.update(cx, |d, _| d.tick(now, reduce_motion))
         {
             window.request_animation_frame();
         }
-        self.sync_code(window, cx);
         self.sync_view(window, cx);
-        self.sync_cursor(window, cx);
         self.sync_browser(window, cx);
         let welcome = self.welcome_view(now, reduce_motion, window, cx);
         // The welcome hides the app until it fades, so the app isn't built, and what animates in it asks for no frames.
         let shown = !self.welcome.as_ref().is_some_and(|w| w.read(cx).covers());
         let settings = self.screen == Screen::Settings;
-        let lead = (shown && !settings).then(|| self.lead());
+        if settings {
+            self.sync_settings(cx);
+        }
+        let lead = (shown && !settings).then(|| self.lead(cx));
         let column = if !shown {
             None
         } else if settings {
-            Some(self.settings_nav(cx))
+            let width = self.width(crate::desktop::chrome::Column::Projects, 272.);
+            Some(self.settings.update(cx, |s, cx| s.nav(width, cx)).into_any_element())
         } else {
-            crate::sidebar::column_shown(self.layout, self.screen).then(|| self.column_view(cx))
+            crate::sidebar::column_shown(self.layout, self.screen).then(|| self.column_view(cx).into_any_element())
         };
-        let page = shown.then(|| if settings { self.settings_page(cx) } else { self.main_view(window, cx) });
-        let workspace = (shown && self.screen == Screen::Sessions && self.sidebar.unfocused() > 0.).then(|| self.workspace_side());
+        let page = shown.then(|| if settings { self.settings.clone().into_any_element() } else { self.main_view(window, cx).into_any_element() });
+        let workspace = (shown && self.screen == Screen::Sessions && self.sidebar.read(cx).unfocused() > 0.).then(|| self.workspace_side(cx));
         // The finder opened from the new-session page has no overlay under it.
-        let overlay = if shown { self.overlay_view(window, cx).or_else(|| self.host_finder_view(window, cx)) } else { None };
+        let overlay = if shown { self.overlay_view(cx).or_else(|| self.host_finder_view(cx)) } else { None };
         div()
             .relative()
             .size_full()
@@ -806,7 +796,7 @@ impl Render for Desktop {
             .text_color(TEXT)
             .when(self.screen == Screen::Inbox, |d| d.key_context(crate::inbox::CONTEXT))
             .when(self.screen == Screen::Settings, |d| d.key_context(crate::settings::CONTEXT))
-            .when(self.explorer.menu.is_some(), |d| d.key_context(crate::explorer::menu::CONTEXT))
+            .when(self.explorer.read(cx).menu_open(), |d| d.key_context(crate::explorer::menu::CONTEXT))
             .track_focus(&self.root)
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.log_focus_miss(&ev.keystroke, window, cx); // [DEBUG-focus]
@@ -820,21 +810,26 @@ impl Render for Desktop {
                 if ev.keystroke.key != "escape" {
                     return;
                 }
-                if this.close_host_finder(window, cx)
-                    || this.cancel_drag()
-                    || this.explorer.cancel_edit()
-                    || this.sidebar.cancel_rename()
-                    || this.sidebar.space_header.update(cx, |h, _| h.cancel_rename())
-                    || this.close_picker()
-                    || this.escape_composer_menu()
+                if this.close_host_finder(cx)
+                    || this.panels.update(cx, |p, cx| p.cancel_drag(cx))
+                    || this.explorer.update(cx, |e, cx| {
+                        let was = e.cancel_edit();
+                        if was {
+                            cx.notify();
+                        }
+                        was
+                    })
+                    || this.sidebar.update(cx, |s, cx| s.cancel_rename(cx))
+                    || this.new_form.update(cx, |f, cx| f.close_picker(cx))
+                    || this.escape_composer_menu(cx)
                     || this.close_menus(cx)
-                    || this.chat_escape_dock(window, cx)
+                    || this.chat_escape_dock(cx)
                     || this.delegated_escape(window, cx)
                 {
                     cx.notify();
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);
-                } else if this.overlay.is_none() && this.new_form.shown && this.screen == Screen::Sessions && !this.idle_main() {
+                } else if this.overlay.is_none() && this.new_form.read(cx).shown() && this.screen == Screen::Sessions && !this.idle_main(cx) {
                     this.leave_new_session(window, cx);
                 } else if this.overlay.is_some() || !this.escape_screen(window, cx) {
                     return;
@@ -902,8 +897,7 @@ impl Render for Desktop {
             .children(page)
             .children(workspace)
             .children(overlay)
-            .children(shown.then(|| self.chat_pill(cx)).flatten())
-            .children(shown.then(|| self.chat_popover(cx)).flatten())
+            .children(shown.then(|| self.chat_offers(cx)))
             .children(shown.then(|| self.chat_select_offer(cx)).flatten())
             .children(welcome)
     }

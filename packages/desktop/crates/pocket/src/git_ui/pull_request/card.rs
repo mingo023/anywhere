@@ -1,5 +1,5 @@
+use super::PrSide;
 use super::{gate_text, resolving_text, review_lines, tally, to_fix};
-use crate::desktop::Desktop;
 use git::github::{Check, Gate, Outcome, Pr, PrState, Review, ThreadState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -145,15 +145,15 @@ pub(super) fn list_head(left: impl IntoElement, right: impl IntoElement) -> Div 
         .child(right)
 }
 
-impl Desktop {
+impl PrSide {
     pub(super) fn face(&self, login: &str, size: f32) -> Div {
-        face(login, size, self.pr.avatars.path(login))
+        face(login, size, self.avatars.path(login))
     }
 
     /// Every check, then who reviewed and what holds the merge back.
     pub(crate) fn pr_checks_tab(&self, tree: &str, pr: &Pr, cx: &mut Context<Self>) -> Stateful<Div> {
-        let fixing = self.pr.track.fixing(tree, pr);
-        let can_send = !self.agents.observe_only();
+        let fixing = self.track.fixing(tree, pr);
+        let can_send = !self.frame.observe_only;
         let (unsent, _) = to_fix(pr, fixing.as_ref());
         let resolving = fixing.as_ref().is_some_and(|s| s.conflict);
         let (failed, pending) = (count(pr, Outcome::Failed), count(pr, Outcome::Pending));
@@ -175,7 +175,7 @@ impl Desktop {
             .into_iter()
             .map(|(r, text)| row().min_h(px(22.)).child(glyph_slot(review_icon(r))).child(div().flex_1().min_w_0().truncate().child(text)));
         let gate = (pr.state == PrState::Open)
-            .then(|| self.pr_gate(pr, resolving, self.fix_agent()).min_h(px(22.)).pt(px(6.)).border_t(px(0.5)).border_color(HAIRLINE));
+            .then(|| self.pr_gate(pr, resolving, self.frame.agent).min_h(px(22.)).pt(px(6.)).border_t(px(0.5)).border_color(HAIRLINE));
         div()
             .id("pr-checks")
             .flex_1()

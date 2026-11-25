@@ -1,8 +1,8 @@
 use crate::accounts;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay, RowMenu, id};
+use crate::desktop::chrome::{Confirm, RowMenu, id};
 use crate::modals::add_project::icon::EMOJI;
-use crate::sidebar::sections::group_mark;
+use crate::sidebar::sections::emoji_mark;
 use crate::terminals::link;
 use agents::Summary;
 use agents::locals::is_local;
@@ -80,360 +80,377 @@ fn fork_spec(s: &Summary, project: &str, prefs: &Agents, live: &agents::Agents, 
     Some(spec)
 }
 
-impl Desktop {
-    pub(super) fn open_row_menu(menu: RowMenu, cx: &mut Context<Self>) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static {
-        cx.listener(move |this, e: &MouseDownEvent, _, cx| {
-            this.close_menus(cx);
-            this.row_menu = Some(menu.clone());
-            this.sidebar.menu_at = Some(e.position);
-            cx.notify();
-        })
-    }
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum MenuAction {
+    ProjectSettings(String),
+    Keep(String),
+    Pin(Pin),
+    Import(String),
+    SetGroup { project: String, group: Option<u32> },
+    NewGroup(Option<String>),
+    RemoveProject(String),
+    Rename(String),
+    RenameGroup(u32),
+    DeleteWorktree { project: String, tree: String },
+    DeleteLocal(String),
+    DeleteScratch(String),
+    GroupIcon { group: u32, emoji: &'static str },
+    DeleteGroup(u32),
+    SessionPin { id: String, pin: bool },
+    CopyPath(String),
+    CopyResume(String),
+    Fork(String),
+    Handoff(String),
+    Close(String),
+}
 
+#[derive(Clone, PartialEq)]
+pub(crate) enum MenuItem {
+    Row { id: &'static str, icon: &'static str, label: String, action: MenuAction, danger: bool },
+    Divider,
+    Label(&'static str),
+    Pick { id: String, lead: Option<String>, label: String, chosen: bool, action: MenuAction },
+    Icons { group: u32, chosen: Option<String> },
+}
+
+#[derive(Clone, PartialEq)]
+pub(crate) struct MenuFrame {
+    pub(crate) menu: RowMenu,
+    pub(crate) at: Option<Point<Pixels>>,
+    pub(crate) items: Vec<MenuItem>,
+}
+
+#[derive(Clone)]
+pub(crate) enum MenuEvent {
+    Button(RowMenu),
+    Context(RowMenu, Point<Pixels>),
+    Shut,
+    Pick(MenuAction),
+}
+
+pub(crate) type Send<V> = fn(&mut V, MenuEvent, &mut Window, &mut Context<V>);
+
+pub(crate) fn open_on_right_click<V: 'static>(menu: RowMenu, send: Send<V>, cx: &mut Context<V>) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static {
+    cx.listener(move |this, e: &MouseDownEvent, window, cx| send(this, MenuEvent::Context(menu.clone(), e.position), window, cx))
+}
+
+pub(crate) fn menu_button<V: 'static>(key: &str, menu: RowMenu, shown: Option<&MenuFrame>, send: Send<V>, cx: &mut Context<V>) -> AnyElement {
+    let frame = shown.filter(|f| f.menu == menu);
+    let opens = menu;
+    let button = ui::popover_trigger(
+        icon_button_sized(id(format!("aside-more:{key}")), "more", 22., TEXT_3).rounded(px(6.)),
+        frame.is_some(),
+        cx.listener(move |this, _: &MouseDownEvent, window, cx| send(this, MenuEvent::Button(opens.clone()), window, cx)),
+    );
+    div().relative().child(button).when_some(frame, |d, f| d.child(menu_pop(f, send, cx))).into_any_element()
+}
+
+fn menu_pop<V: 'static>(frame: &MenuFrame, send: Send<V>, cx: &mut Context<V>) -> AnyElement {
+    let items: Vec<AnyElement> = frame.items.iter().map(|item| menu_item(item, send, cx)).collect();
+    let pop = ui::menu_in(
+        "aside-menu-in",
+        ui::pop(div().id("aside-menu"))
+            .w(px(210.))
+            .p(px(6.))
+            .flex()
+            .flex_col()
+            .occlude()
+            .on_mouse_down_out(cx.listener(move |this, _: &MouseDownEvent, window, cx| send(this, MenuEvent::Shut, window, cx)))
+            .children(items),
+    );
+    match frame.at {
+        Some(at) => deferred(anchored().position(at).snap_to_window_with_margin(px(8.)).child(pop)).with_priority(1).into_any_element(),
+        None => ui::dropdown(26., pop).into_any_element(),
+    }
+}
+
+fn picks<V: 'static>(action: &MenuAction, send: Send<V>, cx: &mut Context<V>) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
+    let action = action.clone();
+    cx.listener(move |this, _: &ClickEvent, window, cx| send(this, MenuEvent::Pick(action.clone()), window, cx))
+}
+
+fn menu_item<V: 'static>(item: &MenuItem, send: Send<V>, cx: &mut Context<V>) -> AnyElement {
+    match item {
+        MenuItem::Row { id, icon, label, action, danger } => {
+            let row = if *danger { ui::danger_row(*id, icon, label) } else { ui::menu_row(*id, icon, label, None) };
+            row.on_click(picks(action, send, cx)).into_any_element()
+        }
+        MenuItem::Divider => ui::menu_divider().into_any_element(),
+        MenuItem::Label(text) => ui::menu_label(text).into_any_element(),
+        MenuItem::Pick { id, lead, label, chosen, action } => {
+            ui::menu_pick(SharedString::from(id.clone()), div().children(lead.clone().map(emoji_mark)), label, *chosen)
+                .on_click(picks(action, send, cx))
+                .into_any_element()
+        }
+        MenuItem::Icons { group, chosen } => {
+            let icons = EMOJI.iter().enumerate().map(|(i, &e)| {
+                let action = MenuAction::GroupIcon { group: *group, emoji: e };
+                div()
+                    .id(("aside-menu-icon", i))
+                    .size(px(28.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(6.))
+                    .text_size(px(16.))
+                    .cursor_pointer()
+                    .hover(|d| d.bg(FILL_2))
+                    .when(chosen.as_deref() == Some(e), |d| d.bg(FILL_3))
+                    .child(e)
+                    .on_click(picks(&action, send, cx))
+            });
+            div().py(px(4.)).flex().flex_wrap().children(icons).into_any_element()
+        }
+    }
+}
+
+fn row(id: &'static str, icon: &'static str, label: &str, action: MenuAction) -> MenuItem {
+    MenuItem::Row { id, icon, label: label.to_string(), action, danger: false }
+}
+
+fn danger(id: &'static str, icon: &'static str, label: &str, action: MenuAction) -> MenuItem {
+    MenuItem::Row { id, icon, label: label.to_string(), action, danger: true }
+}
+
+impl Desktop {
     pub(crate) fn can_fork(&self, s: &Summary) -> bool {
         offers_fork(s, self.agents.observe_only(), &self.store.agents, self.agents.fork_offered())
     }
 
     /// Starts a copy of agent `id`'s session; with a `terminal` place, in its agent's TUI with its tab there (see `fork_spec`).
     pub(crate) fn fork_session(&mut self, id: &str, terminal: Option<Place>, cx: &mut Context<Self>) {
-        if self.terminals.link.stale().is_some() {
-            self.error = Some(link::UPDATING.into());
+        if self.terminals.read(cx).link.stale().is_some() {
+            self.fail(link::UPDATING, cx);
             return cx.notify();
         }
-        let projects = self.projects();
+        let projects = self.projects(cx);
         let Some(s) = self.agents.get(id) else { return };
         let Some(spec) = self.agent_project(s, &s.cwd, &projects).and_then(|p| {
             fork_spec(s, p, &self.store.agents, &self.agents, &self.efforts_on(&s.provider, s.model.as_deref().unwrap_or_default()), terminal.is_some())
         }) else {
             return;
         };
-        if let (Some(request), Some(place)) = (self.send_create(spec), terminal) {
-            self.terminals.tab_terms.insert(request, place);
+        if let (Some(request), Some(place)) = (self.send_create(spec, cx), terminal) {
+            self.terminals.update(cx, |t, _| _ = t.tab_terms.insert(request, place));
         }
         cx.notify();
     }
 
     fn ask_close_session(&mut self, id: String, cx: &mut Context<Self>) {
-        self.confirm = Some(Confirm::CloseSession(id));
-        self.overlay = Some(Overlay::Confirm);
+        self.ask(Confirm::CloseSession(id), cx);
         cx.notify();
     }
 
-    pub(super) fn row_menu_button(&self, key: &str, menu: RowMenu, cx: &mut Context<Self>) -> AnyElement {
-        let open = self.row_menu.as_ref() == Some(&menu);
-        let opens = menu.clone();
-        let button = ui::popover_trigger(
-            icon_button_sized(id(format!("aside-more:{key}")), "more", 22., TEXT_3).rounded(px(6.)),
-            open,
-            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                this.sidebar.hover.press();
-                this.row_menu = Some(opens.clone());
-                this.sidebar.menu_at = None;
-                this.panels.menu = None;
-                this.panels.actions = None;
-                cx.notify();
-            }),
-        );
-        div().relative().child(button).when(open, |d| d.child(self.row_menu_pop(&menu, cx))).into_any_element()
+    pub(crate) fn menu_frame(&self, cx: &App) -> Option<MenuFrame> {
+        let menu = self.row_menu.clone()?;
+        let at = self.sidebar.read(cx).menu_at;
+        let items = self.row_menu_items(&menu, cx);
+        Some(MenuFrame { menu, at, items })
     }
 
-    /// `menu`, at the right-click that opened it, else under its `···` button.
-    pub(super) fn row_menu_pop(&self, menu: &RowMenu, cx: &mut Context<Self>) -> AnyElement {
-        let pop = ui::menu_in(
-            "aside-menu-in",
-            ui::pop(div().id("aside-menu"))
-                .w(px(210.))
-                .p(px(6.))
-                .flex()
-                .flex_col()
-                .occlude()
-                .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                    this.row_menu = None;
-                    this.sidebar.menu_at = None;
+    pub(crate) fn on_menu_event(&mut self, ev: MenuEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            MenuEvent::Button(menu) => {
+                self.sidebar.update(cx, |s, cx| {
+                    s.hover.press();
+                    s.menu_at = None;
                     cx.notify();
-                }))
-                .children(self.row_menu_items(menu, cx)),
-        );
-        match self.sidebar.menu_at {
-            Some(at) => deferred(anchored().position(at).snap_to_window_with_margin(px(8.)).child(pop)).with_priority(1).into_any_element(),
-            None => ui::dropdown(26., pop).into_any_element(),
+                });
+                self.row_menu = Some(menu);
+                self.panels.update(cx, |p, cx| p.close_tab_menus(cx));
+            }
+            MenuEvent::Context(menu, at) => {
+                self.close_menus(cx);
+                self.row_menu = Some(menu);
+                self.sidebar.update(cx, |s, cx| {
+                    s.menu_at = Some(at);
+                    cx.notify();
+                });
+            }
+            MenuEvent::Shut => {
+                self.row_menu = None;
+                self.sidebar.update(cx, |s, cx| {
+                    s.menu_at = None;
+                    cx.notify();
+                });
+            }
+            MenuEvent::Pick(action) => return self.menu_action(action, window, cx),
         }
+        cx.notify();
     }
 
-    fn pin_item(&self, pin: Pin, cx: &mut Context<Self>) -> AnyElement {
+    fn menu_action(&mut self, action: MenuAction, window: &mut Window, cx: &mut Context<Self>) {
+        if !matches!(action, MenuAction::ProjectSettings(_) | MenuAction::GroupIcon { .. }) {
+            self.row_menu = None;
+        }
+        match action {
+            MenuAction::ProjectSettings(p) => {
+                self.select_project(p, cx);
+                self.project_settings(&crate::actions::ProjectSettings, window, cx);
+                return;
+            }
+            MenuAction::Keep(p) => return self.keep_project(&p, cx),
+            MenuAction::Pin(pin) => {
+                self.store.sections.toggle_pin(pin);
+                self.store.save();
+            }
+            MenuAction::Import(p) => return self.import_worktrees(&p, cx),
+            MenuAction::SetGroup { project, group } => {
+                self.store.sections.set_group(&project, group);
+                self.store.save();
+            }
+            MenuAction::NewGroup(project) => return self.new_group(project, window, cx),
+            MenuAction::RemoveProject(p) => return self.ask_remove_project(p, cx),
+            MenuAction::Rename(tree) => return self.start_rename(tree, window, cx),
+            MenuAction::RenameGroup(id) => return self.start_group_rename(id, window, cx),
+            MenuAction::DeleteWorktree { project, tree } => return self.ask_delete_worktree(project, tree, cx),
+            MenuAction::DeleteLocal(local) => return self.ask_delete_local(local, cx),
+            MenuAction::DeleteScratch(path) => return self.ask_delete_scratch(path, cx),
+            MenuAction::GroupIcon { group, emoji } => {
+                self.store.sections.pick_group_icon(group, emoji);
+                self.store.save();
+            }
+            MenuAction::DeleteGroup(id) => {
+                self.store.sections.delete_group(id);
+                self.store.save();
+            }
+            MenuAction::SessionPin { id, pin } => self.outbox.pin(&id, pin),
+            MenuAction::CopyPath(text) | MenuAction::CopyResume(text) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
+            MenuAction::Fork(id) => return self.fork_session(&id, None, cx),
+            MenuAction::Handoff(id) => return self.open_handoff(&id, window, cx),
+            MenuAction::Close(id) => return self.ask_close_session(id, cx),
+        }
+        cx.notify();
+    }
+
+    fn pin_item(&self, pin: Pin) -> MenuItem {
         let label = if self.store.sections.is_pinned(&pin) { "Unpin" } else { "Pin to top" };
-        ui::menu_row("aside-menu-pin", "pin", label, None)
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.row_menu = None;
-                this.store.sections.toggle_pin(pin.clone());
-                this.store.save();
-                cx.notify();
-            }))
-            .into_any_element()
+        row("aside-menu-pin", "pin", label, MenuAction::Pin(pin))
     }
 
     /// Moves `p` into a group, out of every group, or into a new one.
-    fn group_items(&self, p: &str, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn group_items(&self, p: &str) -> Vec<MenuItem> {
         let sections = &self.store.sections;
         let current = sections.group_of(p);
-        let mut rows = vec![ui::menu_label("Move to group").into_any_element()];
-        let picks = sections.groups_on(hosts::split(p).0).map(|g| (Some(g.id), group_mark(g), g.name.clone())).chain([(None, None, "No group".to_string())]);
-        for (group, lead, name) in picks {
-            let target = p.to_string();
-            rows.push(
-                ui::menu_pick(SharedString::from(format!("aside-menu-group:{group:?}")), div().children(lead), &name, current == group)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.row_menu = None;
-                        this.store.sections.set_group(&target, group);
-                        this.store.save();
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-            );
+        let mut rows = vec![MenuItem::Label("Move to group")];
+        let picks = sections.groups_on(hosts::split(p).0).map(|g| (Some(g.id), g.icon.clone(), g.name.clone())).chain([(None, None, "No group".to_string())]);
+        for (group, lead, label) in picks {
+            rows.push(MenuItem::Pick {
+                id: format!("aside-menu-group:{group:?}"),
+                lead,
+                label,
+                chosen: current == group,
+                action: MenuAction::SetGroup { project: p.to_string(), group },
+            });
         }
-        let target = p.to_string();
-        rows.push(
-            ui::menu_row("aside-menu-new-group", "folder-plus", "New group…", None)
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.row_menu = None;
-                    this.new_group(Some(target.clone()), window, cx);
-                }))
-                .into_any_element(),
-        );
+        rows.push(row("aside-menu-new-group", "folder-plus", "New group…", MenuAction::NewGroup(Some(p.to_string()))));
         rows
     }
 
     /// A group's rename, icons and delete.
-    fn group_menu_items(&self, id: u32, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn group_menu_items(&self, id: u32) -> Vec<MenuItem> {
         let Some(group) = self.store.sections.group(id) else { return vec![] };
-        let rename = ui::menu_row("aside-menu-rename", "compose", "Rename…", None)
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_group_rename(id, window, cx)));
-        let icons = EMOJI.iter().enumerate().map(|(i, &e)| {
-            div()
-                .id(("aside-menu-icon", i))
-                .size(px(28.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(6.))
-                .text_size(px(16.))
-                .cursor_pointer()
-                .hover(|d| d.bg(FILL_2))
-                .when(group.icon.as_deref() == Some(e), |d| d.bg(FILL_3))
-                .child(e)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.store.sections.pick_group_icon(id, e);
-                    this.store.save();
-                    cx.notify();
-                }))
-        });
-        let delete = ui::danger_row("aside-menu-delete", "trash", "Delete group").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.row_menu = None;
-            this.store.sections.delete_group(id);
-            this.store.save();
-            cx.notify();
-        }));
         vec![
-            rename.into_any_element(),
-            div().py(px(4.)).flex().flex_wrap().children(icons).into_any_element(),
-            ui::menu_divider().into_any_element(),
-            delete.into_any_element(),
+            row("aside-menu-rename", "compose", "Rename…", MenuAction::RenameGroup(id)),
+            MenuItem::Icons { group: id, chosen: group.icon.clone() },
+            MenuItem::Divider,
+            danger("aside-menu-delete", "trash", "Delete group", MenuAction::DeleteGroup(id)),
         ]
     }
 
-    fn row_menu_items(&self, menu: &RowMenu, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn row_menu_items(&self, menu: &RowMenu, cx: &App) -> Vec<MenuItem> {
         match menu.clone() {
             RowMenu::Project(p) => {
                 let kept = self.store.projects.contains(&p);
-                let target = p.clone();
                 let first = if kept {
-                    ui::menu_row("aside-menu-settings", "settings", "Project settings…", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        this.select_project(target.clone(), cx);
-                        this.project_settings(&crate::actions::ProjectSettings, window, cx);
-                    }))
+                    row("aside-menu-settings", "settings", "Project settings…", MenuAction::ProjectSettings(p.clone()))
                 } else {
-                    ui::menu_row("aside-menu-keep", "check", "Keep in Anywhere", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.row_menu = None;
-                        this.keep_project(&target, cx);
-                    }))
+                    row("aside-menu-keep", "check", "Keep in Anywhere", MenuAction::Keep(p.clone()))
                 };
-                let mut rows = vec![first.into_any_element()];
+                let mut rows = vec![first];
                 if kept {
-                    rows.push(self.pin_item(Pin::Project(p.clone()), cx));
+                    rows.push(self.pin_item(Pin::Project(p.clone())));
                 }
                 let untracked = self.untracked_trees(&p).len();
                 if kept && untracked > 0 {
-                    let target = p.clone();
                     let label = if untracked == 1 { "Import 1 worktree".to_string() } else { format!("Import {untracked} worktrees") };
-                    rows.push(
-                        ui::menu_row("aside-menu-import", "branch", &label, None)
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.row_menu = None;
-                                this.import_worktrees(&target, cx);
-                            }))
-                            .into_any_element(),
-                    );
+                    rows.push(row("aside-menu-import", "branch", &label, MenuAction::Import(p.clone())));
                 }
                 if kept {
-                    rows.push(ui::menu_divider().into_any_element());
-                    rows.extend(self.group_items(&p, cx));
+                    rows.push(MenuItem::Divider);
+                    rows.extend(self.group_items(&p));
                 }
                 rows.extend([
-                    ui::menu_divider().into_any_element(),
-                    ui::danger_row("aside-menu-remove", "x", if kept { "Remove from Anywhere" } else { "Remove" })
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.row_menu = None;
-                            this.ask_remove_project(p.clone(), cx);
-                        }))
-                        .into_any_element(),
+                    MenuItem::Divider,
+                    danger("aside-menu-remove", "x", if kept { "Remove from Anywhere" } else { "Remove" }, MenuAction::RemoveProject(p)),
                 ]);
                 rows
             }
             RowMenu::Tree { project, tree } => {
                 let mut rows = vec![];
                 if self.store.projects.contains(&project) {
-                    rows.push(self.pin_item(Pin::Tree { project: project.clone(), tree: tree.clone() }, cx));
+                    rows.push(self.pin_item(Pin::Tree { project: project.clone(), tree: tree.clone() }));
                 }
                 if self.agents.names_offered() {
-                    let rename = tree.clone();
-                    rows.push(
-                        ui::menu_row("aside-menu-rename", "compose", "Rename…", None)
-                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                this.row_menu = None;
-                                this.start_rename(rename.clone(), window, cx);
-                            }))
-                            .into_any_element(),
-                    );
+                    rows.push(row("aside-menu-rename", "compose", "Rename…", MenuAction::Rename(tree.clone())));
                 }
                 if !rows.is_empty() {
-                    rows.push(ui::menu_divider().into_any_element());
+                    rows.push(MenuItem::Divider);
                 }
-                rows.push(
-                    ui::danger_row("aside-menu-delete", "trash", "Delete worktree…")
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.row_menu = None;
-                            this.ask_delete_worktree(project.clone(), tree.clone(), cx);
-                        }))
-                        .into_any_element(),
-                );
+                rows.push(danger("aside-menu-delete", "trash", "Delete worktree…", MenuAction::DeleteWorktree { project, tree }));
                 rows
             }
             RowMenu::Local { project, local } => {
                 let mut rows = vec![];
                 if self.store.projects.contains(&project) {
-                    rows.push(self.pin_item(Pin::Tree { project, tree: local.clone() }, cx));
+                    rows.push(self.pin_item(Pin::Tree { project, tree: local.clone() }));
                 }
                 if self.agents.renames_offered(&local) {
-                    let rename = local.clone();
-                    rows.push(
-                        ui::menu_row("aside-menu-rename", "compose", "Rename…", None)
-                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                this.row_menu = None;
-                                this.start_rename(rename.clone(), window, cx);
-                            }))
-                            .into_any_element(),
-                    );
+                    rows.push(row("aside-menu-rename", "compose", "Rename…", MenuAction::Rename(local.clone())));
                 }
                 if is_local(&local) && self.agents.locals_offered() {
                     if !rows.is_empty() {
-                        rows.push(ui::menu_divider().into_any_element());
+                        rows.push(MenuItem::Divider);
                     }
-                    rows.push(
-                        ui::danger_row("aside-menu-delete", "trash", "Delete Local…")
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.row_menu = None;
-                                this.ask_delete_local(local.clone(), cx);
-                            }))
-                            .into_any_element(),
-                    );
+                    rows.push(danger("aside-menu-delete", "trash", "Delete Local…", MenuAction::DeleteLocal(local)));
                 }
                 rows
             }
             RowMenu::Scratch(path) => {
                 let mut rows = vec![];
                 if self.agents.names_offered() {
-                    let rename = path.clone();
-                    rows.push(
-                        ui::menu_row("aside-menu-rename", "compose", "Rename…", None)
-                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                this.row_menu = None;
-                                this.start_rename(rename.clone(), window, cx);
-                            }))
-                            .into_any_element(),
-                    );
-                    rows.push(ui::menu_divider().into_any_element());
+                    rows.push(row("aside-menu-rename", "compose", "Rename…", MenuAction::Rename(path.clone())));
+                    rows.push(MenuItem::Divider);
                 }
-                rows.push(
-                    ui::danger_row("aside-menu-delete", "trash", "Delete session…")
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.row_menu = None;
-                            this.ask_delete_scratch(path.clone(), cx);
-                        }))
-                        .into_any_element(),
-                );
+                rows.push(danger("aside-menu-delete", "trash", "Delete session…", MenuAction::DeleteScratch(path)));
                 rows
             }
             RowMenu::Session(id) => {
                 let Some(s) = self.agents.get(&id) else { return vec![] };
-                let mut rows = vec![];
                 let handoff = self.can_hand_off(s).then(|| self.handoff.read(cx).moving(&id));
+                let mut rows = vec![];
                 for item in session_items(s, self.agents.observe_only(), &self.store.agents, self.agents.fork_offered(), handoff) {
-                    let row = match item {
+                    match item {
                         SessionItem::Pin(pin) => {
-                            let id = id.clone();
-                            ui::menu_row("aside-menu-pin", "pin", if pin { "Pin" } else { "Unpin" }, None).on_click(cx.listener(
-                                move |this, _: &ClickEvent, _, cx| {
-                                    this.row_menu = None;
-                                    this.outbox.pin(&id, pin);
-                                    cx.notify();
-                                },
-                            ))
+                            rows.push(row("aside-menu-pin", "pin", if pin { "Pin" } else { "Unpin" }, MenuAction::SessionPin { id: id.clone(), pin }))
                         }
-                        SessionItem::CopyPath => {
-                            let cwd = s.cwd.clone();
-                            ui::menu_row("aside-menu-copy-path", "copy", "Copy path", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.row_menu = None;
-                                cx.write_to_clipboard(ClipboardItem::new_string(cwd.clone()));
-                                cx.notify();
-                            }))
+                        SessionItem::CopyPath => rows.push(row("aside-menu-copy-path", "copy", "Copy path", MenuAction::CopyPath(s.cwd.clone()))),
+                        SessionItem::CopyResume(line) => {
+                            rows.push(row("aside-menu-copy-resume", "terminal", "Copy resume command", MenuAction::CopyResume(line)))
                         }
-                        SessionItem::CopyResume(line) => ui::menu_row("aside-menu-copy-resume", "terminal", "Copy resume command", None).on_click(cx.listener(
-                            move |this, _: &ClickEvent, _, cx| {
-                                this.row_menu = None;
-                                cx.write_to_clipboard(ClipboardItem::new_string(line.clone()));
-                                cx.notify();
-                            },
-                        )),
-                        SessionItem::Fork => {
-                            let id = id.clone();
-                            ui::menu_row("aside-menu-fork", "branch", "Fork session", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.row_menu = None;
-                                this.fork_session(&id, None, cx);
-                            }))
-                        }
+                        SessionItem::Fork => rows.push(row("aside-menu-fork", "branch", "Fork session", MenuAction::Fork(id.clone()))),
                         SessionItem::Handoff(moving) => {
-                            let id = id.clone();
-                            ui::menu_row("aside-menu-handoff", "server", crate::handoff::menu_label(moving), None).on_click(cx.listener(
-                                move |this, _: &ClickEvent, window, cx| {
-                                    this.row_menu = None;
-                                    this.open_handoff(&id, window, cx);
-                                },
-                            ))
+                            rows.push(row("aside-menu-handoff", "server", crate::handoff::menu_label(moving), MenuAction::Handoff(id.clone())))
                         }
                         SessionItem::Close => {
-                            rows.push(ui::menu_divider().into_any_element());
-                            let id = id.clone();
-                            ui::danger_row("aside-menu-close", "x", "Close session…").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.row_menu = None;
-                                this.ask_close_session(id.clone(), cx);
-                            }))
+                            rows.push(MenuItem::Divider);
+                            rows.push(danger("aside-menu-close", "x", "Close session…", MenuAction::Close(id.clone())));
                         }
-                    };
-                    rows.push(row.into_any_element());
+                    }
                 }
                 rows
             }
-            RowMenu::Group(id) => self.group_menu_items(id, cx),
+            RowMenu::Group(id) => self.group_menu_items(id),
         }
     }
 }

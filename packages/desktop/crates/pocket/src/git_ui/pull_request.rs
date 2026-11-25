@@ -4,6 +4,7 @@ mod card;
 mod comments;
 mod composer;
 mod conversation;
+mod desktop;
 mod hero;
 mod lists;
 mod notice;
@@ -12,26 +13,20 @@ mod timeline;
 
 pub(crate) use card::{glyph_slot, review_icon, row, small};
 
-use crate::chat::Route;
-use crate::desktop::Desktop;
-use crate::git_ui::changes::push;
-use crate::git_ui::diff::At;
-use crate::git_ui::gh_accounts::Gh;
 use crate::git_ui::pull_requests::PrItem;
-use crate::removal::Removal;
 use crate::sidebar::fold::Closing;
 use crate::status::Status;
-use git::github::{self, Check, Gate, Mergeable, Method, Note, Outcome, Pr, PrState, Review, Thread, ThreadState};
+use git::github::{self, Check, Gate, Mergeable, Method, Outcome, Pr, PrState, Review, Thread, ThreadState};
 use git::{Commit, Repo};
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::*;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::Duration;
 use theme::{FAILED_TEXT, MERGED, SUCCESS_TEXT, TEXT_3, TEXT_4, Token, WAITING_TEXT};
-use workspace::Doc;
-use workspace::tree::PaneId;
 
 const NOTICE: Duration = Duration::from_millis(4000);
 
@@ -355,8 +350,9 @@ impl Track {
         (left.items() > 0 || left.conflict).then_some(left)
     }
 
-    /// Forgets what agents have finished with, by `status`: one that worked and stopped, or is gone. A fix that changed nothing moves neither the head nor the checks.
-    pub(crate) fn settle(&mut self, status: impl Fn(&str) -> Option<Status>) {
+    /// Forgets what agents have finished with, by `status`: one that worked and stopped, or is gone. A fix that changed nothing moves neither the head nor the checks. True when anything was forgotten.
+    pub(crate) fn settle(&mut self, status: impl Fn(&str) -> Option<Status>) -> bool {
+        let before = self.sent.len();
         self.sent.retain(|_, sent| match status(&sent.agent) {
             Some(Status::Working) => {
                 sent.started = true;
@@ -366,6 +362,7 @@ impl Track {
             Some(_) => !sent.started,
             None => false,
         });
+        self.sent.len() != before
     }
 
     pub(crate) fn thread_sent(&self, tree: &str, pr: &Pr, thread: &str) -> bool {
@@ -445,9 +442,9 @@ fn flip(set: &mut HashSet<String>, id: &str) {
 /// A resolve to flip back, offered on the notice it raised.
 #[derive(Clone)]
 pub(crate) struct Undo {
-    tree: String,
-    thread: String,
-    resolved: bool,
+    pub(crate) tree: String,
+    pub(crate) thread: String,
+    pub(crate) resolved: bool,
 }
 
 pub(crate) struct Notice {
@@ -456,7 +453,84 @@ pub(crate) struct Notice {
     _hide: Task<()>,
 }
 
-pub(crate) struct PullRequest {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum NoPr {
+    Create,
+    Hint(&'static str),
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct Branch {
+    pub(crate) name: String,
+    pub(crate) base: Option<String>,
+    pub(crate) ahead: usize,
+}
+
+#[derive(Default)]
+pub(crate) struct PrFrame {
+    pub(crate) tree: Option<String>,
+    pub(crate) branch: Option<Branch>,
+    pub(crate) pr: Option<Arc<Pr>>,
+    pub(crate) offer: Option<NoPr>,
+    pub(crate) asking: bool,
+    pub(crate) agent: &'static str,
+    pub(crate) observe_only: bool,
+    pub(crate) deletable: bool,
+    pub(crate) me: String,
+    pub(crate) ai: bool,
+    pub(crate) draft: bool,
+    pub(crate) writer: &'static str,
+    /// Which minute it is, so what says how long ago is redrawn as time passes.
+    pub(crate) minute: u64,
+}
+
+impl PartialEq for PrFrame {
+    fn eq(&self, other: &Self) -> bool {
+        let same_pr = match (&self.pr, &other.pr) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        same_pr
+            && self.tree == other.tree
+            && self.branch == other.branch
+            && self.offer == other.offer
+            && self.asking == other.asking
+            && self.agent == other.agent
+            && self.observe_only == other.observe_only
+            && self.deletable == other.deletable
+            && self.me == other.me
+            && self.ai == other.ai
+            && self.draft == other.draft
+            && self.writer == other.writer
+            && self.minute == other.minute
+    }
+}
+
+pub(crate) enum PrEvent {
+    Refresh,
+    OpenUrl(String),
+    OpenFile(String),
+    OpenComposer,
+    Write,
+    Create,
+    SetDraft(bool),
+    Merge,
+    Ready,
+    Fix { checks: Vec<String>, threads: Vec<String> },
+    Conflict,
+    Resolve { thread: String, resolved: bool },
+    Reply { thread: String, body: String },
+    Comment { tree: String, body: String },
+    ViewThread(String),
+    DeleteMerged(String),
+    Undo,
+}
+
+impl EventEmitter<PrEvent> for PrSide {}
+
+pub(crate) struct PrSide {
+    pub(crate) frame: PrFrame,
     pub(crate) title: Entity<InputState>,
     pub(crate) body: Entity<TextareaState>,
     pub(crate) reply: Entity<TextareaState>,
@@ -484,10 +558,11 @@ pub(crate) struct PullRequest {
     pub(crate) notice: Option<Notice>,
     pub(crate) track: Track,
     pub(crate) avatars: avatars::Avatars,
+    _subs: Vec<Subscription>,
 }
 
-impl PullRequest {
-    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+impl PrSide {
+    pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let title = cx.new(|cx| InputState::new(window, cx).placeholder("Title"));
         let body = cx.new(|cx| TextareaState::new(window, cx).placeholder("What this changes, and why").rows(8));
         let reply = cx.new(|cx| TextareaState::new(window, cx).placeholder("Reply…").auto_grow(2, 8));
@@ -514,7 +589,8 @@ impl PullRequest {
                 _ => {}
             }),
         ];
-        let state = Self {
+        Self {
+            frame: PrFrame::default(),
             title,
             body,
             reply,
@@ -536,338 +612,197 @@ impl PullRequest {
             replying: None,
             notice: None,
             track: Track::default(),
-        };
-        (state, subs)
+            _subs: subs,
+        }
     }
-}
 
-impl Desktop {
+    pub(crate) fn set(&mut self, frame: PrFrame, cx: &mut Context<Self>) {
+        if self.frame != frame {
+            self.frame = frame;
+            crate::region::notify_after_draw(cx);
+        }
+    }
+
     /// The PR of the worktree on screen, with the worktree.
-    pub(crate) fn shown_pr(&self) -> Option<(String, &Pr)> {
-        let tree = self.cwd()?;
-        let pr = self.prs.get(&tree)?;
-        Some((tree, pr))
+    pub(crate) fn shown_pr(&self) -> Option<(&str, &Pr)> {
+        Some((self.frame.tree.as_deref()?, self.frame.pr.as_deref()?))
+    }
+
+    pub(crate) fn menu_open(&self) -> bool {
+        self.ship_menu || self.merge_menu || self.create_menu
+    }
+
+    pub(crate) fn shut_menus(&mut self, cx: &mut Context<Self>) {
+        if self.ship_menu || self.merge_menu || self.create_menu {
+            (self.ship_menu, self.merge_menu, self.create_menu) = (false, false, false);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn settle(&mut self, status: impl Fn(&str) -> Option<Status>, cx: &mut Context<Self>) {
+        if self.track.settle(status) {
+            cx.notify();
+        }
     }
 
     /// Where the PR of `tree` stands, in its colour, as its card's header says it.
-    pub(crate) fn pr_verdict(&self, tree: &str, pr: &Pr) -> (Token, String) {
-        let busy = card_busy(self.pr.busy.as_ref(), self.pr.composing.as_deref(), tree);
-        verdict(pr, self.pr.track.fixing(tree, pr).as_ref(), busy, self.fix_agent())
+    pub(crate) fn verdict(&self, tree: &str, pr: &Pr, agent: &str) -> (Token, String) {
+        let busy = card_busy(self.busy.as_ref(), self.composing.as_deref(), tree);
+        verdict(pr, self.track.fixing(tree, pr).as_ref(), busy, agent)
     }
 
-    /// Opens the composer for the worktree on screen, filled by the agent picked for commit messages or from the commits.
-    pub(crate) fn open_pr_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus(cx);
-        let (Some(tree), Some(repo)) = (self.cwd(), self.repo().cloned()) else { return };
-        self.show_pr_side(cx);
-        self.pr.composing = Some(tree);
-        self.pr.error = None;
-        if self.store.git.ai {
-            self.write_pr(window, cx);
-        } else {
-            let (title, body) = from_commits(&repo.commits);
+    pub(crate) fn open_pr(&self, url: String, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(PrEvent::OpenUrl(url));
+    }
+
+    pub(crate) fn open_pr_composer(&self, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(PrEvent::OpenComposer);
+    }
+
+    pub(crate) fn write_pr(&self, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(PrEvent::Write);
+    }
+
+    pub(crate) fn create_pr(&self, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(PrEvent::Create);
+    }
+
+    pub(crate) fn refresh_pr(&self, cx: &mut Context<Self>) {
+        cx.emit(PrEvent::Refresh);
+    }
+
+    pub(crate) fn merge_pr(&self, cx: &mut Context<Self>) {
+        cx.emit(PrEvent::Merge);
+    }
+
+    pub(crate) fn mark_ready(&self, cx: &mut Context<Self>) {
+        cx.emit(PrEvent::Ready);
+    }
+
+    pub(crate) fn send_conflict(&self, cx: &mut Context<Self>) {
+        cx.emit(PrEvent::Conflict);
+    }
+
+    pub(crate) fn send_fix(&self, checks: &[String], threads: &[String], cx: &mut Context<Self>) {
+        cx.emit(PrEvent::Fix { checks: checks.to_vec(), threads: threads.to_vec() });
+    }
+
+    pub(crate) fn resolve_thread(&self, thread: String, resolved: bool, _undo: bool, cx: &mut Context<Self>) {
+        cx.emit(PrEvent::Resolve { thread, resolved });
+    }
+
+    pub(crate) fn view_thread(&self, id: &str, cx: &mut Context<Self>) {
+        cx.emit(PrEvent::ViewThread(id.to_string()));
+    }
+
+    pub(crate) fn delete_merged(&self, tree: &str, cx: &mut Context<Self>) {
+        cx.emit(PrEvent::DeleteMerged(tree.to_string()));
+    }
+
+    pub(crate) fn open_composer(&mut self, tree: String, from_commits: Option<(String, String)>, window: &mut Window, cx: &mut Context<Self>) {
+        self.composing = Some(tree);
+        self.error = None;
+        if let Some((title, body)) = from_commits {
             self.fill_composer(title, body, window, cx);
         }
-        self.pr.title.update(cx, |s, cx| s.focus(window, cx));
+        self.title.update(cx, |s, cx| s.focus(window, cx));
         cx.notify();
     }
 
-    fn fill_composer(&mut self, title: String, body: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.pr.title.update(cx, |s, cx| s.set_value(title, window, cx));
-        self.pr.body.update(cx, |s, cx| s.set_value(body, window, cx));
+    pub(crate) fn fill_composer(&mut self, title: String, body: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.title.update(cx, |s, cx| s.set_value(title, window, cx));
+        self.body.update(cx, |s, cx| s.set_value(body, window, cx));
     }
 
-    pub(crate) fn close_pr_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.pr.composing = None;
-        self.pr.error = None;
+    pub(crate) fn close_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.composing = None;
+        self.error = None;
         self.fill_composer(String::new(), String::new(), window, cx);
         cx.notify();
     }
 
-    /// Asks the commit-message agent for a title and body from the branch's commits and diff.
-    pub(crate) fn write_pr(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(cwd), Some(repo)) = (self.cwd(), self.repo()) else { return };
-        let Some(base) = repo.base.clone().filter(|_| !self.pr.writing) else { return };
-        let (tree, fallback) = (cwd.clone(), from_commits(&repo.commits));
-        let argv = self.store.git.pr_argv(&self.store.agents.command(&self.store.git.agent));
-        self.pr.writing = true;
-        self.pr.error = None;
-        let task = cx.background_executor().spawn(async move {
-            let context = git::pr_context(&hosts::runner_for(&cwd), &cwd, &base);
-            crate::util::run_login(&argv.iter().map(String::as_str).collect::<Vec<_>>(), &cwd, &context)
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            let res = task.await;
-            this.update_in(cx, |d, window, cx| {
-                d.pr.writing = false;
-                if d.pr.composing.as_deref() != Some(tree.as_str()) {
-                    return cx.notify();
+    pub(crate) fn begin_write(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.writing {
+            return false;
+        }
+        self.writing = true;
+        self.error = None;
+        cx.notify();
+        true
+    }
+
+    pub(crate) fn written(&mut self, tree: &str, res: Result<String, String>, fallback: (String, String), window: &mut Window, cx: &mut Context<Self>) {
+        self.writing = false;
+        if self.composing.as_deref() == Some(tree) {
+            match res {
+                Ok(text) => {
+                    let (title, body) = github::split_message(&text);
+                    self.fill_composer(title, body, window, cx);
                 }
-                match res {
-                    Ok(text) => {
-                        let (title, body) = github::split_message(&text);
-                        d.fill_composer(title, body, window, cx);
-                    }
-                    Err(e) => {
-                        let (title, body) = fallback;
-                        d.fill_composer(title, body, window, cx);
-                        d.pr.error = Some(format!("Couldn't write the PR: {e}"));
-                    }
+                Err(e) => {
+                    self.fill_composer(fallback.0, fallback.1, window, cx);
+                    self.error = Some(format!("Couldn't write the PR: {e}"));
                 }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
+            }
+        }
         cx.notify();
     }
 
-    /// Pushes, then opens the PR the composer holds; the card takes its place at once.
-    pub(crate) fn create_pr(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tree) = self.pr.composing.clone() else { return };
-        let Some(repo) = self.repos.get(&tree) else { return };
-        let Some(base) = repo.base.clone() else { return };
-        if self.pr.busy.is_some() || self.pr.writing {
-            return;
+    pub(crate) fn begin_create(&mut self, tree: &str, draft: bool, window: &mut Window, cx: &mut Context<Self>) -> Option<(String, String)> {
+        if self.busy.is_some() || self.writing {
+            return None;
         }
-        let title = self.pr.title.read(cx).value().trim().to_string();
+        let title = self.title.read(cx).value().trim().to_string();
         if title.is_empty() {
-            self.pr.title.update(cx, |s, cx| s.focus(window, cx));
-            return cx.notify();
+            self.title.update(cx, |s, cx| s.focus(window, cx));
+            cx.notify();
+            return None;
         }
-        let body = self.pr.body.read(cx).value().to_string();
-        let (dir, push_argv, draft) = (tree.clone(), self.push_argv(), self.store.git.draft);
-        self.pr.busy = Some((tree.clone(), if draft { "Creating draft PR…" } else { "Creating PR…" }));
-        self.pr.error = None;
-        let (argv, gh) = (github::create_argv(&base, &title, draft), self.gh_in(&dir));
-        let task = cx.background_executor().spawn(async move {
-            push(&dir, &push_argv)?;
-            gh.run(&argv, &dir, &body)
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            let res = task.await;
-            this.update_in(cx, |d, window, cx| {
-                d.pr.busy = None;
-                match res {
-                    Ok(out) => {
-                        let base = github::base_branch(&base).to_string();
-                        let kind = if draft { "draft PR" } else { "PR" };
-                        match github::created(&out) {
-                            Some(number) => {
-                                d.notify_pr(format!("Opened {kind} #{number} into {base}"), None, cx);
-                                let url = out.lines().last().unwrap_or_default().trim().to_string();
-                                d.prs.put(&tree, Pr { number, title, url, draft, base, ..Pr::default() }, Instant::now());
-                            }
-                            None => {
-                                d.notify_pr(format!("Opened {kind} into {base}"), None, cx);
-                                d.prs.expire(&tree, Instant::now());
-                            }
-                        }
-                        d.close_pr_composer(window, cx);
-                        d.poll_prs(cx);
-                    }
-                    Err(e) => d.pr.error = Some(e),
-                }
-                d.refresh_git(cx);
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
+        let body = self.body.read(cx).value().to_string();
+        self.busy = Some((tree.to_string(), if draft { "Creating draft PR…" } else { "Creating PR…" }));
+        self.error = None;
+        cx.notify();
+        Some((title, body))
+    }
+
+    pub(crate) fn begin_gh(&mut self, tree: &str, busy: &'static str, cx: &mut Context<Self>) -> bool {
+        if self.busy.is_some() {
+            return false;
+        }
+        self.busy = Some((tree.to_string(), busy));
+        (self.merge_menu, self.create_menu) = (false, false);
+        cx.notify();
+        true
+    }
+
+    pub(crate) fn end_gh(&mut self, cx: &mut Context<Self>) {
+        self.busy = None;
         cx.notify();
     }
 
     pub(crate) fn notify_pr(&mut self, text: String, undo: Option<Undo>, cx: &mut Context<Self>) {
         let hide = cx.spawn(async |this, cx| {
             cx.background_executor().timer(NOTICE).await;
-            this.update(cx, |d, cx| {
-                d.pr.notice = None;
+            this.update(cx, |p, cx| {
+                p.notice = None;
                 cx.notify();
             })
             .ok();
         });
-        self.pr.notice = Some(Notice { text, undo, _hide: hide });
+        self.notice = Some(Notice { text, undo, _hide: hide });
         cx.notify();
     }
 
-    /// Runs `gh` in the worktree on screen while the card says `busy`, then `done` with what it printed.
-    fn run_gh(&mut self, busy: &'static str, argv: Vec<String>, cx: &mut Context<Self>, done: impl FnOnce(&mut Self, String, &mut Context<Self>) + 'static) {
-        let Some(dir) = self.cwd() else { return };
-        if self.pr.busy.is_some() {
-            return;
-        }
-        self.pr.busy = Some((dir.clone(), busy));
-        (self.pr.merge_menu, self.pr.create_menu) = (false, false);
-        let gh = self.gh_in(&dir);
-        let task = cx.background_executor().spawn(async move { gh.run(&argv, &dir, "") });
-        cx.spawn(async move |this, cx| {
-            let res = task.await;
-            this.update(cx, |d, cx| {
-                d.pr.busy = None;
-                match res {
-                    Ok(out) => done(d, out, cx),
-                    Err(e) => d.error = Some(e),
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
+    pub(crate) fn take_undo(&mut self, cx: &mut Context<Self>) -> Option<Undo> {
+        let undo = self.notice.take().and_then(|n| n.undo);
         cx.notify();
-    }
-
-    /// Merges the PR on screen, then deletes its worktree if the card says to.
-    pub(crate) fn merge_pr(&mut self, cx: &mut Context<Self>) {
-        let Some((tree, pr)) = self.shown_pr() else { return };
-        if pr.gate() != github::Gate::Ready {
-            return;
-        }
-        let (method, number, base) = (self.pr.track.method, pr.number, pr.base.clone());
-        self.run_gh("Merging…", github::merge_argv(number, method), cx, move |d, _, cx| {
-            d.prs.edit(&tree, |pr| pr.state = PrState::Merged);
-            d.prs.expire(&tree, Instant::now());
-            d.notify_pr(format!("Merged PR #{number} into {base}"), None, cx);
-            if d.pr.track.delete_after {
-                d.delete_merged(&tree, cx);
-            }
-        });
-    }
-
-    pub(crate) fn mark_ready(&mut self, cx: &mut Context<Self>) {
-        let Some((tree, pr)) = self.shown_pr() else { return };
-        self.run_gh("Marking ready…", github::ready_argv(pr.number), cx, move |d, _, _| {
-            d.prs.edit(&tree, |pr| pr.draft = false);
-            d.prs.expire(&tree, Instant::now());
-        });
-    }
-
-    /// A worktree of its own, unlike the project's checkout, which stays.
-    pub(crate) fn deletable(&self, tree: &str) -> bool {
-        self.project.as_ref().and_then(|p| self.worktrees.get(p)).is_some_and(|ws| ws.iter().any(|w| w.path == tree && !w.main))
-    }
-
-    /// The name of the agent fixes go to.
-    pub(crate) fn fix_agent(&self) -> &'static str {
-        self.chat_target(&self.chat_choices()).and_then(|id| self.agents.get(&id)).map_or("agent", |a| theme::provider_name(&a.provider))
-    }
-
-    /// Deletes a merged PR's worktree and its subagents', keeping their branches; asks first if any has changes.
-    pub(crate) fn delete_merged(&mut self, tree: &str, cx: &mut Context<Self>) {
-        let Some(project) = self.project.clone().filter(|_| self.deletable(tree)) else { return };
-        let removal = Removal { project, tree: tree.to_string(), branch: None, delete_branch: false, teardown: true };
-        let (mut subagents, on_hosts) = self.subagent_removals(&removal);
-        let dir = removal.tree.clone();
-        // Untracked files count even when Changes hides them, so this reads the trees afresh.
-        let dirty = |dir: &str| git::dirty_files(&hosts::runner_for(dir), dir).is_none_or(|n| n > 0);
-        let task = cx.background_executor().spawn(async move {
-            subagents.extend(crate::removal::host_removals(&on_hosts, false));
-            (dirty(&dir) || subagents.iter().any(|r| dirty(&r.tree) || r.lost() > 0), subagents)
-        });
-        cx.spawn(async move |this, cx| {
-            let (dirty, checked) = task.await;
-            this.update(cx, |d, cx| {
-                if dirty {
-                    d.ask_delete_worktree(removal.project, removal.tree, cx);
-                } else {
-                    d.delete_worktree(removal, &checked, cx);
-                }
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    /// Opens the file thread `id` is on as the PR changes it, scrolled to the thread; one whose line is gone shows in Comments instead.
-    pub(crate) fn view_thread(&mut self, id: &str, cx: &mut Context<Self>) {
-        let Some((_, pr)) = self.shown_pr() else { return };
-        let Some(t) = pr.threads.iter().find(|t| t.id == id) else { return };
-        if t.outdated || t.line.is_none() {
-            self.pr.track.tab = PrTab::Conversation;
-            return self.show_pr_side(cx);
-        }
-        let doc = Doc::PrFile { base: self.pr_base(pr), path: t.path.clone() };
-        self.diff.reveal = Some(id.to_string());
-        self.open_doc(doc, false, cx);
-    }
-
-    /// The remote branch `pr` merges into, as its diffs read it.
-    fn pr_base(&self, pr: &Pr) -> String {
-        format!("{}/{}", self.store.git.remote, pr.base)
-    }
-
-    /// Pins the threads of the PR on screen to the PR diffs.
-    pub(crate) fn pin_threads(&mut self) {
-        let pr = self.cwd().and_then(|tree| self.prs.get(&tree));
-        let base = pr.map(|pr| self.pr_base(pr));
-        self.diff.pin(pr.map_or(&[][..], |pr| pr.threads.as_slice()), base.as_deref());
-    }
-
-    /// Pins the threads again and reads the PR diffs again, for what was pushed or said since.
-    pub(crate) fn refresh_pr_diffs(&mut self, cx: &mut Context<Self>) {
-        self.pin_threads();
-        let panes: Vec<PaneId> = self.diff.panes.iter().filter(|(_, v)| matches!(v.at, At::Base(_))).map(|(p, _)| *p).collect();
-        for pane in panes {
-            self.load_diff(pane, cx);
-        }
-    }
-
-    /// Sends `prompt` to the agent this worktree's chat goes to; that agent's id once sent.
-    fn send_to_agent(&mut self, prompt: &str, cx: &mut Context<Self>) -> Option<String> {
-        if self.agents.observe_only() {
-            return None;
-        }
-        let Some(target) = self.chat_target(&self.chat_choices()) else {
-            self.error = Some("Start an agent in this worktree to send it this.".into());
-            cx.notify();
-            return None;
-        };
-        let (terminal, provider) = self.agents.get(&target).map(|a| (a.terminal_id.clone(), a.provider.clone()))?;
-        match self.route(&terminal) {
-            Route::Chat => self.chat_command(&target, chat::Command::Send(prompt.to_string()), cx),
-            Route::Paste => {
-                self.send_input(&terminal, &term::paste_bytes(prompt, true), cx);
-                cx.spawn(async move |this, cx| {
-                    cx.background_executor().timer(crate::add_to_chat::SEND_AFTER).await;
-                    this.update(cx, |d, cx| d.send_input(&terminal, b"\r", cx))
-                })
-                .detach();
-            }
-            Route::Blocked => {
-                self.error = Some("This agent can't take pasted text right now.".into());
-                cx.notify();
-                return None;
-            }
-        }
-        self.notify_pr(format!("Sent to {}", theme::provider_name(&provider)), None, cx);
-        Some(target)
-    }
-
-    /// Hands failed checks and review threads of the PR on screen to its agent.
-    pub(crate) fn send_fix(&mut self, checks: &[String], threads: &[String], cx: &mut Context<Self>) {
-        let Some((tree, pr)) = self.shown_pr() else { return };
-        let pr = pr.clone();
-        let checks: Vec<&Check> = pr.runs.iter().filter(|c| checks.contains(&c.name)).collect();
-        let threads: Vec<&Thread> = pr.threads.iter().filter(|t| threads.contains(&t.id)).collect();
-        if checks.is_empty() && threads.is_empty() {
-            return;
-        }
-        if let Some(agent) = self.send_to_agent(&fix_prompt(&pr, &checks, &threads), cx) {
-            self.pr.track.send(&tree, &agent, &pr, &threads, &checks, false);
-        }
-    }
-
-    pub(crate) fn send_conflict(&mut self, cx: &mut Context<Self>) {
-        let Some((tree, pr)) = self.shown_pr() else { return };
-        let (prompt, pr) = (conflict_prompt(&pr.base), pr.clone());
-        if let Some(agent) = self.send_to_agent(&prompt, cx) {
-            self.pr.track.send(&tree, &agent, &pr, &[], &[], true);
-        }
+        undo
     }
 
     pub(crate) fn start_reply(&mut self, thread: String, window: &mut Window, cx: &mut Context<Self>) {
         let to = self.shown_pr().and_then(|(_, pr)| pr.threads.iter().find(|t| t.id == thread)?.comments.first().map(|c| c.author.clone()));
-        self.pr.replying = Some(thread);
-        self.pr.reply.update(cx, |s, cx| {
+        self.replying = Some(thread);
+        self.reply.update(cx, |s, cx| {
             s.set_value("", window, cx);
             s.set_placeholder(format!("Reply to {}…", to.unwrap_or_default()), window, cx);
             s.focus(window, cx);
@@ -876,86 +811,51 @@ impl Desktop {
     }
 
     pub(crate) fn cancel_reply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.pr.replying = None;
-        self.pr.reply.update(cx, |s, cx| s.set_value("", window, cx));
+        self.replying = None;
+        self.reply.update(cx, |s, cx| s.set_value("", window, cx));
         cx.notify();
     }
 
-    /// Posts the reply at once and shows it as sent; a failure takes it back out.
-    pub(crate) fn send_reply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(dir), Some(thread)) = (self.cwd(), self.pr.replying.clone()) else { return };
-        let body = self.pr.reply.read(cx).value().trim().to_string();
-        if body.is_empty() {
-            return;
-        }
-        let gh = self.gh_in(&dir);
-        let me = self.login(&gh);
-        let at = crate::util::now_ms() as u64;
-        self.prs.edit(&dir, |pr| {
-            if let Some(t) = pr.thread_mut(&thread) {
-                t.comments.push(github::Comment { author: me, body: body.clone(), at, ..github::Comment::default() });
-            }
-        });
-        self.cancel_reply(window, cx);
-        let argv = github::reply_argv(&thread, &body);
-        let tree = dir.clone();
-        let task = cx.background_executor().spawn(async move { gh.run(&argv, &dir, "") });
-        cx.spawn(async move |this, cx| {
-            let res = task.await;
-            this.update(cx, |d, cx| {
-                if let Err(e) = res {
-                    d.prs.expire(&tree, Instant::now());
-                    d.error = Some(format!("Couldn't post the reply: {e}"));
-                    d.poll_prs(cx);
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    /// Who `gh` acts as, as a comment it posts names its author.
-    fn login(&self, gh: &Gh) -> String {
-        match (gh.account(), &self.prs.gh) {
-            (Some(account), _) => account.to_string(),
-            (None, Some(Some(github::GhStatus::Ready { login, .. }))) => login.clone(),
-            _ => "You".into(),
+    pub(crate) fn send_reply(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(thread) = self.replying.clone() else { return };
+        let body = self.reply.read(cx).value().trim().to_string();
+        if !body.is_empty() {
+            cx.emit(PrEvent::Reply { thread, body });
         }
     }
 
     pub(crate) fn open_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tree) = self.cwd() else { return };
-        self.pr.track.tab = PrTab::Conversation;
-        if self.pr.commenting.as_ref() != Some(&tree) {
-            let held = self.pr.comment.read(cx).value().to_string();
-            if let Some(left) = self.pr.commenting.take().filter(|_| !held.trim().is_empty()) {
-                self.pr.drafts.insert(left, (held, self.pr.comment_error.take()));
+        let Some(tree) = self.frame.tree.clone() else { return };
+        self.track.tab = PrTab::Conversation;
+        if self.commenting.as_ref() != Some(&tree) {
+            let held = self.comment.read(cx).value().to_string();
+            if let Some(left) = self.commenting.take().filter(|_| !held.trim().is_empty()) {
+                self.drafts.insert(left, (held, self.comment_error.take()));
             }
-            let (text, error) = self.pr.drafts.remove(&tree).unwrap_or_default();
-            self.pr.comment_error = error;
-            self.pr.comment.update(cx, |s, cx| s.set_value(text, window, cx));
+            let (text, error) = self.drafts.remove(&tree).unwrap_or_default();
+            self.comment_error = error;
+            self.comment.update(cx, |s, cx| s.set_value(text, window, cx));
         }
-        self.pr.commenting = Some(tree);
+        self.commenting = Some(tree);
         // The box sits at the end of the Conversation, which may be scrolled far above it.
-        self.pr.conversation_scroll.scroll_to_bottom();
-        self.pr.comment.update(cx, |s, cx| s.focus(window, cx));
+        self.conversation_scroll.scroll_to_bottom();
+        self.comment.update(cx, |s, cx| s.focus(window, cx));
         cx.notify();
     }
 
     pub(crate) fn cancel_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.pr.commenting = None;
-        self.pr.comment_error = None;
-        self.pr.comment.update(cx, |s, cx| s.set_value("", window, cx));
+        self.commenting = None;
+        self.comment_error = None;
+        self.comment.update(cx, |s, cx| s.set_value("", window, cx));
         cx.notify();
     }
 
     /// Opens the comment box with `said` quoted after what it already holds: GitHub has no replies to a comment on the PR itself.
     pub(crate) fn quote_reply(&mut self, said: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.open_comment(window, cx);
-        let held = self.pr.comment.read(cx).value().trim_end().to_string();
+        let held = self.comment.read(cx).value().trim_end().to_string();
         let text = if held.is_empty() { body::quote(said) } else { format!("{held}\n\n{}", body::quote(said)) };
-        self.pr.comment.update(cx, |s, cx| s.set_value(text, window, cx));
+        self.comment.update(cx, |s, cx| s.set_value(text, window, cx));
     }
 
     pub(crate) fn copy_link(&mut self, url: String, cx: &mut Context<Self>) {
@@ -963,109 +863,57 @@ impl Desktop {
         self.notify_pr("Copied the link".into(), None, cx);
     }
 
-    /// Asks `gh` about the PR on screen now, rather than at its next poll.
-    pub(crate) fn refresh_pr(&mut self, cx: &mut Context<Self>) {
-        let Some(tree) = self.cwd() else { return };
-        self.prs.expire(&tree, Instant::now());
-        self.poll_prs(cx);
-        cx.notify();
-    }
-
-    /// Posts the comment box on the PR of the worktree it was opened for, and shows it at once as being sent; a failure takes it back out and returns its text to the box.
-    pub(crate) fn send_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((dir, number)) = self.pr.commenting.clone().and_then(|tree| Some((tree.clone(), self.prs.get(&tree)?.number))) else { return };
-        let body = self.pr.comment.read(cx).value().trim().to_string();
-        if body.is_empty() {
-            return;
+    pub(crate) fn send_comment(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(tree) = self.commenting.clone() else { return };
+        let body = self.comment.read(cx).value().trim().to_string();
+        if !body.is_empty() {
+            cx.emit(PrEvent::Comment { tree, body });
         }
-        let gh = self.gh_in(&dir);
-        let note = Note { author: self.login(&gh), body: body.clone(), at: crate::util::now_ms() as u64, ..Note::default() };
-        self.prs.edit(&dir, |pr| pr.notes.push(note.clone()));
-        self.cancel_comment(window, cx);
-        let (argv, tree, input) = (github::comment_argv(number), dir.clone(), body.clone());
-        let task = cx.background_executor().spawn(async move { gh.run(&argv, &dir, &input) });
-        cx.spawn_in(window, async move |this, cx| {
-            let res = task.await;
-            this.update_in(cx, |d, window, cx| {
-                match res {
-                    Ok(out) => {
-                        let url = out.lines().last().unwrap_or_default().trim().to_string();
-                        d.prs.edit(&tree, |pr| {
-                            if let Some(n) = pr.notes.iter_mut().find(|n| **n == note) {
-                                (n.id, n.url) = (url.rsplit('#').next().unwrap_or("posted").to_string(), url);
-                            }
-                        });
-                        d.prs.expire(&tree, Instant::now());
-                        d.poll_prs(cx);
-                    }
-                    Err(e) if d.pr.commenting.as_ref().is_some_and(|t| *t != tree) => {
-                        d.prs.edit(&tree, |pr| pr.notes.retain(|n| *n != note));
-                        let draft = d.pr.drafts.entry(tree).or_default();
-                        draft.0 = if draft.0.trim().is_empty() { body } else { format!("{body}\n\n{}", draft.0) };
-                        draft.1 = Some(format!("Couldn't post the comment: {e}"));
-                        d.notify_pr("Couldn't post the comment; it's back in its worktree's comment box".into(), None, cx);
-                    }
-                    Err(e) => {
-                        d.prs.edit(&tree, |pr| pr.notes.retain(|n| *n != note));
-                        let held = d.pr.comment.read(cx).value().trim().to_string();
-                        let text = if held.is_empty() { body } else { format!("{body}\n\n{held}") };
-                        d.pr.comment.update(cx, |s, cx| s.set_value(text, window, cx));
-                        d.pr.commenting = Some(tree);
-                        d.pr.comment_error = Some(format!("Couldn't post the comment: {e}"));
-                    }
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-        cx.notify();
     }
 
-    /// Resolves or reopens a thread at once, with Undo; a failure flips it back.
-    pub(crate) fn resolve_thread(&mut self, thread: String, resolved: bool, undo: bool, cx: &mut Context<Self>) {
-        let Some(dir) = self.cwd() else { return };
-        self.resolve_in(dir, thread, resolved, undo, cx);
-    }
-
-    fn resolve_in(&mut self, dir: String, thread: String, resolved: bool, undo: bool, cx: &mut Context<Self>) {
-        self.prs.edit(&dir, |pr| {
-            if let Some(t) = pr.thread_mut(&thread) {
-                t.resolved = resolved;
-            }
-        });
-        self.pr.track.expanded.remove(&thread);
-        if undo {
-            let text = if resolved { "Resolved the conversation" } else { "Reopened the conversation" };
-            self.notify_pr(text.into(), Some(Undo { tree: dir.clone(), thread: thread.clone(), resolved: !resolved }), cx);
+    pub(crate) fn comment_failed(&mut self, tree: String, body: String, error: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.commenting.as_ref().is_some_and(|t| *t != tree) {
+            let draft = self.drafts.entry(tree).or_default();
+            draft.0 = if draft.0.trim().is_empty() { body } else { format!("{body}\n\n{}", draft.0) };
+            draft.1 = Some(format!("Couldn't post the comment: {error}"));
+            self.notify_pr("Couldn't post the comment; it's back in its worktree's comment box".into(), None, cx);
         } else {
-            self.pr.notice = None;
+            let held = self.comment.read(cx).value().trim().to_string();
+            let text = if held.is_empty() { body } else { format!("{body}\n\n{held}") };
+            self.comment.update(cx, |s, cx| s.set_value(text, window, cx));
+            self.commenting = Some(tree);
+            self.comment_error = Some(format!("Couldn't post the comment: {error}"));
         }
-        let (argv, gh) = (github::resolve_argv(&thread, resolved), self.gh_in(&dir));
-        let tree = dir.clone();
-        let task = cx.background_executor().spawn(async move { gh.run(&argv, &dir, "") });
-        cx.spawn(async move |this, cx| {
-            let res = task.await;
-            this.update(cx, |d, cx| {
-                if let Err(e) = res {
-                    d.prs.edit(&tree, |pr| {
-                        if let Some(t) = pr.thread_mut(&thread) {
-                            t.resolved = !resolved;
-                        }
-                    });
-                    d.error = Some(format!("Couldn't update the conversation: {e}"));
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
         cx.notify();
     }
 
-    pub(crate) fn undo_pr(&mut self, cx: &mut Context<Self>) {
-        let Some(Undo { tree, thread, resolved }) = self.pr.notice.take().and_then(|n| n.undo) else { return };
-        self.resolve_in(tree, thread, resolved, false, cx);
+    pub(crate) fn resolved(&mut self, thread: &str, notice: Option<(String, Undo)>, cx: &mut Context<Self>) {
+        self.track.expanded.remove(thread);
+        match notice {
+            Some((text, undo)) => self.notify_pr(text, Some(undo), cx),
+            None => self.notice = None,
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn fetch_avatars(&mut self, pr: &Pr, me: &str, dir: PathBuf, cx: &mut Context<Self>) {
+        let wanted = self.avatars.ask(github::people(pr).into_iter().chain([me]));
+        for login in wanted {
+            let Some(url) = github::avatar_url(&pr.url, &login) else { continue };
+            let path = dir.join(format!("{login}.png"));
+            let dir = dir.clone();
+            let task =
+                cx.background_executor().spawn(async move { (std::fs::create_dir_all(&dir).is_ok() && github::fetch_avatar(&url, &path)).then_some(path) });
+            cx.spawn(async move |this, cx| {
+                let Some(path) = task.await else { return };
+                this.update(cx, |p, cx| {
+                    p.avatars.saved.insert(login, path);
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
     }
 }
 

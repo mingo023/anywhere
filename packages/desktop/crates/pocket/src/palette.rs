@@ -476,7 +476,7 @@ impl Desktop {
 
     pub fn open_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.palette.update(cx, |p, cx| p.reset(window, cx));
-        let Some(root) = self.explore_root() else { return };
+        let Some(root) = self.explore_root(cx) else { return };
         let runner = hosts::runner_for(&root);
         let task = cx.background_executor().spawn(async move { git::ls_files(&runner, &root) });
         cx.spawn(async move |this, cx| {
@@ -513,21 +513,21 @@ impl Desktop {
         let groups = match q {
             Query::Actions(_) => vec![("Actions", actions)],
             Query::All(_) => {
-                let scope = if palette.all { self.projects() } else { self.project.iter().cloned().collect() };
+                let scope = if palette.all { self.projects(cx) } else { self.project.iter().cloned().collect() };
                 let cards: Vec<SessionCard> = scope
                     .iter()
                     .flat_map(|p| {
                         let name = self.labelled_project(p);
-                        self.cards(p).into_iter().map(move |c| (name.clone(), self.repos.get(&c.cwd).map(|r| r.branch.clone()), c))
+                        self.cards(p, cx).into_iter().map(move |c| (name.clone(), self.repos.get(&c.cwd).map(|r| r.branch.clone()), c))
                     })
                     .collect();
                 let trees = scope
                     .iter()
-                    .filter_map(|p| Some((p, self.labelled_project(p), self.listed_trees(p)?)))
+                    .filter_map(|p| Some((p, self.labelled_project(p), self.listed_trees(p, cx)?)))
                     .flat_map(|(p, name, trees)| trees.into_iter().map(move |w| (p.clone(), name.clone(), w)))
                     .collect();
                 let locals = scope.iter().flat_map(|p| self.agents.locals_in(p).map(|l| (self.labelled_project(p), l.clone()))).collect();
-                let root = self.explore_root().unwrap_or_default();
+                let root = self.explore_root(cx).unwrap_or_default();
                 let changed: Vec<String> = self.repos.get(&root).map(|r| r.files.iter().map(|f| f.path.clone()).collect()).unwrap_or_default();
                 vec![
                     ("Up next", up_next_entries(words, &cards)),
@@ -544,11 +544,11 @@ impl Desktop {
 
     /// Hand off the session in the focused pane, when it can be.
     fn handoff_entry(&self, cx: &App) -> Option<Entry> {
-        let Some(Tab::Term(terminal)) = self.pane_tab(self.focused_pane()) else { return None };
+        let Some(Tab::Term(terminal)) = self.pane_tab(self.focused_pane(cx), cx) else { return None };
         let s = self.summary(&terminal).filter(|s| self.can_hand_off(s))?;
         let title =
             if self.handoff.read(cx).moving(&s.id) { crate::handoff::menu_label(true).to_string() } else { format!("Hand off “{}” to a host…", s.title) };
-        let projects = self.projects();
+        let projects = self.projects(cx);
         let detail = format!("{} · {}", self.agent_name(&s.provider), self.repo_name(self.agent_project(s, &s.cwd, &projects).unwrap_or(&s.cwd)));
         Some(Entry { pick: Pick::Handoff(s.id.clone()), lead: Lead::Icon("server"), title, detail, keys: None })
     }
@@ -562,10 +562,10 @@ impl Desktop {
                 self.open_file(path, true, cx);
             }
             Pick::New => self.new_session(None, false, window, cx),
-            Pick::Split => self.new_shell(Place::Split(self.focused_pane(), Edge::Right), cx),
+            Pick::Split => self.new_shell(Place::Split(self.focused_pane(cx), Edge::Right), cx),
             Pick::Next => self.next_needs_you(&crate::actions::NextNeedsYou, window, cx),
             Pick::Tree { project, tree } => {
-                if self.projects().contains(&project) {
+                if self.projects(cx).contains(&project) {
                     self.select_tree(project, tree, cx);
                 }
             }

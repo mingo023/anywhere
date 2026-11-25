@@ -426,7 +426,7 @@ impl Desktop {
             _ = this.update(cx, |d, cx| {
                 match reply {
                     Ok(m) => d.accounts.take(&host, m),
-                    Err(e) => d.error = Some(e),
+                    Err(e) => d.fail(e, cx),
                 }
                 cx.notify();
             });
@@ -463,7 +463,7 @@ impl Desktop {
                     }
                     Err(e) => {
                         d.accounts.signins.retain(|s| !s.on(&key.host, &key.provider));
-                        d.error = Some(e);
+                        d.fail(e, cx);
                     }
                 }
                 cx.notify();
@@ -505,7 +505,7 @@ impl Desktop {
         s.cancelled = true;
         match s.terminal.clone() {
             Some(id) => {
-                if self.terminals.close(&id) {
+                if self.terminals.update(cx, |t, _| t.close(&id)) {
                     self.daemon.send(json!({"op": "close", "id": id}));
                 }
                 self.sign_in_ended(&id, cx);
@@ -519,7 +519,7 @@ impl Desktop {
     pub(crate) fn send_sign_in_code(&mut self, host: &Host, provider: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.accounts.signins.iter().find(|s| s.on(host, provider)) else { return };
         let (Some(id), text) = (s.terminal.clone(), s.code.read(cx).value().trim().to_string()) else { return };
-        let Some(bracketed) = self.terminals.sessions.term(&id).map(|t| t.mode(2004)) else { return };
+        let Some(bracketed) = self.terminals.read(cx).sessions.term(&id).map(|t| t.mode(2004)) else { return };
         if text.is_empty() {
             return;
         }
@@ -562,7 +562,7 @@ impl Desktop {
     pub(crate) fn sign_in_ended(&mut self, terminal: &str, cx: &mut Context<Self>) {
         let Some(at) = self.accounts.signins.iter().position(|s| s.terminal.as_deref() == Some(terminal)) else { return };
         let s = self.accounts.signins.remove(at);
-        self.terminals.close(terminal);
+        self.terminals.update(cx, |t, _| t.close(terminal));
         let host = s.key.host.clone();
         let dismiss = (s.cancelled && !s.added.is_empty()).then(|| Key { id: s.added.clone(), ..s.key.clone() }.op("accounts.remove"));
         // pocketd reads the sign-in only after it has told us the terminal exited.

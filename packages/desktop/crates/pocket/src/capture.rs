@@ -2,7 +2,7 @@ use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar, TreeMenuArrow};
 use crate::add_to_chat::Quote;
 use crate::chat::composer::suggest::Prompt;
 use crate::chat::tool_row::{self, Tools};
-use crate::composer::Menu;
+use crate::composer::{Held, Menu};
 use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
@@ -13,6 +13,7 @@ use crate::git_ui::graph::Graph;
 use crate::git_ui::pull_request::PrTab;
 use crate::modals::new_session::picker::Picker;
 use crate::settings::Section;
+use crate::sidebar::header::HeaderMenu;
 use crate::spaces::{Space, space_of};
 use crate::status::Status;
 use crate::updates::Update;
@@ -35,7 +36,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 302] = [
+const STEPS: [(&str, Step); 308] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -77,15 +78,17 @@ const STEPS: [(&str, Step); 302] = [
     }),
     ("chat-fold-open", |d, _, cx| {
         let Some(agent) = d.session().map(str::to_string) else { return };
-        let Some(view) = d.chats.views.get(&agent) else { return };
-        let s = &view.session;
-        let Some(ix) = s.rows.iter().position(|r| matches!(r, Row::Fold { turn } if !chat::at_work_on(&s.transcript, chat::folded(&s.transcript, *turn))))
-        else {
-            return;
-        };
-        let id = s.ids[ix].clone();
-        view.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
-        d.chat_toggle(&agent, &id, false, cx);
+        let Some(view) = d.chats.views.get(&agent).cloned() else { return };
+        view.update(cx, |v, cx| {
+            let s = v.session();
+            let Some(ix) = s.rows.iter().position(|r| matches!(r, Row::Fold { turn } if !chat::at_work_on(&s.transcript, chat::folded(&s.transcript, *turn))))
+            else {
+                return;
+            };
+            let id = s.ids[ix].clone();
+            v.list().scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
+            v.toggle_row(&id, false, cx);
+        });
     }),
     ("chat-tools-open", |d, _, cx| _ = open_phase(d, is_call, cx)),
     ("chat-thinking-open", |d, _, cx| {
@@ -101,19 +104,21 @@ const STEPS: [(&str, Step); 302] = [
     ("chat-sub-open", |d, _, cx| open_agent(d, |c| c.status != chat::ToolStatus::Running, cx)),
     ("chat-details-open", |d, _, cx| {
         let Some(agent) = d.session().map(str::to_string) else { return };
-        let Some(v) = d.chats.views.get(&agent) else { return };
-        let s = &v.session;
-        let shut: Vec<String> = s
-            .rows
-            .iter()
-            .zip(&s.ids)
-            .filter(|(r, id)| matches!(r, Row::Fold { .. } | Row::Phase { .. }) && !s.open(id, false))
-            .map(|(_, id)| id.clone())
-            .collect();
-        let calls: Vec<_> = s.transcript.turns.iter().flat_map(|t| &t.blocks).filter(|b| opens(b)).cloned().collect();
-        let tools = v.tools.clone();
+        let Some(v) = d.chats.views.get(&agent).cloned() else { return };
+        let (shut, calls, tools) = {
+            let (s, tools) = (v.read(cx).session(), v.read(cx).tools());
+            let shut: Vec<String> = s
+                .rows
+                .iter()
+                .zip(&s.ids)
+                .filter(|(r, id)| matches!(r, Row::Fold { .. } | Row::Phase { .. }) && !s.open(id, false))
+                .map(|(_, id)| id.clone())
+                .collect();
+            let calls: Vec<_> = s.transcript.turns.iter().flat_map(|t| &t.blocks).filter(|b| opens(b)).cloned().collect();
+            (shut, calls, tools)
+        };
         for id in shut {
-            d.chat_toggle(&agent, &id, false, cx);
+            v.update(cx, |v, cx| v.toggle_row(&id, false, cx));
         }
         tools.update(cx, |t, cx| {
             for b in calls {
@@ -125,17 +130,21 @@ const STEPS: [(&str, Step); 302] = [
     }),
     ("chat-question-open", |d, _, cx| {
         let Some(agent) = d.session().map(str::to_string) else { return };
-        let Some(view) = d.chats.views.get(&agent) else { return };
-        let Some(ix) = view.session.rows.iter().position(|r| matches!(r, Row::Question { .. })) else { return };
-        let id = view.session.ids[ix].clone();
-        d.chat_reveal(&agent, ix, cx);
-        d.chat_toggle_expanded(&agent, &id, cx);
+        let Some(view) = d.chats.views.get(&agent).cloned() else { return };
+        view.update(cx, |v, cx| {
+            let Some(ix) = v.session().rows.iter().position(|r| matches!(r, Row::Question { .. })) else { return };
+            let id = v.session().ids[ix].clone();
+            v.reveal(ix, cx);
+            v.toggle_expanded(&id, cx);
+        });
     }),
     ("chat-mcp-open", |d, _, cx| _ = open_phase(d, |b| matches!(b, Block::Tool(c) if c.name.starts_with("mcp__")), cx)),
     ("chat-scrolled-down", |d, _, cx| {
         if let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) {
-            v.list.scroll_by(px(560.));
-            cx.notify();
+            v.update(cx, |v, cx| {
+                v.list().scroll_by(px(560.));
+                cx.notify();
+            });
         }
     }),
     ("chat-sub-open-running", |d, _, cx| open_agent(d, |c| c.status == chat::ToolStatus::Running, cx)),
@@ -156,32 +165,34 @@ const STEPS: [(&str, Step); 302] = [
         }
     }),
     ("chat-background-folded", |d, _, cx| {
-        d.chats.composer.background_folded = true;
+        d.chats.composer.update(cx, |c, _| c.background_folded = true);
         cx.notify();
     }),
     ("chat-background-show", |d, _, cx| {
         let Some(agent) = d.session().map(str::to_string) else { return };
-        let task = d.chats.views.get(&agent).and_then(|v| chat::in_background(&v.session.transcript.turns).last().map(|(turn, block, _)| (turn, block)));
+        let task =
+            d.chats.views.get(&agent).and_then(|v| chat::in_background(&v.read(cx).session().transcript.turns).last().map(|(turn, block, _)| (turn, block)));
         if let Some((turn, block)) = task {
             d.chat_show_block(&agent, turn, block, cx);
         }
     }),
     ("chat-agent-map", |d, window, cx| {
         if let Some(agent) = d.session().map(str::to_string) {
-            d.chat_toggle_map(&agent, window, cx);
+            d.chats.map.update(cx, |m, cx| m.toggle(&agent, window, cx));
         }
     }),
     // After `chat-agent-map`: the details of the first sub-agent still at work, else the first.
     ("chat-agent-map-detail", |d, _, cx| {
         let Some(agent) = d.session().map(str::to_string) else { return };
         let Some(v) = d.chats.views.get(&agent) else { return };
-        let map = chat::spawned(&v.session.transcript);
+        let t = v.read(cx).transcript();
+        let map = chat::spawned(&t);
         let Some(ix) = map.iter().position(|s| s.call.status == chat::ToolStatus::Running).or((!map.is_empty()).then_some(0)) else { return };
         let call = map[ix].call.id.clone();
-        d.chat_map_show(ix + 1, &call, cx);
+        d.chats.map.update(cx, |m, cx| m.show(ix + 1, &call, cx));
     }),
-    ("chat-scrolled-up", |d, _, cx| d.scroll_chat_back(30, cx)),
-    ("chat-top", |d, _, cx| d.scroll_chat_back(usize::MAX, cx)),
+    ("chat-scrolled-up", |d, _, cx| scroll_back(d, 30, cx)),
+    ("chat-top", |d, _, cx| scroll_back(d, usize::MAX, cx)),
     // Into the first reply, so the first prompt sticks.
     ("chat-sticky", |d, _, cx| scroll_from_prompt(d, 0, 2, cx)),
     // The row over the second prompt at the top, so that prompt shows just under it and pushes the first one's card.
@@ -189,17 +200,21 @@ const STEPS: [(&str, Step); 302] = [
     // After `chat-sticky-pushed` has laid that row out: on until the second prompt's bubble is 30px from the top, partway into the card.
     ("chat-sticky-push-in", |d, _, cx| {
         let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) else { return };
-        let Some(ix) = v.session.rows.iter().enumerate().filter(|(_, r)| matches!(r, Row::Prompt { .. })).nth(1).map(|(ix, _)| ix) else { return };
-        let Some(above) = ix.checked_sub(1).and_then(|i| v.list.bounds_for_item(i)) else { return };
-        let gap = chat::top_gap(v.session.rows.get(ix - 1), &v.session.rows[ix]);
-        v.list.scroll_to(ListOffset { item_ix: ix - 1, offset_in_item: px((f32::from(above.size.height) + gap - 30.).max(0.)) });
-        cx.notify();
+        v.update(cx, |v, cx| {
+            let Some(ix) = v.session().rows.iter().enumerate().filter(|(_, r)| matches!(r, Row::Prompt { .. })).nth(1).map(|(ix, _)| ix) else { return };
+            let Some(above) = ix.checked_sub(1).and_then(|i| v.list().bounds_for_item(i)) else { return };
+            let gap = chat::top_gap(v.session().rows.get(ix - 1), &v.session().rows[ix]);
+            v.list().scroll_to(ListOffset { item_ix: ix - 1, offset_in_item: px((f32::from(above.size.height) + gap - 30.).max(0.)) });
+            cx.notify();
+        });
     }),
     ("chat-sticky-open", |d, _, cx| {
         let Some(agent) = d.session().map(str::to_string) else { return };
-        if let Some(v) = d.chats.views.get_mut(&agent) {
-            v.sticky_open = v.session.rows.iter().position(|r| matches!(r, Row::Prompt { .. })).map(|ix| v.session.ids[ix].clone());
-            cx.notify();
+        if let Some(v) = d.chats.views.get(&agent) {
+            v.update(cx, |v, cx| {
+                v.sticky_open = v.session().rows.iter().position(|r| matches!(r, Row::Prompt { .. })).map(|ix| v.session().ids[ix].clone());
+                cx.notify();
+            });
         }
     }),
     // The first reply's last two blocks over its wide table (chat/wide-table.json), so the narrow table above shows
@@ -207,17 +222,19 @@ const STEPS: [(&str, Step); 302] = [
     // skips were never laid out.
     ("chat-table", |d, _, cx| {
         let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) else { return };
-        let Some(ix) = first_reply_end(d) else { return };
-        v.list.scroll_to(ListOffset { item_ix: ix.saturating_sub(2), offset_in_item: px(0.) });
-        cx.notify();
+        let Some(ix) = first_reply_end(d, cx) else { return };
+        v.update(cx, |v, cx| {
+            v.list().scroll_to(ListOffset { item_ix: ix.saturating_sub(2), offset_in_item: px(0.) });
+            cx.notify();
+        });
     }),
     // A sideways swipe over the wide table, so it shows scrolled partway.
     ("chat-table-swipe", |d, window, cx| swipe(d, first_reply_end, -160., window, cx)),
     // A swipe past its far end, so it shows scrolled all the way.
     ("chat-table-end", |d, window, cx| swipe(d, first_reply_end, -4000., window, cx)),
     ("chat-jump", |d, window, cx| {
-        if let Some(agent) = d.session().map(str::to_string) {
-            d.chat_jump_to_bottom(&agent, window, cx);
+        if let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) {
+            v.update(cx, |v, cx| v.jump_to_bottom(window, cx));
         }
     }),
     ("chat-code-swipe", |d, window, cx| swipe(d, last_code, -160., window, cx)),
@@ -233,7 +250,7 @@ const STEPS: [(&str, Step); 302] = [
     // A draft with a list, emphasis, links, a fenced block and a dropped file.
     ("chat-rich", |d, window, cx| {
         d.set_chat_text(RICH, window, cx);
-        d.chats.composer.draft.drop_files(&[RICH_FILE.into()]);
+        d.chats.composer.update(cx, |c, _| c.draft.drop_files(&[RICH_FILE.into()]));
     }),
     // The same draft sent, as its bubble shows it.
     ("chat-rich-sent", |d, _, cx| {
@@ -244,7 +261,7 @@ const STEPS: [(&str, Step); 302] = [
         }
     }),
     ("chat-model-open", |d, _, cx| {
-        d.chats.composer.draft.toggle(Menu::Model);
+        d.chats.composer.update(cx, |c, _| c.draft.toggle(Menu::Model));
         cx.notify();
     }),
     ("chat-access", |d, _, cx| {
@@ -254,7 +271,7 @@ const STEPS: [(&str, Step); 302] = [
         cx.notify();
     }),
     ("chat-access-open", |d, _, cx| {
-        d.chats.composer.draft.toggle(Menu::Access);
+        d.chats.composer.update(cx, |c, _| c.draft.toggle(Menu::Access));
         cx.notify();
     }),
     ("chat-slash", |d, window, cx| d.type_text(Prompt::Chat, "/", window, cx)),
@@ -300,7 +317,7 @@ const STEPS: [(&str, Step); 302] = [
         cx.notify();
     }),
     ("chat-goal-open", |d, _, cx| {
-        d.chats.composer.draft.toggle(Menu::Goal);
+        d.chats.composer.update(cx, |c, _| c.draft.toggle(Menu::Goal));
         cx.notify();
     }),
     ("chat-typed-long", |d, window, cx| {
@@ -325,21 +342,25 @@ const STEPS: [(&str, Step); 302] = [
     }),
     // Queues a send as the composer does while the agent works, without the fixture echoing it.
     ("chat-queued", |d, _, cx| {
-        if let Some(v) = d.session().map(str::to_string).and_then(|a| d.chats.views.get_mut(&a)) {
-            v.session.outgoing.push("Now run the parser tests".into(), true, crate::util::now_ms());
-            cx.notify();
+        if let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) {
+            v.update(cx, |v, cx| {
+                v.session_mut().outgoing.push("Now run the parser tests".into(), true, crate::util::now_ms());
+                cx.notify();
+            });
         }
     }),
     // A command sent into the running turn, which Claude holds until the turn ends, without the fixture echoing it.
     ("chat-command-steered", |d, _, cx| {
-        if let Some(v) = d.session().map(str::to_string).and_then(|a| d.chats.views.get_mut(&a)) {
-            v.session.outgoing.steer_text("/goal Every parser test passes".into(), crate::util::now_ms());
-            cx.notify();
+        if let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) {
+            v.update(cx, |v, cx| {
+                v.session_mut().outgoing.steer_text("/goal Every parser test passes".into(), crate::util::now_ms());
+                cx.notify();
+            });
         }
     }),
     ("chat-queued-away", |d, window, cx| {
-        if let Some(v) = d.session().map(str::to_string).and_then(|a| d.chats.views.get_mut(&a)) {
-            v.session.outgoing.push("Now run the parser tests".into(), true, crate::util::now_ms());
+        if let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) {
+            v.update(cx, |v, _| _ = v.session_mut().outgoing.push("Now run the parser tests".into(), true, crate::util::now_ms()));
         }
         d.new_session(None, true, window, cx);
     }),
@@ -359,17 +380,17 @@ const STEPS: [(&str, Step); 302] = [
         }
     }),
     ("chat-queue-remove", |d, window, cx| {
-        if let Some((agent, send)) = first_queued(d) {
+        if let Some((agent, send)) = first_queued(d, cx) {
             d.chat_queue_remove(&agent, send, window, cx);
         }
     }),
     ("chat-queue-edit", |d, window, cx| {
-        if let Some((agent, send)) = first_queued(d) {
+        if let Some((agent, send)) = first_queued(d, cx) {
             d.chat_queue_edit(&agent, send, window, cx);
         }
     }),
     ("chat-queue-steer", |d, window, cx| {
-        if let Some((agent, send)) = first_queued(d) {
+        if let Some((agent, send)) = first_queued(d, cx) {
             d.chat_queue_steer(&agent, send, window, cx);
         }
     }),
@@ -402,15 +423,15 @@ const STEPS: [(&str, Step); 302] = [
     ("chat-sub-agent", |d, _, _| fixture(d, "sub-agent")),
     ("chat-perf", |d, _, _| fixture(d, "perf-1200")),
     ("chat-stream-code", |d, _, _| fixture(d, "stream-code")),
-    ("worktree", |d, _, _| d.worktree = d.cwd().and_then(|cwd| d.worktree_of(&cwd)).map(|w| w.path.clone())),
+    ("worktree", |d, _, cx| d.worktree = d.cwd(cx).and_then(|cwd| d.worktree_of(&cwd)).map(|w| w.path.clone())),
     ("rail", |d, window, cx| d.toggle_rail(&ToggleRail, window, cx)),
     ("focus", |d, window, cx| d.toggle_focus(&ToggleFocus, window, cx)),
     ("sidebar", |d, window, cx| d.toggle_sidebar(&ToggleSidebar, window, cx)),
     ("projects", |d, window, cx| d.toggle_project_picker(window, cx)),
-    ("add-menu", |d, _, _| d.sidebar.add_menu = true),
-    ("organize-menu", |d, _, _| d.sidebar.organize.menu = true),
-    ("sections", |d, _, _| {
-        let projects = d.projects();
+    ("add-menu", |d, _, cx| d.sidebar.read(cx).header.clone().update(cx, |h, cx| h.show(HeaderMenu::Add, cx))),
+    ("organize-menu", |d, _, cx| d.sidebar.read(cx).header.clone().update(cx, |h, cx| h.show(HeaderMenu::Organize, cx))),
+    ("sections", |d, _, cx| {
+        let projects = d.projects(cx);
         let sections = &mut d.store.sections;
         let work = sections.add_group("Work", None);
         sections.add_group("Side", None);
@@ -421,27 +442,30 @@ const STEPS: [(&str, Step); 302] = [
             sections.pin(store::sections::Pin::Project(p.clone()));
         }
         let first = projects.first().cloned().unwrap_or_default();
-        if let Some(w) = d.listed_trees(&first).and_then(|ts| ts.into_iter().find(|w| !w.main)) {
+        if let Some(w) = d.listed_trees(&first, cx).and_then(|ts| ts.into_iter().find(|w| !w.main)) {
             d.store.sections.pin(store::sections::Pin::Tree { project: first, tree: w.path });
         }
     }),
     ("filter", |d, window, cx| {
         d.open_filter(window, cx);
-        d.sidebar.filter.input.update(cx, |s, cx| s.set_value("fix", window, cx));
+        d.sidebar.read(cx).header.read(cx).filter.input.clone().update(cx, |s, cx| s.set_value("fix", window, cx));
     }),
     ("explore", |d, _, cx| {
-        (d.side, d.sidebar.panel_open) = (Side::Explorer, true);
+        d.side = Side::Explorer;
+        d.sidebar.update(cx, |s, cx| s.set_panel_open(true, cx));
         d.refresh_git(cx);
     }),
     ("tree-menu", |d, window, cx| {
-        let Some(root) = d.explore_root().map(PathBuf::from) else { return };
-        let target = d.explorer.tree.get(&root).and_then(|l| l.first()).map(|(dir, p)| (p.clone(), *dir));
-        d.explorer.menu = Some(TreeMenu::new(target, point(px(1150.), px(112.)), false, true, window.viewport_size().width));
-        cx.notify();
+        let Some(root) = d.explore_root(cx).map(PathBuf::from) else { return };
+        d.explorer.update(cx, |e, cx| {
+            let target = e.tree.get(&root).and_then(|l| l.first()).map(|(dir, p)| (p.clone(), *dir));
+            e.menu = Some(TreeMenu::new(target, point(px(1150.), px(112.)), false, true, window.viewport_size().width));
+            cx.notify();
+        });
     }),
     ("tree-menu-down", |d, window, cx| d.tree_menu_arrow(&TreeMenuArrow(Arrow::Down), window, cx)),
     ("tree-mentioned", |d, _, cx| {
-        if let Some(c) = d.chat_choices().into_iter().next() {
+        if let Some(c) = d.chat_choices(cx).into_iter().next() {
             d.show_notice(Notice::Mentioned { provider: c.provider, title: c.title }, cx);
         }
     }),
@@ -451,17 +475,22 @@ const STEPS: [(&str, Step); 302] = [
     }),
     ("branch-tree", |d, _, cx| {
         let Some(p) = d.project.clone() else { return };
-        if let Some(w) = d.listed_trees(&p).and_then(|ts| ts.into_iter().find(|w| !w.main)) {
+        if let Some(w) = d.listed_trees(&p, cx).and_then(|ts| ts.into_iter().find(|w| !w.main)) {
             d.select_tree(p, Some(w.path), cx);
             d.refresh_git(cx);
         }
     }),
-    ("compare", |d, _, cx| d.change_scope(|s| s.compare = true, cx)),
-    ("compare-menu", |d, window, cx| d.toggle_compare_menu(window, cx)),
+    ("compare", |d, _, cx| {
+        d.sync_changes(cx);
+        d.changes.update(cx, |c, cx| c.change_scope(|s| s.compare = true, cx));
+    }),
+    ("compare-menu", |d, window, cx| {
+        d.sync_changes(cx);
+        d.changes.update(cx, |c, cx| c.toggle_compare_menu(window, cx));
+    }),
     ("compare-file", |d, _, cx| {
-        let first = d.compare.view.shown.as_ref().and_then(|s| s.files.as_ref()?.first()).map(|f| f.path.clone());
-        if let Some(path) = first {
-            d.open_compare_file(path, false, cx);
+        if let Some(path) = d.changes.read(cx).compared_first() {
+            d.changes.update(cx, |c, cx| c.open_compare_file(path, false, cx));
         }
     }),
     ("graph-expand", |d, _, cx| d.graph.update(cx, |g, cx| g.toggle_commit(0, cx))),
@@ -475,35 +504,54 @@ const STEPS: [(&str, Step); 302] = [
             d.open_doc(Doc::Commit(sha), false, cx);
         }
     }),
-    ("tab-menu", |d, _, _| d.panels.menu = Some(workspace::Place::Pane(Some(d.focused_pane())))),
-    ("top-menu", |d, _, _| d.panels.menu = Some(workspace::Place::Top)),
-    // The focused session's right-click menus: its top tab's, and its row's.
-    ("top-actions", |d, _, _| {
-        let Some(workspace::Tab::Term(t)) = d.pane_tab(d.focused_pane()) else { return };
-        d.panels.top_actions = d.summary(&t).map(|s| (s.id.clone(), point(px(330.), px(36.))));
+    ("graph-commit-root", |d, _, cx| {
+        if let Some(sha) = d.graph.read(cx).commits.last().map(|c| c.sha.clone()) {
+            d.open_doc(Doc::Commit(sha), false, cx);
+        }
     }),
-    ("session-menu", |d, _, _| {
-        let Some(workspace::Tab::Term(t)) = d.pane_tab(d.focused_pane()) else { return };
+    ("tab-menu", |d, _, cx| {
+        let pane = d.focused_pane(cx);
+        d.panels.update(cx, |p, cx| p.set_menu(Some(workspace::Place::Pane(Some(pane))), cx));
+    }),
+    ("top-menu", |d, _, cx| d.panels.update(cx, |p, cx| p.set_menu(Some(workspace::Place::Top), cx))),
+    // The focused session's right-click menus: its top tab's, and its row's.
+    ("top-actions", |d, _, cx| {
+        let Some(workspace::Tab::Term(t)) = d.pane_tab(d.focused_pane(cx), cx) else { return };
+        let open = d.summary(&t).map(|s| (s.id.clone(), point(px(330.), px(36.))));
+        d.panels.update(cx, |p, cx| p.set_top_actions(open, cx));
+    }),
+    ("session-menu", |d, _, cx| {
+        let Some(workspace::Tab::Term(t)) = d.pane_tab(d.focused_pane(cx), cx) else { return };
         d.row_menu = d.summary(&t).map(|s| RowMenu::Session(s.id.clone()));
     }),
     ("term-menu", |d, _, _| d.terminal.menu = d.terminal.focused.clone().map(|p| (p, point(px(520.), px(300.))))),
     ("browser", |d, window, cx| d.open_browser(None, window, cx)),
     ("file", |d, _, cx| {
-        if let Some(path) = d.cwd().zip(d.repo().and_then(|r| r.files.first())).map(|(root, f)| format!("{root}/{}", f.path)) {
+        if let Some(path) = d.cwd(cx).zip(d.repo(cx).and_then(|r| r.files.first())).map(|(root, f)| format!("{root}/{}", f.path)) {
             d.open_file(path, false, cx);
         }
     }),
-    ("pill", |d, _, _| d.chat.pill = Quote::prose("README.md", "", "Add to chat").map(|q| (point(px(420.), px(260.)), q))),
-    ("chat-menu", |d, window, cx| d.open_chat_menu(window, cx)),
-    ("ask-file", |d, _, _| {
-        let pane = d.focused_pane();
-        let Some((path, text)) = d.preview.pane(pane).and_then(|f| Some((f.file.clone()?, f.text()?.to_string()))) else { return };
+    ("pill", |d, _, cx| {
+        let pill = Quote::prose("README.md", "", "Add to chat").map(|q| (point(px(420.), px(260.)), q));
+        d.chat.update(cx, |c, cx| c.offer(pill, cx));
+    }),
+    ("chat-menu", |d, window, cx| {
+        let side = d.chat_side(cx);
+        d.chat.update(cx, |c, cx| {
+            c.hand(side, cx);
+            c.open_menu(window, cx);
+        });
+    }),
+    ("ask-file", |d, _, cx| {
+        let pane = d.focused_pane(cx);
+        let Some((path, text)) = d.preview.read(cx).pane(pane).and_then(|f| Some((f.file.clone()?, f.text()?.to_string()))) else { return };
         let end = text.match_indices('\n').nth(2).map_or(text.len(), |(i, _)| i);
-        d.chat.file = Quote::code(&crate::util::basename(&path), &text, 0..end).map(|q| (point(px(420.), px(260.)), q));
+        let file = Quote::code(&crate::util::basename(&path), &text, 0..end).map(|q| (point(px(420.), px(260.)), q));
+        d.chat.update(cx, |c, cx| c.set_file(file, cx));
     }),
     ("add-to-chat", |d, window, cx| {
-        let pane = d.focused_pane();
-        if let Some(i) = d.diff.view(pane).and_then(|v| v.lines.iter().position(|l| l.kind == Kind::Add)) {
+        let pane = d.focused_pane(cx);
+        if let Some(i) = d.diff.view(pane, cx).and_then(|v| v.lines.iter().position(|l| l.kind == Kind::Add)) {
             d.open_composer(pane, i, window, cx);
         }
     }),
@@ -583,25 +631,25 @@ const STEPS: [(&str, Step); 302] = [
         cx.notify();
     }),
     ("automations", |d, window, cx| d.open_automations(window, cx)),
-    ("automations-runs", |d, _, _| d.automations.tab = crate::automations::logic::Tab::Runs),
-    ("automations-done-run", |d, _, _| d.automations.selected_run = Some("r5".into())),
+    ("automations-runs", |d, _, cx| d.automations.update(cx, |a, _| a.tab = crate::automations::logic::Tab::Runs)),
+    ("automations-done-run", |d, _, cx| d.automations.update(cx, |a, _| a.selected_run = Some("r5".into()))),
     ("automations-editor", |d, window, cx| {
         let first = d.agents.automations.items.first().map(|a| a.id.clone());
         d.edit_automation(first.as_deref(), window, cx);
     }),
     ("automations-new", |d, window, cx| d.edit_automation(None, window, cx)),
-    ("automations-webhook", |d, _, _| d.automations.selected = Some("au5".into())),
-    ("automations-closed-creator", |d, _, _| d.automations.selected = Some("au6".into())),
+    ("automations-webhook", |d, _, cx| d.automations.update(cx, |a, _| a.selected = Some("au5".into()))),
+    ("automations-closed-creator", |d, _, cx| d.automations.update(cx, |a, _| a.selected = Some("au6".into()))),
     ("automations-webhook-editor", |d, window, cx| d.edit_automation(Some("au5"), window, cx)),
     ("settings", |d, window, cx| d.open_settings(&crate::actions::OpenSettings, window, cx)),
-    ("settings-appearance", |d, _, _| d.settings.section = Section::Appearance),
-    ("settings-notifications", |d, _, _| d.settings.section = Section::Notifications),
-    ("settings-keyboard", |d, _, _| d.settings.section = Section::Keyboard),
-    ("settings-projects", |d, _, _| d.settings.section = Section::Projects),
-    ("settings-agents", |d, _, _| d.settings.section = Section::Agents),
-    ("settings-automations", |d, _, _| d.settings.section = Section::Automations),
-    ("settings-phone", |d, _, _| d.settings.section = Section::Phone),
-    ("settings-hosts", |d, _, _| d.settings.section = Section::Hosts),
+    ("settings-appearance", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Appearance, cx))),
+    ("settings-notifications", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Notifications, cx))),
+    ("settings-keyboard", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Keyboard, cx))),
+    ("settings-projects", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Projects, cx))),
+    ("settings-agents", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Agents, cx))),
+    ("settings-automations", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Automations, cx))),
+    ("settings-phone", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Phone, cx))),
+    ("settings-hosts", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Hosts, cx))),
     // The real host the remote hosts e2e runs against; see `.ui-review/remote-hosts/`.
     ("vm", |d, _, _| {
         let target =
@@ -616,14 +664,14 @@ const STEPS: [(&str, Step); 302] = [
             d.install_host(&id, false, cx);
         }
     }),
-    ("vm-update", |d, _, _| {
+    ("vm-update", |d, _, cx| {
         if let Some(h) = d.fleet.hosts.list.first() {
-            (d.confirm, d.overlay) = (Some(Confirm::UpdateHost { id: h.id.clone(), name: h.name.clone(), windows: false }), Some(Overlay::Confirm));
+            d.ask(Confirm::UpdateHost { id: h.id.clone(), name: h.name.clone(), windows: false }, cx);
         }
     }),
-    ("vm-remove", |d, _, _| {
+    ("vm-remove", |d, _, cx| {
         if let Some(h) = d.fleet.hosts.list.first() {
-            (d.confirm, d.overlay) = (Some(Confirm::RemoveHost { id: h.id.clone(), name: h.name.clone() }), Some(Overlay::Confirm));
+            d.ask(Confirm::RemoveHost { id: h.id.clone(), name: h.name.clone() }, cx);
         }
     }),
     ("vm-uninstall", |d, _, cx| {
@@ -633,28 +681,28 @@ const STEPS: [(&str, Step); 302] = [
     }),
     ("vm-add", |d, window, cx| {
         d.open(Overlay::AddRepo, window, cx);
-        d.set_repo_source(crate::modals::add_project::Source::Host);
-        if let Some(h) = d.fleet.hosts.list.first() {
-            d.browse_host(h.id.clone(), window, cx);
+        d.repo_form.update(cx, |f, _| f.set_source(crate::modals::add_project::Source::Host));
+        if let Some(id) = d.fleet.hosts.list.first().map(|h| h.id.clone()) {
+            d.repo_form.update(cx, |f, cx| f.browse_host(id, window, cx));
         }
     }),
-    ("vm-browse", |d, window, cx| d.browse_to("/home/mingo/vm-app".into(), window, cx)),
+    ("vm-browse", |d, window, cx| d.repo_form.update(cx, |f, cx| f.browse_to("/home/mingo/vm-app".into(), window, cx))),
     // The host finder over Add project, on the fixture's devbox (FIXTURE_HOST_FILES=1).
     ("finder", |d, window, cx| {
         d.open_host_folder(window, cx);
         d.open_host_finder("devbox".into(), Some("/home/dev/code".into()), crate::modals::host_finder::Opener::AddProject, window, cx);
     }),
-    ("finder-app", |d, _, cx| d.finder_select("/home/dev/code".into(), "app".into(), cx)),
-    ("finder-readme", |d, _, cx| d.finder_select("/home/dev/code/app".into(), "README.md".into(), cx)),
-    ("finder-down", |d, _, cx| d.finder_step("down", cx)),
-    ("finder-left", |d, _, cx| d.finder_step("left", cx)),
-    ("finder-hidden", |d, _, cx| d.finder_toggle_hidden(cx)),
+    ("finder-app", |d, _, cx| d.host_finder.update(cx, |f, cx| f.select("/home/dev/code".into(), "app".into(), cx))),
+    ("finder-readme", |d, _, cx| d.host_finder.update(cx, |f, cx| f.select("/home/dev/code/app".into(), "README.md".into(), cx))),
+    ("finder-down", |d, _, cx| d.host_finder.update(cx, |f, cx| f.step("down", cx))),
+    ("finder-left", |d, _, cx| d.host_finder.update(cx, |f, cx| f.step("left", cx))),
+    ("finder-hidden", |d, _, cx| d.host_finder.update(cx, |f, cx| f.toggle_hidden(cx))),
     // The sidebar's spaces, with devbox online and 10.0.4.12 retrying (FIXTURE_HOST_FILES=1).
     ("space-mac", |d, window, cx| d.switch_space(Space::Local, window, cx)),
     ("space-devbox", |d, window, cx| d.switch_space(Space::Host("devbox".into()), window, cx)),
     ("space-menu", |d, window, cx| {
         d.switch_space(Space::Host("devbox".into()), window, cx);
-        d.sidebar.space_header.update(cx, |h, cx| h.open(cx));
+        d.sidebar.read(cx).space_header.clone().update(cx, |h, cx| h.open(cx));
     }),
     ("space-offline", |d, window, cx| d.switch_space(Space::Host("10-0-4-12".into()), window, cx)),
     ("space-empty", |d, window, cx| {
@@ -662,9 +710,9 @@ const STEPS: [(&str, Step); 302] = [
         d.switch_space(Space::Host("devbox".into()), window, cx);
     }),
     // The new-session page's machine pill, with devbox's app-ios the twin of this Mac's (FIXTURE_HOST_FILES=1).
-    ("form-machine", |d, _, cx| d.toggle_picker(Picker::Machine, cx)),
+    ("form-machine", |d, _, cx| d.new_form.update(cx, |f, cx| f.toggle_picker(Picker::Machine, cx))),
     ("form-app-ios", |d, window, cx| {
-        if let Some(p) = d.projects().into_iter().find(|p| p.ends_with("/code/app-ios") && !p.starts_with("//")) {
+        if let Some(p) = d.projects(cx).into_iter().find(|p| p.ends_with("/code/app-ios") && !p.starts_with("//")) {
             d.new_place(p, window, cx);
         }
     }),
@@ -678,12 +726,12 @@ const STEPS: [(&str, Step); 302] = [
     ("form-host-folder", |d, window, cx| {
         d.open_host_finder("devbox".into(), Some("/home/dev/code".into()), crate::modals::host_finder::Opener::NewSession, window, cx)
     }),
-    ("finder-choose", |d, window, cx| d.finder_choose(window, cx)),
-    ("vm-open", |d, window, cx| d.open_browsed(window, cx)),
-    ("vm-save", |d, window, cx| d.save_repo(window, cx)),
+    ("finder-choose", |d, _, cx| d.host_finder.update(cx, |f, cx| f.choose(cx))),
+    ("vm-open", |d, window, cx| d.repo_form.update(cx, |f, cx| f.open_browsed(window, cx))),
+    ("vm-save", |d, _, cx| d.repo_form.update(cx, |f, cx| f.save(cx))),
     ("vm-shell", |d, _, cx| d.new_shell(workspace::Place::Pane(None), cx)),
-    ("vm-uname", |d, _, _| {
-        if let Some(id) = d.terminals.sessions.items.iter().rev().map(|s| s.info.id.clone()).find(|id| hosts::session::untag(id).0.is_some()) {
+    ("vm-uname", |d, _, cx| {
+        if let Some(id) = d.terminals.read(cx).sessions.items.iter().rev().map(|s| s.info.id.clone()).find(|id| hosts::session::untag(id).0.is_some()) {
             d.daemon.input(&id, b"uname -a\r");
         }
     }),
@@ -712,9 +760,9 @@ const STEPS: [(&str, Step); 302] = [
     ("hosts-wrong-password", |d, _, cx| d.sign_in("10-0-4-12".into(), "wrong".into(), cx)),
     ("hosts-install", |d, _, cx| d.install_host("10-0-4-12", false, cx)),
     // The Hosts page with each host's space colour and Open; and an install that has finished.
-    ("hosts-spaces", |d, _, _| d.settings.section = Section::Hosts),
+    ("hosts-spaces", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Hosts, cx))),
     ("hosts-installed", |d, window, cx| {
-        d.settings.section = Section::Hosts;
+        d.settings.update(cx, |s, cx| s.set_section(Section::Hosts, cx));
         for progress in [
             agents::hosts::Progress::Step(agents::hosts::Step::Detect),
             agents::hosts::Progress::Step(agents::hosts::Step::Start),
@@ -725,26 +773,28 @@ const STEPS: [(&str, Step); 302] = [
     }),
     ("host-link-add", |d, window, cx| d.link_host("vps".into(), window, cx)),
     ("hosts-pick", |d, window, cx| d.suggest_host("devbox".into(), window, cx)),
-    ("hosts-remove", |d, _, _| {
+    ("hosts-remove", |d, _, cx| {
         let name = "devbox".to_string();
-        (d.confirm, d.overlay) = (Some(Confirm::RemoveHost { id: name.clone(), name }), Some(Overlay::Confirm));
+        d.ask(Confirm::RemoveHost { id: name.clone(), name }, cx);
     }),
-    ("settings-sidebar", |d, _, _| d.settings.section = Section::Sidebar),
-    ("settings-terminal", |d, _, _| d.settings.section = Section::Terminal),
-    ("settings-files", |d, _, _| d.settings.section = Section::Files),
-    ("settings-browser", |d, _, _| d.settings.section = Section::Browser),
-    ("settings-git", |d, _, _| d.settings.section = Section::Git),
-    ("settings-diff", |d, _, _| d.settings.section = Section::Diff),
-    ("settings-accounts", |d, _, _| d.settings.section = Section::Accounts),
+    ("settings-sidebar", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Sidebar, cx))),
+    ("settings-terminal", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Terminal, cx))),
+    ("settings-files", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Files, cx))),
+    ("settings-browser", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Browser, cx))),
+    ("settings-git", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Git, cx))),
+    ("settings-diff", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Diff, cx))),
+    ("settings-accounts", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Accounts, cx))),
     ("accounts-sample", |d, _, _| _ = d.accounts.lists.insert(None, accounts_sample())),
     ("account-signin", |d, window, cx| {
         let id = "fx-signin".to_string();
         let mut term = term::Term::new(100, 30);
         term.write(b"Opening browser to sign in\xe2\x80\xa6\r\nIf the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&scope=user%3Ainference&state=Nwd_oVnDKfPnpygUrKjXPJ00\r\nPaste code here if prompted > ");
-        d.terminals.sessions.items.push(crate::terminals::sessions::Session {
-            info: daemon::Info { id: id.clone(), ..Default::default() },
-            term: Some(term),
-            exit: None,
+        d.terminals.update(cx, |t, _| {
+            t.sessions.items.push(crate::terminals::sessions::Session {
+                info: daemon::Info { id: id.clone(), ..Default::default() },
+                term: Some(crate::terminals::sessions::Grid::new(term)),
+                exit: None,
+            })
         });
         let mut signin = d.new_sign_in(crate::accounts::Key { host: None, provider: "claude".into(), id: String::new() }, window, cx);
         (signin.terminal, signin.output_open) = (Some(id), true);
@@ -755,11 +805,11 @@ const STEPS: [(&str, Step); 302] = [
     }),
     ("accounts-auto", |d, _, _| _ = d.accounts.auto_switch.insert(None, true)),
     ("account-usage", |d, _, cx| {
-        d.chats.composer.draft.menu = Some(Menu::Usage { back: false });
+        d.chats.composer.update(cx, |c, cx| c.open_menu(Menu::Usage { back: false }, cx));
         cx.notify();
     }),
     ("account-switch", |d, _, cx| {
-        d.chats.composer.draft.menu = Some(Menu::Switch);
+        d.chats.composer.update(cx, |c, cx| c.open_menu(Menu::Switch, cx));
         cx.notify();
     }),
     ("account-switching", |d, _, cx| {
@@ -768,16 +818,22 @@ const STEPS: [(&str, Step); 302] = [
         }
         cx.notify();
     }),
-    ("project-accounts", |d, _, _| {
-        for p in d.projects() {
+    ("project-accounts", |d, _, cx| {
+        for p in d.projects(cx) {
             d.store.repos.entry(p).or_default().accounts.insert("claude".into(), "work".into());
         }
     }),
-    ("model-menu", |d, _, _| {
-        d.settings.menu = Some(match (d.overlay, d.settings.section) {
-            (_, Section::Git) => "ai-model",
-            (_, Section::Provider(i)) => crate::settings::provider::model_menu(i),
-            _ => crate::settings::provider::model_menu(0),
+    ("model-menu", |d, _, cx| {
+        let overlay = d.overlay;
+        d.settings.update(cx, |s, cx| {
+            s.set_menu(
+                Some(match (overlay, s.section()) {
+                    (_, Section::Git) => "ai-model",
+                    (_, Section::Provider(i)) => crate::settings::provider::model_menu(i),
+                    _ => crate::settings::provider::model_menu(0),
+                }),
+                cx,
+            )
         })
     }),
     ("model-favorites", |d, _, cx| view_models(d, crate::composer::model_menu::FAVORITES, cx)),
@@ -788,8 +844,8 @@ const STEPS: [(&str, Step); 302] = [
         d.store.agents.favorites = picks(&[("claude", "opus")]);
         d.store.agents.recent = picks(&[("opencode", "zai/glm-5.2"), ("claude", "opus"), ("codex", "gpt-5.5"), ("claude", "sonnet")]);
     }),
-    ("project-hides", |d, _, _| {
-        for p in d.projects() {
+    ("project-hides", |d, _, cx| {
+        for p in d.projects(cx) {
             d.store.repos.entry(p).or_default().hidden.insert("codex".into());
         }
     }),
@@ -807,7 +863,8 @@ const STEPS: [(&str, Step); 302] = [
             ..Default::default()
         };
         let repo = d.project.clone();
-        crate::modals::new_session::slot(d).draft.choose(repo, pick);
+        let composer = d.new_form.read(cx).composer.clone();
+        composer.update(cx, |c, _| c.draft.choose(repo, pick));
         cx.notify();
     }),
     // Hermes still listing its models, and this Mac's agents: the others say how to install them.
@@ -823,32 +880,46 @@ const STEPS: [(&str, Step); 302] = [
             p.available = ["claude", "codex", "opencode", "pi", "hermes"].contains(&p.id.as_str());
         }
     }),
-    ("service-down", |d, _, _| d.terminals.link.down(Instant::now())),
-    ("service-starting", |d, _, _| d.settings.starting = Some(Instant::now())),
-    ("settings-search", |d, window, cx| d.settings.search.update(cx, |s, cx| s.set_value("sound", window, cx))),
-    ("settings-search-chat", |d, window, cx| d.settings.search.update(cx, |s, cx| s.set_value("chat", window, cx))),
-    ("settings-search-shell", |d, window, cx| d.settings.search.update(cx, |s, cx| s.set_value("shell", window, cx))),
-    ("settings-advanced", |d, _, _| {
-        let id = d.settings.section.id();
+    ("service-down", |d, _, cx| d.terminals.update(cx, |t, _| t.link.down(Instant::now()))),
+    ("service-starting", |d, _, cx| d.settings.update(cx, |s, _| s.starting = Some(Instant::now()))),
+    ("settings-search", |d, window, cx| {
+        let search = d.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.set_value("sound", window, cx))
+    }),
+    ("settings-search-chat", |d, window, cx| {
+        let search = d.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.set_value("chat", window, cx))
+    }),
+    ("settings-search-shell", |d, window, cx| {
+        let search = d.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.set_value("shell", window, cx))
+    }),
+    ("settings-advanced", |d, _, cx| {
+        let id = d.settings.read(cx).section().id();
         d.store.advanced.insert(id.into());
     }),
-    ("settings-reset", |d, _, _| {
+    ("settings-reset", |d, _, cx| {
         (d.store.sounds.all, d.store.notifications.banners) = (false, false);
-        (d.confirm, d.overlay) = (Some(crate::desktop::chrome::Confirm::ResetSection(d.settings.section)), Some(Overlay::Confirm));
+        let section = d.settings.read(cx).section();
+        d.ask(crate::desktop::chrome::Confirm::ResetSection(section), cx);
     }),
     ("palette", |d, window, cx| d.open(Overlay::Palette, window, cx)),
     ("new-session", |d, window, cx| d.new_session(None, false, window, cx)),
     ("new-scratch", |d, window, cx| d.new_session_without_project(window, cx)),
     ("form-model", |d, window, cx| {
-        let (pick, repo) = (d.new_form_pick(), d.new_form.project().map(str::to_string));
-        d.toggle_model_menu(crate::modals::new_session::slot, &pick.provider, repo.as_deref(), window, cx);
+        let (pick, repo) = (d.new_form_pick(cx), d.new_form.read(cx).project().map(str::to_string));
+        let composer = d.new_form.read(cx).composer.clone();
+        composer.update(cx, |c, cx| c.toggle_model(&pick.provider, repo.as_deref(), window, cx));
     }),
-    ("form-access", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Access, cx)),
+    ("form-access", |d, _, cx| {
+        let composer = d.new_form.read(cx).composer.clone();
+        composer.update(cx, |c, cx| _ = c.toggle(Menu::Access, cx))
+    }),
     ("new-worktree", |d, window, cx| d.new_worktree(&crate::actions::NewWorktree, window, cx)),
     ("prompt", |d, window, cx| {
         d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)
     }),
-    ("add-repo", |d, window, cx| d.edit_project(d.projects().into_iter().next(), window, cx)),
+    ("add-repo", |d, window, cx| d.edit_project(d.projects(cx).into_iter().next(), window, cx)),
     ("clone", |d, window, cx| {
         d.clone_project(window, cx);
         d.clone_form.read(cx).url.clone().update(cx, |s, cx| s.set_value("https://github.com/zed-industries/zed", window, cx));
@@ -863,14 +934,14 @@ const STEPS: [(&str, Step); 302] = [
     ("clone-host-progress", |d, window, cx| d.start_clone(window, cx)),
     ("finder-open-host", |d, window, cx| d.open_folder(crate::modals::host_finder::Opener::Sidebar, window, cx)),
     ("project-settings", |d, window, cx| d.project_settings(&crate::actions::ProjectSettings, window, cx)),
-    ("project-icons", |d, _, _| {
+    ("project-icons", |d, _, cx| {
         let app_icon = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/AppIcon.png"));
         let icons = [store::ProjectIcon::Emoji("🚀".into()), store::ProjectIcon::Image(app_icon)];
-        for (p, icon) in d.projects().into_iter().zip(icons) {
+        for (p, icon) in d.projects(cx).into_iter().zip(icons) {
             d.store.repos.entry(p).or_default().icon = Some(icon);
         }
     }),
-    ("emoji-menu", |d, _, _| d.settings.menu = Some(crate::modals::add_project::icon::EMOJI_MENU)),
+    ("emoji-menu", |d, _, cx| d.repo_form.update(cx, |f, _| f.show_mark_menu())),
     ("pair-phone", |d, window, cx| d.open(Overlay::PairPhone, window, cx)),
     ("owner", |d, _, _| {
         let strings = |v: &[&str]| v.iter().map(|s| s.to_string()).collect();
@@ -880,7 +951,7 @@ const STEPS: [(&str, Step); 302] = [
             version: String::new(),
         });
     }),
-    ("phones", |d, _, _| {
+    ("phones", |d, _, cx| {
         let hour = 3_600_000;
         let phone = |id: &str, name: &str, platform: &str, ago: i64| daemon::Device {
             id: id.into(),
@@ -889,34 +960,37 @@ const STEPS: [(&str, Step); 302] = [
             last_seen_at: crate::util::now_ms() - ago,
             legacy: false,
         };
-        d.settings.host.devices = Some(vec![phone("p1", "Minh's iPhone 16 Pro", "iOS 26.1", 0), phone("p2", "iPad Air", "iPadOS 26.0", 72 * hour)]);
+        let devices = vec![phone("p1", "Minh's iPhone 16 Pro", "iOS 26.1", 0), phone("p2", "iPad Air", "iPadOS 26.0", 72 * hour)];
+        d.settings.update(cx, |s, _| s.host.devices = Some(devices));
     }),
-    ("no-phones", |d, _, _| d.settings.host.devices = Some(Vec::new())),
+    ("no-phones", |d, _, cx| d.settings.update(cx, |s, _| s.host.devices = Some(Vec::new()))),
     ("custom-shell", |d, window, cx| {
         (d.store.terminal.shell, d.store.terminal.shell_path) = (store::prefs::terminal::Shell::Custom, "/opt/homebrew/bin/fish".into());
-        if let Some(field) = d.settings.fields.get("shell-args").cloned() {
+        if let Some(field) = d.settings.read(cx).fields.get("shell-args").cloned() {
             field.update(cx, |f, cx| f.set_value("--login --private", window, cx));
         }
-        d.edit_terminal_color(9, window, cx);
+        d.settings.update(cx, |s, cx| s.edit_terminal_color(9, window, cx));
     }),
     ("custom-search", |d, window, cx| {
         d.store.browser.engine = store::prefs::browser::Engine::Custom;
-        if let Some(field) = d.settings.fields.get("custom-search").cloned() {
+        if let Some(field) = d.settings.read(cx).fields.get("custom-search").cloned() {
             field.update(cx, |f, cx| f.set_value("search.brave.com/search?q=", window, cx));
         }
     }),
-    ("rename-phone", |d, window, cx| d.start_phone_rename("p1".into(), "Minh's iPhone 16 Pro", window, cx)),
-    ("tailnet", |d, _, _| {
+    ("rename-phone", |d, window, cx| d.settings.update(cx, |s, cx| s.start_phone_rename("p1".into(), "Minh's iPhone 16 Pro", window, cx))),
+    ("tailnet", |d, _, cx| {
         d.agents.host = Some(agents::Host { tailnet: true, ..Default::default() });
-        d.settings.host.status = Some(daemon::Status { listen: vec!["127.0.0.1:4517".into(), "100.88.12.4:4517".into()], ..Default::default() });
+        let status = daemon::Status { listen: vec!["127.0.0.1:4517".into(), "100.88.12.4:4517".into()], ..Default::default() };
+        d.settings.update(cx, |s, _| s.host.status = Some(status));
     }),
-    ("advanced", |d, _, _| {
-        d.store.advanced.insert(d.settings.section.id().to_string());
+    ("advanced", |d, _, cx| {
+        let id = d.settings.read(cx).section().id().to_string();
+        d.store.advanced.insert(id);
     }),
     ("custom-keys", |d, _, _| {
         d.store.keys.insert("desktop::NextNeedsYou".into(), "cmd-shift-u".into());
     }),
-    ("key-clash", |d, _, _| d.settings.keyboard.recording = Some(("desktop::NewWorktree".into(), Some("cmd-k".into())))),
+    ("key-clash", |d, _, cx| d.settings.update(cx, |s, _| s.keyboard.recording = Some(("desktop::NewWorktree".into(), Some("cmd-k".into()))))),
     ("dark", |d, window, cx| d.set_appearance(WindowAppearance::Dark, window, cx)),
     ("syntax-github", |d, _, cx| syntax(d, store::SyntaxTheme::Github, cx)),
     ("syntax-one", |d, _, cx| syntax(d, store::SyntaxTheme::One, cx)),
@@ -936,13 +1010,13 @@ const STEPS: [(&str, Step); 302] = [
     ("code-font-menlo", |d, _, cx| {
         d.store.appearance.code_font = Some("Menlo".into());
         theme::set_fonts(d.store.appearance.ui_font.as_deref(), Some("Menlo"), cx);
-        d.diff.relayout(true);
+        d.diff.relayout(true, cx);
     }),
-    ("code-size-14", |d, _, _| {
+    ("code-size-14", |d, _, cx| {
         d.store.appearance.code_size = Some(14);
-        d.diff.relayout(true);
+        d.diff.relayout(true, cx);
     }),
-    ("code-font-menu", |d, _, _| d.settings.menu = Some("code-font")),
+    ("code-font-menu", |d, _, cx| d.settings.update(cx, |s, cx| s.set_menu(Some("code-font"), cx))),
     ("creating", |d, _, cx| {
         let Some(p) = d.project.clone() else { return };
         let now = Instant::now();
@@ -968,18 +1042,17 @@ const STEPS: [(&str, Step); 302] = [
             }
         });
     }),
-    ("deleting", |d, _, _| {
-        let Some(tree) = d.project.as_ref().and_then(|p| d.listed_trees(p)).and_then(|w| w.into_iter().find(|w| !w.main)).map(|w| w.path) else { return };
+    ("deleting", |d, _, cx| {
+        let Some(tree) = d.project.as_ref().and_then(|p| d.listed_trees(p, cx)).and_then(|w| w.into_iter().find(|w| !w.main)).map(|w| w.path) else { return };
         d.removals.start(&tree);
     }),
     ("delete-worktree", |d, _, cx| {
-        let Some((project, w)) = d.project.clone().and_then(|p| d.listed_trees(&p)?.into_iter().find(|w| !w.main).map(|w| (p, w))) else { return };
+        let Some((project, w)) = d.project.clone().and_then(|p| d.listed_trees(&p, cx)?.into_iter().find(|w| !w.main).map(|w| (p, w))) else { return };
         let removal = crate::removal::Removal { project, tree: w.path, branch: Some(w.branch), delete_branch: true, teardown: true };
-        d.confirm = Some(Confirm::DeleteWorktree { removal, dirty: 2, lost: 3, lost_anyway: 0, subtrees: vec![], requested: true });
-        d.overlay = Some(Overlay::Confirm);
+        d.ask(Confirm::DeleteWorktree { removal, dirty: 2, lost: 3, lost_anyway: 0, subtrees: vec![], requested: true }, cx);
         cx.notify();
     }),
-    ("error", |d, _, _| d.error = Some("Couldn't save placeholder.tsx: Permission denied (os error 13)".into())),
+    ("error", |d, _, cx| d.fail("Couldn't save placeholder.tsx: Permission denied (os error 13)", cx)),
     ("update-ready", |d, _, _| d.updates.update = Update::Ready { version: "0.2.0".into() }),
     ("whats-new", |d, _, _| d.updates.update = Update::WhatsNew { version: "0.2.0".into() }),
     ("star", |d, _, cx| d.star.update(cx, |s, _| s.shown = true)),
@@ -990,7 +1063,7 @@ const STEPS: [(&str, Step); 302] = [
         d.welcome = Some(welcome);
     }),
     ("prs", |d, _, cx| {
-        let Some(trees) = d.project.as_ref().and_then(|p| d.listed_trees(p)) else { return };
+        let Some(trees) = d.project.as_ref().and_then(|p| d.listed_trees(p, cx)) else { return };
         let trees: Vec<String> = trees.into_iter().filter(|w| !w.main).map(|w| w.path).collect();
         let now = Instant::now();
         let checks = [
@@ -1015,8 +1088,8 @@ const STEPS: [(&str, Step); 302] = [
         }
         d.activity_changed(cx);
     }),
-    ("pr-loop", |d, _, _| {
-        let Some(tree) = d.cwd() else { return };
+    ("pr-loop", |d, _, cx| {
+        let Some(tree) = d.cwd(cx) else { return };
         let at = crate::util::now_ms() as u64;
         let ago = |mins: u64| at - mins * 60_000;
         let said = |author: &str, body: &str, mins: u64| Comment { author: author.into(), body: body.into(), at: ago(mins), ..Comment::default() };
@@ -1067,8 +1140,8 @@ const STEPS: [(&str, Step); 302] = [
         d.prs.start(&tree, now);
         d.prs.apply(tree, now, Ok(Some(pr)), now);
     }),
-    ("pr-long", |d, _, _| {
-        let Some((tree, pr)) = d.shown_pr() else { return };
+    ("pr-long", |d, _, cx| {
+        let Some((tree, pr)) = d.shown_pr(cx) else { return };
         let mut pr = pr.clone();
         let at = crate::util::now_ms() as u64;
         let replies = [
@@ -1092,8 +1165,8 @@ const STEPS: [(&str, Step); 302] = [
         d.prs.start(&tree, now);
         d.prs.apply(tree, now, Ok(Some(pr)), now);
     }),
-    ("pr-long-body", |d, _, _| {
-        let Some((tree, pr)) = d.shown_pr() else { return };
+    ("pr-long-body", |d, _, cx| {
+        let Some((tree, pr)) = d.shown_pr(cx) else { return };
         let mut pr = pr.clone();
         let steps: String = (1..=14).map(|i| format!("- Step {i}: restore the session, wait for the settled redraw, then reveal the pane.\n")).collect();
         pr.body = format!("{}\n\n## Steps\n{steps}\n## Last line\nThe end of the description.", pr.body);
@@ -1105,32 +1178,76 @@ const STEPS: [(&str, Step); 302] = [
         d.prs.start(&tree, now);
         d.prs.apply(tree, now, Ok(Some(pr)), now);
     }),
-    ("pr-sent", |d, _, _| {
-        let Some((tree, pr)) = d.shown_pr() else { return };
+    ("pr-sent", |d, _, cx| {
+        let Some((tree, pr)) = d.shown_pr(cx) else { return };
         let pr = pr.clone();
         let failed: Vec<&Check> = pr.runs.iter().filter(|c| c.outcome == Outcome::Failed).collect();
-        d.pr.track.send(&tree, "capture", &pr, &[], &failed, false);
+        d.pr.update(cx, |p, cx| {
+            p.track.send(&tree, "capture", &pr, &[], &failed, false);
+            cx.notify();
+        });
+    }),
+    ("pr-ready", |d, _, cx| {
+        reshape_shown_pr(d, cx, |pr| {
+            pr.runs.retain(|c| c.outcome == Outcome::Passed);
+            pr.checks = Checks { passed: pr.runs.len() as u16, ..Checks::default() };
+            (pr.review, pr.requested, pr.threads) = (Review::Approved, Vec::new(), Vec::new());
+            pr.reviews = vec![("hoang".into(), Review::Approved)];
+            pr.mergeable = Mergeable::Clean;
+        })
+    }),
+    ("pr-merged", |d, _, cx| reshape_shown_pr(d, cx, |pr| pr.state = PrState::Merged)),
+    ("pr-draft", |d, _, cx| reshape_shown_pr(d, cx, |pr| pr.draft = true)),
+    ("pr-conflict", |d, _, cx| reshape_shown_pr(d, cx, |pr| pr.mergeable = Mergeable::Conflicting)),
+    ("pr-none", |d, _, cx| {
+        let Some(tree) = d.cwd(cx) else { return };
+        let now = Instant::now();
+        d.prs.start(&tree, now);
+        d.prs.apply(tree, now, Ok(None), now);
     }),
     ("pr-side", |d, _, cx| d.show_pr_side(cx)),
-    ("pr-checks", |d, _, _| d.pr.track.tab = PrTab::Checks),
-    ("pr-commits", |d, _, _| d.pr.track.tab = PrTab::Commits),
-    ("pr-files", |d, _, _| d.pr.track.tab = PrTab::Files),
-    ("pr-all", |d, _, _| d.pr.track.all = true),
-    ("pr-comment", |d, window, cx| d.open_comment(window, cx)),
+    ("pr-checks", |d, _, cx| {
+        d.pr.update(cx, |p, cx| {
+            p.track.tab = PrTab::Checks;
+            cx.notify();
+        })
+    }),
+    ("pr-commits", |d, _, cx| {
+        d.pr.update(cx, |p, cx| {
+            p.track.tab = PrTab::Commits;
+            cx.notify();
+        })
+    }),
+    ("pr-files", |d, _, cx| {
+        d.pr.update(cx, |p, cx| {
+            p.track.tab = PrTab::Files;
+            cx.notify();
+        })
+    }),
+    ("pr-all", |d, _, cx| {
+        d.pr.update(cx, |p, cx| {
+            p.track.all = true;
+            cx.notify();
+        })
+    }),
+    ("pr-comment", |d, window, cx| {
+        d.sync_pr_side(cx);
+        d.pr.update(cx, |p, cx| p.open_comment(window, cx));
+    }),
     // Downloads from GitHub, so only the captures that show the pictures ask for it.
     ("pr-avatars", |d, _, cx| {
-        if let Some(tree) = d.cwd() {
+        if let Some(tree) = d.cwd(cx) {
             d.fetch_avatars(&tree, cx);
         }
     }),
     ("pr-diff", |d, _, cx| {
-        let first = d.shown_pr().and_then(|(_, pr)| pr.threads.first().map(|t| t.id.clone()));
+        let first = d.shown_pr(cx).and_then(|(_, pr)| pr.threads.first().map(|t| t.id.clone()));
         if let Some(id) = first {
             d.view_thread(&id, cx);
         }
     }),
-    ("names", |d, _, _| {
-        let tree = d.project.as_ref().and_then(|p| d.listed_trees(p)).into_iter().flatten().find(|w| !w.main).map(|w| w.path);
+    ("names", |d, _, cx| {
+        let tree = d.project.as_ref().and_then(|p| d.listed_trees(p, cx)).into_iter().flatten().find(|w| !w.main).map(|w| w.path);
         if let Some(tree) = tree {
             d.agents.names.insert(tree, "Fix the login form".into());
         }
@@ -1151,8 +1268,8 @@ const STEPS: [(&str, Step); 302] = [
     ("local-menu", |d, _, _| d.row_menu = d.project.clone().map(|project| RowMenu::Local { project, local: "local-review".into() })),
     ("rename-local", |d, window, cx| d.start_rename("local-review".into(), window, cx)),
     ("delete-local", |d, _, cx| d.ask_delete_local("local-review".into(), cx)),
-    ("form-checkout", |d, _, cx| d.toggle_picker(Picker::Checkout, cx)),
-    ("form-project", |d, _, cx| d.toggle_picker(Picker::Project, cx)),
+    ("form-checkout", |d, _, cx| d.new_form.update(cx, |f, cx| f.toggle_picker(Picker::Checkout, cx))),
+    ("form-project", |d, _, cx| d.new_form.update(cx, |f, cx| f.toggle_picker(Picker::Project, cx))),
     ("new-place", |d, window, cx| {
         if let Some(p) = d.project.clone() {
             d.new_place(p, window, cx);
@@ -1163,13 +1280,15 @@ const STEPS: [(&str, Step); 302] = [
             d.start_rename(tree, window, cx);
         }
     }),
-    ("daemon-down", |d, _, _| d.terminals.disconnected(Instant::now() - crate::terminals::link::HINT_AFTER)),
-    ("service-off", |d, _, _| d.terminals.link.service = Some(daemon::service::Service::RequiresApproval)),
-    ("service-updating", |d, _, _| d.terminals.link.connected("0.2.0", "0.1.0", true, Instant::now())),
-    ("service-stale", |d, _, _| d.terminals.link.connected("0.2.0", "0.1.0", true, Instant::now() - crate::terminals::link::STALE_AFTER)),
-    ("service-back", |d, _, _| {
-        d.terminals.link.connected("0.2.0", "0.1.0", true, Instant::now());
-        d.terminals.link.connected("0.2.0", "0.2.0", true, Instant::now());
+    ("daemon-down", |d, _, cx| d.terminals.update(cx, |t, _| t.disconnected(Instant::now() - crate::terminals::link::HINT_AFTER))),
+    ("service-off", |d, _, cx| d.terminals.update(cx, |t, _| t.link.service = Some(daemon::service::Service::RequiresApproval))),
+    ("service-updating", |d, _, cx| d.terminals.update(cx, |t, _| t.link.connected("0.2.0", "0.1.0", true, Instant::now()))),
+    ("service-stale", |d, _, cx| d.terminals.update(cx, |t, _| t.link.connected("0.2.0", "0.1.0", true, Instant::now() - crate::terminals::link::STALE_AFTER))),
+    ("service-back", |d, _, cx| {
+        d.terminals.update(cx, |t, _| {
+            t.link.connected("0.2.0", "0.1.0", true, Instant::now());
+            t.link.connected("0.2.0", "0.2.0", true, Instant::now());
+        });
     }),
 ];
 
@@ -1178,7 +1297,7 @@ const STEPS: [(&str, Step); 302] = [
 /// `CAPTURE_CLICKS` ("x,y;x,y" in window points), `move` from `CAPTURE_MOVES` (the same), `drop` from `CAPTURE_DROPS` ("x,y,file;…"), `drag` from `CAPTURE_DRAGS` (the same), `paste-image` from `CAPTURE_PASTE` (a PNG),
 /// `pan` from `CAPTURE_PANS` ("x,y,dx,dy;…", a left-button drag), `pinch` from `CAPTURE_PINCHES` ("x,y,delta;…"),
 /// `import-theme` from `CAPTURE_THEMES` ("file;file"), `right-click` from `CAPTURE_CLICKS`; `clipboard` prints the clipboard's text.
-const INPUT_STEPS: [(&str, Step); 19] = [
+const INPUT_STEPS: [(&str, Step); 25] = [
     ("key", |_, window, cx| {
         let Some(k) = next_arg("CAPTURE_KEYS", ';').and_then(|k| Keystroke::parse_with_os(&k, keys::OS).ok()) else { return };
         window.defer(cx, move |window, cx| _ = window.dispatch_keystroke(k, cx));
@@ -1206,6 +1325,8 @@ const INPUT_STEPS: [(&str, Step); 19] = [
             window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: at, modifiers, click_count: 1 }), cx);
         });
     }),
+    // Prints the store as one `[store]` line, which `save_soon` doesn't write in capture mode.
+    ("dump-store", |d, _, _| eprintln!("[store] {}", serde_json::to_string(&d.store).unwrap_or_default())),
     // Times 60 whole-window frames, each after a notify as the daemon poll and git refresh send, and prints their spread.
     ("bench", |_, window, cx| {
         let desktop = cx.entity();
@@ -1238,6 +1359,45 @@ const INPUT_STEPS: [(&str, Step); 19] = [
         });
     }),
     ("clipboard", |_, _, cx| eprintln!("[clipboard] {:?}", cx.read_from_clipboard().and_then(|c| c.text()))),
+    ("bench-scroll", |_, window, cx| {
+        let Some(arg) = next_arg("CAPTURE_SCROLLS", ';') else { return };
+        let Some((at, by)) = arg.match_indices(',').nth(1).and_then(|(i, _)| Some((point_arg(&arg[..i])?, point_arg(&arg[i + 1..])?))) else { return };
+        window.defer(cx, move |window, cx| {
+            let frames = 300usize;
+            let modifiers = Modifiers::default();
+            window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers }), cx);
+            let mut took: Vec<Duration> = (0..frames)
+                .map(|_| {
+                    let t = Instant::now();
+                    let phases = [TouchPhase::Started, TouchPhase::Moved, TouchPhase::Ended];
+                    for (i, touch_phase) in phases.into_iter().enumerate() {
+                        let delta = if i == 2 { point(px(0.), px(0.)) } else { by };
+                        window.dispatch_event(
+                            PlatformInput::Scroll(ScrollEvent {
+                                position: at,
+                                delta: ScrollDelta::Pixels(delta),
+                                modifiers,
+                                touch_phase,
+                                source: ScrollSource::Pointer,
+                            }),
+                            cx,
+                        );
+                    }
+                    draw(window, cx);
+                    t.elapsed()
+                })
+                .collect();
+            took.sort();
+            let over = took.iter().filter(|d| d.as_secs_f64() * 1e3 > 8.3).count();
+            let ms = |d: Duration| d.as_secs_f64() * 1e3;
+            eprintln!(
+                "[bench-scroll] frames={frames} p50={:.2}ms p90={:.2}ms max={:.2}ms over8.3={over}",
+                ms(took[frames / 2]),
+                ms(took[frames * 9 / 10]),
+                ms(took[frames - 1])
+            );
+        });
+    }),
     // A click with a frame drawn while the button is down, as a hand's gets: what the press changed shows before the release lands.
     ("hand-click", |_, window, cx| {
         let Some(at) = next_arg("CAPTURE_CLICKS", ';').and_then(|a| point_arg(&a)) else { return };
@@ -1325,6 +1485,18 @@ const INPUT_STEPS: [(&str, Step); 19] = [
             window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: from + by, modifiers, click_count: 1 }), cx);
         });
     }),
+    // `pan` with a frame drawn after the press and each move, so what the press picks up is laid out before it moves; `hand-hold` stops before the release and `hand-release` lets go where the pointer is.
+    ("hand-pan", |_, window, cx| hand_drag(window, cx, true)),
+    ("hand-hold", |_, window, cx| hand_drag(window, cx, false)),
+    ("hand-release", |_, window, cx| {
+        window.defer(cx, |window, cx| {
+            let position = window.mouse_position();
+            window.dispatch_event(
+                PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position, modifiers: Modifiers::default(), click_count: 1 }),
+                cx,
+            );
+        });
+    }),
     // A two-finger trackpad scroll: touch down, four moves of a quarter `dx`, `dy` each, then lift.
     ("scroll", |_, window, cx| {
         let Some(arg) = next_arg("CAPTURE_SCROLLS", ';') else { return };
@@ -1365,6 +1537,11 @@ const INPUT_STEPS: [(&str, Step); 19] = [
     // What the window coming to the front does, which a capture window never does.
     ("reload-themes", |d, _, cx| d.reload_themes(cx)),
     ("pause", |_, _, _| {}),
+    ("touch-tree", |d, _, cx| {
+        if let Some(cwd) = d.cwd(cx) {
+            std::fs::write(Path::new(&cwd).join("touched-outside.txt"), "from outside\n").ok();
+        }
+    }),
     // The fixture's clock override: the shown chat's sends age past their two minutes.
     ("chat-age-sends", |d, _, cx| {
         let Some((id, working)) =
@@ -1372,9 +1549,12 @@ const INPUT_STEPS: [(&str, Step); 19] = [
         else {
             return;
         };
-        if let Some(v) = d.chats.views.get_mut(&id) {
-            v.session.outgoing.settle(&v.session.transcript, working, crate::util::now_ms() + 121_000);
-            cx.notify();
+        if let Some(v) = d.chats.views.get(&id) {
+            v.update(cx, |v, cx| {
+                let transcript = v.transcript();
+                v.session_mut().outgoing.settle(&transcript, working, crate::util::now_ms() + 121_000);
+                cx.notify();
+            });
         }
     }),
 ];
@@ -1403,17 +1583,20 @@ fn point_arg(s: &str) -> Option<Point<Pixels>> {
 /// Lists `entry`'s models in whichever model panel is open, its tab in the rail's view.
 fn view_models(d: &mut Desktop, entry: &'static str, cx: &mut Context<Desktop>) {
     let tab = d.offered().iter().position(|p| *p == entry).map_or(0, |at| at + 1);
-    for draft in [&mut d.new_form.composer.draft, &mut d.chats.composer.draft, &mut d.automations.form.composer.draft] {
-        if draft.menu == Some(Menu::Model) {
-            draft.view(entry);
-            crate::composer::model_menu::show_rail_tab(&draft.rail, tab);
+    let homes = [Held::Composer(d.new_form.read(cx).composer.clone()), Held::Chat, Held::Composer(d.automations.read(cx).form.composer.clone())];
+    for held in homes {
+        if held.edit(d, cx, |draft| draft.menu == Some(Menu::Model)) {
+            held.edit(d, cx, |draft| {
+                draft.view(entry);
+                crate::composer::model_menu::show_rail_tab(&draft.rail, tab);
+            });
         }
     }
     cx.notify();
 }
 
-fn provider_page<const P: usize>(d: &mut Desktop, _: &mut Window, _: &mut Context<Desktop>) {
-    d.settings.section = Section::Provider(P);
+fn provider_page<const P: usize>(d: &mut Desktop, _: &mut Window, cx: &mut Context<Desktop>) {
+    d.settings.update(cx, |s, cx| s.set_section(Section::Provider(P), cx));
 }
 
 fn model_tab<const P: usize>(d: &mut Desktop, _: &mut Window, cx: &mut Context<Desktop>) {
@@ -1534,15 +1717,24 @@ fn models_sample(d: &mut Desktop) {
     }
 }
 
+fn reshape_shown_pr(d: &mut Desktop, cx: &mut Context<Desktop>, f: impl FnOnce(&mut Pr)) {
+    let Some((tree, pr)) = d.shown_pr(cx) else { return };
+    let mut pr = pr.clone();
+    f(&mut pr);
+    let now = Instant::now();
+    d.prs.start(&tree, now);
+    d.prs.apply(tree, now, Ok(Some(pr)), now);
+}
+
 fn session(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
-    if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
+    if let Some(card) = d.project.clone().and_then(|p| d.cards(&p, cx).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
         d.focus_agent(&card.id, window, cx);
     }
 }
 
 fn chat_session(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     session(d, window, cx);
-    if let Some(Tab::Term(t)) = d.pane_tab(d.focused_pane()) {
+    if let Some(Tab::Term(t)) = d.pane_tab(d.focused_pane(cx), cx) {
         d.store.chats.insert(t.clone());
         d.focus_chat_or_terminal(t, window, cx);
     }
@@ -1560,17 +1752,22 @@ fn opens(b: &Block) -> bool {
 /// Opens the shown chat's first phase holding a block `pick` takes, and the fold over it, and returns that block.
 fn open_phase(d: &mut Desktop, pick: impl Fn(&Block) -> bool, cx: &mut Context<Desktop>) -> Option<(Entity<Tools>, Block)> {
     let agent = d.session()?.to_string();
-    let view = d.chats.views.get(&agent)?;
-    let s = &view.session;
-    let (ix, block) = s.rows.iter().enumerate().find_map(|(ix, row)| match row {
-        Row::Phase { turn, blocks } => s.transcript.turns[*turn].blocks[blocks.clone()].iter().find(|b| pick(b)).map(|b| (ix, b.clone())),
-        _ => None,
-    })?;
-    let (phase, open, tools) = (s.ids[ix].clone(), s.open(&s.ids[ix], false), view.tools.clone());
-    d.chat_reveal(&agent, ix, cx);
-    if !open {
-        d.chat_toggle(&agent, &phase, false, cx);
-    }
+    let view = d.chats.views.get(&agent)?.clone();
+    let (ix, block, phase, open, tools) = {
+        let (v, tools) = (view.read(cx), view.read(cx).tools());
+        let s = v.session();
+        let (ix, block) = s.rows.iter().enumerate().find_map(|(ix, row)| match row {
+            Row::Phase { turn, blocks } => s.transcript.turns[*turn].blocks[blocks.clone()].iter().find(|b| pick(b)).map(|b| (ix, b.clone())),
+            _ => None,
+        })?;
+        (ix, block, s.ids[ix].clone(), s.open(&s.ids[ix], false), tools)
+    };
+    view.update(cx, |v, cx| {
+        v.reveal(ix, cx);
+        if !open {
+            v.toggle_row(&phase, false, cx);
+        }
+    });
     Some((tools, block))
 }
 
@@ -1586,9 +1783,15 @@ fn open_agent(d: &mut Desktop, pick: fn(&chat::ToolCall) -> bool, cx: &mut Conte
     });
 }
 
+fn scroll_back(d: &Desktop, rows: usize, cx: &mut Context<Desktop>) {
+    if let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) {
+        v.update(cx, |v, cx| v.scroll_back(rows, cx));
+    }
+}
+
 /// The shown chat's last code block row.
-fn last_code(d: &Desktop) -> Option<usize> {
-    let s = &d.chats.views.get(d.session()?)?.session;
+fn last_code(d: &Desktop, cx: &App) -> Option<usize> {
+    let s = d.chats.views.get(d.session()?)?.read(cx).session();
     s.rows.iter().rposition(|row| {
         let Row::Text { turn, block, range } = row else { return false };
         let text = match s.transcript.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
@@ -1600,9 +1803,9 @@ fn last_code(d: &Desktop) -> Option<usize> {
 }
 
 /// The shown chat's agent and its first send held in the queue.
-fn first_queued(d: &Desktop) -> Option<(String, u64)> {
+fn first_queued(d: &Desktop, cx: &App) -> Option<(String, u64)> {
     let agent = d.session()?.to_string();
-    let send = d.chats.views.get(&agent)?.session.outgoing.list().iter().find(|p| p.delivery == chat::Delivery::Queued)?.id;
+    let send = d.chats.views.get(&agent)?.read(cx).session().outgoing.list().iter().find(|p| p.delivery == chat::Delivery::Queued)?.id;
     Some((agent, send))
 }
 
@@ -1715,15 +1918,17 @@ impl Capture {
 /// knows only measured heights, so a pixel scroll lands wherever the rows it skips were never laid out.
 fn scroll_from_prompt(d: &mut Desktop, n: usize, rows: isize, cx: &mut Context<Desktop>) {
     let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) else { return };
-    let Some(ix) = v.session.rows.iter().enumerate().filter(|(_, r)| matches!(r, Row::Prompt { .. })).nth(n).map(|(ix, _)| ix) else { return };
-    v.list.scroll_to(ListOffset { item_ix: ix.saturating_add_signed(rows), offset_in_item: px(0.) });
-    cx.notify();
+    v.update(cx, |v, cx| {
+        let Some(ix) = v.session().rows.iter().enumerate().filter(|(_, r)| matches!(r, Row::Prompt { .. })).nth(n).map(|(ix, _)| ix) else { return };
+        v.list().scroll_to(ListOffset { item_ix: ix.saturating_add_signed(rows), offset_in_item: px(0.) });
+        cx.notify();
+    });
 }
 
 /// Swipes the shown chat's `row` sideways by `dx` px.
-fn swipe(d: &mut Desktop, row: fn(&Desktop) -> Option<usize>, dx: f32, window: &mut Window, cx: &mut Context<Desktop>) {
+fn swipe(d: &mut Desktop, row: fn(&Desktop, &App) -> Option<usize>, dx: f32, window: &mut Window, cx: &mut Context<Desktop>) {
     let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) else { return };
-    let Some(at) = row(d).and_then(|ix| v.list.bounds_for_item(ix)).map(|b| b.center()) else { return };
+    let Some(at) = row(d, cx).and_then(|ix| v.read(cx).list().bounds_for_item(ix)).map(|b| b.center()) else { return };
     window.defer(cx, move |window, cx| {
         window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers: Modifiers::default() }), cx);
         let delta = ScrollDelta::Pixels(point(px(dx), px(0.)));
@@ -1732,8 +1937,8 @@ fn swipe(d: &mut Desktop, row: fn(&Desktop) -> Option<usize>, dx: f32, window: &
 }
 
 /// The last markdown block of the first reply.
-fn first_reply_end(d: &Desktop) -> Option<usize> {
-    let rows = &d.chats.views.get(d.session()?)?.session.rows;
+fn first_reply_end(d: &Desktop, cx: &App) -> Option<usize> {
+    let rows = &d.chats.views.get(d.session()?)?.read(cx).session().rows;
     rows.iter().rposition(|r| matches!(r, Row::Text { turn: 0, .. }))
 }
 
@@ -1750,34 +1955,44 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.store.chats.clear();
     d.set_chat_text("", window, cx);
     d.close_overlay(window, cx);
-    d.automations.reset();
+    d.automations.update(cx, |a, _| a.reset());
     (d.screen, d.side) = (Screen::Sessions, Side::Sessions);
-    d.settings.reset(window, cx);
-    d.settings.menu = None;
-    (d.layout, d.widths, d.sidebar.panel_open, d.panels.menu) = (Layout::Sidebars, [None; 2], false, None);
+    d.settings.update(cx, |s, cx| {
+        s.reset(window, cx);
+        s.set_menu(None, cx);
+    });
+    (d.layout, d.widths) = (Layout::Sidebars, [None; 2]);
+    d.sidebar.update(cx, |s, cx| s.set_panel_open(false, cx));
+    d.panels.update(cx, |p, cx| p.set_menu(None, cx));
     (d.worktree, d.terminal.focused) = (None, None);
-    for p in d.preview.panes.values_mut() {
-        p.file = None;
+    d.preview.update(cx, |p, _| p.state.panes.values_mut().for_each(|f| f.file = None));
+    for s in d.diff.panes.values() {
+        s.view.update(cx, |p, _| (p.view.file, p.view.at) = (None, At::Working));
     }
-    for v in d.diff.panes.values_mut() {
-        (v.file, v.at) = (None, At::Working);
+    for s in d.commit.panes.values() {
+        s.view.update(cx, |v, _| v.state.sha = None);
     }
-    for c in d.commit.panes.values_mut() {
-        c.sha = None;
-    }
-    d.workspaces.clear();
+    d.workspaces.update(cx, |w, _| w.clear());
     d.creates.update(cx, |c, _| c.list.clear());
     d.graph.update(cx, |g, _| *g = Graph::default());
-    d.pr.track.tab = PrTab::default();
-    d.pr.track.all = false;
+    d.pr.update(cx, |p, cx| {
+        p.track.tab = PrTab::default();
+        p.track.all = false;
+        cx.notify();
+    });
     d.agents.names.clear();
     d.agents.locals.clear();
-    d.sidebar.rename = None;
+    d.sidebar.update(cx, |s, cx| {
+        s.rename = None;
+        cx.notify();
+    });
     d.spaces.reset();
-    d.sidebar.space_header.update(cx, |h, _| h.reset());
+    d.sidebar.read(cx).space_header.clone().update(cx, |h, cx| h.reset(cx));
     d.updates.update = Update::Idle;
-    d.terminals.link.up();
-    d.terminals.link.service = None;
+    d.terminals.update(cx, |t, _| {
+        t.link.up();
+        t.link.service = None;
+    });
     let a = &mut d.store.appearance;
     (a.mode, a.theme, a.day, a.night) = (store::Mode::System, None, None, None);
     d.themes = Default::default();
@@ -1800,10 +2015,53 @@ async fn settle(cx: &mut AsyncApp, window: AnyWindowHandle, desktop: &Entity<Des
         cx.background_executor().timer(Duration::from_millis(100)).await;
     }
     cx.update_window(window, |_, window, cx| draw(window, cx)).ok();
+    if std::env::var_os("CAPTURE_CACHED").is_some() {
+        cx.update_window(window, |_, window, cx| draw(window, cx)).ok();
+    }
 }
 
+/// Each step is its own deferred call, so what the one before emitted is handled first, as between a hand's events.
+fn hand_drag(window: &mut Window, cx: &mut App, release: bool) {
+    let Some(arg) = next_arg("CAPTURE_PANS", ';') else { return };
+    let Some((from, by)) = arg.match_indices(',').nth(1).and_then(|(i, _)| Some((point_arg(&arg[..i])?, point_arg(&arg[i + 1..])?))) else { return };
+    window.defer(cx, move |window, cx| {
+        let modifiers = Modifiers::default();
+        window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: from, pressed_button: None, modifiers }), cx);
+        window.dispatch_event(
+            PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: from, modifiers, click_count: 1, first_mouse: false }),
+            cx,
+        );
+        // Drawn one deferral on, so the events the press emitted are handled first, as they are before a real frame.
+        window.defer(cx, move |window, cx| {
+            draw(window, cx);
+            hand_step(window, cx, (from, by), 1, release);
+        });
+    });
+}
+
+fn hand_step(window: &mut Window, cx: &mut App, (from, by): (Point<Pixels>, Point<Pixels>), step: u8, release: bool) {
+    window.defer(cx, move |window, cx| {
+        let modifiers = Modifiers::default();
+        if step > 4 {
+            if release {
+                window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: from + by, modifiers, click_count: 1 }), cx);
+            }
+            return;
+        }
+        let position = from + by * (f32::from(step) / 4.);
+        window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position, pressed_button: Some(MouseButton::Left), modifiers }), cx);
+        window.defer(cx, move |window, cx| {
+            draw(window, cx);
+            hand_step(window, cx, (from, by), step + 1, release);
+        });
+    });
+}
+
+/// A frame as the app draws one. `refresh` makes every cached view draw again, which hides a view that missed a notify; `CAPTURE_CACHED=1` leaves it out.
 fn draw(window: &mut Window, cx: &mut App) {
-    window.refresh();
+    if std::env::var_os("CAPTURE_CACHED").is_none() {
+        window.refresh();
+    }
     window.draw(cx).clear(cx);
 }
 
