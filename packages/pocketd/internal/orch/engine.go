@@ -189,19 +189,35 @@ func (e *Engine) DispatchWait(cmd Command, wait time.Duration) (Receipt, error) 
 // Wait waits for effects to finish; the first error wins. Effects already
 // done when it is called count as done.
 func (e *Engine) Wait(ids []int64, wait time.Duration) error {
-	deadline := time.After(wait)
+	timedOut, err := waitUntil(e, ids, time.After(wait))
+	if timedOut {
+		return refuse(CodeUnavailable, "The agent didn't take it in time")
+	}
+	return err
+}
+
+// WaitContext is Wait with no deadline of its own: it returns ctx's error once ctx ends.
+func (e *Engine) WaitContext(ctx context.Context, ids []int64) error {
+	ended, err := waitUntil(e, ids, ctx.Done())
+	if ended {
+		return ctx.Err()
+	}
+	return err
+}
+
+func waitUntil[T any](e *Engine, ids []int64, stop <-chan T) (stopped bool, err error) {
 	for _, id := range ids {
 		w := e.waiter(id)
 		select {
 		case <-w.done:
 			if w.err != nil {
-				return w.err
+				return false, w.err
 			}
-		case <-deadline:
-			return refuse(CodeUnavailable, "The agent didn't take it in time")
+		case <-stop:
+			return true, nil
 		}
 	}
-	return nil
+	return false, nil
 }
 
 // wait is one effect's end, for every caller waiting on it: err is set before done closes.
@@ -495,12 +511,16 @@ type querier interface {
 	Query(query string, args ...any) (*sql.Rows, error)
 }
 
-const sessionCols = `id, project, worktree, cwd, branch, agent, access, model, effort, status, title, origin, parent_id, relationship, created_by, conversation, terminal, depth, chat, pinned, failed, archived, closed_at, created_at, updated_at`
+const sessionCols = `id, project, worktree, cwd, branch, agent, access, model, effort, status, title, origin, parent_id, relationship, created_by, conversation, terminal, depth, chat, pinned, failed, archived, closed_at, created_at, updated_at, recap, error`
 
 func scanSession(row interface{ Scan(...any) error }) (Session, error) {
 	var s Session
+	var recap string
 	err := row.Scan(&s.ID, &s.Project, &s.Worktree, &s.Cwd, &s.Branch, &s.Agent, &s.Access, &s.Model, &s.Effort, &s.Status, &s.Title, &s.Origin, &s.ParentID, &s.Relationship,
-		&s.CreatedBy, &s.Conversation, &s.Terminal, &s.Depth, &s.Chat, &s.Pinned, &s.Failed, &s.Archived, &s.ClosedAt, &s.CreatedAt, &s.UpdatedAt)
+		&s.CreatedBy, &s.Conversation, &s.Terminal, &s.Depth, &s.Chat, &s.Pinned, &s.Failed, &s.Archived, &s.ClosedAt, &s.CreatedAt, &s.UpdatedAt, &recap, &s.Error)
+	if recap != "" {
+		json.Unmarshal([]byte(recap), &s.Recap)
+	}
 	return s, err
 }
 

@@ -10,6 +10,8 @@
 //	                more lines go on: "mcp <tool> <json>" again, or "await <name>" until $HOME/.acp-fake/<name> exists
 //	delegate <task> run a sub-agent on task in a session of its own, as OpenCode 2 does, which reports "did <task>";
 //	                as hermes, in the background, telling its work only in a transcript;
+//	                as agy, in an invoke_subagent call that ends as it launches (or once $HOME/.acp-fake/<name> exists
+//	                for "delegate await <name>"), then the sub-agent's "echo <task>" on this session, its id "<sub-agent>:<call>";
 //	                "delegate await <name>" runs its first call until $HOME/.acp-fake/<name> exists
 //	[Anywhere internal background handoff] …
 //	                as hermes, reply "echo: took back <summary>" of each transcript tail it holds
@@ -20,10 +22,14 @@
 //	fail <message>  refuse the prompt with message
 //	stop <reason>   end the turn with that stop reason
 //	/compact        as opencode, summarise the session in a reply and tell fewer tokens
-//	ask <question>  as agy, ask a form of question to a client that takes forms, then reply "echo: form <its answer>";
-//	                else reply "echo: asks in chat: <question>"
-//	decide <question>  as agy, ask question as an interaction_ permission of choices 1 Apple, 2 Pear,
-//	                then reply "echo: decided <optionId or cancelled>"
+//	ask <question>  as agy, ask in an ask_question call and a form to a client that takes forms, then reply
+//	                "echo: form <its answer>"; else reply "echo: asks in chat: <question>"
+//	decide <question>  as agy might, though never seen live, ask question as an interaction_ permission of
+//	                choices 1 Apple, 2 Pear, then reply "echo: decided <optionId or cancelled>"
+//
+// As agy, a prompt sent while a turn runs steers it: the prompt under way is
+// answered at once, and the turn says "echo: <text>" after its step and
+// answers the steer as it ends.
 //
 // With $HOME/.acp-fake/start it never opens a session: "exit <message>" has
 // it say message and exit 1, "refuse <message>" refuse session/new with it.
@@ -62,9 +68,16 @@ type agent struct {
 	next    int
 	waits   map[string]chan map[string]any
 	stop    chan struct{} // closed to cancel the turn under way
+	steer   *steering     // the turn under way's
 	checks  int
 	mcp     []fakemcp.Server
 	forms   bool // initialize offered elicitation forms
+}
+
+// steering is a turn's, as agy: the prompt its end answers and what was steered into it.
+type steering struct {
+	replyTo json.RawMessage
+	steered []string
 }
 
 type session struct {
@@ -172,6 +185,12 @@ func (a *agent) tellIn(sid string, u map[string]any) {
 
 func dir() string { return filepath.Join(os.Getenv("HOME"), ".acp-fake") }
 
+func await(name string) {
+	for _, err := os.Stat(filepath.Join(dir(), name)); err != nil; _, err = os.Stat(filepath.Join(dir(), name)) {
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func (a *agent) save() {
 	a.mu.Lock()
 	b, _ := json.Marshal(a.session)
@@ -232,7 +251,7 @@ func (a *agent) handle(id json.RawMessage, method string, p map[string]any) {
 		elicitation, _ := caps["elicitation"].(map[string]any)
 		_, a.forms = elicitation["form"]
 		a.reply(id, map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{"loadSession": true, "mcpCapabilities": map[string]any{"http": true}},
-			"agentInfo": map[string]string{"name": a.name, "version": "0"}, "authMethods": []map[string]string{{"id": "cached_token"}}})
+			"agentInfo": a.info(), "authMethods": []map[string]string{{"id": "cached_token"}}})
 	case "authenticate":
 		note("authenticate: %s", str("methodId"))
 		a.reply(id, map[string]any{})
@@ -311,16 +330,25 @@ func (a *agent) handle(id json.RawMessage, method string, p map[string]any) {
 		a.mu.Lock()
 		busy := a.stop != nil
 		if !busy {
-			a.stop = make(chan struct{})
+			a.stop, a.steer = make(chan struct{}), &steering{replyTo: id}
 		}
-		stop := a.stop
+		stop, t := a.stop, a.steer
+		open := t.replyTo
+		if busy && a.name == "agy" {
+			t.replyTo, t.steered = id, append(t.steered, promptText(p))
+		}
 		a.mu.Unlock()
+		if busy && a.name == "agy" {
+			note("steer: %s", promptText(p))
+			a.reply(open, map[string]any{"stopReason": "end_turn"})
+			return
+		}
 		if busy {
 			note("busy")
 			a.refuse(id, -32603, "a turn is running", nil)
 			return
 		}
-		go a.turn(id, promptText(p), stop)
+		go a.turn(id, promptText(p), stop, t)
 	case "_x.ai/compact_conversation":
 		if a.name != "grok" {
 			a.refuse(id, -32601, "Method not found", map[string]string{"method": method})
@@ -336,6 +364,9 @@ func (a *agent) handle(id json.RawMessage, method string, p map[string]any) {
 		if a.stop != nil {
 			close(a.stop)
 			a.stop = nil
+		}
+		if a.steer != nil {
+			a.steer.steered = nil
 		}
 		a.mu.Unlock()
 	default:
@@ -381,7 +412,7 @@ func (a *agent) say(text string) {
 	}
 }
 
-func (a *agent) turn(id json.RawMessage, text string, stop chan struct{}) {
+func (a *agent) turn(id json.RawMessage, text string, stop chan struct{}, t *steering) {
 	note("prompt: %s", text)
 	if a.name == "opencode" && text == "/compact" {
 		// The real one keeps its summary as a reply no prompt asked for.
@@ -445,8 +476,35 @@ func (a *agent) turn(id json.RawMessage, text string, stop chan struct{}) {
 		a.say(text)
 	}
 	a.tell(map[string]any{"sessionUpdate": "usage_update", "used": 1200, "size": 200000})
-	a.end()
-	a.reply(id, map[string]any{"stopReason": reason, "usage": map[string]int{"inputTokens": 1000, "outputTokens": 200, "totalTokens": 1200}})
+	a.reply(a.settle(t, stop), map[string]any{"stopReason": reason, "usage": map[string]int{"inputTokens": 1000, "outputTokens": 200, "totalTokens": 1200}})
+}
+
+// info is what initialize tells of the agent: as agy, what agy 1.5.16 tells.
+func (a *agent) info() map[string]string {
+	if a.name == "agy" {
+		return map[string]string{"name": "Antigravity ACP Server", "version": "1.5.16"}
+	}
+	return map[string]string{"name": a.name, "version": "0"}
+}
+
+// settle says each prompt steered into turn t and ends it. It returns the
+// prompt the turn's end answers. A turn stopped and followed by another
+// leaves that one running.
+func (a *agent) settle(t *steering, stop chan struct{}) json.RawMessage {
+	for {
+		a.mu.Lock()
+		if len(t.steered) == 0 {
+			if a.stop == stop {
+				a.stop = nil
+			}
+			a.mu.Unlock()
+			return t.replyTo
+		}
+		text := t.steered[0]
+		t.steered = t.steered[1:]
+		a.mu.Unlock()
+		a.say(text)
+	}
 }
 
 // wait replies text after d unless stop closes first, which ends the turn cancelled.
@@ -471,8 +529,12 @@ func (a *agent) end() {
 // session, names that session only as the call ends, and its history tells
 // that work only to a load of that session.
 func (a *agent) delegate(task string) {
-	if a.name == "hermes" {
+	switch a.name {
+	case "hermes":
 		a.background(task)
+		return
+	case "agy":
+		a.launch(task)
 		return
 	}
 	call := "call_" + hex(4)
@@ -490,6 +552,25 @@ func (a *agent) delegate(task string) {
 	out := "<subagent sessionID=\"" + kid.ID + "\" state=\"completed\">\ndid " + task + "\n</subagent>"
 	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed", "content": []map[string]any{{"type": "content", "content": textBlock(out)}},
 		"rawOutput": map[string]any{"metadata": map[string]any{"sessionID": kid.ID, "status": "completed", "truncated": false}}})
+	a.say("delegated " + task)
+}
+
+// launch runs a sub-agent on task as agy 1.5.16's invoke_subagent does: a call
+// whose input is the one sub-agent, and which ends as it launches with no
+// output. The sub-agent's calls come on this session, named for it.
+func (a *agent) launch(task string) {
+	call := "call_" + hex(4)
+	a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": call, "name": "invoke_subagent", "status": "in_progress", "kind": "other", "title": "Run invoke_subagent",
+		"rawInput": map[string]string{"Model": "inherit", "Prompt": task, "Role": "Runner", "TypeName": "self"}})
+	if gate, ok := strings.CutPrefix(task, "await "); ok {
+		await(gate)
+	}
+	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "name": "invoke_subagent", "status": "completed"})
+	run := hex(8) + ":call_" + hex(4)
+	command := map[string]string{"CommandLine": "echo " + task}
+	a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": run, "name": "run_command", "status": "in_progress", "kind": "execute", "title": "echo " + task, "rawInput": command})
+	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": run, "name": "run_command", "status": "completed", "kind": "execute", "title": "echo " + task, "rawInput": command,
+		"content": []map[string]any{{"type": "content", "content": textBlock(task)}}})
 	a.say("delegated " + task)
 }
 
@@ -513,9 +594,7 @@ func (a *agent) background(task string) {
 		f, _ := os.OpenFile(log, os.O_APPEND|os.O_WRONLY, 0)
 		fmt.Fprintf(f, "12:00:01 tool     | -> terminal(echo %s)\n", task)
 		if gate, ok := strings.CutPrefix(task, "await "); ok {
-			for _, err := os.Stat(filepath.Join(dir(), gate)); err != nil; _, err = os.Stat(filepath.Join(dir(), gate)) {
-				time.Sleep(20 * time.Millisecond)
-			}
+			await(gate)
 		}
 		fmt.Fprintf(f, "12:00:01 result   | terminal ok 0.1s: %[1]s\n12:00:02 assistant| did %[1]s\n"+
 			"12:00:02 final    | status=completed duration=2s summary: did %[1]s\n12:00:02 final    | end status=completed\n", task)
@@ -566,14 +645,24 @@ func selected(r map[string]any) string {
 	return "cancelled"
 }
 
-// askForm asks q as agy does: as a form to a client that takes forms, else in the chat.
+// askForm asks q as agy 1.5.16 does: in an ask_question call, then as a form to
+// a client that takes forms, else in the chat.
 func (a *agent) askForm(q string, stop <-chan struct{}) {
+	call := "call_" + hex(4)
+	asking := func(status string) {
+		a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "name": "ask_question", "status": status})
+	}
+	a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": call, "name": "ask_question", "status": "in_progress", "kind": "other", "title": "Run ask_question",
+		"rawInput": map[string]any{"questions": []map[string]any{{"is_multi_select": false, "options": []string{"Apple", "Pear"}, "question": q}}}})
+	asking("pending")
 	if a.forms {
 		schema := map[string]any{"type": "object", "properties": map[string]any{
 			"q1":       map[string]any{"type": "string", "title": q, "oneOf": []map[string]string{{"const": "1", "title": "Apple"}, {"const": "2", "title": "Pear"}}},
-			"q1_other": map[string]any{"type": "string", "title": "Something else"},
+			"q1_other": map[string]any{"type": "string", "title": "Other", "description": "Optional free-form answer to: " + q},
 		}}
-		if r := a.request("elicitation/create", map[string]any{"sessionId": a.session.ID, "mode": "form", "message": q, "requestedSchema": schema}, stop); r != nil {
+		if r := a.request("elicitation/create", map[string]any{"sessionId": a.session.ID, "toolCallId": call, "mode": "form", "message": "The agent has a question.", "requestedSchema": schema}, stop); r != nil {
+			asking("in_progress")
+			asking("completed")
 			b, _ := json.Marshal(r)
 			a.say("form " + string(b))
 			return
@@ -582,7 +671,8 @@ func (a *agent) askForm(q string, stop <-chan struct{}) {
 	a.say("asks in chat: " + q)
 }
 
-// decide asks q as agy does: an interaction_ permission request whose options are the choices.
+// decide asks q as agy might, though no live run has shown it: an interaction_
+// permission request whose options are the choices.
 func (a *agent) decide(q string, stop <-chan struct{}) {
 	options := []map[string]string{{"optionId": "1", "name": "Apple", "kind": "allow_once"}, {"optionId": "2", "name": "Pear", "kind": "allow_once"}}
 	picked := selected(a.request("session/request_permission", map[string]any{"sessionId": a.session.ID,

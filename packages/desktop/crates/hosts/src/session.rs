@@ -146,6 +146,7 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
             t(agent);
         }
         Event::PromptFailed { agent, .. }
+        | Event::PromptState { agent, .. }
         | Event::InterruptFailed { agent, .. }
         | Event::Commands { agent, .. }
         | Event::Mcp { agent, .. }
@@ -265,6 +266,19 @@ impl Outboxes {
         if let Some(out) = self.to(host) {
             send(&out, theirs);
         }
+    }
+
+    pub fn timeline(&self, agent_id: &str) {
+        self.by_id(agent_id, |o, id| o.timeline(id));
+    }
+
+    /// Asks for the newest page of each chat in `ids` that has none yet.
+    pub fn timelines(&self, ids: &[String]) {
+        ids.iter().for_each(|id| self.timeline(id));
+    }
+
+    pub fn older(&self, agent_id: &str) {
+        self.by_id(agent_id, |o, id| o.older(id));
     }
 
     pub fn pin(&self, agent_id: &str, pinned: bool) {
@@ -535,7 +549,7 @@ mod tests {
         assert!(tag_event("devbox", &mut names));
         assert!(matches!(names, Event::Names(n) if n.contains_key("//devbox/home/me/app")));
 
-        let mut refused = Event::PromptFailed { agent: "a1".into(), request: "prompt-1".into() };
+        let mut refused = Event::PromptFailed { agent: "a1".into(), request: "prompt-1".into(), reason: "No such session".into() };
         assert!(tag_event("devbox", &mut refused));
         assert!(matches!(refused, Event::PromptFailed { agent, .. } if agent == "devbox/a1"));
 

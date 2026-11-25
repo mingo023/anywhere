@@ -40,6 +40,11 @@
 // FIXTURE_LOOSE=1 runs a Claude session in ~/Downloads and a shell in ~/notes, folders no project holds.
 // FIXTURE_EXPIRED=1 adds two Claude accounts whose login expired: one never read, one with stale usage.
 // FIXTURE_ONE_ACCOUNT=1 lists only the built-in Claude login.
+// FIXTURE_ANTIGRAVITY=usage|live|out|old adds Antigravity's built-in login: read (5h full, week at 25%), as a signed-in agy 1.5.16 reported it
+// (no 5h pool, week at 16%), signed out, or on an agy too old to say its usage.
+// FIXTURE_DELIVERY=1 speaks delivery.v1: a prompt is acked at once, then agent.delivery says it started, FIXTURE_DELIVERED_MS later, and the
+// agent takes it; a resent id gets the same answers but reaches the agent once. FIXTURE_DELIVERY_FAIL=<reason> fails each delivery with it.
+// FIXTURE_DROP_FIRST_PROMPT=<ms> drops the link on the first prompt, unanswered, and refuses the socket for <ms>.
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
@@ -336,6 +341,15 @@ const timeline = (a: Agent) => a.id === CHAT_AGENT ? stamp(a.id, firstChat) : pr
   id: `${a.id}-result`, seq: 1, ts: now - a.ago * 60_000, kind: "result", ok: !a.failed, error: a.failed ? "exit 1" : "",
   usage: { inputTokens: (100 - left[a.provider]) * 2000, cacheReadTokens: 0 },
 }];
+// pocketd counts each summary's recap from its last turn; the timeline is loaded only when a chat opens.
+for (const [i, a] of scenario.agents.entries()) {
+  const own = timeline(a).filter((x: any) => !x.parentToolUseId);
+  const from = Math.max(0, own.findLastIndex((x: any) => x.kind === "user" && x.origin !== "wake"));
+  const turn = own.slice(from);
+  const paths = (kinds: string[]) => new Set(turn.filter((x: any) => x.call && kinds.includes(x.call.detail?.kind)).map((x: any) => x.call.detail.path)).size;
+  const recap = { asked: turn[0]?.kind === "user" ? turn[0].text : undefined, read: paths(["read"]) || undefined, edited: paths(["edit", "write"]) || undefined, said: turn.findLast((x: any) => x.kind === "assistant")?.text };
+  Object.assign(summaries[i], { recap, ...(a.failed && { error: "exit 1" }) });
+}
 
 const children = scenario.agents.flatMap((a) => (a.children ?? []).map((argv, i) => ({ id: `${a.id}-tab${i}`, parent: a.id, argv, cwd: cwd(a) })));
 const sessions = [
@@ -548,7 +562,19 @@ const ACCOUNTS = [
         { id: "lapsed", provider: "claude", label: "Side", email: "lapsed@example.com", plan: "Pro", signedIn: true, expired: true, usage: { ...usage(30, 55), at: now - 90 * MIN, stale: true } },
       ]
     : []),
+  ...antigravity(process.env.FIXTURE_ANTIGRAVITY),
 ];
+
+function antigravity(state?: string) {
+  const row = { id: "builtin", provider: "antigravity", default: true };
+  switch (state) {
+    case "usage": return [{ ...row, signedIn: true, usage: usage(100, 25) }];
+    case "live": return [{ ...row, signedIn: true, usage: { week: { percent: 16.229522228240967, resetsAt: now + 7 * 1440 * MIN }, at: now } }];
+    case "out": return [{ ...row, signedIn: false, usage: { at: now } }];
+    case "old": return [{ ...row, signedIn: true, usage: { at: now }, error: "Update agy to 1.1.11 or later to see its usage" }];
+    default: return [];
+  }
+}
 
 // The sockets of the desktop's line-JSON channel, to tell of terminals that appear while it runs.
 const conns = new Set<Socket>();
@@ -600,6 +626,7 @@ const ops = (c: Socket, first: Buffer) => {
 // pocketd serves the desktop's websocket and line JSON on one socket, told apart by the first byte.
 createServer((c) =>
   c.once("data", (first: Buffer) => {
+    if (Date.now() < downUntil) return c.destroy();
     if (first[0] !== 0x47) return ops(c, first);
     const ws = createConnection(port, "127.0.0.1");
     ws.write(first);
@@ -965,7 +992,11 @@ const ALL_TASKS: [string, Provider, string, string][] = [
   ["Update the docs", "opencode", "opencode/big-pickle", "Update docs/auth.md for the new redirect behaviour."],
 ];
 // FIXTURE_DELEGATE_ONE=1: one task with a long title, which finishes; every task of the chat is settled and its panel offers Clear.
-const TASKS = process.env.FIXTURE_DELEGATE_ONE ? [["Review the diff on this branch and list what could break", ALL_TASKS[1][1], ALL_TASKS[1][2], ALL_TASKS[1][3]] as (typeof ALL_TASKS)[number]] : ALL_TASKS;
+// FIXTURE_DELEGATE_MANY=<n>: n tasks (3 at least), more than the chat has room for. Past the first three, every third finishes, every fifth asks, and the rest keep working.
+const MANY = Number(process.env.FIXTURE_DELEGATE_MANY ?? 0);
+const MORE = ["Profile the diff highlighter", "Virtualize the Explorer tree", "Port the board verbs", "Fix the sidebar hover flicker", "Bump the tree-sitter grammars", "Audit reduce-transparency fallbacks", "Trace the git refresh on Linux"];
+const many = (i: number): (typeof ALL_TASKS)[number] => (i < 3 ? ALL_TASKS[i] : [`${MORE[i % MORE.length]} ${i}`, ALL_TASKS[i % 3][1], ALL_TASKS[i % 3][2], "Take this one in your own worktree."]);
+const TASKS = process.env.FIXTURE_DELEGATE_ONE ? [["Review the diff on this branch and list what could break", ALL_TASKS[1][1], ALL_TASKS[1][2], ALL_TASKS[1][3]] as (typeof ALL_TASKS)[number]] : MANY ? Array.from({ length: Math.max(MANY, 3) }, (_, i) => many(i)) : ALL_TASKS;
 const announce = () => conns.forEach((c) => c.write(JSON.stringify({ ev: "terminals", items: sessions }) + "\n"));
 const setTask = (ws: Ws, t: Task, patch: Partial<Task>) => {
   Object.assign(t, patch);
@@ -1102,6 +1133,14 @@ const delegate = (ws: Ws, parentId: string) => {
     setTask(ws, list[2], { status: "failed", error: "opencode exited 2: provider returned 401.", settledAt: Date.now() });
     deliver(ws, list[2], "failed");
   });
+  if (MANY)
+    at(400 + TASKS.length * 150, () =>
+      list.slice(3).forEach((t, i) => {
+        if (i % 3 === 0) setTask(ws, t, { status: "completed", summary: "Done", settledAt: Date.now() });
+        else if (i % 5 === 1) setTask(ws, t, { status: "working", question: "Keep the change small, or refactor the module while it's open?" });
+        else setTask(ws, t, { status: "working" });
+      }),
+    );
   if (process.env.FIXTURE_DELEGATE_WAKE)
     at(2800, () => {
       setTask(ws, list[0], { status: "completed", question: undefined, summary: "24 tests pass", settledAt: Date.now() });
@@ -1116,6 +1155,38 @@ const ask = (ws: Ws, agentId: string, kind: "permission" | "question") => {
   ws.send(JSON.stringify({ type: "permission.request", request }));
 };
 
+const prompted = (ws: Ws, f: any) => {
+  release(ws, f.agentId);
+  const name = f.text.match(/^\/fixture (\S+)$/)?.[1];
+  if (name === "permission" || name === "question") ask(ws, f.agentId, name);
+  else if (name === "exit") exit(ws, f.agentId);
+  else if (name === "clear") clear(ws, f.agentId);
+  else if (name === "restart") restart(ws, f.agentId);
+  else if (name === "stream-code") reply(ws, f.agentId, CODE_REPLY, 150);
+  else if (name === "delegate") {
+    item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
+    reply(ws, f.agentId, "I'll split this three ways: tests on Codex, a review of the diff on Claude, and the docs on OpenCode. Each runs as a session of its own, and what it reports comes back here.", 6);
+    delegate(ws, f.agentId);
+  }
+  else if (name) ws.send(JSON.stringify({ type: "agent.timeline", agentId: f.agentId, items: stamp(f.agentId, chatItems(name), `${name}-`) }));
+  // What pocketd sends when the agent left the foreground before the prompt reached it.
+  else if (process.env.FIXTURE_REFUSE) ws.send(JSON.stringify({ type: "error", id: f.id, message: "Agent is no longer in the foreground" }));
+  else if (f.text === "/compact") compact(ws, f.agentId);
+  // pocketd shows a slash command as typed, from Claude's <command-name> markup; the fixture runs none.
+  else if (!process.env.FIXTURE_DROP && f.text.startsWith("/")) item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
+  else if (!process.env.FIXTURE_DROP) {
+    const answer = () => {
+      item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
+      reply(ws, f.agentId);
+    };
+    if (streams.has(f.agentId)) steers.set(f.agentId, answer);
+    else answer();
+  }
+};
+const delivered = new Set<string>();
+let droppedPrompt = false;
+let downUntil = 0;
+
 Bun.serve({
   port,
   fetch: (req, server) => (server.upgrade(req) ? undefined : new Response("fixture")),
@@ -1125,7 +1196,7 @@ Bun.serve({
       // What the desktop sent, for checks that a click or key reached pocketd.
       if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG, raw + "\n");
       if (f.type === "hello") {
-        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1", "workspace.v1", "worktrees.v1", ...(process.env.FIXTURE_REGISTRY ? ["registry.v2"] : []), ...(process.env.FIXTURE_NO_ORCHESTRATOR ? [] : ["orchestrator.v1"]), ...(process.env.FIXTURE_NO_HOSTS ? [] : ["hosts.v1"])], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1", "workspace.v1", "worktrees.v1", ...(process.env.FIXTURE_REGISTRY ? ["registry.v2"] : []), ...(process.env.FIXTURE_NO_ORCHESTRATOR ? [] : ["orchestrator.v1"]), ...(process.env.FIXTURE_NO_HOSTS ? [] : ["hosts.v1"]), ...(process.env.FIXTURE_DELIVERY ? ["delivery.v1"] : [])], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         if (process.env.FIXTURE_REGISTRY) ws.send(registryList());
         ws.send(projectList());
@@ -1187,34 +1258,23 @@ Bun.serve({
         if (a?.id === CHAT_AGENT && process.env.FIXTURE_CHAT === "permissions") ask(ws, a.id, "permission");
       }
       if (f.type === "agent.prompt" && f.queue && streams.has(f.agentId)) enqueue(ws, f.agentId, f.text);
-      else if (f.type === "agent.prompt") {
-        release(ws, f.agentId);
-        const name = f.text.match(/^\/fixture (\S+)$/)?.[1];
-        if (name === "permission" || name === "question") ask(ws, f.agentId, name);
-        else if (name === "exit") exit(ws, f.agentId);
-        else if (name === "clear") clear(ws, f.agentId);
-        else if (name === "restart") restart(ws, f.agentId);
-        else if (name === "stream-code") reply(ws, f.agentId, CODE_REPLY, 150);
-        else if (name === "delegate") {
-          item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
-          reply(ws, f.agentId, "I'll split this three ways: tests on Codex, a review of the diff on Claude, and the docs on OpenCode. Each runs as a session of its own, and what it reports comes back here.", 6);
-          delegate(ws, f.agentId);
-        }
-        else if (name) ws.send(JSON.stringify({ type: "agent.timeline", agentId: f.agentId, items: stamp(f.agentId, chatItems(name), `${name}-`) }));
-        // What pocketd sends when the agent left the foreground before the prompt reached it.
-        else if (process.env.FIXTURE_REFUSE) ws.send(JSON.stringify({ type: "error", id: f.id, message: "Agent is no longer in the foreground" }));
-        else if (f.text === "/compact") compact(ws, f.agentId);
-        // pocketd shows a slash command as typed, from Claude's <command-name> markup; the fixture runs none.
-        else if (!process.env.FIXTURE_DROP && f.text.startsWith("/")) item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
-        else if (!process.env.FIXTURE_DROP) {
-          const answer = () => {
-            item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
-            reply(ws, f.agentId);
-          };
-          if (streams.has(f.agentId)) steers.set(f.agentId, answer);
-          else answer();
-        }
+      else if (f.type === "agent.prompt" && process.env.FIXTURE_DROP_FIRST_PROMPT && !droppedPrompt) {
+        droppedPrompt = true;
+        downUntil = Date.now() + Number(process.env.FIXTURE_DROP_FIRST_PROMPT);
+        ws.close();
       }
+      else if (f.type === "agent.prompt" && process.env.FIXTURE_DELIVERY) {
+        ws.send(JSON.stringify({ type: "ack", id: f.id }));
+        const replay = delivered.has(f.id);
+        delivered.add(f.id);
+        const failure = process.env.FIXTURE_DELIVERY_FAIL;
+        setTimeout(() => {
+          ws.send(JSON.stringify({ type: "agent.delivery", id: f.id, agentId: f.agentId, state: failure ? "failed" : "started", ...(failure && { error: failure }) }));
+          // A resent id is a receipt pocketd replays: the agent took it once.
+          if (!failure && !replay) prompted(ws, f);
+        }, Number(process.env.FIXTURE_DELIVERED_MS) || 0);
+      }
+      else if (f.type === "agent.prompt") prompted(ws, f);
       if (f.type === "queue.list") publish(ws, f.agentId, { type: "queue.list", id: f.id });
       if (process.env.FIXTURE_REFUSE_QUEUE && /^queue\.(edit|cancel|reorder|send_now)$/.test(f.type)) return ws.send(JSON.stringify({ type: "error", id: f.id, message: "That queued message was sent or removed" }));
       if (f.type === "queue.edit") {

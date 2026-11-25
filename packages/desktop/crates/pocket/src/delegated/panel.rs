@@ -18,6 +18,12 @@ const CAPSULE_H: f32 = 34.;
 const HEAD_H: f32 = 36.;
 const ROW_H: f32 = 48.;
 const TOP: f32 = 12.;
+const BOTTOM: f32 = 12.;
+const SECTION_H: f32 = 28.;
+const FOLD_H: f32 = 34.;
+const RULE_H: f32 = 4.5;
+const PINNED_PAD: f32 = 4.;
+const FOLD_ABOVE: usize = 6;
 const QUESTION_SIZE: f32 = 12.5;
 const QUESTION_LINE: f32 = 17.;
 const QUESTION_LINES: usize = 2;
@@ -201,15 +207,86 @@ fn label(p: Phase) -> &'static str {
     }
 }
 
-/// The list's height, with each asking session's question at the lines `lines` says it wraps to.
-fn full_height<'a>(list: impl Iterator<Item = &'a Delegation>, lines: impl Fn(&Delegation) -> usize) -> f32 {
-    let rows: f32 = list
-        .map(|d| match question(d) {
-            Some(_) => ROW_H + 6. + QUESTION_LINE * lines(d).clamp(1, QUESTION_LINES) as f32,
-            None => ROW_H,
-        })
-        .sum();
-    HEAD_H + rows + 6.
+fn row_height(d: &Delegation, lines: &impl Fn(&Delegation) -> usize) -> f32 {
+    match question(d) {
+        Some(_) => ROW_H + 6. + QUESTION_LINE * lines(d).clamp(1, QUESTION_LINES) as f32,
+        None => ROW_H,
+    }
+}
+
+struct Groups<'a> {
+    asking: Vec<&'a Entry>,
+    running: Vec<&'a Entry>,
+    ended: Vec<&'a Entry>,
+    folds: bool,
+}
+
+fn groups(entries: &[Entry]) -> Groups<'_> {
+    let mut g = Groups { asking: Vec::new(), running: Vec::new(), ended: Vec::new(), folds: false };
+    for e in entries {
+        match e.delegation.phase() {
+            Phase::Asking => g.asking.push(e),
+            p if p.settled() => g.ended.push(e),
+            _ => g.running.push(e),
+        }
+    }
+    g.running.sort_by_key(|e| e.delegation.created_at);
+    g.ended.sort_by_key(|e| std::cmp::Reverse(e.delegation.settled_at));
+    g.folds = entries.len() > FOLD_ABOVE && g.ended.len() < entries.len();
+    g
+}
+
+impl Groups<'_> {
+    fn asking_head(&self) -> bool {
+        self.asking.len() > 1
+    }
+
+    fn running_head(&self) -> bool {
+        !self.running.is_empty() && !(self.asking.is_empty() && self.ended.is_empty())
+    }
+
+    fn ended_head(&self) -> bool {
+        !self.folds && !self.ended.is_empty() && !(self.asking.is_empty() && self.running.is_empty())
+    }
+
+    fn fold_index(&self) -> usize {
+        usize::from(self.running_head()) + self.running.len()
+    }
+
+    fn rule(&self) -> bool {
+        !self.asking.is_empty() && !(self.running.is_empty() && self.ended.is_empty())
+    }
+
+    fn heights(&self, ended_open: bool, lines: impl Fn(&Delegation) -> usize) -> Heights {
+        let rows = |list: &[&Entry]| list.iter().map(|e| row_height(&e.delegation, &lines)).sum::<f32>();
+        let head = |shown: bool| if shown { SECTION_H } else { 0. };
+        let pinned = if self.asking.is_empty() { 0. } else { head(self.asking_head()) + rows(&self.asking) + PINNED_PAD };
+        let ended = match (self.ended.is_empty(), self.folds) {
+            (true, _) => 0.,
+            (false, true) => FOLD_H + if ended_open { rows(&self.ended) } else { 0. },
+            (false, false) => head(self.ended_head()) + rows(&self.ended),
+        };
+        let body = head(self.running_head()) + rows(&self.running) + ended + 6.;
+        Heights { pinned, full: HEAD_H + pinned + if self.rule() { RULE_H } else { 0. } + body }
+    }
+}
+
+/// The pinned questions and the whole list, each laid out in full.
+#[derive(Clone, Copy, Default)]
+struct Heights {
+    pinned: f32,
+    full: f32,
+}
+
+impl Heights {
+    /// The questions keep all they need while the rest still fits, and half the panel once it doesn't.
+    fn pinned_in(self, open: f32) -> f32 {
+        self.pinned.min((open / 2.).max(open - (self.full - self.pinned)))
+    }
+}
+
+fn open_height(full: f32, chat_h: Option<f32>) -> f32 {
+    chat_h.map_or(full, |h| full.min((h - TOP - BOTTOM).max(CAPSULE_H)))
 }
 
 /// What a session asks, while it waits for the answer.
@@ -262,13 +339,16 @@ pub(crate) struct PanelView {
     panel: Panel,
     entries: Vec<Entry>,
     capturing: bool,
+    chat_h: Option<f32>,
+    ended_open: bool,
+    list: ScrollHandle,
 }
 
 impl EventEmitter<PanelEvent> for PanelView {}
 
 impl PanelView {
     pub(super) fn new() -> Self {
-        Self { panel: Panel::new(), entries: Vec::new(), capturing: false }
+        Self { panel: Panel::new(), entries: Vec::new(), capturing: false, chat_h: None, ended_open: false, list: ScrollHandle::new() }
     }
 
     pub(super) fn set<'a>(&mut self, list: impl Iterator<Item = (&'a Delegation, Option<String>)> + Clone, capturing: bool) {
@@ -311,6 +391,21 @@ impl PanelView {
         }
     }
 
+    fn toggle_ended(&mut self, fold_index: usize, cx: &mut Context<Self>) {
+        self.ended_open = !self.ended_open;
+        if self.ended_open {
+            self.list.scroll_to_top_of_item(fold_index);
+        }
+        cx.notify();
+    }
+
+    fn measured(&mut self, chat_h: f32, cx: &mut Context<Self>) {
+        if self.chat_h.is_none_or(|h| (h - chat_h).abs() > 0.5) {
+            self.chat_h = Some(chat_h);
+            crate::region::notify_after_draw(cx);
+        }
+    }
+
     fn clear(&mut self, cx: &mut Context<Self>) {
         self.panel.leave();
         cx.notify();
@@ -336,18 +431,33 @@ impl Render for PanelView {
         let summary = headline(&counts);
         let logos = logos(list.clone());
         let cap_w = capsule_width(logos.len(), &summary);
-        let full_h = if spread > 0. { full_height(list.clone(), |d| text_lines(&d.question, QUESTION_SIZE, QUESTION_W, window)) } else { 0. };
+        let g = groups(&self.entries);
+        let heights = if spread > 0. { g.heights(self.ended_open, |d| text_lines(&d.question, QUESTION_SIZE, QUESTION_W, window)) } else { Heights::default() };
+        let open_h = open_height(heights.full, self.chat_h);
         let scale = lerp(ENTER_SCALE, 1., appeared);
         let capsule = (capsule_opacity(spread) > 0.).then(|| capsule(list, &counts, logos, summary, spread < 0.5, cx).opacity(capsule_opacity(spread)));
-        let full = (list_opacity(spread) > 0.).then(|| full(&self.entries, counts.total, settled, spread >= 0.5, cx).opacity(list_opacity(spread)));
+        let layout = Layout { open_h, pinned_h: heights.pinned_in(open_h), ended_open: self.ended_open };
+        let full = (list_opacity(spread) > 0.).then(|| full(&g, layout, &self.list, counts.total, settled, spread >= 0.5, cx).opacity(list_opacity(spread)));
         let material = material(reduce_transparency, cfg!(target_os = "macos"));
-        div().absolute().top(px(TOP)).right(px(16.)).child(
+        let this = cx.weak_entity();
+        let measure = canvas(
+            move |b, _, cx| {
+                this.update(cx, |v, cx| v.measured(f32::from(b.size.height), cx)).ok();
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .size_full();
+        div().absolute().inset_0().child(measure).child(
             shell(material)
-                .relative()
+                .absolute()
+                .top(px(TOP))
+                .right(px(16.))
+                .occlude()
                 .overflow_hidden()
                 .opacity(appeared)
                 .w(px(lerp(cap_w, FULL_W, spread) * scale))
-                .h(px(lerp(CAPSULE_H, full_h, spread) * scale))
+                .h(px(lerp(CAPSULE_H, open_h, spread) * scale))
                 .rounded(px(lerp(CAPSULE_H / 2., 15., spread) * scale))
                 .when(self.panel.open, |d| d.on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| this.pressed_outside(cx))))
                 .children(capsule)
@@ -457,13 +567,63 @@ fn capsule<'a>(
     if live { capsule.cursor_pointer().on_click(cx.listener(|this, _, _, cx| this.set_open(true, cx))) } else { capsule }
 }
 
-fn full(entries: &[Entry], total: usize, settled: bool, live: bool, cx: &mut Context<PanelView>) -> Div {
+#[derive(Clone, Copy)]
+struct Layout {
+    open_h: f32,
+    pinned_h: f32,
+    ended_open: bool,
+}
+
+fn section(label: &'static str, n: usize, colour: Token) -> Div {
+    div()
+        .h(px(SECTION_H))
+        .flex_none()
+        .px(px(8.))
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .text_size(px(12.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(colour)
+        .child(label)
+        .child(div().font_weight(FontWeight::NORMAL).text_color(TEXT_4).child(n.to_string()))
+}
+
+fn fold(g: &Groups, open: bool, live: bool, cx: &mut Context<PanelView>) -> Stateful<Div> {
+    let (ended, ix) = (&g.ended, g.fold_index());
+    let failed = ended.iter().filter(|e| e.delegation.phase() == Phase::Failed).count();
+    let mark = if failed > 0 { Phase::Failed } else { Phase::Done };
+    let chevron = icon("chevron-right", 12., TEXT_4).when(open, |i| i.with_transformation(Transformation::rotate(radians(std::f32::consts::FRAC_PI_2))));
+    div()
+        .id("delegated-fold")
+        .h(px(FOLD_H))
+        .flex_none()
+        .px(px(8.))
+        .rounded(px(9.))
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .text_size(px(12.5))
+        .text_color(TEXT_2)
+        .child(glyph("delegated-fold", mark))
+        .when(failed < ended.len(), |d| d.child(format!("{} done", ended.len() - failed)))
+        .when(failed > 0 && failed < ended.len(), |d| d.child(div().text_color(FAILED_TEXT).child("\u{b7}")))
+        .when(failed > 0, |d| d.child(div().text_color(FAILED_TEXT).child(format!("{failed} failed"))))
+        .child(div().flex_1())
+        .child(chevron)
+        .when(live, |d| {
+            d.cursor_pointer().hover(|s| s.bg(FILL_2)).active(|s| s.bg(FILL_3)).on_click(cx.listener(move |this, _, _, cx| this.toggle_ended(ix, cx)))
+        })
+}
+
+fn full(g: &Groups, layout: Layout, list: &ScrollHandle, total: usize, settled: bool, live: bool, cx: &mut Context<PanelView>) -> Div {
     let now = now_ms();
     let button = |id: &'static str| {
         div().id(id).h(px(24.)).px(px(8.)).rounded(px(7.)).flex().items_center().text_size(px(12.)).text_color(TEXT_3).hover(|s| s.bg(FILL_3).text_color(TEXT))
     };
     let head = div()
         .h(px(HEAD_H))
+        .flex_none()
         .pl(px(14.))
         .pr(px(6.))
         .flex()
@@ -481,8 +641,39 @@ fn full(entries: &[Entry], total: usize, settled: bool, live: bool, cx: &mut Con
                 .when(live, |d| d.cursor_pointer().on_click(cx.listener(|this, _, _, cx| this.set_open(false, cx))))
                 .child(icon("chevron-up", 12., TEXT_3)),
         );
-    let rows = div().px(px(6.)).pb(px(6.)).flex().flex_col().children(entries.iter().map(|e| row(e, now, live, cx)));
-    div().absolute().top_0().right_0().w(px(FULL_W)).flex().flex_col().child(head).child(rows)
+    let mut rows = |list: &[&Entry]| list.iter().map(|e| row(e, now, live, cx)).collect::<Vec<_>>();
+    let pinned = (!g.asking.is_empty()).then(|| {
+        div()
+            .id("delegated-asking")
+            .flex_none()
+            .max_h(px(layout.pinned_h))
+            .overflow_y_scroll()
+            .px(px(6.))
+            .pb(px(PINNED_PAD))
+            .flex()
+            .flex_col()
+            .when(g.asking_head(), |d| d.child(section("Needs you", g.asking.len(), WAITING_TEXT)))
+            .children(rows(&g.asking))
+    });
+    let rule = g.rule().then(|| div().flex_none().h(px(0.5)).mx(px(14.)).mb(px(RULE_H - 0.5)).bg(SEPARATOR));
+    let running = rows(&g.running);
+    let ended = if g.folds && !layout.ended_open { Vec::new() } else { rows(&g.ended) };
+    let body = div()
+        .id("delegated-list")
+        .flex_1()
+        .min_h_0()
+        .overflow_y_scroll()
+        .track_scroll(list)
+        .px(px(6.))
+        .pb(px(6.))
+        .flex()
+        .flex_col()
+        .when(g.running_head(), |d| d.child(section("Working", g.running.len(), TEXT_3)))
+        .children(running)
+        .when(g.ended_head(), |d| d.child(section("Ended", g.ended.len(), TEXT_3)))
+        .when(g.folds && !g.ended.is_empty(), |d| d.child(fold(g, layout.ended_open, live, cx)))
+        .children(ended);
+    div().absolute().top_0().right_0().w(px(FULL_W)).h(px(layout.open_h)).flex().flex_col().child(head).children(pinned).children(rule).child(body)
 }
 
 fn row(entry: &Entry, now: i64, live: bool, cx: &mut Context<PanelView>) -> Stateful<Div> {
@@ -570,8 +761,8 @@ fn row(entry: &Entry, now: i64, live: bool, cx: &mut Context<PanelView>) -> Stat
 #[cfg(test)]
 mod tests {
     use super::{
-        Act, Counts, Delegation, HEAD_H, Material, Panel, QUESTION_LINE, ROW_H, Watch, capsule_opacity, clock, full_height, headline, list_opacity, material,
-        still,
+        Act, BOTTOM, CAPSULE_H, Counts, Delegation, Entry, FOLD_H, HEAD_H, Heights, Material, PINNED_PAD, Panel, QUESTION_LINE, ROW_H, RULE_H, SECTION_H, TOP,
+        Watch, capsule_opacity, clock, groups, headline, list_opacity, material, open_height, still,
     };
     use std::time::Instant;
 
@@ -614,26 +805,96 @@ mod tests {
         assert_eq!([clock(-5), clock(7_000), clock(125_000), clock(3_723_000)], ["0:00", "0:07", "2:05", "1:02:03"]);
     }
 
+    fn entry(id: &str, status: &str, question: &str, created_at: i64, settled_at: i64) -> Entry {
+        let delegation = Delegation { task_id: id.into(), status: status.into(), question: question.into(), created_at, settled_at, ..Default::default() };
+        Entry { delegation, down: None }
+    }
+
+    fn ids(list: &[&Entry]) -> Vec<String> {
+        list.iter().map(|e| e.delegation.task_id.clone()).collect()
+    }
+
+    fn height(entries: &[Entry], lines: usize) -> f32 {
+        groups(entries).heights(false, |_| lines).full
+    }
+
     #[test]
     fn the_open_panel_grows_by_a_row_for_each_session_and_the_laid_out_lines_of_a_question() {
-        let task = |q: &str| Delegation { status: "working".into(), question: q.into(), ..Default::default() };
-        let asking = |q: &str| Delegation { status: "working".into(), question: q.into(), ..Default::default() };
-        let lines = |n: usize| move |_: &Delegation| n;
-        assert_eq!(full_height([task("")].iter(), lines(5)), HEAD_H + ROW_H + 6.);
-        assert_eq!(full_height([asking("Which runner?")].iter(), lines(1)), HEAD_H + ROW_H + 6. + QUESTION_LINE + 6.);
-        assert_eq!(full_height([asking("Which runner?")].iter(), lines(2)), HEAD_H + ROW_H + 6. + 2. * QUESTION_LINE + 6.);
-        assert_eq!(
-            full_height([asking("Which runner?")].iter(), lines(9)),
-            HEAD_H + ROW_H + 6. + 2. * QUESTION_LINE + 6.,
-            "a question shows two lines at most"
-        );
+        let working = [entry("a", "working", "", 0, 0)];
+        let asking = [entry("a", "working", "Which runner?", 0, 0)];
+        let pinned = |lines: f32| HEAD_H + ROW_H + 6. + lines * QUESTION_LINE + PINNED_PAD + 6.;
+        assert_eq!(height(&working, 5), HEAD_H + ROW_H + 6.);
+        assert_eq!(height(&asking, 1), pinned(1.));
+        assert_eq!(height(&asking, 2), pinned(2.));
+        assert_eq!(height(&asking, 9), pinned(2.), "a question shows two lines at most");
     }
 
     #[test]
     fn only_a_session_waiting_on_an_answer_shows_its_question() {
-        let with = |status: &str| Delegation { status: status.into(), question: "Which runner?".into(), ..Default::default() };
-        assert_eq!(full_height([with("completed")].iter(), |_| 1), HEAD_H + ROW_H + 6., "a question left over from before it ended");
-        assert_eq!(full_height([with("working")].iter(), |_| 1), HEAD_H + ROW_H + 6. + QUESTION_LINE + 6.);
+        assert_eq!(height(&[entry("a", "completed", "Which runner?", 0, 1)], 1), HEAD_H + ROW_H + 6., "a question left over from before it ended");
+        assert_eq!(height(&[entry("a", "working", "Which runner?", 0, 0)], 1), HEAD_H + ROW_H + 6. + QUESTION_LINE + PINNED_PAD + 6.);
+    }
+
+    #[test]
+    fn questions_pin_on_top_running_sessions_go_oldest_first_and_ended_ones_latest_first() {
+        let entries = [
+            entry("late", "working", "", 30, 0),
+            entry("done-early", "completed", "", 1, 10),
+            entry("asks", "working", "Vitest or Jest?", 20, 0),
+            entry("early", "starting", "", 10, 0),
+            entry("failed-late", "failed", "", 2, 40),
+            entry("stopped", "cancelled", "", 3, 20),
+        ];
+        let g = groups(&entries);
+        assert_eq!(ids(&g.asking), ["asks"]);
+        assert_eq!(ids(&g.running), ["early", "late"]);
+        assert_eq!(ids(&g.ended), ["failed-late", "stopped", "done-early"]);
+    }
+
+    #[test]
+    fn ended_sessions_fold_into_one_row_only_past_six_sessions() {
+        let list = |n: usize| (0..n).map(|i| entry(&i.to_string(), if i == 0 { "working" } else { "completed" }, "", 0, 1)).collect::<Vec<_>>();
+        let six = list(6);
+        assert!(!groups(&six).folds);
+        assert_eq!(height(&six, 1), HEAD_H + 2. * SECTION_H + 6. * ROW_H + 6., "named Working and Ended, every row shown");
+        let seven = list(7);
+        assert!(groups(&seven).folds);
+        assert_eq!(groups(&seven).fold_index(), 2, "under Working and its one row");
+        assert_eq!(height(&seven, 1), HEAD_H + SECTION_H + ROW_H + FOLD_H + 6., "one row stands for the six that ended");
+        assert_eq!(groups(&seven).heights(true, |_| 1).full, HEAD_H + SECTION_H + 7. * ROW_H + FOLD_H + 6., "opened, they show under it");
+        let all_ended = (0..7).map(|i| entry(&i.to_string(), "completed", "", 0, 1)).collect::<Vec<_>>();
+        assert!(!groups(&all_ended).folds, "with nothing else to show, the ended ones show");
+    }
+
+    #[test]
+    fn a_section_is_named_only_beside_another_and_questions_are_named_once_there_are_two() {
+        let g = |e: &[Entry]| {
+            let g = groups(e);
+            [g.asking_head(), g.running_head(), g.ended_head(), g.rule()]
+        };
+        assert_eq!(g(&[entry("a", "working", "", 0, 0), entry("b", "working", "", 0, 0)]), [false; 4]);
+        assert_eq!(g(&[entry("a", "working", "Q?", 0, 0), entry("b", "working", "", 0, 0)]), [false, true, false, true]);
+        assert_eq!(g(&[entry("a", "working", "Q?", 0, 0), entry("b", "working", "Q?", 0, 0)]), [true, false, false, false]);
+        assert_eq!(g(&[entry("a", "working", "", 0, 0), entry("b", "completed", "", 0, 1)]), [false, true, true, false]);
+        let rule = groups(&[entry("a", "working", "Q?", 0, 0), entry("b", "completed", "", 0, 1)]).heights(false, |_| 1).full;
+        assert_eq!(rule, HEAD_H + ROW_H + 6. + QUESTION_LINE + PINNED_PAD + RULE_H + SECTION_H + ROW_H + 6.);
+    }
+
+    #[test]
+    fn the_open_panel_takes_all_it_needs_until_the_chat_runs_out_of_room_then_scrolls() {
+        assert_eq!(open_height(300., Some(800.)), 300.);
+        assert_eq!(open_height(1900., Some(800.)), 800. - TOP - BOTTOM);
+        assert_eq!(open_height(1900., None), 1900., "a chat not measured yet");
+        assert_eq!(open_height(1900., Some(20.)), CAPSULE_H, "never shorter than its capsule");
+    }
+
+    #[test]
+    fn questions_take_all_they_need_until_the_panel_is_short_of_room_then_half_of_it() {
+        let h = Heights { pinned: 212., full: 334. };
+        assert_eq!(h.pinned_in(334.), 212., "a panel with room for all of it");
+        assert_eq!(h.pinned_in(300.), 178., "the rest keeps what it needs while the questions give way");
+        assert_eq!(h.pinned_in(200.), 100., "past that, half the panel");
+        assert_eq!(Heights { pinned: 60., full: 900. }.pinned_in(400.), 60., "questions under half stay whole");
     }
 
     #[test]

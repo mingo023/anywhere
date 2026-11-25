@@ -86,6 +86,29 @@ pub(crate) fn tag(probe: Option<&Probe>, conversation: bool) -> Tag {
     }
 }
 
+/// The session whose conversation a pressed handoff waits for: its sheet opens once the timeline's newest page is here.
+#[derive(Default, Debug)]
+pub(crate) struct Awaiting(Option<String>);
+
+impl Awaiting {
+    pub fn press(&mut self, id: &str, loaded: bool) -> bool {
+        self.0 = (!loaded).then(|| id.to_string());
+        loaded
+    }
+
+    pub fn arrived(&mut self, id: &str) -> bool {
+        self.0.take_if(|waiting| waiting == id).is_some()
+    }
+
+    pub fn waiting(&self) -> bool {
+        self.0.is_some()
+    }
+
+    pub fn cancel(&mut self) {
+        self.0 = None;
+    }
+}
+
 /// The pick sheet's main button.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Primary {
@@ -302,6 +325,7 @@ pub(crate) struct HostRow {
 
 pub(crate) struct HandoffState {
     pub open: Option<Handoff>,
+    pub awaiting: Awaiting,
     pub summary: Entity<TextareaState>,
     hosts: Vec<HostRow>,
     names: HashMap<String, String>,
@@ -315,7 +339,7 @@ impl HandoffState {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let summary = cx.new(|cx| TextareaState::new(window, cx).placeholder("What were you doing, what's done, what's next?").auto_grow(7, 14));
         let subs = vec![cx.observe(&summary, |_, _, cx| cx.notify())];
-        Self { open: None, summary, hosts: Vec::new(), names: HashMap::new(), capturing: false, _subs: subs }
+        Self { open: None, awaiting: Awaiting::default(), summary, hosts: Vec::new(), names: HashMap::new(), capturing: false, _subs: subs }
     }
 
     pub fn show(&mut self, hosts: Vec<HostRow>, names: HashMap<String, String>, capturing: bool) {
@@ -421,7 +445,25 @@ impl Desktop {
         if self.handoff.read(cx).open.as_ref().is_some_and(|h| h.run.is_some() && (h.source.agent == id || h.stage == Stage::Moving)) {
             return self.open(Overlay::Handoff, window, cx);
         }
-        let Some(s) = self.agents.get(id).filter(|s| self.can_hand_off(s)) else { return };
+        if self.agents.get(id).is_none_or(|s| !self.can_hand_off(s)) {
+            return;
+        }
+        let loaded = self.agents.loaded.contains(id);
+        if !self.handoff.update(cx, |h, _| h.awaiting.press(id, loaded)) {
+            self.outbox.timeline(id);
+            return self.open(Overlay::Handoff, window, cx);
+        }
+        self.open_handoff_sheet(id, window, cx);
+    }
+
+    pub(crate) fn handoff_paged(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.handoff.update(cx, |h, _| h.awaiting.arrived(id)) {
+            self.open_handoff_sheet(id, window, cx);
+        }
+    }
+
+    fn open_handoff_sheet(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(s) = self.agents.get(id) else { return };
         let agent_name = self.agent_name(&s.provider);
         let repo = self.repos.get(&s.cwd);
         let projects = self.projects(cx);
@@ -446,13 +488,12 @@ impl Desktop {
             commits: repo.map_or(0, |r| r.unpushed.unwrap_or(r.ahead)),
             messages: timeline.iter().filter(|i| i.kind == "user" || i.kind == "assistant").count(),
         };
-        let recap = crate::activity::recap::recap(timeline);
         let known = handoff::summary::Known {
             title: &source.title,
             branch: &source.branch,
             files: source.files,
-            asked: Some(recap.asked.as_str()).filter(|a| !a.is_empty()),
-            replied: Some(recap.said.as_str()),
+            asked: Some(s.recap.asked.as_str()).filter(|a| !a.is_empty()),
+            replied: Some(s.recap.said.as_str()),
         };
         let draft = handoff::summary::draft(&known);
         self.handoff.update(cx, |h, cx| {
@@ -675,6 +716,7 @@ impl Desktop {
                 let Some(started) = started else { return };
                 let awaits = source.awaits_history(&caps);
                 let failure = format!("The conversation didn’t open on {}", self.host_name(&host));
+                self.outbox.timeline(&started);
                 self.wait_for(
                     generation,
                     START,
@@ -812,6 +854,7 @@ impl Desktop {
     /// The sheet going away: a handoff underway keeps going, out of sight; any other is over.
     pub(crate) fn handoff_closed(&mut self, cx: &mut Context<Self>) {
         let over = self.handoff.update(cx, |s, _| {
+            s.awaiting.cancel();
             let underway = s.open.as_ref().is_some_and(|h| h.stage == Stage::Moving && h.run.as_ref().is_some_and(|r| r.failed.is_none()));
             if underway { None } else { s.open.take() }
         });
@@ -863,9 +906,31 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{FORK_HISTORY_CAP, Handoff, Landed, Mark, Primary, Run, Source, Stage, Tag, mark, primary, shows_conversation, tag};
+    use super::{Awaiting, FORK_HISTORY_CAP, Handoff, Landed, Mark, Primary, Run, Source, Stage, Tag, mark, primary, shows_conversation, tag};
     use handoff::Step;
     use handoff::checks::{Probe, Problem};
+
+    #[test]
+    fn a_handoff_of_a_chat_not_loaded_waits_for_its_page_and_proceeds_when_it_comes() {
+        let mut awaiting = Awaiting::default();
+        assert!(!awaiting.press("a1", false));
+        assert!(awaiting.waiting(), "the sheet shows its spinner");
+        assert!(!awaiting.arrived("a2"), "another chat's page is not the one waited for");
+        assert!(awaiting.waiting());
+        assert!(awaiting.arrived("a1"));
+        assert!(!awaiting.waiting());
+        assert!(!awaiting.arrived("a1"), "it proceeds once");
+    }
+
+    #[test]
+    fn a_handoff_of_a_loaded_chat_proceeds_at_once_and_a_closed_sheet_stops_waiting() {
+        let mut awaiting = Awaiting::default();
+        assert!(awaiting.press("a1", true));
+        assert!(!awaiting.waiting());
+        awaiting.press("a1", false);
+        awaiting.cancel();
+        assert!(!awaiting.arrived("a1"));
+    }
 
     fn ready() -> Probe {
         Probe { project: Some("/home/dev/code/app".into()), problems: vec![] }

@@ -56,6 +56,9 @@ var serverGolden = map[string]any{
 	"agent_update_switching":       NewAgentUpdate(with(func(s *AgentSummary) { s.Account = "3f9a0c1b2d4e"; s.Switching = "builtin" })),
 	"agent_update_resets":          NewAgentUpdate(with(func(s *AgentSummary) { s.Resets, s.ProviderSessionID = 1, "s2" })),
 	"agent_update_chat_only":       NewAgentUpdate(with(func(s *AgentSummary) { s.ChatOnly = true })),
+	"agent_update_recap": NewAgentUpdate(with(func(s *AgentSummary) {
+		s.Status, s.Recap = "done", Recap{Asked: "fix it", Read: 2, Edited: 1, Said: "Fixed."}
+	})),
 	"agent_update_goal": NewAgentUpdate(with(func(s *AgentSummary) {
 		s.Status, s.Goal = "working", Goal{Objective: "tests pass", Status: "active", TokensUsed: 16510, TokenBudget: 50000}
 	})),
@@ -133,18 +136,20 @@ var serverGolden = map[string]any{
 	"queue_update": NewQueueUpdate("a1", nil),
 	"stream_delivery": NewAgentStream("a1", 1, Item{ID: "i9", Seq: 9, Ts: 18, Kind: "delivery", Delivery: &Delivery{
 		TaskIDs: []string{"task1"}, ChildIDs: []string{"a2"}, Titles: []string{"Write the tests"}, Agents: []string{"codex"}, Outcome: "done"}}),
-	"permission_resolved": NewPermissionResolved("r1", "allow"),
-	"ack":                 NewAck("p1"),
-	"error":               NewError("p1", "Unknown agent: zz"),
-	"agent_creating":      NewAgentCreating("c1", "r1", "t1", "/w/fix", true),
-	"agent_created":       NewAgentCreated("c1", "r1", "a1", "t1"),
-	"agent_progress":      NewAgentProgress("c1", "r1", StepFetch, "Couldn't fetch, using local main"),
-	"agent_providers":     NewAgentProviders("p1", providerInfos(), "full", "ask", "edits"),
-	"error_detail":        NewCodedError("create-r1", "spawn_failed", "Setup exited 1", "npm ERR! missing script: setup"),
-	"hello_ok_host":       helloOKHost(),
-	"host_changed":        NewHostChanged(HostState{Tailnet: true, KeepingAwake: true, Terminals: true}),
-	"error_coded":         NewErrorCode("h1", "client_too_old", "Update Pocket on this phone"),
-	"pair_ok":             NewPairOK("p1", "3fa9c1d2e5f60718293a4b5c6d7e8f90", "dG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9"),
+	"permission_resolved":   NewPermissionResolved("r1", "allow"),
+	"ack":                   NewAck("p1"),
+	"agent_delivery":        NewAgentDelivery("prompt-k3x9-1", "a1", DeliveryStarted, ""),
+	"agent_delivery_failed": NewAgentDelivery("prompt-k3x9-2", "a1", DeliveryFailed, "This session is still resuming"),
+	"error":                 NewError("p1", "Unknown agent: zz"),
+	"agent_creating":        NewAgentCreating("c1", "r1", "t1", "/w/fix", true),
+	"agent_created":         NewAgentCreated("c1", "r1", "a1", "t1"),
+	"agent_progress":        NewAgentProgress("c1", "r1", StepFetch, "Couldn't fetch, using local main"),
+	"agent_providers":       NewAgentProviders("p1", providerInfos(), "full", "ask", "edits"),
+	"error_detail":          NewCodedError("create-r1", "spawn_failed", "Setup exited 1", "npm ERR! missing script: setup"),
+	"hello_ok_host":         helloOKHost(),
+	"host_changed":          NewHostChanged(HostState{Tailnet: true, KeepingAwake: true, Terminals: true}),
+	"error_coded":           NewErrorCode("h1", "client_too_old", "Update Pocket on this phone"),
+	"pair_ok":               NewPairOK("p1", "3fa9c1d2e5f60718293a4b5c6d7e8f90", "dG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9"),
 	"hello_ok_scopes": func() HelloOK {
 		h := NewHelloOK("h1", "mac", 3, []string{"pair.v1", "scopes.v1"})
 		h.Scopes = []string{"observe", "drive", "approve", "spawn", "owner"}

@@ -297,9 +297,42 @@ func TestAnAccountWhoseTokenExpiredSaysSoUntilItIsRenewed(t *testing.T) {
 	}
 }
 
-func TestOnlyClaudeAndCodexHaveAccounts(t *testing.T) {
-	if !reflect.DeepEqual(Providers, []string{"claude", "codex"}) {
+func TestClaudeCodexAndAntigravityAreListedButOnlyClaudeAndCodexKeepMoreAccounts(t *testing.T) {
+	if !reflect.DeepEqual(Providers, []string{"claude", "codex", "antigravity"}) {
 		t.Fatal(Providers)
+	}
+	for _, p := range Providers {
+		if Managed(p) != (p != "antigravity") {
+			t.Errorf("%s: managed %v", p, Managed(p))
+		}
+	}
+}
+
+func TestAntigravityRunsOnItsBuiltInLoginOnly(t *testing.T) {
+	s := store(t)
+	s.Agy = func() (string, []string, bool) { return "/bin/agy", nil, true }
+	s.runAgy = func(context.Context, string, []string, string, ...string) (agyRun, error) { return agyRun{}, nil }
+	if env := s.Env("antigravity", BuiltIn); env != nil {
+		t.Errorf("env %v", env)
+	}
+	if got := s.Of("antigravity", []string{"CLAUDE_CONFIG_DIR=" + filepath.Join(s.Root, "antigravity", "abc123")}); got != "" {
+		t.Errorf("runs on account %q", got)
+	}
+	if id, err := s.Resolve("antigravity", ""); err != nil || id != BuiltIn {
+		t.Errorf("resolves to %q, %v", id, err)
+	}
+	if _, err := s.Add("antigravity"); err == nil {
+		t.Error("took a new account")
+	}
+	refresh(s)
+	var rows []Account
+	for _, a := range s.List(none) {
+		if a.Provider == "antigravity" {
+			rows = append(rows, a)
+		}
+	}
+	if len(rows) != 1 || rows[0].ID != BuiltIn || !rows[0].Default {
+		t.Fatalf("%+v", rows)
 	}
 }
 

@@ -92,6 +92,7 @@ type Agent struct {
 	options         map[string]string
 	phase           string // idle, working or needsYou
 	unseenEnd       bool
+	recap           proto.Recap
 	failed          bool
 	lastError       string // first line of this turn's result error
 	compacting      bool
@@ -252,6 +253,7 @@ func (r *Registry) Restore(x Restored, d Driver) *Agent {
 		if len(items) > 0 {
 			a.Timeline.Load(items)
 			a.Timeline.Adopt(x.Background)
+			a.recap = a.Timeline.Recap()
 		}
 		a.stored = whole
 	}
@@ -377,7 +379,7 @@ func (a *Agent) summary() proto.AgentSummary {
 		Epoch: epoch, MaxSeq: maxSeq, Resets: a.Timeline.Resets(), ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
 		Project: a.project, ProjectID: a.projectID, Tree: a.tree, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
 		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity, ChatOnly: a.chatOnly, Goal: a.goal,
-		Options: maps.Clone(a.options), Parent: a.parent, Relationship: a.relationship, CreatedBy: a.createdBy, Delegation: a.delegation,
+		Options: maps.Clone(a.options), Parent: a.parent, Relationship: a.relationship, CreatedBy: a.createdBy, Delegation: a.delegation, Recap: a.recap,
 	}
 }
 
@@ -489,6 +491,7 @@ func (a *Agent) turnEnded(failed bool) {
 	if a.phase != "idle" {
 		a.enter("idle")
 		a.unseenEnd, a.failed = !a.seen, failed
+		a.recap = a.Timeline.Recap()
 		a.endCompactFromIdle()
 	}
 }
@@ -501,6 +504,7 @@ func (a *Agent) Clear() {
 		if a.phase != "idle" {
 			a.enter("idle")
 			a.unseenEnd = false
+			a.recap = a.Timeline.Recap()
 			a.endCompactFromIdle()
 		}
 	})
@@ -653,6 +657,7 @@ func (a *Agent) SetConversation(id string) {
 	a.update(false, func() {
 		if a.conversation != "" && a.conversation != id {
 			a.Timeline.Clear()
+			a.recap = proto.Recap{}
 			a.title, a.titled = "", false
 			a.named = ""
 			a.naming = false
@@ -666,7 +671,10 @@ func (a *Agent) SetConversation(id string) {
 
 // ClearTimeline starts the timeline over in the same conversation and tells clients.
 func (a *Agent) ClearTimeline() {
-	a.update(false, a.Timeline.Clear)
+	a.update(false, func() {
+		a.Timeline.Clear()
+		a.recap = proto.Recap{}
+	})
 }
 
 // SetTitle takes the provider's title; it outranks the one taken from the first prompt.
@@ -786,7 +794,7 @@ func firstLine(text string) string {
 // Record adds one provider event to the timeline and tells every phone. It leaves the status alone.
 func (a *Agent) Record(e timeline.Event) {
 	sub := e.ParentToolUseID != ""
-	if e.Kind == "user" && !sub {
+	if e.Kind == "user" && !sub && !e.Steer {
 		a.Timeline.StartEpoch()
 		a.update(false, func() {
 			if a.title == "" {

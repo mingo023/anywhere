@@ -5,14 +5,18 @@ use futures::StreamExt;
 use gpui_kit::*;
 use std::collections::HashMap;
 
-#[derive(Default)]
 pub(crate) struct HostAgents {
     channels: HashMap<String, Task<()>>,
     /// Each host's home, from its `status`: its worktrees go under it.
     homes: HashMap<String, String>,
+    links: Option<agents::LinkLog>,
 }
 
 impl HostAgents {
+    pub(crate) fn new(links: Option<agents::LinkLog>) -> Self {
+        HostAgents { channels: HashMap::new(), homes: HashMap::new(), links }
+    }
+
     /// The home on the machine holding `key`; `~` for a host not yet heard from.
     pub(crate) fn home_of(&self, key: &str) -> String {
         match hosts::split(key) {
@@ -31,7 +35,7 @@ impl Desktop {
         if self.outbox.has(id) {
             return;
         }
-        let (outbox, mut rx) = agents::connect_with(&endpoint.path, endpoint.token.clone());
+        let (outbox, mut rx) = agents::connect_with(&endpoint.path, endpoint.token.clone(), agents::Peer::Host, self.host_agents.links.clone());
         self.outbox.add(id, outbox);
         let host = id.to_string();
         let task = cx.spawn_in(window, async move |this, cx| {

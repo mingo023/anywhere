@@ -1,49 +1,68 @@
-use crate::caps::CAPS;
+use crate::caps::{CAPS, DELIVERY_CAP};
 use crate::event::{Frame, automation_event, board_event, delegation_event, host_event, launch_event, names_event, registry_event};
 use crate::ids::PAIR;
+use crate::linklog::LinkLog;
+use crate::resend::{Resend, is_prompt};
+use crate::timelines::Timelines;
 use crate::{Event, Outbox, hosts, queue};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use serde_json::{Value, json};
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::io::ErrorKind;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::sync::mpsc::{Receiver, channel};
-use std::time::Duration;
+use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
+use std::time::{Duration, Instant};
 use tungstenite::Message;
 #[cfg(windows)]
 use uds_windows::UnixStream;
 
-/// Why a prompt or stop the socket never took failed.
+/// Why a stop or queue change the socket never took failed.
 const UNSENT: &str = "Lost the connection to pocketd";
-/// How long a pocketd may take to answer the websocket handshake, and to take each write after it, before the link counts as lost.
+/// How long a pocketd may take to answer the websocket handshake, and to take each write after it, before a host's link counts as lost.
 const STALL: Duration = Duration::from_secs(5);
-const PAGE: usize = 500;
+const RETRY: Duration = Duration::from_secs(2);
+
+/// What lies behind the socket, which decides whether a quiet pocketd counts as a lost link.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Peer {
+    /// This Mac's pocketd. A busy Mac makes it slow, not gone, and a pocketd that died closes the socket, so no timer applies.
+    ThisMac,
+    /// A host's pocketd behind an SSH forward, which can go quiet with the socket still open: a handshake or write that takes over `STALL` loses the link.
+    Host,
+}
+
+impl Peer {
+    fn stall(self) -> Option<Duration> {
+        match self {
+            Peer::ThisMac => None,
+            Peer::Host => Some(STALL),
+        }
+    }
+}
 
 /// Follows pocketd's phone protocol over its unix socket, where pocketd tells
-/// the owner from a process inside a Terminal: the agent list and every agent's timeline.
+/// the owner from a process inside a Terminal: the agent list, and the timelines the app asks for.
 pub fn connect(sock: &Path) -> (Outbox, UnboundedReceiver<Event>) {
-    connect_with(sock, None)
+    connect_with(sock, None, Peer::ThisMac, None)
 }
 
 /// `connect` to a socket behind which pocketd wants an owner token: a Windows host's forwarded TCP port.
-pub fn connect_with(sock: &Path, token: Option<String>) -> (Outbox, UnboundedReceiver<Event>) {
+pub fn connect_with(sock: &Path, token: Option<String>, peer: Peer, log: Option<LinkLog>) -> (Outbox, UnboundedReceiver<Event>) {
     let (tx, rx) = unbounded();
     let (out, queue) = channel();
     let sock = sock.to_path_buf();
     std::thread::spawn(move || {
-        let mut unanswered = Vec::new();
-        let mut requests = Requests::default();
+        let name = sock.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        let mut carry = Carry::new(name, log);
         loop {
-            let _ = run(&sock, token.as_deref(), &tx, &queue, &mut unanswered, &mut requests, STALL);
-            for ev in requests.refuse_all(UNSENT) {
-                let _ = tx.unbounded_send(ev);
-            }
+            let _ = run(&sock, token.as_deref(), &tx, &queue, &mut carry, peer.stall());
+            carry.dropped(&tx);
             if tx.is_closed() {
                 return;
             }
-            std::thread::sleep(std::time::Duration::from_secs(2));
+            carry.wait_out(&queue, &tx, RETRY);
         }
     });
     (Outbox(out), rx)
@@ -57,40 +76,114 @@ fn hello(token: Option<&str>) -> Value {
     hello
 }
 
-fn run(
-    sock: &Path,
-    token: Option<&str>,
-    tx: &UnboundedSender<Event>,
-    queue: &Receiver<Value>,
-    unanswered: &mut Vec<Value>,
-    requests: &mut Requests,
-    stall: Duration,
-) -> Option<()> {
+/// What the link thread keeps from one connection to the next.
+struct Carry {
+    unanswered: Vec<Value>,
+    requests: Requests,
+    resend: Resend,
+    timelines: Timelines,
+    held: VecDeque<Value>,
+    /// Whether `hello.ok` has come on the connection that dropped last, so a drop is logged once, not once per retry.
+    up: bool,
+    name: String,
+    log: Option<LinkLog>,
+}
+
+impl Carry {
+    fn new(name: String, log: Option<LinkLog>) -> Self {
+        Carry {
+            unanswered: Vec::new(),
+            requests: Requests::default(),
+            resend: Resend::new(Instant::now()),
+            timelines: Timelines::default(),
+            held: VecDeque::new(),
+            up: false,
+            name,
+            log,
+        }
+    }
+
+    fn note(&self, text: &str) {
+        if let Some(log) = &self.log {
+            log.line(&format!("{}: {text}", self.name));
+        }
+    }
+
+    fn report(&mut self, tx: &UnboundedSender<Event>, events: Vec<Event>) -> Option<()> {
+        for line in self.resend.notes() {
+            self.note(&line);
+        }
+        events.into_iter().try_for_each(|ev| tx.unbounded_send(ev).ok())
+    }
+
+    fn dropped(&mut self, tx: &UnboundedSender<Event>) {
+        if std::mem::take(&mut self.up) {
+            self.note("link down");
+        }
+        let mut events = self.resend.lost(Instant::now());
+        events.extend(self.requests.refuse_all(UNSENT));
+        let _ = self.report(tx, events);
+    }
+
+    fn wait_out(&mut self, queue: &Receiver<Value>, tx: &UnboundedSender<Event>, span: Duration) {
+        let until = Instant::now() + span;
+        loop {
+            let left = until.saturating_duration_since(Instant::now());
+            match queue.recv_timeout(left) {
+                Ok(m) => {
+                    let events = if is_prompt(&m) { self.resend.hold(m.clone(), Instant::now()) } else { Vec::new() };
+                    self.held.push_back(m);
+                    let _ = self.report(tx, events);
+                }
+                Err(RecvTimeoutError::Timeout) => break,
+                Err(RecvTimeoutError::Disconnected) => {
+                    std::thread::sleep(left);
+                    break;
+                }
+            }
+        }
+        let events = self.resend.expire(Instant::now());
+        let _ = self.report(tx, events);
+    }
+}
+
+fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, carry: &mut Carry, stall: Option<Duration>) -> Option<()> {
     let stream = UnixStream::connect(sock).ok()?;
-    stream.set_read_timeout(Some(stall)).ok()?;
-    stream.set_write_timeout(Some(stall)).ok()?;
+    stream.set_read_timeout(stall).ok()?;
+    stream.set_write_timeout(stall).ok()?;
     let (mut ws, _) = tungstenite::client("ws://localhost/", stream).ok()?;
     // Reads time out so the loop gets to send the queue even while pocketd is quiet; the timeout is as long as a
     // send can wait, so it stays short.
     ws.get_ref().set_read_timeout(Some(Duration::from_millis(10))).ok()?;
     ws.send(Message::text(hello(token).to_string())).ok()?;
-    for m in unanswered.iter() {
+    for m in carry.unanswered.iter() {
         ws.send(Message::text(m.to_string())).ok()?;
     }
-    let mut known: Vec<String> = Vec::new();
-    let mut asked_before: HashMap<String, i64> = HashMap::new();
+    for m in carry.timelines.again() {
+        ws.send(Message::text(m.to_string())).ok()?;
+    }
+    // Prompts the drop left in doubt go first, once `hello.ok` says whether resending them is safe.
+    let mut ready = !carry.resend.waiting();
     loop {
-        for m in queue.try_iter() {
+        let expired = carry.resend.expire(Instant::now());
+        carry.report(tx, expired)?;
+        let resend = &carry.resend;
+        carry.held.retain(|m| !is_prompt(m) || resend.holds(m));
+        while ready && let Some(m) = carry.held.pop_front().or_else(|| queue.try_recv().ok()) {
+            let Some(m) = carry.timelines.ask(m) else { continue };
             if m["type"] == "agent.create" {
-                unanswered.push(m.clone());
+                carry.unanswered.push(m.clone());
+            }
+            if is_prompt(&m) {
+                carry.resend.sent(&m);
             }
             if ws.send(Message::text(m.to_string())).is_err() {
-                if let Some(ev) = refused(&m, UNSENT) {
+                if let Some(ev) = refused(&m, UNSENT).filter(|_| !is_prompt(&m)) {
                     let _ = tx.unbounded_send(ev);
                 }
                 return None;
             }
-            requests.sent(&m);
+            carry.requests.sent(&m);
         }
         let raw = match ws.read() {
             Ok(Message::Text(raw)) => raw,
@@ -98,12 +191,24 @@ fn run(
             Err(tungstenite::Error::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => continue,
             Err(_) => return None,
         };
-        let Ok(f) = serde_json::from_str::<Frame>(&raw) else { continue };
-        if !matches!(f.kind.as_str(), "agent.creating" | "agent.progress") {
-            unanswered.retain(|m| m["id"] != f.id.as_str());
+        let Ok(mut f) = serde_json::from_str::<Frame>(&raw) else { continue };
+        match f.kind.as_str() {
+            "agent.timeline" => {
+                if let Some(ev) = carry.timelines.reply(&mut f) {
+                    carry.report(tx, vec![ev])?;
+                }
+                continue;
+            }
+            "error" => carry.timelines.refused(&f.id),
+            _ => {}
         }
-        if let Some(ev) = requests
+        if !matches!(f.kind.as_str(), "agent.creating" | "agent.progress") {
+            carry.unanswered.retain(|m| m["id"] != f.id.as_str());
+        }
+        if let Some(ev) = carry
+            .resend
             .answer(&f)
+            .or_else(|| carry.requests.answer(&f))
             .or_else(|| launch_event(&f))
             .or_else(|| names_event(&f))
             .or_else(|| automation_event(&f))
@@ -114,35 +219,40 @@ fn run(
             .or_else(|| delegation_event(&f.kind, &raw))
             .or_else(|| queue::decode(&f.kind, &raw).map(|(agent, entries)| Event::Queue { agent, entries }))
         {
-            tx.unbounded_send(ev).ok()?;
+            carry.report(tx, vec![ev])?;
             continue;
         }
-        let mut fresh: Vec<String> = Vec::new();
+        let mut asks: Vec<Value> = Vec::new();
         let ev = match f.kind.as_str() {
             "hello.ok" => {
                 let host = host_event(&f);
+                let receipts = f.caps.iter().any(|cap| cap == DELIVERY_CAP);
                 tx.unbounded_send(Event::Connected { scopes: f.scopes, caps: f.caps, version: f.version }).ok()?;
+                let (again, events) = carry.resend.linked(receipts, Instant::now());
+                for m in &again {
+                    ws.send(Message::text(m.to_string())).ok()?;
+                }
+                carry.up = true;
+                carry.note("link up");
+                carry.report(tx, events)?;
+                ready = true;
                 let Some(ev) = host else { continue };
                 ev
             }
             "agent.list" => {
-                fresh.extend(f.agents.iter().map(|a| a.id.clone()));
+                asks.extend(f.agents.iter().filter_map(|a| carry.timelines.seen(a)));
                 Event::Agents(f.agents)
             }
             "agent.update" => {
                 let Some(a) = f.agent else { continue };
-                fresh.push(a.id.clone());
+                asks.extend(carry.timelines.seen(&a));
                 Event::Agent(Box::new(a))
             }
-            "agent.stream" => Event::Items(f.agent_id, f.item.into_iter().collect()),
-            "agent.timeline" => {
-                let asked = asked_before.remove(&f.agent_id);
-                if let Some((before, req)) = older_request(&f, asked) {
-                    ws.send(Message::text(req.to_string())).ok()?;
-                    asked_before.insert(f.agent_id.clone(), before);
+            "agent.stream" => {
+                if let Some(item) = &f.item {
+                    carry.timelines.streamed(&f.agent_id, item);
                 }
-                // An older page only adds: the held items it doesn't cover are newer, not stale.
-                if asked.is_some() { Event::Items(f.agent_id, f.items) } else { Event::Page { agent: f.agent_id, items: f.items, max_seq: f.max_seq } }
+                Event::Items(f.agent_id, f.item.into_iter().collect())
             }
             "permission.request" => {
                 let Some(r) = f.request else { continue };
@@ -158,36 +268,25 @@ fn run(
             },
         };
         tx.unbounded_send(ev).ok()?;
-        for id in fresh {
-            if known.contains(&id) {
-                continue;
-            }
-            let req = json!({"type": "agent.timeline", "id": format!("t-{id}"), "agentId": id, "limit": PAGE});
-            ws.send(Message::text(req.to_string())).ok()?;
-            known.push(id);
+        for m in asks {
+            ws.send(Message::text(m.to_string())).ok()?;
         }
     }
 }
 
-/// `asked` is the `beforeSeq` page `f` answers: a pocketd that ignored it sends nothing older, so it isn't asked again.
-fn older_request(f: &Frame, asked: Option<i64>) -> Option<(i64, Value)> {
-    let oldest = f.items.iter().map(|x| x.seq).min()?;
-    (f.has_older && asked.is_none_or(|b| oldest < b))
-        .then(|| (oldest, json!({"type": "agent.timeline", "id": format!("o-{}", f.agent_id), "agentId": f.agent_id, "beforeSeq": oldest, "limit": PAGE})))
-}
-
-/// Prompts, stops and queue changes written to pocketd and not yet answered, so a refusal names the one it refused.
+/// Stops and queue changes written to pocketd and not yet answered, so a refusal names the one it refused. Prompts
+/// are `Resend`'s.
 #[derive(Default)]
 struct Requests(VecDeque<Value>);
 
 impl Requests {
     fn sent(&mut self, m: &Value) {
-        if matches!(m["type"].as_str(), Some("agent.prompt" | "agent.interrupt" | "queue.edit" | "queue.cancel" | "queue.reorder" | "queue.send_now")) {
+        if matches!(m["type"].as_str(), Some("agent.interrupt" | "queue.edit" | "queue.cancel" | "queue.reorder" | "queue.send_now")) {
             self.0.push_back(m.clone());
         }
     }
 
-    /// Drops the request `f` answers; a refusal becomes `PromptFailed` or `InterruptFailed`.
+    /// Drops the request `f` answers; a refusal becomes `InterruptFailed` or `QueueFailed`.
     fn answer(&mut self, f: &Frame) -> Option<Event> {
         if !matches!(f.kind.as_str(), "ack" | "error") {
             return None;
@@ -203,14 +302,14 @@ impl Requests {
 }
 
 /// The event for a prompt, stop or queue change `m` that failed for `reason`; none for other messages.
-fn refused(m: &Value, reason: &str) -> Option<Event> {
+pub(super) fn refused(m: &Value, reason: &str) -> Option<Event> {
     let field = |key: &str| m[key].as_str().unwrap_or_default().to_string();
     let queue_failed = |text: Option<String>| Some(Event::QueueFailed { agent: field("agentId"), reason: reason.into(), text });
     match m["type"].as_str()? {
         "agent.prompt" if m["queue"] == true => queue_failed(Some(field("text"))),
         "queue.edit" => queue_failed(Some(field("text"))),
         "queue.cancel" | "queue.reorder" | "queue.send_now" => queue_failed(None),
-        "agent.prompt" => Some(Event::PromptFailed { agent: field("agentId"), request: field("id") }),
+        "agent.prompt" => Some(Event::PromptFailed { agent: field("agentId"), request: field("id"), reason: reason.into() }),
         "agent.interrupt" => Some(Event::InterruptFailed { agent: field("agentId"), reason: reason.into() }),
         _ => None,
     }
@@ -222,6 +321,8 @@ mod tests {
     use crate::Agents;
     use crate::Host;
     use crate::Local;
+    use crate::PromptState;
+    use crate::resend::DOWN_LIMIT;
     #[cfg(unix)]
     use std::os::unix::net::UnixListener;
     use std::path::PathBuf;
@@ -230,9 +331,14 @@ mod tests {
 
     type Ws = tungstenite::WebSocket<UnixStream>;
 
-    fn pocketd(name: &str) -> (UnixListener, PathBuf) {
+    fn sock_path(name: &str) -> PathBuf {
         let sock = PathBuf::from("/tmp").join(format!("pa-{name}-{}.sock", std::process::id()));
         let _ = std::fs::remove_file(&sock);
+        sock
+    }
+
+    fn pocketd(name: &str) -> (UnixListener, PathBuf) {
+        let sock = sock_path(name);
         (UnixListener::bind(&sock).unwrap(), sock)
     }
 
@@ -250,6 +356,16 @@ mod tests {
         serde_json::from_value(raw).unwrap()
     }
 
+    fn welcome(ws: &mut Ws, receipts: bool) {
+        assert_eq!(read(ws)["type"], "hello");
+        let caps: &[&str] = if receipts { &["delivery.v1"] } else { &[] };
+        ws.send(Message::text(json!({"type": "hello.ok", "caps": caps}).to_string())).unwrap();
+    }
+
+    fn next_matching<T>(events: &mut impl Iterator<Item = Event>, pick: impl Fn(Event) -> Option<T>) -> T {
+        events.find_map(pick).unwrap()
+    }
+
     #[test]
     fn the_hello_carries_an_owner_token_only_when_there_is_one() {
         assert!(hello(None).get("ownerToken").is_none());
@@ -262,7 +378,7 @@ mod tests {
         let (tx, _events) = unbounded();
         let (_out, queue) = channel();
         let (done_tx, done) = std::sync::mpsc::channel();
-        std::thread::spawn(move || done_tx.send(run(&sock, None, &tx, &queue, &mut Vec::new(), &mut Requests::default(), Duration::from_millis(200))));
+        std::thread::spawn(move || done_tx.send(run(&sock, None, &tx, &queue, &mut Carry::new(String::new(), None), Some(Duration::from_millis(200)))));
         assert_eq!(done.recv_timeout(Duration::from_secs(2)), Ok(None));
     }
 
@@ -274,7 +390,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "board.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1", "orchestrator.v1", "hosts.v1", "registry.v2", "workspace.v1", "worktrees.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "board.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1", "orchestrator.v1", "hosts.v1", "registry.v2", "workspace.v1", "worktrees.v1", "delivery.v1"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
@@ -283,29 +399,73 @@ mod tests {
         std::fs::remove_file(&sock).unwrap();
     }
 
-    fn page(seqs: std::ops::RangeInclusive<i64>, older: bool) -> Message {
+    fn page(id: &str, seqs: std::ops::RangeInclusive<i64>, older: bool) -> Message {
         let items: Vec<Value> = seqs.map(|s| json!({"id": format!("i{s}"), "seq": s, "kind": "assistant"})).collect();
-        Message::text(json!({"type": "agent.timeline", "agentId": "a1", "hasOlder": older, "maxSeq": 6, "items": items}).to_string())
+        Message::text(json!({"type": "agent.timeline", "id": id, "agentId": "a1", "hasOlder": older, "maxSeq": 6, "items": items}).to_string())
+    }
+
+    fn next_after_seen(out: &Outbox, ws: &mut Ws) -> Value {
+        out.seen(&[]);
+        read(ws)
+    }
+
+    fn listed(ws: &mut Ws) {
+        ws.send(Message::text(json!({"type": "agent.list", "agents": [{"id": "a1"}, {"id": "a2"}]}).to_string())).unwrap();
     }
 
     #[test]
-    fn a_chat_longer_than_a_page_is_paged_back_to_its_first_item() {
-        let (server, sock) = pocketd("older");
-        let (_out, events) = connect(&sock);
+    fn connecting_asks_no_timeline() {
+        let (server, sock) = pocketd("no-timeline");
+        let (out, _events) = connect(&sock);
         let mut ws = accept(&server);
         read(&mut ws);
-        ws.send(Message::text(json!({"type": "agent.list", "agents": [{"id": "a1"}]}).to_string())).unwrap();
-        assert_eq!(read(&mut ws)["limit"], 500);
-        ws.send(page(5..=6, true)).unwrap();
-        assert_eq!(read(&mut ws), json!({"type": "agent.timeline", "id": "o-a1", "agentId": "a1", "beforeSeq": 5, "limit": 500}));
-        ws.send(page(3..=4, true)).unwrap();
-        assert_eq!(read(&mut ws)["beforeSeq"], 3);
-        ws.send(page(1..=2, false)).unwrap();
+        listed(&mut ws);
+        ws.send(Message::text(json!({"type": "agent.update", "agent": {"id": "a3"}}).to_string())).unwrap();
+        assert_eq!(next_after_seen(&out, &mut ws)["type"], "agent.seen");
+        std::fs::remove_file(&sock).unwrap();
+    }
 
-        let mut a = Agents::default();
-        for ev in futures::executor::block_on_stream(events).take(4) {
-            a.apply(ev);
-        }
+    #[test]
+    fn opening_a_chat_asks_its_newest_page_once() {
+        let (server, sock) = pocketd("newest");
+        let (out, _events) = connect(&sock);
+        let mut ws = accept(&server);
+        read(&mut ws);
+        out.timeline("a1");
+        out.timeline("a1");
+        assert_eq!(read(&mut ws), json!({"type": "agent.timeline", "id": "t-a1", "agentId": "a1", "limit": 500}));
+        ws.send(page("t-a1", 5..=6, true)).unwrap();
+        out.timeline("a1");
+        assert_eq!(next_after_seen(&out, &mut ws)["type"], "agent.seen");
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn scrolling_to_the_top_asks_for_an_older_page_only_where_pocketd_said_there_is_one() {
+        let (server, sock) = pocketd("older");
+        let (out, events) = connect(&sock);
+        let (mut events, mut a) = (futures::executor::block_on_stream(events), Agents::default());
+        let mut ws = accept(&server);
+        read(&mut ws);
+        out.older("a1");
+        assert_eq!(next_after_seen(&out, &mut ws)["type"], "agent.seen", "nothing is loaded to be above");
+        out.timeline("a1");
+        read(&mut ws);
+        ws.send(page("t-a1", 5..=6, true)).unwrap();
+        a.apply(events.next().unwrap());
+        out.older("a1");
+        assert_eq!(read(&mut ws), json!({"type": "agent.timeline", "id": "o-a1", "agentId": "a1", "limit": 500, "beforeSeq": 5}));
+        out.older("a1");
+        assert_eq!(next_after_seen(&out, &mut ws)["type"], "agent.seen", "one was on its way");
+        ws.send(page("o-a1", 3..=4, true)).unwrap();
+        a.apply(events.next().unwrap());
+        out.older("a1");
+        assert_eq!(read(&mut ws)["beforeSeq"], 3);
+        ws.send(page("o-a1", 1..=2, false)).unwrap();
+        a.apply(events.next().unwrap());
+        out.older("a1");
+        assert_eq!(next_after_seen(&out, &mut ws)["type"], "agent.seen", "pocketd said that was the first");
+
         assert_eq!(a.timelines["a1"].iter().map(|i| i.seq).collect::<Vec<_>>(), [1, 2, 3, 4, 5, 6]);
         std::fs::remove_file(&sock).unwrap();
     }
@@ -313,16 +473,60 @@ mod tests {
     #[test]
     fn a_pocketd_that_ignores_before_seq_is_not_asked_again() {
         let (server, sock) = pocketd("ignores");
-        let (_out, _events) = connect(&sock);
+        let (out, events) = connect(&sock);
+        let mut events = futures::executor::block_on_stream(events);
         let mut ws = accept(&server);
         read(&mut ws);
-        ws.send(Message::text(json!({"type": "agent.list", "agents": [{"id": "a1"}]}).to_string())).unwrap();
+        out.timeline("a1");
         read(&mut ws);
-        ws.send(page(5..=6, true)).unwrap();
+        ws.send(page("t-a1", 5..=6, true)).unwrap();
+        events.next();
+        out.older("a1");
         assert_eq!(read(&mut ws)["beforeSeq"], 5);
-        ws.send(page(5..=6, true)).unwrap();
-        ws.get_ref().set_read_timeout(Some(Duration::from_millis(500))).unwrap();
-        assert!(ws.read().is_err(), "asked for the same page again");
+        ws.send(page("o-a1", 5..=6, true)).unwrap();
+        events.next();
+        out.older("a1");
+        assert_eq!(next_after_seen(&out, &mut ws)["type"], "agent.seen", "asked for the same page again");
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn a_reconnect_asks_only_what_is_newer_for_the_timelines_loaded_and_merges_it() {
+        let (server, sock) = pocketd("since");
+        let (out, events) = connect(&sock);
+        let (mut events, mut a) = (futures::executor::block_on_stream(events), Agents::default());
+        let mut ws = accept(&server);
+        read(&mut ws);
+        listed(&mut ws);
+        out.timeline("a1");
+        read(&mut ws);
+        ws.send(page("t-a1", 1..=6, false)).unwrap();
+        (0..2).for_each(|_| a.apply(events.next().unwrap()));
+        drop(ws);
+
+        let mut ws = accept(&server);
+        read(&mut ws);
+        assert_eq!(read(&mut ws), json!({"type": "agent.timeline", "id": "s-a1", "agentId": "a1", "limit": 500, "sinceSeq": 5}));
+        assert_eq!(next_after_seen(&out, &mut ws)["type"], "agent.seen", "a2 was never opened, so it isn't asked");
+        ws.send(page("s-a1", 6..=8, true)).unwrap();
+        a.apply(events.next().unwrap());
+        assert_eq!(a.timelines["a1"].iter().map(|i| i.seq).collect::<Vec<_>>(), [1, 2, 3, 4, 5, 6, 7, 8], "the older items stay");
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn a_newest_page_asked_when_the_link_dropped_is_asked_again() {
+        let (server, sock) = pocketd("owed");
+        let (out, _events) = connect(&sock);
+        let mut ws = accept(&server);
+        read(&mut ws);
+        out.timeline("a1");
+        read(&mut ws);
+        drop(ws);
+
+        let mut ws = accept(&server);
+        read(&mut ws);
+        assert_eq!(read(&mut ws), json!({"type": "agent.timeline", "id": "t-a1", "agentId": "a1", "limit": 500}));
         std::fs::remove_file(&sock).unwrap();
     }
 
@@ -453,24 +657,6 @@ mod tests {
     }
 
     #[test]
-    fn a_refused_prompt_reports_which_send_failed() {
-        let mut prompts = Requests::default();
-        prompts.sent(&json!({"type": "agent.prompt", "id": "prompt-1", "agentId": "a1", "text": "Fix it"}));
-        prompts.sent(&json!({"type": "agent.prompt", "id": "prompt-2", "agentId": "a2", "text": "Ship it"}));
-        let refused = prompts.answer(&frame(json!({"type": "error", "id": "prompt-2", "message": "Agent isn't in the foreground"})));
-        assert!(matches!(refused, Some(Event::PromptFailed { agent, request }) if agent == "a2" && request == "prompt-2"));
-        assert!(prompts.answer(&frame(json!({"type": "error", "id": "prompt-2", "message": "again"}))).is_none());
-    }
-
-    #[test]
-    fn an_acked_prompt_reports_nothing() {
-        let mut prompts = Requests::default();
-        prompts.sent(&json!({"type": "agent.prompt", "id": "prompt-1", "agentId": "a1", "text": "Fix it"}));
-        assert!(prompts.answer(&frame(json!({"type": "ack", "id": "prompt-1"}))).is_none());
-        assert!(prompts.answer(&frame(json!({"type": "error", "id": "prompt-1", "message": "late"}))).is_none());
-    }
-
-    #[test]
     fn a_refused_stop_reports_its_agent_and_why() {
         let mut requests = Requests::default();
         requests.sent(&json!({"type": "agent.interrupt", "id": "interrupt-1", "agentId": "a1"}));
@@ -482,14 +668,13 @@ mod tests {
     }
 
     #[test]
-    fn a_refused_queue_change_or_queued_send_names_its_session_and_gives_back_the_text() {
+    fn a_refused_queue_change_names_its_session_and_gives_back_the_text() {
         let (tx, rx) = std::sync::mpsc::channel();
         let out = Outbox::from(tx);
         out.queue_edit("a1", "e1", "fix lint too");
         out.queue_cancel("a1", "e2");
         out.queue_reorder("a1", "e3", "e1");
         out.queue_send_now("a1", "e4");
-        let queued = out.prompt_queued("a2", "after this");
         let mut requests = Requests::default();
         let sent: Vec<Value> = rx.try_iter().collect();
         sent.iter().for_each(|m| requests.sent(m));
@@ -501,10 +686,6 @@ mod tests {
         assert!(matches!(&got[1], Some(Event::QueueFailed { agent, text: None, .. }) if agent == "a1"));
         assert!(matches!(&got[2], Some(Event::QueueFailed { text: None, .. })));
         assert!(matches!(&got[3], Some(Event::QueueFailed { text: None, .. })));
-        assert!(
-            matches!(&got[4], Some(Event::QueueFailed { agent, text, .. }) if agent == "a2" && text.as_deref() == Some("after this")),
-            "{queued} is a queued send, not a prompt of the transcript"
-        );
     }
 
     #[test]
@@ -522,7 +703,9 @@ mod tests {
     #[test]
     fn a_prompt_or_stop_the_socket_never_took_fails_and_nothing_else_does() {
         let unsent = json!({"type": "agent.prompt", "id": "prompt-1", "agentId": "a1", "text": "Fix it"});
-        assert!(matches!(refused(&unsent, UNSENT), Some(Event::PromptFailed { agent, request }) if agent == "a1" && request == "prompt-1"));
+        assert!(
+            matches!(refused(&unsent, UNSENT), Some(Event::PromptFailed { agent, request, reason }) if agent == "a1" && request == "prompt-1" && reason == UNSENT)
+        );
         let stop = json!({"type": "agent.interrupt", "id": "interrupt-1", "agentId": "a1"});
         assert!(matches!(refused(&stop, UNSENT), Some(Event::InterruptFailed { agent, reason }) if agent == "a1" && reason == UNSENT));
         assert!(refused(&json!({"type": "agent.compact", "id": "compact", "agentId": "a1"}), UNSENT).is_none());
@@ -542,25 +725,214 @@ mod tests {
         ws.send(Message::text(refusal.to_string())).unwrap();
         ws.send(Message::text(json!({"type": "agent.update", "agent": {"id": "a1"}}).to_string())).unwrap();
         let mut events = futures::executor::block_on_stream(events);
-        assert!(matches!(events.next(), Some(Event::PromptFailed { agent, request }) if agent == "a1" && request == second));
+        assert!(
+            matches!(events.next(), Some(Event::PromptFailed { agent, request, reason }) if agent == "a1" && request == second && reason == "Agent isn't in the foreground")
+        );
         std::fs::remove_file(&sock).unwrap();
     }
 
     #[test]
-    fn a_prompt_or_stop_still_unanswered_when_the_link_drops_fails() {
+    fn a_stop_or_queue_change_still_unanswered_when_the_link_drops_fails_though_receipts_are_kept() {
         let (server, sock) = pocketd("dropped");
         let (out, events) = connect(&sock);
         let mut ws = accept(&server);
-        read(&mut ws);
-        let prompt = out.prompt("a1", "Fix it");
+        welcome(&mut ws, true);
         out.interrupt("a2");
-        assert_eq!((read(&mut ws)["id"].as_str(), read(&mut ws)["type"].as_str()), (Some(prompt.as_str()), Some("agent.interrupt")));
+        out.queue_cancel("a1", "e1");
+        assert_eq!(
+            (read(&mut ws)["type"].as_str().map(str::to_string), read(&mut ws)["type"].as_str().map(str::to_string)),
+            (Some("agent.interrupt".into()), Some("queue.cancel".into()))
+        );
         drop(ws);
-        let (tx, failures) = std::sync::mpsc::channel();
-        std::thread::spawn(move || futures::executor::block_on_stream(events).take(2).for_each(|ev| drop(tx.send(ev))));
-        let next = || failures.recv_timeout(Duration::from_secs(2)).ok();
-        assert!(matches!(next(), Some(Event::PromptFailed { agent, request }) if agent == "a1" && request == prompt));
-        assert!(matches!(next(), Some(Event::InterruptFailed { agent, reason }) if agent == "a2" && reason == UNSENT));
+        let mut events = futures::executor::block_on_stream(events);
+        assert!(
+            matches!(next_matching(&mut events, |ev| matches!(ev, Event::InterruptFailed { .. }).then_some(ev)), Event::InterruptFailed { agent, reason } if agent == "a2" && reason == UNSENT)
+        );
+        assert!(matches!(events.next(), Some(Event::QueueFailed { agent, .. }) if agent == "a1"));
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn an_unacked_prompt_is_sent_again_under_its_id_after_a_reconnect_that_keeps_receipts() {
+        let (server, sock) = pocketd("again");
+        let (out, events) = connect(&sock);
+        let mut ws = accept(&server);
+        welcome(&mut ws, true);
+        let id = out.prompt("a1", "Fix it");
+        let sent = read(&mut ws);
+        assert_eq!(sent["id"], id.as_str());
+        drop(ws);
+
+        let mut ws = accept(&server);
+        welcome(&mut ws, true);
+        assert_eq!(read(&mut ws), sent);
+        let mut events = futures::executor::block_on_stream(events);
+        let resending = next_matching(&mut events, |ev| match ev {
+            Event::PromptState { request, state, .. } => Some((request, state)),
+            _ => None,
+        });
+        assert_eq!(resending, (id.clone(), PromptState::Resending));
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn an_acked_prompt_with_no_delivery_is_sent_again_after_a_reconnect() {
+        let (server, sock) = pocketd("acked");
+        let (out, events) = connect(&sock);
+        let mut ws = accept(&server);
+        welcome(&mut ws, true);
+        let id = out.prompt("a1", "Fix it");
+        let sent = read(&mut ws);
+        ws.send(Message::text(json!({"type": "ack", "id": id}).to_string())).unwrap();
+        let mut events = futures::executor::block_on_stream(events);
+        next_matching(&mut events, |ev| matches!(ev, Event::PromptState { state: PromptState::Delivered, .. }).then_some(()));
+        drop(ws);
+
+        let mut ws = accept(&server);
+        welcome(&mut ws, true);
+        assert_eq!(read(&mut ws), sent);
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn a_prompt_is_not_sent_again_when_the_link_never_had_receipts_and_fails() {
+        let (server, sock) = pocketd("nocap");
+        let (out, events) = connect(&sock);
+        let mut ws = accept(&server);
+        welcome(&mut ws, false);
+        let id = out.prompt("a1", "Fix it");
+        read(&mut ws);
+        drop(ws);
+        let mut events = futures::executor::block_on_stream(events);
+        let reason = next_matching(&mut events, |ev| match ev {
+            Event::PromptFailed { request, reason, .. } if request == id => Some(reason),
+            _ => None,
+        });
+        assert_eq!(reason, "can't reach Anywhere's service");
+
+        let mut ws = accept(&server);
+        welcome(&mut ws, false);
+        ws.get_ref().set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+        assert!(ws.read().is_err(), "a prompt pocketd may have taken went out again");
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn a_failed_delivery_reaches_the_app_with_pocketds_reason() {
+        let (server, sock) = pocketd("failed");
+        let (out, events) = connect(&sock);
+        let mut ws = accept(&server);
+        welcome(&mut ws, true);
+        let id = out.prompt("a1", "Fix it");
+        read(&mut ws);
+        ws.send(Message::text(json!({"type": "ack", "id": id}).to_string())).unwrap();
+        let failed = json!({"type": "agent.delivery", "id": id, "agentId": "a1", "state": "failed", "error": "This session is still resuming"});
+        ws.send(Message::text(failed.to_string())).unwrap();
+        let mut events = futures::executor::block_on_stream(events);
+        let reason = next_matching(&mut events, |ev| match ev {
+            Event::PromptFailed { agent, request, reason } if agent == "a1" && request == id => Some(reason),
+            _ => None,
+        });
+        assert_eq!(reason, "This session is still resuming");
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn a_prompt_sent_while_pocketd_is_unreachable_joins_the_list_and_goes_out_once_it_is_back() {
+        let sock = sock_path("down");
+        let (out, events) = connect(&sock);
+        let id = out.prompt("a1", "Fix it");
+        let mut events = futures::executor::block_on_stream(events);
+        let held = next_matching(&mut events, |ev| match ev {
+            Event::PromptState { request, state, .. } => Some((request, state)),
+            _ => None,
+        });
+        assert_eq!(held, (id.clone(), PromptState::Resending));
+
+        let server = UnixListener::bind(&sock).unwrap();
+        let mut ws = accept(&server);
+        welcome(&mut ws, true);
+        let sent = read(&mut ws);
+        assert_eq!((sent["type"].as_str(), sent["id"].as_str()), (Some("agent.prompt"), Some(id.as_str())));
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn a_prompt_failed_for_the_link_being_down_too_long_is_never_sent_once_pocketd_is_back() {
+        let sock = sock_path("expired");
+        let (tx, mut events) = unbounded();
+        let (out, queue) = channel();
+        let mut carry = Carry::new(String::new(), None);
+        carry.resend = Resend::new(Instant::now() - DOWN_LIMIT);
+        out.send(json!({"type": "agent.prompt", "id": "prompt-x-1", "agentId": "a1", "text": "Fix it"})).unwrap();
+        carry.wait_out(&queue, &tx, Duration::from_millis(50));
+        let failed = std::iter::from_fn(|| events.try_recv().ok()).find_map(|ev| match ev {
+            Event::PromptFailed { request, .. } => Some(request),
+            _ => None,
+        });
+        assert_eq!(failed.as_deref(), Some("prompt-x-1"));
+
+        let server = UnixListener::bind(&sock).unwrap();
+        let link = sock.clone();
+        std::thread::spawn(move || run(&link, None, &tx, &queue, &mut carry, None));
+        let mut ws = accept(&server);
+        welcome(&mut ws, true);
+        out.send(json!({"type": "agent.seen", "agentIds": ["a1"]})).unwrap();
+        assert_eq!(read(&mut ws)["type"], "agent.seen", "the failed prompt stays unsent");
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn what_else_is_sent_while_pocketd_is_unreachable_waits_for_it_in_order() {
+        let sock = sock_path("heldorder");
+        let (out, _events) = connect(&sock);
+        out.view(&["a1".into()]);
+        let id = out.prompt("a1", "Fix it");
+        out.seen(&["a1".into()]);
+        std::thread::sleep(Duration::from_millis(100));
+
+        let server = UnixListener::bind(&sock).unwrap();
+        let mut ws = accept(&server);
+        assert_eq!(read(&mut ws)["type"], "hello");
+        let order: Vec<String> = (0..3).map(|_| read(&mut ws)["type"].as_str().unwrap_or_default().to_string()).collect();
+        assert_eq!(order, ["agent.view", "agent.prompt", "agent.seen"], "{id} between them");
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn the_log_says_what_happened_to_a_prompt_and_never_what_it_said() {
+        let dir = std::env::temp_dir().join(format!("link-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("logs/desktop.log");
+        let (server, sock) = pocketd("logged");
+        let (out, events) = connect_with(&sock, None, Peer::ThisMac, LinkLog::open(&path));
+        let mut ws = accept(&server);
+        welcome(&mut ws, true);
+        let id = out.prompt("a1b2c3d4e5", "the secret plan");
+        read(&mut ws);
+        drop(ws);
+
+        let mut ws = accept(&server);
+        welcome(&mut ws, true);
+        read(&mut ws);
+        let failed = json!({"type": "agent.delivery", "id": id, "agentId": "a1b2c3d4e5", "state": "failed", "error": "This session is still resuming"});
+        ws.send(Message::text(failed.to_string())).unwrap();
+        let mut events = futures::executor::block_on_stream(events);
+        next_matching(&mut events, |ev| matches!(ev, Event::PromptFailed { .. }).then_some(()));
+
+        let log = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = log.lines().map(|l| l.splitn(3, ' ').nth(2).unwrap_or(l)).collect();
+        let socket = sock.file_name().unwrap().to_string_lossy().into_owned();
+        let expected = [
+            "link up".to_string(),
+            "link down".to_string(),
+            "link up".to_string(),
+            format!("resent prompt {id} to a1b2c3d4"),
+            format!("prompt {id} to a1b2c3d4 not delivered: This session is still resuming"),
+        ];
+        assert_eq!(lines, expected.iter().map(|l| format!("{socket}: {l}")).collect::<Vec<_>>());
+        assert!(!log.contains("secret plan"));
+        std::fs::remove_dir_all(dir).unwrap();
         std::fs::remove_file(&sock).unwrap();
     }
 

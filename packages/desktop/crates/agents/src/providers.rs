@@ -116,6 +116,8 @@ pub struct Builtin {
     pub status_via: &'static str,
     pub unattached: &'static str,
     pub pastes_code: bool,
+    /// pocketd keeps more accounts of it beside its own login, so Settings › Accounts offers Add account.
+    pub adds_accounts: bool,
     /// `None` for an agent that writes no commit messages.
     pub oneshot: Option<Oneshot>,
     pub install: Install,
@@ -163,6 +165,7 @@ const CHAT_ONLY_DEFAULTS: Builtin = Builtin {
     status_via: "in a chat only, reads its events",
     unattached: "This agent reports status in a chat only, so Anywhere sees this terminal's activity but not its status.",
     pastes_code: false,
+    adds_accounts: false,
     oneshot: None,
     install: Install::NONE,
     assumed_installed: false,
@@ -324,6 +327,7 @@ pub const ALL: [Builtin; 10] = [
         status_via: "uses Claude Code hooks",
         unattached: "Claude skips hooks in folders it doesn't trust. Trust this folder in Claude to see status.",
         pastes_code: true,
+        adds_accounts: true,
         oneshot: Some(Oneshot { args: &["-p"], model_flag: "--model", model: "haiku" }),
         install: Install::NONE,
         assumed_installed: true,
@@ -347,6 +351,7 @@ pub const ALL: [Builtin; 10] = [
         status_via: "reads Codex session events",
         unattached: "This codex runs without the app-server, so Anywhere can't see its status.",
         pastes_code: false,
+        adds_accounts: true,
         oneshot: Some(Oneshot { args: &["exec", "-s", "read-only", "--skip-git-repo-check", "--color", "never"], model_flag: "-m", model: "" }),
         install: Install::NONE,
         assumed_installed: true,
@@ -575,6 +580,12 @@ mod tests {
         for id in ["grok", "fx", "antigravity"] {
             assert_eq!(args(id), ("", "", ""), "{id}");
         }
+    }
+
+    #[test]
+    fn only_claude_and_codex_take_more_accounts() {
+        let adds: Vec<_> = ALL.iter().filter(|b| b.adds_accounts).map(|b| b.id).collect();
+        assert_eq!(adds, ["claude", "codex"]);
     }
 
     #[test]

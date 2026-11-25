@@ -150,7 +150,15 @@ pub struct Desktop {
 }
 
 impl Desktop {
-    pub(crate) fn new(daemon: Daemons, outbox: Outboxes, mut store: Store, themes: Themes, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(
+        daemon: Daemons,
+        outbox: Outboxes,
+        links: Option<agents::LinkLog>,
+        mut store: Store,
+        themes: Themes,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let palette = cx.new(|cx| Palette::new(window, cx));
         let palette_subs = cx.subscribe_in(&palette, window, Self::on_palette_event);
         let graph = cx.new(|_| Graph::new(store.graph_share, &store.diff));
@@ -339,7 +347,7 @@ impl Desktop {
             spaces,
             settings,
             fleet,
-            host_agents: HostAgents::default(),
+            host_agents: HostAgents::new(links),
             registry,
             accounts: Accounts::default(),
             updates,

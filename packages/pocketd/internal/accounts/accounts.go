@@ -1,5 +1,6 @@
 // Package accounts keeps the Claude Code and Codex sign-ins pocketd can run an
 // agent on: each provider's built-in login, plus accounts in their own folders.
+// It also lists Antigravity's built-in login, the only one agy has.
 package accounts
 
 import (
@@ -43,7 +44,7 @@ type login interface {
 	shareMore(s *Store, id string) error
 }
 
-var logins = map[string]login{providers.Claude.ID: claude{}, providers.Codex.ID: codex{}}
+var logins = map[string]login{providers.Claude.ID: claude{}, providers.Codex.ID: codex{}, providers.Antigravity.ID: antigravity{}}
 
 // noLogin is the login of a provider pocketd keeps no accounts of: it runs only
 // on its own built-in login, which pocketd never reads or points elsewhere.
@@ -78,6 +79,10 @@ var Providers = func() []string {
 	return ids
 }()
 
+// Managed is whether pocketd keeps provider's accounts in their own folders
+// beside its built-in login.
+func Managed(provider string) bool { return envKey(provider) != "" }
+
 // Unset are what would sign a managed account's agent in as someone else.
 var Unset = func() []string {
 	var keys []string
@@ -110,7 +115,8 @@ type Account struct {
 	Same string `json:"same,omitempty"`
 	// Expired holds a login whose access token has lapsed: its usage can't be read until its CLI renews it on its next run, or it signs in again.
 	Expired bool `json:"expired,omitempty"`
-	// Pending is signing in; Error says why that failed.
+	// Pending is signing in. Error says why a sign-in failed, or why a
+	// signed-in login shows no usage.
 	Pending bool   `json:"pending,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
@@ -137,6 +143,12 @@ type Store struct {
 	Home string
 	// Secret reads a Keychain item's password; nil reads Claude's credentials file.
 	Secret func(service string) (string, bool)
+	// Agy finds Antigravity's CLI as a launch would: its path and the login
+	// env. false when it isn't installed or is a shell function.
+	Agy func() (exe string, env []string, ok bool)
+	// runAgy runs it; nil runs the real process. Tests set it, so they never need agy.
+	runAgy func(ctx context.Context, exe string, env []string, dir string, args ...string) (agyRun, error)
+	agy    agyProbe
 
 	mu      sync.Mutex
 	share   sync.Mutex // one Share at a time: launches and moves can overlap
@@ -200,13 +212,21 @@ func (s *Store) Resolve(provider, id string) (string, error) {
 	return "", ErrUnknown
 }
 
-// List is every account, built-in first. running counts the sessions on one.
+// List is every account, built-in first, and Antigravity's only once its
+// probe found agy. running counts the sessions on one.
 func (s *Store) List(running func(provider, id string) int) []Account {
+	return s.list(running, s.agy.installed())
+}
+
+func (s *Store) list(running func(provider, id string) int, agy bool) []Account {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	x := s.load()
 	var out []Account
 	for _, p := range Providers {
+		if p == providers.Antigravity.ID && !agy {
+			continue
+		}
 		def := x.Defaults[p]
 		if !slices.ContainsFunc(x.Accounts, func(e entry) bool { return e.ID == def && e.Provider == p }) {
 			def = BuiltIn
@@ -227,6 +247,9 @@ func (s *Store) List(running func(provider, id string) int) []Account {
 			if u, ok := s.usage[p+"/"+e.ID]; ok {
 				a.Usage = &u
 			}
+			if p == providers.Antigravity.ID {
+				a.Error = s.agy.note()
+			}
 			out = append(out, a)
 		}
 		for id, w := range s.pending {
@@ -240,7 +263,7 @@ func (s *Store) List(running func(provider, id string) int) []Account {
 
 // Add makes a folder for a new account of provider, which signs in there.
 func (s *Store) Add(provider string) (string, error) {
-	if !slices.Contains(Providers, provider) {
+	if !Managed(provider) {
 		return "", ErrUnknown
 	}
 	b := make([]byte, 6)
@@ -267,6 +290,9 @@ func (s *Store) Add(provider string) (string, error) {
 // as someone not already listed. signOut undoes a sign-in it doesn't keep.
 // A listed account takes the identity it signed in again as.
 func (s *Store) Finish(provider, id string, signOut func()) {
+	if provider == providers.Antigravity.ID {
+		s.agy.forget()
+	}
 	email, plan := s.identity(provider, id)
 	s.mu.Lock()
 	x := s.load()

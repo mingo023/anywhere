@@ -79,8 +79,12 @@ impl View {
         self.session.outgoing.sent_as(send, request);
     }
 
-    pub(crate) fn send_failed(&mut self, request: &str) {
-        self.session.outgoing.fail(request);
+    pub(crate) fn send_failed(&mut self, request: &str, reason: &str) {
+        self.session.outgoing.fail(request, reason);
+    }
+
+    pub(crate) fn prompt_state(&mut self, request: &str, state: agents::PromptState) {
+        self.session.outgoing.prompt_state(request, state);
     }
 
     pub(crate) fn withdraw(&mut self, send: u64) -> Option<String> {

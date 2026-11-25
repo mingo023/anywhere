@@ -766,7 +766,7 @@ func TestAccountListNamesEachProvidersAccountsOrOnlyOnes(t *testing.T) {
 		t.Fatalf("%v", m)
 	}
 	p.send(`{"type":"account.list","id":"al","provider":"codex"}`)
-	if m, _ := p.untilType("account.list"); !reflect.DeepEqual(m["accounts"], want[1:]) {
+	if m, _ := p.untilType("account.list"); !reflect.DeepEqual(m["accounts"], want[1:2]) {
 		t.Fatalf("%v", m)
 	}
 }

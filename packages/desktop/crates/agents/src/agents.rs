@@ -19,18 +19,23 @@ mod event;
 mod ids;
 mod items;
 mod link;
+mod linklog;
 mod offered;
 mod outbox;
+mod resend;
 mod summary;
+mod timelines;
 
 pub use ask::{Choice, Permission, Question};
 pub use event::{Event, Host, OUTDATED, coalesce};
 pub use ids::request_id;
 pub use items::{Call, Detail, DiffLine, FileDiff, Item, TaskItem, Usage};
-pub use link::{connect, connect_with};
+pub use link::{Peer, connect, connect_with};
+pub use linklog::LinkLog;
 pub use offered::{Command, McpAction, McpServer, McpStatus};
 pub use outbox::{CreateReply, Decision, Outbox};
-pub use summary::{Goal, GoalStatus, Level, ListedModel, ModelSetting, Summary, level, model_label, model_name, percent};
+pub use resend::PromptState;
+pub use summary::{Goal, GoalStatus, Level, ListedModel, ModelSetting, Recap, Summary, level, model_label, model_name, percent};
 
 use automations::Automations;
 use caps::{
@@ -52,6 +57,8 @@ use tickets::Board;
 pub struct Agents {
     pub list: Vec<Summary>,
     pub timelines: HashMap<String, Vec<Item>>,
+    /// The agents whose newest page came: a timeline held with no page behind it holds only what streamed in.
+    pub loaded: HashSet<String>,
     /// Bumped each time an agent's timeline takes items, so views refold only when it moved.
     pub revisions: HashMap<String, u64>,
     pub pending: Vec<Permission>,
@@ -124,6 +131,7 @@ impl Agents {
         self.apply_from(Some(source), Event::Connected { scopes: Vec::new(), caps: Vec::new(), version: String::new() });
         self.apply_from(Some(source), Event::Projects(Vec::new()));
         self.timelines.retain(|id, _| id.split_once('/').map(|(h, _)| h) != Some(source));
+        self.loaded.retain(|id| id.split_once('/').map(|(h, _)| h) != Some(source));
         self.delegations.forget(source);
         self.queues.forget(source);
         self.registries.remove(source);
@@ -164,6 +172,7 @@ impl Agents {
                 if let Some(t) = self.timelines.get_mut(&agent) {
                     t.retain(|x| x.seq >= from);
                 }
+                self.loaded.insert(agent.clone());
                 self.upsert(agent, items);
             }
             Event::Asked(p) => {
@@ -215,6 +224,7 @@ impl Agents {
             Event::AutomationError(_)
             | Event::BoardError(_)
             | Event::PromptFailed { .. }
+            | Event::PromptState { .. }
             | Event::InterruptFailed { .. }
             | Event::QueueFailed { .. }
             | Event::Commands { .. }
@@ -267,8 +277,11 @@ impl Agents {
 
     /// Drops the items held for `a` once pocketd started its timeline over, so the old conversation doesn't stay above the new one.
     fn drop_if_reset(&mut self, a: &Summary) {
-        if self.get(&a.id).is_some_and(|x| x.resets != a.resets) && self.timelines.remove(&a.id).is_some() {
-            *self.revisions.entry(a.id.clone()).or_default() += 1;
+        if self.get(&a.id).is_some_and(|x| x.resets != a.resets) {
+            self.loaded.remove(&a.id);
+            if self.timelines.remove(&a.id).is_some() {
+                *self.revisions.entry(a.id.clone()).or_default() += 1;
+            }
         }
     }
 
@@ -418,10 +431,6 @@ impl Agents {
         !self.scopes.is_empty() && !self.owner()
     }
 
-    pub fn last_result(&self, id: &str) -> Option<&Item> {
-        self.timelines.get(id)?.iter().rev().find(|i| i.kind == "result" && i.parent_tool_use_id.is_none())
-    }
-
     /// The agent whose timeline last edited or wrote `path`, and when; tool paths may be absolute or relative to its cwd.
     pub fn last_edit(&self, path: &str) -> Option<(&Summary, i64)> {
         let touches = |d: &Detail, cwd: &str| {
@@ -460,10 +469,6 @@ impl Agents {
             (&a.id, &a.cwd, self.revision(&a.id)).hash(&mut hasher);
         }
         hasher.finish()
-    }
-
-    pub fn last_text(&self, id: &str) -> Option<&str> {
-        self.timelines.get(id)?.iter().rev().find(|i| i.kind == "assistant" && i.parent_tool_use_id.is_none()).map(|i| i.text.as_str())
     }
 }
 
@@ -599,6 +604,22 @@ mod tests {
     }
 
     #[test]
+    fn a_chat_is_loaded_once_its_newest_page_came_not_by_what_streamed_in() {
+        let mut a = Agents::default();
+        let item = |seq: i64| Item { id: seq.to_string(), seq, ..Default::default() };
+        a.apply(Event::Items("a".into(), vec![item(3)]));
+        assert!(!a.loaded.contains("a"));
+        a.apply(Event::Page { agent: "b".into(), items: Vec::new(), max_seq: 0 });
+        assert!(a.loaded.contains("b"), "an empty conversation is loaded too");
+        a.apply(Event::Page { agent: "devbox/c".into(), items: Vec::new(), max_seq: 0 });
+        a.apply(Event::Agents(vec![Summary { id: "b".into(), ..Default::default() }]));
+        a.apply(Event::Agent(Box::new(Summary { id: "b".into(), resets: 1, ..Default::default() })));
+        assert!(!a.loaded.contains("b"), "a conversation that started over has no page behind it");
+        a.forget("devbox");
+        assert!(a.loaded.is_empty());
+    }
+
+    #[test]
     fn a_new_conversation_drops_the_old_items() {
         let mut a = Agents::default();
         let agent = |id: &str, resets| Summary { id: id.into(), resets, ..Default::default() };
@@ -616,21 +637,6 @@ mod tests {
         let texts = |id: &str| a.timelines.get(id).map(|t| t.iter().map(|i| i.text.clone()).collect::<Vec<_>>()).unwrap_or_default();
         assert_eq!(texts("a"), ["new"]);
         assert!(texts("b").is_empty(), "a reset seen in a whole list drops too");
-    }
-
-    #[test]
-    fn a_sub_agents_text_is_not_its_parents_last_word() {
-        let mut a = Agents::default();
-        let text = |id: &str, seq, parent: Option<&str>| Item {
-            id: id.into(),
-            seq,
-            kind: "assistant".into(),
-            text: id.into(),
-            parent_tool_use_id: parent.map(Into::into),
-            ..Default::default()
-        };
-        a.apply(Event::Items("a".into(), vec![text("mine", 1, None), text("theirs", 2, Some("tool"))]));
-        assert_eq!(a.last_text("a"), Some("mine"));
     }
 
     #[test]

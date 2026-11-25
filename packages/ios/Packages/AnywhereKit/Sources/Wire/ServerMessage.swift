@@ -7,6 +7,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
     case pairDone(PairDone)
     case agentList(AgentList)
     case agentUpdate(AgentUpdate)
+    case agentDelivery(AgentDelivery)
     case agentCommands(AgentCommands)
     case skillsList(SkillsList)
     case agentMcp(AgentMcp)
@@ -74,6 +75,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case "pair.done": self = .pairDone(try PairDone(from: decoder))
         case "agent.list": self = .agentList(try AgentList(from: decoder))
         case "agent.update": self = .agentUpdate(try AgentUpdate(from: decoder))
+        case "agent.delivery": self = .agentDelivery(try AgentDelivery(from: decoder))
         case "agent.commands": self = .agentCommands(try AgentCommands(from: decoder))
         case "skills.list": self = .skillsList(try SkillsList(from: decoder))
         case "agent.mcp": self = .agentMcp(try AgentMcp(from: decoder))
@@ -144,6 +146,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .pairDone(let m): try m.encode(to: encoder)
         case .agentList(let m): try m.encode(to: encoder)
         case .agentUpdate(let m): try m.encode(to: encoder)
+        case .agentDelivery(let m): try m.encode(to: encoder)
         case .agentCommands(let m): try m.encode(to: encoder)
         case .skillsList(let m): try m.encode(to: encoder)
         case .agentMcp(let m): try m.encode(to: encoder)
@@ -211,6 +214,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .pairDone: "pair.done"
         case .agentList: "agent.list"
         case .agentUpdate: "agent.update"
+        case .agentDelivery: "agent.delivery"
         case .agentCommands: "agent.commands"
         case .skillsList: "skills.list"
         case .agentMcp: "agent.mcp"

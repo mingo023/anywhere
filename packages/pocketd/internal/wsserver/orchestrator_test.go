@@ -246,3 +246,10 @@ func TestAgentSettingsSwitchesTheModelAndAccessAndRefusesWhatTheAgentCant(t *tes
 		}
 	})
 }
+
+func TestAStoredFailedSessionIsListedWithItsError(t *testing.T) {
+	got := listed([]orch.Session{{ID: "a", Status: "done", Failed: true, Error: "exit 1"}, {ID: "b", Status: "idle", Error: "stale"}}, nil)
+	if got[0].Error != "exit 1" || got[1].Error != "" {
+		t.Fatalf("listed %+v", got)
+	}
+}

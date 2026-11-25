@@ -621,6 +621,9 @@ func (l *Launcher) account(provider, id string) ([]string, *Failure) {
 	return l.d.Accounts.Env(provider, id), nil
 }
 
+// Find is where provider's CLI is, as a launch in env would run it.
+func (l *Launcher) Find(provider string, env []string) (string, bool) { return l.find(provider, env) }
+
 // find resolves the command config.json gives provider. It holds no lock
 // while the shell looks, so Providers can look for all at once.
 func (l *Launcher) find(provider string, env []string) (string, bool) {

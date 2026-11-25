@@ -49,3 +49,4 @@ for g in $(find "$fx/home/code" -maxdepth 3 -name .git 2>/dev/null | sort); do
   git -C "$w" status --short
 done > "$out/git-state.txt"
 find "$fx/home/code" -maxdepth 2 -type d | sed "s|$fx/home/||" | sort > "$out/tree.txt"
+cp "$fx/pocket/logs/desktop.log" "$out/link.log" 2>/dev/null || true

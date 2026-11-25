@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { AgentSummary, Decision, PermissionRequest, TimelineItem } from "./timeline.js";
 import { Delegation, QueueEntry } from "./orchestrator.js";
+import { AgentDelivery } from "./delivery.js";
 import { Automation, AutomationDraft, Run } from "./automation.js";
 import { BoardClient, Ticket } from "./board.js";
 import { LaunchSpec, PhoneAccess, ProviderInfo } from "./launch.js";
@@ -213,6 +214,7 @@ export const ServerMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("pair.done"), deviceId: Schema.String, name: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.list"), id: Schema.optional(Schema.String), agents: Schema.Array(AgentSummary) }),
   Schema.Struct({ type: Schema.Literal("agent.update"), agent: AgentSummary }),
+  AgentDelivery,
   Schema.Struct({ type: Schema.Literal("agent.delegations"), id: Schema.String, agentId: Schema.String, items: Schema.Array(Delegation) }),
   Schema.Struct({ type: Schema.Literal("delegation.update"), agentId: Schema.String, delegation: Delegation }),
   Schema.Struct({

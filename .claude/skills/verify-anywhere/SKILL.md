@@ -104,6 +104,7 @@ Fixture knobs: prompt a chat with `/fixture permission|question|exit|clear|resta
 | `tree.txt` | Directories under `home/code` (worktrees created) |
 | `steps.txt` | The specs and every `CAPTURE_*` / `FIXTURE_*` value, so the run can be replayed |
 | `desktop.log` | The app's stdout/stderr |
+| `link.log` | The app's own `logs/desktop.log`: link drops, reconnects, resent prompts, prompts not delivered |
 
 Proof standards:
 

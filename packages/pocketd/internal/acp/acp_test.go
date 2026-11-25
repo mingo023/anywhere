@@ -66,6 +66,9 @@ func (s *sink) Apply(e timeline.Event) {
 	case "tool_model":
 		line += ":" + e.ToolUseID + ":" + e.Name
 	}
+	if e.Steer {
+		line = "steer:" + e.Text
+	}
 	if e.ParentToolUseID != "" {
 		line = e.ParentToolUseID + ">" + line
 	}
@@ -287,7 +290,9 @@ type opts struct {
 	launch   state.Launch
 	left     Left
 	carried  bool
-	answer   func(*agent, string, json.RawMessage) string
+	// shown is the timeline the session was restored from the store with.
+	shown  []proto.Item
+	answer func(*agent, string, json.RawMessage) string
 }
 
 // start opens a Session against a scripted agent.
@@ -306,6 +311,9 @@ func start(t *testing.T, o opts) (*Session, *agent, *sink, *broker.Broker) {
 	t.Cleanup(a.Close)
 	if o.carried {
 		s.Carried()
+	}
+	if o.shown != nil {
+		s.Shown, s.Showing = true, func() []proto.Item { return o.shown }
 	}
 	if _, err := s.Open(a, "/work", o.saved, o.launch, o.left); err != nil {
 		t.Fatal(err)

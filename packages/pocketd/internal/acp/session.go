@@ -96,7 +96,15 @@ type Session struct {
 	startedOn string
 	options   []configOption
 	// queue holds the prompts sent before the session opened, while a turn runs or while it compacts, which ACP has no place for.
-	queue    []string
+	// A steering agent's mid-turn prompts skip it.
+	queue  []string
+	steers bool
+	// out counts the turn's prompts the agent has not answered yet.
+	out int
+	// prompts counts the prompts sent, so an answer knows whether it is to the newest, the only one a steer may be unconfirmed in.
+	prompts int
+	// steered holds the prompts steered into the turn and not yet known taken, so not yet shown.
+	steered  []string
 	running  bool
 	turn     int             // counts the turns and compactions started, so a late answer ends only its own
 	began    time.Time       // when this pocketd started the turn running
@@ -106,7 +114,8 @@ type Session struct {
 	stray    json.RawMessage // the end of a turn a pocketd before this one started, come before the session opened
 	held     []func()        // the agent's requests from before the session opened
 	asks     map[string]context.CancelFunc
-	msg      block // the message the agent is writing
+	waiting  map[string]unanswered // the questions in asks, by the same key
+	msg      block                 // the message the agent is writing
 	blocks   int
 	answered bool // the history's last prompt has an answer after it
 	tools    map[string]*tool
@@ -122,6 +131,10 @@ type Session struct {
 	kids map[string]*kid
 	// calls holds every call shown, to the call whose sub-agent made it: "" for the session's own.
 	calls map[string]string
+	// launches are the Antigravity sub-agent calls held open until the turn ends, oldest first.
+	launches []string
+	// stored is what storedCards read of the timeline.
+	stored map[string]string
 	// handoff is what Hermes's background sub-agents did, for the turn under way to hand it.
 	handoff pendingHandoff
 	// woke is the turn the agent started by itself to take what a sub-agent handed back.
@@ -209,7 +222,7 @@ type todo struct {
 func NewSession(agentID, provider string, sink Sink, b *broker.Broker) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Session{agentID: agentID, provider: provider, name: providers.Get(provider).Name, f: flavors[provider], sink: sink, broker: b, ctx: ctx, cancel: cancel,
-		asks: map[string]context.CancelFunc{}, tools: map[string]*tool{}, children: map[string]string{}, models: map[string]string{},
+		asks: map[string]context.CancelFunc{}, waiting: map[string]unanswered{}, tools: map[string]*tool{}, children: map[string]string{}, models: map[string]string{},
 		ended: map[string]*timeline.Event{}, kids: map[string]*kid{}, calls: map[string]string{}}
 }
 
@@ -329,6 +342,9 @@ func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) 
 	if err != nil {
 		return opened{}, err
 	}
+	s.mu.Lock()
+	s.steers = steers(init)
+	s.mu.Unlock()
 	servers := s.servers(init)
 	if s.f.auth != nil {
 		if params := s.f.auth(init); params != nil {
@@ -402,6 +418,11 @@ func (s *Session) loaded(ok bool, left Left) {
 	replayed := len(s.replay)
 	if ok && left != Running {
 		cut := s.interrupt() || left == Cut && len(s.replay) > 0
+		// agy replays no sub-agent's calls, and each launch already ended.
+		if left == Cut && s.Shown {
+			out := "Interrupted"
+			s.endShownLaunches(timeline.Event{Output: &out})
+		}
 		switch {
 		case cut:
 			s.record(timeline.Event{Kind: "result", Error: "interrupted"})
@@ -758,13 +779,17 @@ func (s *Session) Commands() ([]proto.Command, error) {
 	return slices.Clone(s.commands), nil
 }
 
-// Prompt starts a turn on text, once the session is open and the turn under way has ended.
+// Prompt starts a turn on text, once the session is open and the turn under
+// way has ended, or steers it into the turn under way, where the agent takes that.
 func (s *Session) Prompt(text string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch {
 	case s.err != nil:
 		return s.failed()
+	case s.ready && s.running && s.steerable():
+		s.steered = append(s.steered, text)
+		s.prompt(text, true)
 	case !s.ready || s.running || s.compacting:
 		s.queue = append(s.queue, text)
 	default:
@@ -783,10 +808,27 @@ func (s *Session) send(text string) {
 	s.running, s.began = true, time.Now()
 	s.turn++
 	s.sink.Working()
-	c, id, turn := s.c, s.id, s.turn
+	s.prompt(text, false)
+}
+
+// steerable says a prompt sent now may go to the agent mid-turn. agy refuses
+// one while it asks, a prompt waiting must not be overtaken, and only one
+// steer goes unconfirmed, so a refused one goes back first in the queue.
+func (s *Session) steerable() bool {
+	return s.steers && !s.stopping && !s.adopted && len(s.asks) == 0 && len(s.queue) == 0 && len(s.steered) == 0
+}
+
+func (s *Session) prompt(text string, steer bool) {
+	s.out++
+	s.prompts++
+	c, id, turn, before, n := s.c, s.id, s.turn, s.sent, s.prompts
 	sent := make(chan struct{})
 	s.sent = sent
 	go func() {
+		// A steer must reach the agent after the prompt it steers.
+		if steer && before != nil {
+			<-before
+		}
 		res, err := s.deliver(c, sent, "session/prompt", map[string]any{"sessionId": id, "prompt": []map[string]string{{"type": "text", "text": text}}})
 		if s.ctx.Err() != nil {
 			return
@@ -795,9 +837,47 @@ func (s *Session) send(text string) {
 		defer s.mu.Unlock()
 		// A stop the agent was slow to answer has ended the turn already.
 		if s.running && s.turn == turn {
-			s.finish(res, err)
+			s.promptReplied(text, steer && n == s.prompts, res, err)
 		}
 	}()
+}
+
+// promptReplied takes the answer to one of the turn's prompts. agy answers
+// the prompt a steer came after as it takes the steer, and the last prompt's
+// answer ends the turn.
+func (s *Session) promptReplied(text string, unconfirmed bool, res json.RawMessage, err error) {
+	s.out--
+	switch {
+	case unconfirmed && refused(err) && s.out > 0:
+		// Refused: it runs as a turn of its own once this one ends, ahead of what was sent after it.
+		s.steered = nil
+		if !s.stopping {
+			s.queue = append([]string{text}, s.queue...)
+		}
+	case s.out > 0:
+		s.showSteered()
+	default:
+		s.showSteered()
+		s.finish(res, err)
+	}
+}
+
+// showSteered shows the prompts the agent has taken into the turn, after what
+// it wrote so far. agy names no message in its chunks, so a reply it goes on
+// writing can't be told apart from its answer to the steer: the reply shows
+// split where the agent took the steer.
+func (s *Session) showSteered() {
+	s.flush()
+	for _, text := range s.steered {
+		s.sink.Apply(timeline.Event{Kind: "user", Text: text, Steer: true})
+	}
+	s.steered = nil
+}
+
+// refused says the agent answered a call with an error, rather than going away.
+func refused(err error) bool {
+	var e *Error
+	return errors.As(err, &e)
 }
 
 // deliver sends method, closes sent once it has gone out, and returns its result.
@@ -837,8 +917,9 @@ func (s *Session) finish(res json.RawMessage, err error) {
 	json.Unmarshal(res, &r)
 	s.flush()
 	stopped := s.stopping || err == nil && r.StopReason == "cancelled"
-	runs := s.runs
+	runs, adopted := s.runs, s.adopted
 	s.running, s.adopted, s.stopping, s.stray, s.woke, s.runs = false, false, false, nil, "", ""
+	s.out, s.steered = 0, nil
 	e := timeline.Event{Kind: "result"}
 	if !s.began.IsZero() {
 		e.DurationMs = time.Since(s.began).Milliseconds()
@@ -859,6 +940,7 @@ func (s *Session) finish(res json.RawMessage, err error) {
 	default:
 		e.Error = fmt.Sprintf("%s ended the turn (%s)", s.name, r.StopReason)
 	}
+	s.endLaunches(e, adopted)
 	s.sink.Apply(e)
 	// The turn goes on until Hermes has been handed what its background sub-agents did.
 	if e.OK && len(s.handoff.calls)+len(s.handoff.tails) > 0 {
@@ -971,6 +1053,10 @@ func (s *Session) Cancel() {
 	}
 	asks := s.asks
 	s.asks = map[string]context.CancelFunc{}
+	// Before the agent ends its turn on the stop, so the questions show ahead of that end.
+	for key := range s.waiting {
+		s.keepLocked(key, broker.Answer{})
+	}
 	s.mu.Unlock()
 	if busy {
 		if sent != nil {
@@ -1352,6 +1438,14 @@ func (s *Session) flush() {
 // tool takes what the agent tells of a call. It shows once there is something
 // to show of it, and ends once the agent says how it went.
 func (s *Session) tool(u toolCall, starts bool, parent string) {
+	// Antigravity also tells each question it asks as a call, which the question card already shows.
+	if s.f.elicits && u.Name == "ask_question" {
+		s.flush()
+		return
+	}
+	if parent == "" && s.f.childCalls {
+		parent = s.launchOf(u.ID)
+	}
 	t := s.tools[u.ID]
 	if t == nil {
 		// Hermes ends each permission check as a call it never started.
@@ -1359,13 +1453,19 @@ func (s *Session) tool(u toolCall, starts bool, parent string) {
 			return
 		}
 		t = &tool{parent: parent}
+		// A pocketd before this one showed it.
+		_, t.started = s.storedCards()[u.ID]
 		s.tools[u.ID] = t
 	}
 	t.merge(u)
 	if !t.started && !t.waits() {
 		s.show(t)
+		if _, ok := t.launch(); ok && s.f.childCalls && parent == "" && !s.opening {
+			s.launches = append(s.launches, t.ID)
+		}
 	}
-	if !t.started || !t.done() {
+	// A sub-agent agy launched runs on past its call, until the turn ends.
+	if !t.started || !t.done() || t.Status == "completed" && slices.Contains(s.launches, t.ID) {
 		return
 	}
 	delete(s.tools, t.ID)
@@ -1570,4 +1670,31 @@ func (s *Session) task(params json.RawMessage) any {
 		delete(s.tools, p.ID)
 	}
 	return struct{}{}
+}
+
+// steers says an agent's initialize names an agy that folds a prompt sent
+// mid-turn into the turn under way: Antigravity 1.5 or later.
+func steers(init json.RawMessage) bool {
+	var r struct {
+		AgentInfo struct {
+			Name    string `json:"name"`
+			Version string `json:"version"`
+		} `json:"agentInfo"`
+	}
+	json.Unmarshal(init, &r)
+	return r.AgentInfo.Name == "Antigravity ACP Server" && atLeast(r.AgentInfo.Version, 1, 5)
+}
+
+// atLeast says version is major.minor or later. A prerelease or a version it can't read is not.
+func atLeast(version string, major, minor int) bool {
+	parts := strings.Split(version, ".")
+	if strings.Contains(version, "-") || len(parts) < 2 {
+		return false
+	}
+	ma, err1 := strconv.Atoi(parts[0])
+	mi, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return ma > major || ma == major && mi >= minor
 }

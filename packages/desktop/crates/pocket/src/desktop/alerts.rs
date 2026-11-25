@@ -61,9 +61,7 @@ fn who(a: &Summary) -> String {
 fn line(agents: &Agents, a: &Summary, status: Status) -> String {
     let text = match status {
         Status::NeedsYou => agents.pending.iter().find(|p| p.agent_id == a.id).map(Permission::ask),
-        Status::Done => {
-            agents.last_text(&a.id).and_then(|t| t.split("\n\n").map(|p| p.split_whitespace().collect::<Vec<_>>().join(" ")).find(|p| !p.is_empty()))
-        }
+        Status::Done => a.recap.said.split("\n\n").map(|p| p.split_whitespace().collect::<Vec<_>>().join(" ")).find(|p| !p.is_empty()),
         _ => None,
     };
     text.unwrap_or_else(|| status.label().to_string())
@@ -151,6 +149,7 @@ impl Desktop {
             self.fail(message, cx);
         }
         let connected = matches!(ev, Event::Connected { .. });
+        let paged = if let Event::Page { agent, .. } = &ev { Some(agent.clone()) } else { None };
         let automations = matches!(ev, Event::Automations { .. });
         let board = matches!(ev, Event::Board { .. });
         let locals = matches!(ev, Event::Locals(_));
@@ -170,6 +169,7 @@ impl Desktop {
         }
         if let (Event::Connected { .. }, Some(ids)) = (&ev, &self.alerts.viewing) {
             self.outbox.view(ids);
+            self.outbox.timelines(ids);
         }
         let exited =
             exited_terminal(&self.agents.list, &ev).filter(|t| self.store.agents.close_on_exit && !self.capturing && !self.terminals.read(cx).killed(t));
@@ -185,6 +185,9 @@ impl Desktop {
             self.removals.forget(host);
         }
         self.agents.apply_from(host, ev);
+        if let Some(agent) = paged {
+            self.handoff_paged(&agent, window, cx);
+        }
         if connected {
             self.registry_connected(host);
         }
@@ -255,10 +258,16 @@ impl Desktop {
                 self.fail(message, cx);
                 cx.notify();
             }
-            Event::PromptFailed { agent, request } => {
+            Event::PromptFailed { agent, request, reason } => {
                 // A chat not yet opened has no send to fail.
                 if let Some(v) = self.chats.views.get(&agent) {
-                    v.update(cx, |v, _| v.send_failed(&request));
+                    v.update(cx, |v, _| v.send_failed(&request, &reason));
+                }
+                cx.notify();
+            }
+            Event::PromptState { agent, request, state } => {
+                if let Some(v) = self.chats.views.get(&agent) {
+                    v.update(cx, |v, _| v.prompt_state(&request, state));
                 }
                 cx.notify();
             }
@@ -373,6 +382,7 @@ impl Desktop {
         let panes = if window.is_window_active() || self.capturing { self.visible_panes(cx) } else { Vec::new() };
         if let Some(ids) = self.alerts.view(&panes, &self.agents.list) {
             self.outbox.view(&ids);
+            self.outbox.timelines(&ids);
             self.delegated_ask(ids);
             self.sync_alerts(cx);
         }
@@ -449,6 +459,15 @@ mod tests {
 
     fn notice(id: &str, line: &str, ask: Option<&str>) -> Notice {
         Notice { id: id.into(), title: id.to_uppercase(), body: format!("app · {id}\n{line}"), ask: ask.map(String::from) }
+    }
+
+    #[test]
+    fn a_done_banner_reads_the_first_paragraph_of_the_summarys_recap() {
+        let mut alerts = Alerts::new();
+        sync(&mut alerts, &[agent("a", "working")], false);
+        let mut done = agent("a", "done");
+        done.recap.said = "Tagged\nv2.\n\nThe tests pass.".into();
+        assert_eq!(sync(&mut alerts, &[done], false), vec![notice("a", "Tagged v2.", None)]);
     }
 
     #[test]

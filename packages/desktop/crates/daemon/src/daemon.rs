@@ -95,7 +95,7 @@ pub struct Account {
     pub usage: Option<Usage>,
     /// Signed in, but its access token has lapsed, so its usage can't be read.
     pub expired: bool,
-    /// Signing in; `error` says why that failed.
+    /// Signing in. `error` says why a sign-in failed, or why a signed-in login shows no usage.
     pub pending: bool,
     pub error: String,
     /// The account listed before it that signs in as the same person.

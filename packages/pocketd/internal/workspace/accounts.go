@@ -28,12 +28,16 @@ func Accounts(list []accounts.Account, provider string) []proto.Account {
 }
 
 // name is the desktop's (accounts::name in pocket/src/accounts.rs): the
-// label, else the email.
+// label, else the email, else whether it's signed in, as agy's login is
+// without a readable email.
 func name(a accounts.Account) string {
 	for _, s := range []string{a.Label, a.Email} {
 		if s != "" {
 			return s
 		}
+	}
+	if a.SignedIn {
+		return "Signed in"
 	}
 	return "Not signed in"
 }
@@ -59,7 +63,7 @@ type AccountList struct {
 }
 
 // List is provider's accounts, or every one for "". Usage older than
-// UsageTTL is fetched first, bounded by ctx.
+// UsageTTL is fetched first, waiting on it no longer than ctx.
 func (a *AccountList) List(ctx context.Context, provider string) []proto.Account {
 	a.mu.Lock()
 	stale := time.Since(a.checked) > UsageTTL
@@ -68,7 +72,16 @@ func (a *AccountList) List(ctx context.Context, provider string) []proto.Account
 	}
 	a.mu.Unlock()
 	if stale {
-		a.Store.Refresh(ctx, "")
+		// The read outlives ctx, so what a slow one finds is there for the next list.
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			a.Store.Refresh(context.WithoutCancel(ctx), "")
+		}()
+		select {
+		case <-done:
+		case <-ctx.Done():
+		}
 	}
 	return Accounts(a.Store.List(a.Running), provider)
 }

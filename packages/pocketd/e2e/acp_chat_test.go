@@ -74,8 +74,9 @@ type acpItem struct {
 		Status string `json:"status"`
 		Output string `json:"output"`
 		Detail struct {
-			Kind    string `json:"kind"`
-			Command string `json:"command"`
+			Kind        string `json:"kind"`
+			Command     string `json:"command"`
+			Description string `json:"description"`
 		} `json:"detail"`
 	} `json:"call"`
 }
@@ -252,6 +253,43 @@ func TestAPromptSentMidTurnWaitsForTheChatHermesTurnToEnd(t *testing.T) {
 	)
 	if screen := h.Screen(term); strings.Contains(screen, "busy") || strings.Index(screen, "echo: first") > strings.Index(screen, "prompt: second") {
 		t.Fatalf("the second prompt reached hermes mid-turn:\n%s", screen)
+	}
+}
+
+func TestAPromptSentMidTurnSteersTheChatAntigravityTurn(t *testing.T) {
+	h, phone, term, id := chatACP(t, "antigravity", nil)
+	phone.Prompt(id, "slow first")
+	phone.WaitStatus(id, "working")
+	phone.Prompt(id, "second")
+	h.WaitScreen(term, "steer: second")
+	phone.WaitAll("one turn with both",
+		streamOf(id, "user", "second"),
+		streamOf(id, "assistant", "echo: first"),
+		streamOf(id, "assistant", "echo: second"),
+		statusOf(id, "done"),
+	)
+	if got, want := withSubAgents(phone, id), []string{"user slow first", "user second", "assistant echo: first", "assistant echo: second", "result"}; !slices.Equal(got, want) {
+		t.Fatalf("got %q", got)
+	}
+	if screen := h.Screen(term); strings.Contains(screen, "busy") {
+		t.Fatalf("agy refused the steer:\n%s", screen)
+	}
+}
+
+func TestASteerWhileAnAntigravitySubAgentCardIsOpenLeavesTheCardToEnd(t *testing.T) {
+	h, phone, term, id := chatACP(t, "antigravity", nil)
+	phone.Prompt(id, "delegate await g1")
+	phone.WaitFor("the open card", itemOf(id, func(it acpItem) bool { return it.Call.Detail.Kind == "task" && it.Call.Status == "running" }))
+	phone.Prompt(id, "second")
+	h.WaitScreen(term, "steer: second")
+	phone.WaitFor("the steer", streamOf(id, "user", "second"))
+	if err := os.WriteFile(filepath.Join(h.Home, ".acp-fake", "g1"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: second"), statusOf(id, "done"))
+	want := []string{"user delegate await g1", "tool task ok", "user second", "assistant echo: delegated await g1", "assistant echo: second", "result"}
+	if got := withSubAgents(phone, id); !slices.Equal(got, want) {
+		t.Fatalf("got %q", got)
 	}
 }
 
@@ -718,6 +756,18 @@ func TestAChatGrokOrOpenCodeCompactsItsContext(t *testing.T) {
 	}
 }
 
+func TestAChatAntigravityShowsItsSubAgentAsATaskWithItsCallsUnderIt(t *testing.T) {
+	h, phone, _, id := chatACP(t, "antigravity", nil)
+	phone.Prompt(id, "delegate ls")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: delegated ls"),
+		itemOf(id, func(it acpItem) bool {
+			return it.Call.Detail.Kind == "task" && it.Call.Detail.Description == "Runner: ls"
+		}), statusOf(id, "done"))
+	if got, want := withSubAgents(h.Owner(proto.CapSubagents), id), []string{"user delegate ls", "tool task ok", "> tool shell ok ls", "assistant echo: delegated ls", "result"}; !slices.Equal(got, want) {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestEveryACPAgentChatsThroughTheOneDriver(t *testing.T) {
 	for _, provider := range []string{"cursor", "grok", "fx", "antigravity"} {
 		t.Run(provider, func(t *testing.T) {
@@ -751,6 +801,44 @@ func TestAChatAntigravityAsksItsQuestionsOnTheQuestionCard(t *testing.T) {
 		}
 		resolve(phone, req, c.answer)
 		phone.WaitAll(c.prompt, streamOf(id, "assistant", c.reply), statusOf(id, "done"))
+	}
+	if calls := callsOf(phone, id); len(calls) != 5 || slices.ContainsFunc(calls, func(name string) bool { return name != "AskUserQuestion" }) {
+		t.Fatalf("showed the questions as %q", calls)
+	}
+}
+
+// callsOf is the name of each of id's tool calls, sub-agents' too.
+func callsOf(p *Phone, id string) []string {
+	p.Send(map[string]any{"type": "agent.timeline", "id": "c-" + id, "agentId": id})
+	var page struct {
+		Items []acpItem `json:"items"`
+	}
+	json.Unmarshal([]byte(p.WaitFor("the timeline", func(m Message) bool { return m.Type == "agent.timeline" && m.ID == "c-"+id }).Raw), &page)
+	var got []string
+	for _, it := range page.Items {
+		if it.Kind == "tool" {
+			got = append(got, it.Call.Name)
+		}
+	}
+	return got
+}
+
+func TestAChatAntigravitysAnsweredQuestionStaysInItsHistoryAfterARestart(t *testing.T) {
+	h, phone, term, id := chatACP(t, "antigravity", nil, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "ask Which fruit?")
+	resolve(phone, phone.WaitFor("the question", asked), map[string]any{"decision": "allow", "answers": map[string]string{"Which fruit?": "Pear"}})
+	phone.WaitStatus(id, "done")
+	const kept = `tool other ok User has answered your questions: "Which fruit?"="Pear". You can now continue with the user's answers in mind.`
+	if got := withSubAgents(phone, id); !slices.Contains(got, kept) {
+		t.Fatalf("got %q", got)
+	}
+
+	h.Restart()
+
+	again := resumedChat(h, id)
+	h.WaitScreen(term, "load: ")
+	if got := withSubAgents(again, id); !slices.Contains(got, kept) {
+		t.Fatalf("after the restart got %q", got)
 	}
 }
 

@@ -310,6 +310,7 @@ type AgentSummary struct {
 	// CreatedBy is user, agent, automation or board; empty is user.
 	CreatedBy  string         `json:"createdBy,omitempty"`
 	Delegation *DelegationRef `json:"delegation,omitempty"`
+	Recap      Recap          `json:"recap,omitzero"`
 }
 
 // GoalFailed is Claude's judge giving a goal up; Codex has no such status.

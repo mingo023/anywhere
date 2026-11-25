@@ -80,7 +80,10 @@ func listed(stored []orch.Session, live []proto.AgentSummary) []proto.AgentSumma
 		}
 		out = append(out, proto.AgentSummary{ID: x.ID, TerminalID: x.Terminal, Title: x.Title, Cwd: x.Cwd, Provider: x.Agent, Model: x.Model, Effort: x.Effort, Access: x.Access,
 			Status: x.Status, Failed: x.Failed, Pinned: x.Pinned, ProviderSessionID: x.Conversation, CreatedAt: x.CreatedAt, UpdatedAt: x.UpdatedAt, Project: x.Project,
-			Worktree: x.Worktree, Branch: x.Branch, Origin: x.Origin, ChatOnly: x.Chat, Parent: x.ParentID, Relationship: x.Relationship, CreatedBy: x.CreatedBy})
+			Worktree: x.Worktree, Branch: x.Branch, Origin: x.Origin, ChatOnly: x.Chat, Parent: x.ParentID, Relationship: x.Relationship, CreatedBy: x.CreatedBy, Recap: x.Recap})
+		if x.Failed {
+			out[len(out)-1].Error = x.Error
+		}
 	}
 	for _, a := range live {
 		if _, ok := byID[a.ID]; ok {
@@ -152,6 +155,60 @@ func (c *conn) resolve(e *orch.Engine, m proto.ClientMessage) error {
 	return nil
 }
 
+// prompted answers agent.prompt for a client that negotiated delivery.v1: an
+// ack once the command commits, then agent.delivery with what came of it. The
+// command id names the client and its prompt id, so a prompt sent again after
+// a reconnect is the same command, and the agent gets it once.
+func (c *conn) prompted(m proto.ClientMessage) (bool, error) {
+	e := c.s.Orch
+	if e == nil || m.Type != "agent.prompt" || m.ID == "" || !slices.Contains(c.caps, proto.CapDelivery) {
+		return false, nil
+	}
+	if _, err := c.s.Agents.Get(m.AgentID); err != nil {
+		return false, nil
+	}
+	r, err := e.Dispatch(orch.NewCommand("prompt:"+c.clientID+":"+m.ID, orch.CmdMessageSend, m.AgentID, promptPayload(m)))
+	if err != nil {
+		logRefused(m.AgentID, err)
+		return true, failureReply(err)
+	}
+	c.send(proto.NewAck(m.ID))
+	go c.delivery(e, m, r)
+	return true, nil
+}
+
+func promptPayload(m proto.ClientMessage) orch.SendPayload {
+	mode := "steer"
+	if m.Queue {
+		mode = "auto"
+	}
+	return orch.SendPayload{Text: m.Text, Mode: mode, Origin: orch.OriginUser}
+}
+
+// delivery tells what became of prompt m, whose command committed as r: queued, or its turn start's end, however long that takes.
+func (c *conn) delivery(e *orch.Engine, m proto.ClientMessage, r orch.Receipt) {
+	var res struct{ Queued bool }
+	json.Unmarshal(r.Result, &res)
+	if res.Queued {
+		c.send(proto.NewAgentDelivery(m.ID, m.AgentID, proto.DeliveryQueued, ""))
+		return
+	}
+	switch err := e.WaitContext(c.ctx, r.Effects); {
+	case c.ctx.Err() != nil:
+	case err != nil:
+		log.Printf("prompt failed: session=%.8s reason=%s", m.AgentID, err)
+		c.send(proto.NewAgentDelivery(m.ID, m.AgentID, proto.DeliveryFailed, failureReply(err).Error()))
+	default:
+		c.send(proto.NewAgentDelivery(m.ID, m.AgentID, proto.DeliveryStarted, ""))
+	}
+}
+
+// logRefused notes a prompt pocketd refused, without its text.
+func logRefused(session string, err error) {
+	f := orch.AsFailure(err)
+	log.Printf("prompt refused: session=%.8s code=%s reason=%s", session, f.Code, f.Message)
+}
+
 // orchestrated answers the verbs the orchestrator owns; false leaves m to dispatch.
 func (c *conn) orchestrated(m proto.ClientMessage) (bool, error) {
 	e := c.s.Orch
@@ -166,11 +223,10 @@ func (c *conn) orchestrated(m proto.ClientMessage) (bool, error) {
 	}
 	switch m.Type {
 	case "agent.prompt":
-		mode := "steer"
-		if m.Queue {
-			mode = "auto"
+		_, err := e.DispatchWait(orch.NewCommand("", orch.CmdMessageSend, m.AgentID, promptPayload(m)), promptWait)
+		if err != nil {
+			logRefused(m.AgentID, err)
 		}
-		_, err := e.DispatchWait(orch.NewCommand("", orch.CmdMessageSend, m.AgentID, orch.SendPayload{Text: m.Text, Mode: mode, Origin: orch.OriginUser}), promptWait)
 		return true, failureReply(err)
 	case "agent.interrupt":
 		_, err := e.DispatchWait(orch.Command{Kind: orch.CmdSessionStop, Session: m.AgentID}, promptWait)

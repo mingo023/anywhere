@@ -141,6 +141,7 @@ func TestAStoreFromBeforeFindsARewrittenItemOnce(t *testing.T) {
 		`DROP TABLE items_fts`,
 		`CREATE VIRTUAL TABLE items_fts USING fts5 (session_id UNINDEXED, item_id UNINDEXED, text)`,
 		`DELETE FROM schema_version WHERE version > 5`,
+		`ALTER TABLE sessions DROP COLUMN recap`,
 		`INSERT INTO items (session_id, item_id, seq, epoch, kind, text, body, ts) VALUES ('a', 'i1', 1, 1, 'user', 'first draft', '{}', 1), ('a', 'i2', 2, 1, 'user', 'other words', '{}', 2)`,
 		`INSERT INTO items_fts (rowid, session_id, item_id, text) VALUES (2, 'a', 'i1', 'first draft'), (1, 'a', 'i2', 'other words')`,
 	)
@@ -198,6 +199,7 @@ func TestAStoreFromBeforeKeepsTheNewestSearchRowOfAnItemWrittenTwice(t *testing.
 		`DROP TABLE items_fts`,
 		`CREATE VIRTUAL TABLE items_fts USING fts5 (session_id UNINDEXED, item_id UNINDEXED, text)`,
 		`DELETE FROM schema_version WHERE version > 5`,
+		`ALTER TABLE sessions DROP COLUMN recap`,
 		`INSERT INTO items (session_id, item_id, seq, epoch, kind, text, body, ts) VALUES ('a', 'i1', 1, 1, 'user', 'newer', '{}', 1)`,
 		`INSERT INTO items_fts (rowid, session_id, item_id, text) VALUES (1, 'a', 'i1', 'older'), (2, 'a', 'i1', 'newer')`,
 	)

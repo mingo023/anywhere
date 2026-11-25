@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -864,5 +865,67 @@ func TestAnAskWithdrawnAfterAStopLeavesTheAgentOutOfWorking(t *testing.T) {
 	a.Unblocked()
 	if s := state(a.Summary()); s == "working" {
 		t.Fatalf("a stopped agent went back to %q", s)
+	}
+}
+
+func TestASummaryTellsWhatTheLastTurnDidOnceTheTurnEnds(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.Record(timeline.Event{Kind: "user", Text: "fix it"})
+	a.Working()
+	a.Record(timeline.Event{Kind: "assistant_text", Text: "Fixed."})
+	if got := a.Summary().Recap; got != (proto.Recap{}) {
+		t.Fatalf("recap before the turn ended: %+v", got)
+	}
+	a.Record(timeline.Event{Kind: "result", OK: true})
+	a.TurnEnded(false)
+	if got, want := a.Summary().Recap, (proto.Recap{Asked: "fix it", Said: "Fixed."}); got != want {
+		t.Fatalf("%+v, want %+v", got, want)
+	}
+}
+
+func TestARestoredAgentTellsTheRecapOfTheTimelineTheStoreKept(t *testing.T) {
+	r := NewRegistry(hub.New())
+	r.History = func(string) ([]proto.Item, bool) {
+		return []proto.Item{{ID: "i1", Seq: 1, Kind: "user", Text: "look"}, {ID: "i2", Seq: 2, Kind: "assistant", Text: "Looked."}}, true
+	}
+	a := r.Restore(Restored{ID: "a1", Provider: "claude"}, fakeDriver{})
+	if got, want := a.Summary().Recap, (proto.Recap{Asked: "look", Said: "Looked."}); got != want {
+		t.Fatalf("%+v, want %+v", got, want)
+	}
+}
+
+func TestClearingTheTimelineClearsTheRecap(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.Record(timeline.Event{Kind: "user", Text: "fix it"})
+	a.Working()
+	a.TurnEnded(false)
+	a.ClearTimeline()
+	if got := a.Summary().Recap; got != (proto.Recap{}) {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestAPromptSteeredIntoATurnLeavesItsOpenCallsToEnd(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "antigravity", fakeDriver{})
+	a.Record(timeline.Event{Kind: "user", Text: "one"})
+	a.Record(timeline.Event{Kind: "tool_start", ToolUseID: "sa1", Name: "Task", Input: json.RawMessage(`{"description":"Fix the flaky test"}`)})
+	a.Record(timeline.Event{Kind: "assistant_text", Text: "on it"})
+	a.Record(timeline.Event{Kind: "user", Text: "two", Steer: true})
+	a.Record(timeline.Event{Kind: "assistant_text", Text: "re: two"})
+	a.Record(timeline.Event{Kind: "tool_end", ToolUseID: "sa1", OK: true})
+	items, _ := a.Timeline.Page(0, 200)
+	var got []string
+	for _, it := range items {
+		line := it.Kind + ":" + it.Text
+		if it.Call != nil {
+			line += it.Call.Status
+		}
+		got = append(got, line)
+	}
+	if want := []string{"user:one", "tool:ok", "assistant:on it", "user:two", "assistant:re: two"}; !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if s := a.Summary(); s.Title != "one" || s.Epoch != 1 {
+		t.Fatalf("the steer started a run of its own: %+v", s)
 	}
 }

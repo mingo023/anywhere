@@ -296,6 +296,7 @@ impl Desktop {
             ShowPr => self.show_pr_side(cx),
             SendFix(checks, threads) => self.send_fix(checks, threads, cx),
             Scrolled(away) => self.delegated_scrolled(agent, *away, cx),
+            ReachedTop => self.outbox.older(agent),
         }
     }
 
