@@ -355,7 +355,10 @@ func importPush(tx *sql.Tx, home string) error {
 
 // importConfig keeps each key of config.json under the name `pocketd config set` takes: a top-level value under
 // its key, each member of a top-level object under "key.member", and an empty object under its key as {}.
-// Values are compact JSON. Keys pocketd doesn't know, and a token an older pocketd left, are kept.
+// Values are compact JSON. Keys pocketd doesn't know, and a token an older pocketd left, are kept. The scalar
+// settings stay whole whatever they hold, so config.Load refuses one that isn't a scalar rather than defaulting it.
+var scalarConfig = map[string]bool{"port": true, "listen": true, "ownerListen": true, "token": true}
+
 func importConfig(tx *sql.Tx, home string) error {
 	var top map[string]json.RawMessage
 	if _, err := readJSON(filepath.Join(home, "config.json"), &top); err != nil {
@@ -379,7 +382,7 @@ func importConfig(tx *sql.Tx, home string) error {
 	for _, key := range slices.Sorted(maps.Keys(top)) {
 		raw := top[key]
 		var inner map[string]json.RawMessage
-		if json.Unmarshal(raw, &inner) != nil || len(inner) == 0 {
+		if scalarConfig[key] || json.Unmarshal(raw, &inner) != nil || len(inner) == 0 {
 			if err := set(key, raw); err != nil {
 				return err
 			}

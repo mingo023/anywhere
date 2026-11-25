@@ -16,6 +16,7 @@ import (
 	"pocketd/internal/config/configtest"
 	"pocketd/internal/daemon"
 	"pocketd/internal/launch"
+	"pocketd/internal/lock"
 	"pocketd/internal/reach"
 	"pocketd/internal/statedb"
 )
@@ -167,5 +168,53 @@ func TestAPortSetByTheDaemonsSetterIsThePortAfterARestartAndConfigJSONIsUntouche
 	}
 	if now, _ := os.ReadFile(filepath.Join(home, "config.json")); !bytes.Equal(now, original) {
 		t.Fatalf("config.json became %s", now)
+	}
+}
+
+func TestConfigSetWithNoPocketdRunningWritesTheDatabaseSoABadPortCanBeRepaired(t *testing.T) {
+	home := t.TempDir()
+	original := []byte(`{"port": 0}`)
+	if err := os.WriteFile(filepath.Join(home, "config.json"), original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := statedb.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Load(db, func(string) error { return nil }); err == nil {
+		t.Fatal("port 0 loaded")
+	}
+	db.Close()
+
+	var out bytes.Buffer
+	if err := configSet(filepath.Join(home, "none.sock"), home, "port", "4600", &out); err != nil {
+		t.Fatal(err)
+	}
+	db, err = statedb.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if c, err := config.Load(db, func(string) error { return nil }); err != nil || c.Port != 4600 {
+		t.Fatalf("%+v %v", c, err)
+	}
+	if now, _ := os.ReadFile(filepath.Join(home, "config.json")); !bytes.Equal(now, original) {
+		t.Fatalf("config.json became %s", now)
+	}
+}
+
+func TestConfigSetRefusesToWriteBesideAPocketdThatHoldsTheLock(t *testing.T) {
+	home := t.TempDir()
+	held, err := lock.Acquire(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	var out bytes.Buffer
+	if err := configSet(filepath.Join(home, "none.sock"), home, "port", "4600", &out); !errors.As(err, new(lock.ErrRunning)) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Stat(statedb.Path(home)); err == nil {
+		t.Fatal("pocketd.db written beside a running pocketd")
 	}
 }

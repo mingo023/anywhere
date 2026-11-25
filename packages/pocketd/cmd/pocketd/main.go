@@ -57,7 +57,7 @@ func main() {
 	case os.Args[1] == "hook" && len(os.Args) == 5 && os.Args[2] == "exit":
 		err = hookExit(sock, os.Args[3], os.Args[4])
 	case os.Args[1] == "config" && len(os.Args) == 5 && os.Args[2] == "set":
-		err = configSet(sock, os.Args[3], os.Args[4], os.Stdout)
+		err = configSet(sock, config.Home(), os.Args[3], os.Args[4], os.Stdout)
 	case os.Args[1] == "hook":
 		err = hook(sock)
 	case slices.Equal(os.Args[1:], []string{"hold"}):

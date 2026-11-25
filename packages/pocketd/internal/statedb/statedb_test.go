@@ -17,6 +17,7 @@ import (
 
 	"pocketd/internal/automation"
 	"pocketd/internal/board"
+	"pocketd/internal/config"
 	"pocketd/internal/devices"
 	"pocketd/internal/hosts"
 	"pocketd/internal/names"
@@ -688,4 +689,17 @@ func TestOpenReadOnlyReadsBesideTheDaemonAndAfterItAndWritesNothing(t *testing.T
 	read()
 	daemon.Close()
 	read()
+}
+
+func TestAConfigWhoseListenIsAnObjectImportsWholeAndIsRefused(t *testing.T) {
+	f := newFixture(t)
+	writeJSON(t, filepath.Join(f.home, "config.json"), map[string]any{"port": 4517, "listen": map[string]any{"mode": "loopback"}, "ownerListen": map[string]any{"a": 1}})
+	db := open(t, f.home)
+	var listen string
+	if err := db.QueryRow(`SELECT value FROM config WHERE key = 'listen'`).Scan(&listen); err != nil || listen != `{"mode":"loopback"}` {
+		t.Fatalf("listen row %q: %v", listen, err)
+	}
+	if _, err := config.Load(db, func(string) error { return nil }); err == nil {
+		t.Fatal("an object listen loaded")
+	}
 }
