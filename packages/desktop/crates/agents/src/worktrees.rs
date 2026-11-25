@@ -109,9 +109,13 @@ mod tests {
         assert_eq!((request.as_str(), refusal.code.as_str(), refusal.detail.as_str()), ("wtdelete-2", "teardown_failed", "make: *** [down] Error 1"));
         assert_eq!(refusal.path, "/Users/me/.worktrees/pocket/calm-otter");
         assert!(matches!(decode("ack", r#"{"type":"ack","id":"wtdelete-3"}"#), Some(Event::WorktreeDeleted { reply: Ok(()), .. })));
-        let refused =
-            decode("error", r#"{"type":"error","id":"wtinspect-4","code":"host_outdated","message":"Update Anywhere on devbox to delete its worktrees"}"#);
-        assert!(matches!(refused, Some(Event::WorktreeInspected { reply: Err(m), .. }) if m == "Update Anywhere on devbox to delete its worktrees"));
+        let refused = decode(
+            "error",
+            r#"{"type":"error","id":"wtinspect-4","code":"host_outdated","message":"Can't delete worktrees on devbox: Anywhere there is out of date. Update it on devbox, then try again."}"#,
+        );
+        assert!(
+            matches!(refused, Some(Event::WorktreeInspected { reply: Err(m), .. }) if m == "Can't delete worktrees on devbox: Anywhere there is out of date. Update it on devbox, then try again.")
+        );
         assert!(decode("ack", r#"{"type":"ack","id":"registry-5"}"#).is_none());
         assert!(decode("error", r#"{"type":"error","id":"create-6","message":"no"}"#).is_none());
     }

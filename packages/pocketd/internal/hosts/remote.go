@@ -513,7 +513,7 @@ func (m *Manager) worktrees(ctx context.Context, id string) (*Client, error) {
 	if !slices.Contains(c.Caps, proto.CapWorktrees) {
 		c.Close()
 		h, _ := m.host(id)
-		return nil, Refusal{proto.NewErrorCode("", proto.CodeHostOutdated, "Update Anywhere on "+h.Name+" to delete its worktrees")}
+		return nil, Refusal{proto.NewErrorCode("", proto.CodeHostOutdated, "Can't delete worktrees on "+h.Name+": Anywhere there is out of date. Update it on "+h.Name+", then try again.")}
 	}
 	return c, nil
 }
