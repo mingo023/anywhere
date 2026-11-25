@@ -97,8 +97,14 @@ func TestAnOwnerAddsAndRemovesProjectsAndEveryClientIsToldAndARestartKeepsThem(t
 		t.Fatalf("%+v", l)
 	}
 	owner.Send(map[string]any{"type": "project.remove", "id": "rm", "path": c})
-	owner.WaitFor("ack", func(m Message) bool { return m.Type == "ack" && m.ID == "rm" })
-	registryList(owner, "the removal", func(l proto.RegistryList) bool { return !has(l) })
+	// The shorter list can come before the ack: the removal publishes it, then its hooks run, then the ack goes.
+	acked, removed := false, false
+	owner.WaitFor("the ack and the removal", func(m Message) bool {
+		var l proto.RegistryList
+		acked = acked || m.Type == "ack" && m.ID == "rm"
+		removed = removed || m.Type == "registry.list" && json.Unmarshal([]byte(m.Raw), &l) == nil && !has(l)
+		return acked && removed
+	})
 
 	owner.Send(map[string]any{"type": "project.set", "id": "set", "path": c, "repo": map[string]any{}})
 	owner.WaitFor("unknown project", func(m Message) bool { return m.Type == "error" && m.ID == "set" && m.Code == proto.CodeUnknownProject })
