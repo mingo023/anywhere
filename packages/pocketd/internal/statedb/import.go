@@ -162,7 +162,7 @@ func importLocals(tx *sql.Tx, home string, projects map[string]string) error {
 		proto.Local
 		Auto bool `json:"auto,omitempty"`
 	}
-	if _, err := readJSON(filepath.Join(home, "state", "locals.json"), &locals); err != nil {
+	if ok, err := readJSON(filepath.Join(home, "state", "locals.json"), &locals); err != nil || !ok {
 		return err
 	}
 	byPath := map[string]string{}
@@ -190,7 +190,7 @@ func importLocals(tx *sql.Tx, home string, projects map[string]string) error {
 
 func importNames(tx *sql.Tx, home string) error {
 	var entries map[string]names.Entry
-	if _, err := readJSON(filepath.Join(home, "state", "names.json"), &entries); err != nil {
+	if ok, err := readJSON(filepath.Join(home, "state", "names.json"), &entries); err != nil || !ok {
 		return err
 	}
 	for path, e := range entries {

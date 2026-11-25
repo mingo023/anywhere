@@ -623,6 +623,21 @@ func TestAFileThatCantBeParsedImportsAsEmptyAndIsLeftAsItWas(t *testing.T) {
 	}
 }
 
+func TestALocalsOrNamesFileWithAMistypedFieldImportsAsEmpty(t *testing.T) {
+	f := newFixture(t)
+	writeJSON(t, filepath.Join(f.home, "state", "locals.json"), []any{
+		map[string]any{"id": "good", "project": f.project, "name": "Local 2"},
+		map[string]any{"id": "bad", "project": f.project, "name": 7},
+	})
+	writeJSON(t, filepath.Join(f.home, "state", "names.json"), map[string]any{"/a": map[string]any{"title": "A"}, "/b": map[string]any{"title": 5}})
+	db := open(t, f.home)
+	for _, table := range []string{"locals", "names"} {
+		if n := count(t, db, table); n != 0 {
+			t.Errorf("%s holds %d rows", table, n)
+		}
+	}
+}
+
 func TestRemovingAProjectDeletesItsTicketsAutomationsRunsAndLocals(t *testing.T) {
 	f := newFixture(t)
 	db := open(t, f.home)
