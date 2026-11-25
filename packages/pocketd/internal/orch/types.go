@@ -3,6 +3,8 @@ package orch
 import (
 	"encoding/json"
 	"errors"
+
+	"pocketd/internal/proto"
 )
 
 const (
@@ -137,10 +139,11 @@ type Event struct {
 type Session struct {
 	ID, Project, Worktree, Cwd, Branch, Agent, Access, Model, Effort string
 	Status, Title, Origin, ParentID, Relationship, CreatedBy         string
-	Conversation, Terminal                                           string
+	Conversation, Terminal, Error                                    string
 	Depth                                                            int
 	Chat, Pinned, Failed, Archived                                   bool
 	ClosedAt, CreatedAt, UpdatedAt                                   int64
+	Recap                                                            proto.Recap
 }
 
 func (s Session) Busy() bool { return s.Status == "working" || s.Status == "needsYou" }

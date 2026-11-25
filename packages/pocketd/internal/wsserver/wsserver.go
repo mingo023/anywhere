@@ -116,6 +116,7 @@ type Server struct {
 	OpenSessions func() ([]orch.Session, error)
 
 	pingInterval, pingTimeout time.Duration
+	slowHandler               time.Duration
 	conns                     atomic.Int64
 	preauth                   atomic.Int64
 	failures                  limiter
@@ -125,13 +126,17 @@ type Server struct {
 }
 
 type conn struct {
-	s         *Server
-	key       string
-	ws        *websocket.Conn
-	ip        netip.Addr
-	ctx       context.Context
-	cancel    func()
-	authed    bool
+	s      *Server
+	key    string
+	ws     *websocket.Conn
+	ip     netip.Addr
+	ctx    context.Context
+	cancel func()
+	authed bool
+	// ready is authed for the reader goroutine; authed itself is the handler goroutine's.
+	ready     atomic.Bool
+	closing   atomic.Pointer[string]
+	clientID  string
 	onAuth    func()
 	device    string
 	who       peer.Principal
@@ -213,21 +218,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		c.closeAreas()
 	}()
-	go c.keepalive()
+	if !overSocket(r) {
+		go c.keepalive()
+	}
 	helloCtx, cancelHello := context.WithTimeout(ctx, cmp.Or(s.HelloTimeout, defaultHelloTimeout))
 	defer cancelHello()
-	for {
-		readCtx := ctx
-		if !c.authed {
-			readCtx = helloCtx
-		}
-		_, raw, err := ws.Read(readCtx)
-		if err != nil {
-			ws.CloseNow()
-			return
-		}
-		c.handle(raw)
-	}
+	c.serve(helloCtx)
 }
 
 // keepalive closes a connection whose peer stopped answering, so a sleeping phone's view doesn't mark turns seen.
@@ -242,6 +238,8 @@ func (c *conn) keepalive() {
 		err := c.ws.Ping(ctx)
 		cancel()
 		if err != nil {
+			why := "ping timeout: " + err.Error()
+			c.closing.Store(&why)
 			c.ws.CloseNow()
 			return
 		}
@@ -270,7 +268,7 @@ func (c *conn) handle(raw []byte) {
 	}
 	if m.Type == "hello" {
 		version, caps, code := proto.Negotiate(m.Versions(), m.Caps, proto.ServerCaps)
-		c.caps = caps
+		c.caps, c.clientID = caps, m.ClientID
 		if code == "" && m.ClientID == proto.ClientDesktop && !slices.Contains(caps, proto.CapRegistryV2) {
 			c.send(proto.NewErrorCode(m.ID, proto.CodeClientTooOld, "Update Anywhere on this computer"))
 			c.ws.Close(statusVersionMismatch, proto.CodeClientTooOld)
@@ -577,6 +575,9 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	verb = c.workspaceScope(verb)
 	if r := c.who.Check(verb, c.asking(m.AgentID), m.Text); r != nil {
 		return r
+	}
+	if done, err := c.prompted(m); done {
+		return err
 	}
 	if done, err := c.orchestrated(m); done {
 		if err != nil {

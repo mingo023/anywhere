@@ -85,6 +85,7 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
     public var relationship: String?
     public var createdBy: String?
     public var delegation: DelegationRef?
+    public var recap: Recap?
 
     public init(
         id: String, terminalId: String, title: String, cwd: String, provider: String, model: String? = nil, effort: String? = nil,
@@ -93,7 +94,8 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
         createdAt: Int, updatedAt: Int, project: String? = nil, worktree: String? = nil, mainWorktree: Bool? = nil, branch: String? = nil,
         projectId: String? = nil, tree: String? = nil, tokensUsed: Int? = nil, contextWindow: Int? = nil, origin: String? = nil, activity: String? = nil, account: String? = nil,
         switching: String? = nil, chatOnly: Bool? = nil, goal: Goal? = nil, options: [String: String]? = nil,
-        parent: String? = nil, relationship: String? = nil, createdBy: String? = nil, delegation: DelegationRef? = nil
+        parent: String? = nil, relationship: String? = nil, createdBy: String? = nil, delegation: DelegationRef? = nil,
+        recap: Recap? = nil
     ) {
         self.id = id
         self.terminalId = terminalId
@@ -135,6 +137,33 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
         self.relationship = relationship
         self.createdBy = createdBy
         self.delegation = delegation
+        self.recap = recap
+    }
+}
+
+/// What a session's last turn did: the prompt the user last sent, files read and edited, and the last thing the agent said.
+public struct Recap: Codable, Hashable, Sendable {
+    public var asked: String?
+    public var read: Int?
+    public var edited: Int?
+    public var said: String?
+    public init(asked: String? = nil, read: Int? = nil, edited: Int? = nil, said: String? = nil) {
+        self.asked = asked
+        self.read = read
+        self.edited = edited
+        self.said = said
+    }
+}
+
+/// What came of an acked `agent.prompt`; `ServerFrame` carries the prompt's id.
+public struct AgentDelivery: Codable, Hashable, Sendable {
+    public var agentId: String
+    public var state: String
+    public var error: String?
+    public init(agentId: String, state: String, error: String? = nil) {
+        self.agentId = agentId
+        self.state = state
+        self.error = error
     }
 }
 

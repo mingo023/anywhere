@@ -495,6 +495,7 @@ func TestAChatOnABigStoreFromBeforeKeepsItsTimelineAndWritesWithoutStalling(t *t
 		`CREATE VIRTUAL TABLE items_fts USING fts5 (session_id UNINDEXED, item_id UNINDEXED, text)`,
 		`INSERT INTO items_fts (rowid, session_id, item_id, text) SELECT 1000000 - rowid, session_id, item_id, text FROM items WHERE text != ''`,
 		`DELETE FROM schema_version WHERE version > 5`,
+		`ALTER TABLE sessions DROP COLUMN recap`,
 	} {
 		if _, err := store.DB().Exec(q); err != nil {
 			t.Fatal(err)

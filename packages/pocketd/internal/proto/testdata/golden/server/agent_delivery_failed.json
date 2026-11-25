@@ -1,0 +1,7 @@
+{
+  "type": "agent.delivery",
+  "id": "prompt-k3x9-2",
+  "agentId": "a1",
+  "state": "failed",
+  "error": "This session is still resuming"
+}
