@@ -48,6 +48,9 @@ func (s *Session) launchOf(id string) string {
 // role is the role of the sub-agent child in the descriptor agy writes as it
 // launches one; "" if it has none.
 func (s *Session) role(child string) string {
+	if filepath.Base(child) != child {
+		return ""
+	}
 	raw, _ := os.ReadFile(filepath.Join(brain, s.id, ".system_generated", "subagents", child+".json"))
 	var d struct {
 		Descriptor struct {
@@ -63,6 +66,20 @@ func (t *tool) role() string {
 	var in struct{ Role string }
 	json.Unmarshal(t.RawInput, &in)
 	return in.Role
+}
+
+// shownCall is the card of the sub-agent's call id that the timeline of a
+// turn a pocketd before this one started still shows running.
+func (s *Session) shownCall(id string) (string, bool) {
+	if !s.adopted || !s.f.childCalls || s.Showing == nil || !strings.Contains(id, ":") {
+		return "", false
+	}
+	for _, it := range s.Showing() {
+		if it.Call != nil && it.Call.ToolUseID == id && it.Call.Status == "running" && it.ParentToolUseID != "" {
+			return it.ParentToolUseID, true
+		}
+	}
+	return "", false
 }
 
 // endLaunches ends the sub-agents launched this turn with it: agy answers the
@@ -113,6 +130,7 @@ func (s *Session) endShownLaunches(end timeline.Event) {
 	}
 	for _, it := range shown {
 		if running(it) && slices.Contains(launches, it.ParentToolUseID) {
+			delete(s.tools, it.Call.ToolUseID)
 			s.record(timeline.Event{Kind: "tool_end", ToolUseID: it.Call.ToolUseID, Output: &out})
 		}
 	}

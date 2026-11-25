@@ -1380,6 +1380,9 @@ func (s *Session) tool(u toolCall, starts bool, parent string) {
 			return
 		}
 		t = &tool{parent: parent}
+		if card, ok := s.shownCall(u.ID); ok {
+			t.parent, t.started = card, true
+		}
 		s.tools[u.ID] = t
 	}
 	t.merge(u)
