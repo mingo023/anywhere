@@ -233,11 +233,11 @@ func (o *orchestrator) takeIn(entries []state.Terminal) {
 	o.saved(state.File{Terminals: entries})
 }
 
-// openSessions reads the store's open sessions once the sink has written
-// what it was given, so a session just closed isn't read as open.
+// openSessions reads the store's open sessions with what the sink hasn't
+// written yet laid over them, so a session just closed isn't read as open and
+// the read doesn't wait on the sink.
 func (o *orchestrator) openSessions() ([]orch.Session, error) {
-	o.sink.Flush()
-	return o.store.OpenSessions()
+	return o.sink.OpenSessions()
 }
 
 // session is id's, or what lineage keeps of it past retention.

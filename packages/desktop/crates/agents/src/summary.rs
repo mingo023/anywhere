@@ -45,6 +45,20 @@ pub struct Summary {
     pub project_id: String,
     /// The worktree it runs in, or the project's folder when that's no repository.
     pub tree: String,
+    /// The first line of the failed turn's error; only with `failed`.
+    pub error: String,
+    pub recap: Recap,
+}
+
+/// What a session's last turn did: the prompt the user last sent, how many files it read and edited, and the last
+/// thing the agent said; sub-agents' work isn't counted.
+#[derive(Deserialize, Default, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct Recap {
+    pub asked: String,
+    pub read: usize,
+    pub edited: usize,
+    pub said: String,
 }
 
 /// An agent's `/goal`.
@@ -353,5 +367,17 @@ mod tests {
     fn the_golden_options_ride_on_their_agent() {
         let f: Frame = serde_json::from_value(golden!("server/agent_update_options.json")).unwrap();
         assert_eq!(f.agent.unwrap().options, HashMap::from([("fast".to_string(), "true".to_string())]));
+    }
+
+    #[test]
+    fn the_golden_recap_rides_on_its_agent() {
+        let f: Frame = serde_json::from_value(golden!("server/agent_update_recap.json")).unwrap();
+        assert_eq!(f.agent.unwrap().recap, Recap { asked: "fix it".into(), read: 2, edited: 1, said: "Fixed.".into() });
+    }
+
+    #[test]
+    fn the_golden_failure_names_its_error() {
+        let f: Frame = serde_json::from_value(golden!("server/agent_update_failed.json")).unwrap();
+        assert_eq!(f.agent.unwrap().error, "API Error: 529 overloaded");
     }
 }

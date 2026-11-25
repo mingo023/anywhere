@@ -108,7 +108,7 @@ fn every_desktop_client_is_owner_over_the_forwarded_tcp_port_with_a_paired_token
     let out = client.exec("/", &["echo", "hi"], None, Duration::from_secs(10)).unwrap();
     assert_eq!((out.code, String::from_utf8_lossy(&out.stdout).trim()), (0, "hi"));
 
-    let (_outbox, mut events) = agents::connect_with(&sock, Some(token));
+    let (_outbox, mut events) = agents::connect_with(&sock, Some(token), agents::Peer::Host, None);
     let connected = block_on(async {
         while let Some(ev) = events.next().await {
             if let agents::Event::Connected { scopes, .. } = ev {

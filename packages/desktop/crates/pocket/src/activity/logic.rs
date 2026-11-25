@@ -1,4 +1,6 @@
 use crate::status::Status;
+use crate::util::first_line;
+use agents::{Recap, Summary};
 use std::cmp::Reverse;
 use std::collections::{BTreeSet, HashMap};
 
@@ -266,6 +268,24 @@ pub(crate) fn marks_seen(status: Option<Status>) -> bool {
     matches!(status, Some(Status::Done | Status::Failed))
 }
 
+/// pocketd cuts `Recap::asked` at 2000 runes (recap.go); a prompt that long reached us short.
+const ASKED_CUT: usize = 2000;
+
+pub(crate) fn retry_prompt(recap: &Recap) -> Option<&str> {
+    let asked = recap.asked.as_str();
+    (!asked.is_empty() && asked.chars().count() < ASKED_CUT).then_some(asked)
+}
+
+pub(crate) fn note(a: &Summary, status: Option<Status>, ask: Option<String>) -> String {
+    match status {
+        Some(Status::NeedsYou) => ask.unwrap_or_else(|| first_line(&a.recap.said)),
+        Some(Status::Failed) => first_line(&a.error),
+        Some(Status::Working) => a.activity.clone(),
+        Some(Status::Done) => first_line(&a.recap.said),
+        Some(Status::Idle) | None => String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,5 +496,31 @@ mod tests {
         assert_eq!(item("a", Some(Status::Failed), false, 0).label(), "Failed");
         assert_eq!(item("a", None, true, 0).label(), "Not attached");
         assert_eq!(item("a", Some(Status::Idle), true, 0).label(), "In review");
+    }
+
+    #[test]
+    fn a_cards_line_comes_from_the_summary() {
+        let a = Summary {
+            error: "\nexit 1\nmore".into(),
+            activity: "Running tests".into(),
+            recap: Recap { said: "\nTagged v2\nmore".into(), ..Recap::default() },
+            ..Summary::default()
+        };
+        let line = |status, ask: Option<&str>| note(&a, status, ask.map(String::from));
+        assert_eq!(line(Some(Status::Failed), None), "exit 1");
+        assert_eq!(line(Some(Status::Done), None), "Tagged v2");
+        assert_eq!(line(Some(Status::NeedsYou), None), "Tagged v2");
+        assert_eq!(line(Some(Status::NeedsYou), Some("Wants to use Bash")), "Wants to use Bash");
+        assert_eq!(line(Some(Status::Working), None), "Running tests");
+        assert_eq!(line(Some(Status::Idle), None), "");
+    }
+
+    #[test]
+    fn a_retry_sends_the_prompt_the_recap_holds_unless_pocketd_cut_it() {
+        let asked = |text: &str| Recap { asked: text.into(), ..Recap::default() };
+        assert_eq!(retry_prompt(&asked("fix it")), Some("fix it"));
+        assert_eq!(retry_prompt(&asked("")), None);
+        assert_eq!(retry_prompt(&asked(&"é".repeat(1999))), Some("é".repeat(1999).as_str()));
+        assert_eq!(retry_prompt(&asked(&"é".repeat(2000))), None, "a prompt cut at the limit would be sent short");
     }
 }

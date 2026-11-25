@@ -1,10 +1,13 @@
 package orch
 
 import (
+	"cmp"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"log"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +30,14 @@ type Sink struct {
 	queue  []sinkOp
 	closed bool
 	last   map[string]proto.AgentSummary
+	// pending is each session's newest summary queued and not yet committed; n numbers them.
+	pending map[string]pendingSummary
+	n       uint64
+}
+
+type pendingSummary struct {
+	sum proto.AgentSummary
+	n   uint64
 }
 
 // TurnChange is a session's turn starting (To = working) or ending.
@@ -47,11 +58,12 @@ type sinkOp struct {
 	released []string
 	session  string
 	epoch    int64
+	n        uint64
 	done     chan struct{}
 }
 
 func NewSink(s *Store) *Sink {
-	k := &Sink{store: s, last: map[string]proto.AgentSummary{}}
+	k := &Sink{store: s, last: map[string]proto.AgentSummary{}, pending: map[string]pendingSummary{}}
 	k.wake = sync.NewCond(&k.mu)
 	go k.run()
 	return k
@@ -74,6 +86,11 @@ func (k *Sink) Released(session string, tasks []string) {
 func (k *Sink) push(op sinkOp) {
 	k.mu.Lock()
 	if !k.closed {
+		if op.summary != nil {
+			k.n++
+			op.n = k.n
+			k.pending[op.session] = pendingSummary{*op.summary, op.n}
+		}
 		k.queue = append(k.queue, op)
 		k.wake.Signal()
 	}
@@ -150,6 +167,8 @@ func (k *Sink) run() {
 		})
 		if err != nil {
 			log.Printf("orch: write: %v", err)
+		} else {
+			k.written(batch)
 		}
 		for _, d := range dones {
 			close(d)
@@ -160,6 +179,74 @@ func (k *Sink) run() {
 			}
 		}
 	}
+}
+
+// written forgets the summaries of batch that committed, except where a newer one for the session is queued.
+func (k *Sink) written(batch []sinkOp) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	for _, op := range batch {
+		if op.summary != nil && k.pending[op.session].n == op.n {
+			delete(k.pending, op.session)
+		}
+	}
+}
+
+// OpenSessions is the store's open sessions with the summaries queued and not
+// yet written laid over them, so it needs no Flush: a session whose close is
+// queued is left out, and a queued status wins. Sessions the store hasn't
+// heard of yet are added.
+func (k *Sink) OpenSessions() ([]Session, error) {
+	// Taken before the read: a summary that commits in between is laid over a row that already holds it.
+	pending := k.unwritten()
+	stored, err := k.store.OpenSessions()
+	if err != nil {
+		return nil, err
+	}
+	return overlay(stored, pending), nil
+}
+
+func (k *Sink) unwritten() map[string]pendingSummary {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return maps.Clone(k.pending)
+}
+
+func overlay(stored []Session, pending map[string]pendingSummary) []Session {
+	out := make([]Session, 0, len(stored))
+	stays := map[string]bool{}
+	for _, x := range stored {
+		stays[x.ID] = true
+		p, ok := pending[x.ID]
+		switch {
+		case !ok:
+			out = append(out, x)
+		case p.sum.Status != "closed":
+			out = append(out, laid(x, p.sum))
+		}
+	}
+	added := false
+	for id, p := range pending {
+		// An id with a slash is a host's session, which the store lists only by its own pocketd's summary.
+		if !stays[id] && p.sum.Status != "closed" && !strings.Contains(id, "/") {
+			out = append(out, laid(Session{ID: id, ParentID: p.sum.Parent, Relationship: p.sum.Relationship, CreatedBy: p.sum.CreatedBy, CreatedAt: p.sum.CreatedAt}, p.sum))
+			added = true
+		}
+	}
+	if added {
+		slices.SortFunc(out, func(a, b Session) int { return cmp.Or(cmp.Compare(a.CreatedAt, b.CreatedAt), cmp.Compare(a.ID, b.ID)) })
+	}
+	return out
+}
+
+// laid is x with what putSummary writes from s.
+func laid(x Session, s proto.AgentSummary) Session {
+	x.Project, x.Worktree, x.Cwd, x.Branch, x.Agent, x.Access, x.Model, x.Effort = s.Project, s.Worktree, s.Cwd, s.Branch, s.Provider, s.Access, s.Model, s.Effort
+	x.Conversation, x.Terminal, x.Chat, x.Status, x.Failed, x.Pinned, x.Title, x.Origin, x.UpdatedAt, x.Error = s.ProviderSessionID, s.TerminalID, s.ChatOnly, s.Status, s.Failed, s.Pinned, s.Title, s.Origin, s.UpdatedAt, s.Error
+	if s.Recap != (proto.Recap{}) {
+		x.Recap = s.Recap
+	}
+	return x
 }
 
 func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
@@ -183,15 +270,20 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 	if s.Status == "closed" {
 		closedAt = now
 	}
-	_, err := tx.Exec(`INSERT INTO sessions (id, project, worktree, cwd, branch, agent, account, access, model, effort, conversation, terminal, chat, status, failed, error, pinned, title, origin, resets, created_at, updated_at, closed_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	recap := ""
+	if s.Recap != (proto.Recap{}) {
+		raw, _ := json.Marshal(s.Recap)
+		recap = string(raw)
+	}
+	_, err := tx.Exec(`INSERT INTO sessions (id, project, worktree, cwd, branch, agent, account, access, model, effort, conversation, terminal, chat, status, failed, error, pinned, title, origin, resets, recap, created_at, updated_at, closed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET project = excluded.project, worktree = excluded.worktree, cwd = excluded.cwd, branch = excluded.branch,
 			agent = excluded.agent, account = excluded.account, access = excluded.access, model = excluded.model, effort = excluded.effort,
 			conversation = excluded.conversation, terminal = excluded.terminal, chat = excluded.chat, status = excluded.status, failed = excluded.failed,
 			error = excluded.error, pinned = excluded.pinned, title = excluded.title, origin = excluded.origin, resets = excluded.resets,
-			updated_at = excluded.updated_at, closed_at = CASE WHEN excluded.closed_at > 0 AND sessions.closed_at = 0 THEN excluded.closed_at WHEN excluded.closed_at = 0 THEN 0 ELSE sessions.closed_at END`,
+			recap = CASE WHEN excluded.recap != '' THEN excluded.recap ELSE sessions.recap END, updated_at = excluded.updated_at, closed_at = CASE WHEN excluded.closed_at > 0 AND sessions.closed_at = 0 THEN excluded.closed_at WHEN excluded.closed_at = 0 THEN 0 ELSE sessions.closed_at END`,
 		s.ID, s.Project, s.Worktree, s.Cwd, s.Branch, s.Provider, s.Account, s.Access, s.Model, s.Effort, s.ProviderSessionID, s.TerminalID,
-		s.ChatOnly, s.Status, s.Failed, s.Error, s.Pinned, s.Title, s.Origin, s.Resets, s.CreatedAt, s.UpdatedAt, closedAt)
+		s.ChatOnly, s.Status, s.Failed, s.Error, s.Pinned, s.Title, s.Origin, s.Resets, recap, s.CreatedAt, s.UpdatedAt, closedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +293,9 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 			return nil, err
 		}
 		if _, err := tx.Exec(`DELETE FROM items WHERE session_id = ?`, s.ID); err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(`UPDATE sessions SET recap = '' WHERE id = ?`, s.ID); err != nil {
 			return nil, err
 		}
 	}

@@ -1,5 +1,6 @@
 use crate::rows::at_work;
 use crate::{End, Transcript};
+use agents::PromptState;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Delivery {
@@ -16,18 +17,18 @@ pub struct Pending {
     /// Stays with the send while others ahead of it settle, so a click finds it.
     pub id: u64,
     pub text: String,
-    /// When it went to the agent; for a queued send, when it was queued. Its 120s grace runs from then, or from when
-    /// the agent was next seen idle, as an agent may hold a prompt sent mid-turn until the turn ends.
+    /// When it went to the agent; for a queued send, when it was queued.
     pub sent_at: i64,
     pub delivery: Delivery,
+    pub state: PromptState,
+    /// Why it failed, in pocketd's words, once `delivery` is `Failed`.
+    failure: Option<String>,
     /// The id it went to pocketd under, which a refusal names.
     request: Option<String>,
     /// A stop put it back in the queue after it went out; should the agent run it after all, its echo settles it.
     stopped: bool,
 }
 
-/// A prompt must reach the transcript within this long of being sent, or it reads as not delivered.
-const GRACE_MS: i64 = 120_000;
 /// How far the agent's clock may run behind ours when its prompt item is stamped.
 const SKEW_MS: i64 = 10_000;
 /// Enough claimed prompts to tell a repeated send from the one before it.
@@ -96,7 +97,16 @@ impl Outgoing {
         let delivery = if working { Delivery::Queued } else { Delivery::Sending };
         self.after_stop |= working && self.stopping.is_some();
         self.next_id += 1;
-        self.sends.push(Pending { id: self.next_id, text, sent_at: now_ms, delivery, request: None, stopped: false });
+        self.sends.push(Pending {
+            id: self.next_id,
+            text,
+            sent_at: now_ms,
+            delivery,
+            state: PromptState::Sending,
+            failure: None,
+            request: None,
+            stopped: false,
+        });
         (!working).then_some(self.next_id)
     }
 
@@ -106,7 +116,16 @@ impl Outgoing {
             self.command = Some(Ran::new(now_ms));
         }
         self.next_id += 1;
-        self.sends.push(Pending { id: self.next_id, text, sent_at: now_ms, delivery: Delivery::Steered, request: None, stopped: false });
+        self.sends.push(Pending {
+            id: self.next_id,
+            text,
+            sent_at: now_ms,
+            delivery: Delivery::Steered,
+            state: PromptState::Sending,
+            failure: None,
+            request: None,
+            stopped: false,
+        });
         self.next_id
     }
 
@@ -126,8 +145,8 @@ impl Outgoing {
         }
     }
 
-    /// Drops sends whose prompt reached the transcript and, while the agent is idle, fails those past their grace. Once
-    /// the agent is idle with nothing on its way, and not paused, lets the oldest queued send go: one per turn, in order.
+    /// Drops sends whose prompt reached the transcript. Once the agent is idle with nothing on its way, and not paused,
+    /// lets the oldest queued send go: one per turn, in order. No timer fails a send; only pocketd's word does.
     /// `working` is pocketd's status, which decides only where the transcript can't; see `busy`.
     pub fn settle(&mut self, t: &Transcript, working: bool, now_ms: i64) {
         let idle = !self.compacting && !on_turn(t, working);
@@ -194,11 +213,6 @@ impl Outgoing {
         }
         if !idle {
             return;
-        }
-        for send in &mut self.sends {
-            if in_flight(send.delivery) && !command(&send.text) && now_ms - send.sent_at.max(self.idle_since) > GRACE_MS {
-                send.delivery = Delivery::Failed;
-            }
         }
         if !self.paused(t) && !busy(t, self, working) {
             let id = self.sends.iter().find(|s| s.delivery == Delivery::Queued).map(|s| s.id);
@@ -268,11 +282,26 @@ impl Outgoing {
     }
 
     /// Fails the send that went under `request` at once: the agent refused it. The queue waits until a send gets through or the user resumes.
-    pub fn fail(&mut self, request: &str) {
+    pub fn fail(&mut self, request: &str, reason: &str) {
         if let Some(send) = self.sends.iter_mut().find(|s| in_flight(s.delivery) && s.request.as_deref() == Some(request)) {
             send.delivery = Delivery::Failed;
+            send.failure = Some(reason.into());
             self.refused = true;
         }
+    }
+
+    /// Notes where pocketd has the send that went under `request`; a failed send stays failed.
+    pub fn prompt_state(&mut self, request: &str, state: PromptState) {
+        if let Some(send) = self.sends.iter_mut().find(|s| in_flight(s.delivery) && s.request.as_deref() == Some(request)) {
+            send.state = state;
+        }
+    }
+
+    /// What the line under the sends says: of those still on their way, the one in most doubt. None once the agent has
+    /// them all.
+    pub fn trail(&self) -> Option<PromptState> {
+        let states = || self.sends.iter().filter(|s| s.delivery == Delivery::Sending).map(|s| s.state);
+        [PromptState::Resending, PromptState::Sending, PromptState::Delivered].into_iter().find(|wanted| states().any(|s| s == *wanted))
     }
 
     /// Whether queued sends wait for the user because the last turn ended in a stop or an error, or is being stopped,
@@ -371,6 +400,26 @@ fn tidy(text: &str) -> String {
     }
 }
 
+/// The line under the sends for `state`; none once the agent has them.
+pub fn trail_text(state: PromptState) -> Option<&'static str> {
+    match state {
+        PromptState::Sending => Some("Sending…"),
+        PromptState::Resending => Some("Sending again…"),
+        PromptState::Delivered => Some("Delivered, waiting for agent…"),
+        PromptState::Taken => None,
+    }
+}
+
+impl Pending {
+    /// What a failed send says under its bubble.
+    pub fn not_delivered(&self) -> Option<String> {
+        (self.delivery == Delivery::Failed).then(|| match self.failure.as_deref() {
+            Some(reason) if !reason.is_empty() => format!("Not delivered — {reason} · click to retry"),
+            _ => "Not delivered — click to retry".into(),
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     Send,
@@ -445,14 +494,13 @@ mod tests {
     }
 
     #[test]
-    fn a_send_not_seen_in_two_minutes_is_not_delivered() {
+    fn a_send_not_seen_in_hours_is_never_failed_by_the_clock() {
         let mut o = Outgoing::default();
         o.push("hello".into(), false, 0);
         let empty = Transcript::default();
-        o.settle(&empty, false, 120_000);
-        assert_eq!(deliveries(&o), vec![Delivery::Sending]);
         o.settle(&empty, false, 120_001);
-        assert_eq!(deliveries(&o), vec![Delivery::Failed]);
+        o.settle(&empty, false, 36_000_000);
+        assert_eq!(deliveries(&o), vec![Delivery::Sending]);
     }
 
     fn texts(o: &Outgoing) -> Vec<&str> {
@@ -513,17 +561,15 @@ mod tests {
     }
 
     #[test]
-    fn a_released_send_gets_two_minutes_from_its_release() {
+    fn a_released_send_waits_for_its_own_prompt_however_long() {
         let mut o = Outgoing::default();
         o.push("next".into(), true, 0);
         let ended = Transcript { turns: vec![turn("u1", 0, "next", true)] };
         o.settle(&Transcript { turns: vec![turn("u1", 0, "next", false)] }, false, 1_000);
         o.settle(&ended, false, 400_000);
         assert_eq!(deliveries(&o), vec![Delivery::Sending], "an earlier prompt of the same text is not this one");
-        o.settle(&ended, false, 520_000);
+        o.settle(&ended, false, 36_000_000);
         assert_eq!(deliveries(&o), vec![Delivery::Sending]);
-        o.settle(&ended, false, 520_001);
-        assert_eq!(deliveries(&o), vec![Delivery::Failed]);
     }
 
     #[test]
@@ -574,10 +620,10 @@ mod tests {
     #[test]
     fn retry_hands_back_a_failed_send() {
         let mut o = Outgoing::default();
-        o.push("hello".into(), false, 0);
+        sent(&mut o, "hello", "prompt-1");
         let hello = id(&o, "hello");
         assert_eq!(o.retry(hello), None);
-        o.settle(&Transcript::default(), false, 200_000);
+        o.fail("prompt-1", "No such session");
         assert_eq!(o.retry(hello), Some("hello".into()));
         assert!(o.list().is_empty());
         assert_eq!(o.retry(hello), None);
@@ -676,9 +722,9 @@ mod tests {
         let mut o = Outgoing::default();
         sent(&mut o, "a", "prompt-1");
         o.push("a".into(), true, 0);
-        o.fail("prompt-1");
+        o.fail("prompt-1", "No such session");
         assert_eq!(deliveries(&o), vec![Delivery::Failed, Delivery::Queued], "a queued send of the same text never went");
-        o.fail("prompt-1");
+        o.fail("prompt-1", "No such session");
         assert_eq!(deliveries(&o), vec![Delivery::Failed, Delivery::Queued]);
         assert!(released(&mut o).is_empty());
     }
@@ -689,7 +735,7 @@ mod tests {
         sent(&mut o, "a", "prompt-1");
         o.push("b".into(), true, 0);
         o.push("c".into(), true, 0);
-        o.fail("prompt-1");
+        o.fail("prompt-1", "No such session");
         let idle = Transcript::default();
         o.settle(&idle, false, 1_000);
         assert!(released(&mut o).is_empty(), "the next send would be refused too");
@@ -704,7 +750,7 @@ mod tests {
         let mut o = Outgoing::default();
         sent(&mut o, "a", "prompt-1");
         o.push("b".into(), true, 0);
-        o.fail("prompt-1");
+        o.fail("prompt-1", "No such session");
         let retried = o.retry(id(&o, "a")).unwrap();
         sent(&mut o, &retried, "prompt-2");
         let done = Transcript { turns: vec![turn("u1", 100, "a", true)] };
@@ -718,7 +764,7 @@ mod tests {
         let mut o = Outgoing::default();
         sent(&mut o, "continue", "prompt-1");
         sent(&mut o, "continue", "prompt-2");
-        o.fail("prompt-2");
+        o.fail("prompt-2", "No such session");
         assert_eq!(deliveries(&o), vec![Delivery::Sending, Delivery::Failed], "the first went through; the second was refused");
     }
 
@@ -734,16 +780,17 @@ mod tests {
     #[test]
     fn retrying_one_failed_send_leaves_the_others_alone() {
         let mut o = Outgoing::default();
-        o.push("a".into(), false, 0);
-        o.push("b".into(), false, 0);
-        o.settle(&Transcript::default(), false, 200_000);
+        sent(&mut o, "a", "prompt-1");
+        sent(&mut o, "b", "prompt-2");
+        o.fail("prompt-1", "No such session");
+        o.fail("prompt-2", "No such session");
         assert_eq!(o.retry(id(&o, "b")), Some("b".into()));
         assert_eq!(texts(&o), ["a"]);
         assert_eq!(deliveries(&o), vec![Delivery::Failed]);
     }
 
     #[test]
-    fn a_steered_send_waits_out_a_long_turn_without_failing() {
+    fn a_steered_send_waits_out_a_long_turn_and_the_idle_after_it_without_failing() {
         let mut o = Outgoing::default();
         o.push("b".into(), true, 0);
         o.steer(id(&o, "b"), 50_000);
@@ -751,10 +798,8 @@ mod tests {
         assert_eq!(deliveries(&o), vec![Delivery::Steered], "Claude holds it until its turn ends");
         let ended = Transcript { turns: vec![turn("u1", 0, "long job", true)] };
         o.settle(&ended, false, 601_000);
-        o.settle(&ended, false, 721_000);
-        assert_eq!(deliveries(&o), vec![Delivery::Steered], "two minutes from when the agent was seen idle");
-        o.settle(&ended, false, 721_001);
-        assert_eq!(deliveries(&o), vec![Delivery::Failed], "an unsent prompt still fails after 120s idle");
+        o.settle(&ended, false, 36_000_000);
+        assert_eq!(deliveries(&o), vec![Delivery::Steered], "only pocketd's word fails a send, never the clock");
     }
 
     #[test]
@@ -1176,5 +1221,63 @@ mod tests {
         assert_eq!(action(true, true, true), Action::Stopping);
         assert_eq!(action(true, true, false), Action::Queue);
         assert_eq!(action(false, true, true), Action::Send, "the turn ended before the stop cleared");
+    }
+
+    #[test]
+    fn a_failed_send_says_why_and_without_a_reason_just_that_it_failed() {
+        let mut o = Outgoing::default();
+        sent(&mut o, "a", "prompt-1");
+        sent(&mut o, "b", "prompt-2");
+        o.fail("prompt-1", "This session is still resuming");
+        o.fail("prompt-2", "");
+        let [a, b] = [&o.list()[0], &o.list()[1]];
+        assert_eq!(a.not_delivered().as_deref(), Some("Not delivered — This session is still resuming · click to retry"));
+        assert_eq!(b.not_delivered().as_deref(), Some("Not delivered — click to retry"));
+        sent(&mut o, "c", "prompt-3");
+        assert_eq!(o.list()[2].not_delivered(), None);
+    }
+
+    #[test]
+    fn a_send_reads_as_sending_again_while_the_link_is_down_and_as_delivered_once_pocketd_has_it() {
+        let mut o = Outgoing::default();
+        sent(&mut o, "a", "prompt-1");
+        assert_eq!(o.trail(), Some(PromptState::Sending));
+        o.prompt_state("prompt-1", PromptState::Resending);
+        assert_eq!(o.trail().and_then(trail_text), Some("Sending again…"));
+        o.prompt_state("prompt-1", PromptState::Sending);
+        o.prompt_state("prompt-1", PromptState::Delivered);
+        assert_eq!(o.trail().and_then(trail_text), Some("Delivered, waiting for agent…"));
+        o.prompt_state("prompt-1", PromptState::Taken);
+        assert_eq!(o.trail(), None, "the agent has it; its echo is all that's left");
+        assert_eq!(deliveries(&o), vec![Delivery::Sending], "still waiting for the echo");
+    }
+
+    #[test]
+    fn the_trail_speaks_of_the_send_in_most_doubt() {
+        let mut o = Outgoing::default();
+        sent(&mut o, "a", "prompt-1");
+        sent(&mut o, "b", "prompt-2");
+        o.prompt_state("prompt-1", PromptState::Delivered);
+        assert_eq!(o.trail(), Some(PromptState::Sending), "b is still on its way");
+        o.prompt_state("prompt-2", PromptState::Resending);
+        assert_eq!(o.trail(), Some(PromptState::Resending));
+    }
+
+    #[test]
+    fn a_state_that_comes_after_a_failure_does_not_undo_it() {
+        let mut o = Outgoing::default();
+        sent(&mut o, "a", "prompt-1");
+        o.fail("prompt-1", "No such session");
+        o.prompt_state("prompt-1", PromptState::Resending);
+        assert_eq!((deliveries(&o), o.list()[0].state), (vec![Delivery::Failed], PromptState::Sending));
+    }
+
+    #[test]
+    fn a_state_names_the_send_that_went_under_its_request() {
+        let mut o = Outgoing::default();
+        sent(&mut o, "a", "prompt-1");
+        sent(&mut o, "b", "prompt-2");
+        o.prompt_state("prompt-2", PromptState::Resending);
+        assert_eq!(o.list().iter().map(|p| p.state).collect::<Vec<_>>(), [PromptState::Sending, PromptState::Resending]);
     }
 }

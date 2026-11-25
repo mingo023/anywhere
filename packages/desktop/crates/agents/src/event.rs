@@ -6,6 +6,7 @@ use crate::locals::Local;
 use crate::providers::ProviderInfo;
 use crate::queue::Entry;
 use crate::registry;
+use crate::resend::PromptState;
 use crate::tickets::{self, Ticket};
 use crate::{Command, Item, McpServer, Permission, Summary};
 use serde::Deserialize;
@@ -57,6 +58,8 @@ pub(super) struct Frame {
     #[serde(deserialize_with = "automations::readable_items")]
     pub(super) tickets: Vec<Ticket>,
     pub(super) limit: Option<usize>,
+    pub(super) state: String,
+    pub(super) error: String,
 }
 
 /// What pocketd reports about the Mac it runs on.
@@ -78,7 +81,7 @@ pub enum Event {
     Agents(Vec<Summary>),
     Agent(Box<Summary>),
     Items(String, Vec<Item>),
-    /// The newest of a chat's items, which pocketd sends on each connect; `max_seq` is the newest seq it had then.
+    /// The newest of a chat's items, which the link asks pocketd for once the chat is opened or on screen; `max_seq` is the newest seq it had then.
     Page {
         agent: String,
         items: Vec<Item>,
@@ -154,10 +157,18 @@ pub enum Event {
     },
     /// pocketd refused a board message.
     BoardError(String),
-    /// pocketd refused the prompt sent under `request`, or the socket never took it; it isn't sent again, so it can't be typed twice.
+    /// pocketd refused the prompt sent under `request`, the agent didn't take it, or the link stayed down; `reason` says
+    /// why. It isn't sent again, so it can't be typed twice.
     PromptFailed {
         agent: String,
         request: String,
+        reason: String,
+    },
+    /// Where the prompt sent under `request` stands now.
+    PromptState {
+        agent: String,
+        request: String,
+        state: PromptState,
     },
     /// pocketd refused to stop the agent's turn, or the socket never took the stop; `reason` says why.
     InterruptFailed {

@@ -1,5 +1,5 @@
 use crate::rows::{Span, at_work, group_start, rows_from};
-use crate::{Backend, Block, Delivery, Fold, Outgoing, Row, Transcript, Turn, splice};
+use crate::{Backend, Block, Fold, Outgoing, Row, Transcript, Turn, splice};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -42,7 +42,7 @@ impl Session {
             (turns - replaced.len(), replaced)
         });
         self.outgoing.settle(&self.transcript, working, now_ms);
-        let sending = self.outgoing.echoed().any(|(_, p)| p.delivery == Delivery::Sending);
+        let sending = self.outgoing.trail().is_some();
         let sends = (self.outgoing.echoed().count(), sending || (self.outgoing.compacting() && !at_work(&self.transcript)));
         let regroup = self.regroup.take();
         if old.is_none() && sends == self.sends && regroup.is_none() {
@@ -342,9 +342,28 @@ mod tests {
         let mut s = Session::default();
         let items = vec![item(1, json!({"kind": "user", "text": "go"})), item(2, json!({"kind": "result", "ok": true}))];
         s.update(backend, 1, &items, false, 0);
-        s.outgoing.push("next".into(), false, 10);
+        let next = s.outgoing.push("next".into(), false, 10).unwrap();
+        s.outgoing.sent_as(next, "prompt-1".into());
         s.update(backend, 1, &items, false, 10);
-        assert_eq!(s.update(backend, 1, &items, false, 200_000), Some((4..4, 4..5, 0)));
+        s.outgoing.fail("prompt-1", "This session is still resuming");
+        assert_eq!(s.update(backend, 1, &items, false, 20), Some((4..4, 4..5, 0)));
+        assert_eq!(s.ids[3..], ["pending-0"]);
+    }
+
+    #[test]
+    fn a_send_the_agent_took_drops_the_sending_trailer_before_its_echo_shows() {
+        let backend = for_provider("claude");
+        let mut s = Session::default();
+        let items = vec![item(1, json!({"kind": "user", "text": "go"})), item(2, json!({"kind": "result", "ok": true}))];
+        s.update(backend, 1, &items, false, 0);
+        let next = s.outgoing.push("next".into(), false, 10).unwrap();
+        s.outgoing.sent_as(next, "prompt-1".into());
+        s.update(backend, 1, &items, false, 10);
+        assert_eq!(s.ids[3..], ["pending-0", "working"]);
+        s.outgoing.prompt_state("prompt-1", agents::PromptState::Resending);
+        assert_eq!(s.update(backend, 1, &items, false, 11), None, "the same row says Sending again");
+        s.outgoing.prompt_state("prompt-1", agents::PromptState::Taken);
+        assert_eq!(s.update(backend, 1, &items, false, 12), Some((4..4, 4..5, 0)));
         assert_eq!(s.ids[3..], ["pending-0"]);
     }
 

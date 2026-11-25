@@ -1,5 +1,5 @@
-use super::recap::Recap;
 use agents::Permission;
+use agents::Recap;
 use git::github::Pr;
 use std::collections::HashMap;
 use theme::Token;

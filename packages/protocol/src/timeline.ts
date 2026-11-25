@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { DelegationRef, DeliveryBody } from "./orchestrator.js";
 import { HostLinkBody } from "./hosts.js";
+import { Recap } from "./delivery.js";
 
 export const AgentStatus = Schema.Literal("needsYou", "done", "working", "idle", "closed");
 export type AgentStatus = typeof AgentStatus.Type;
@@ -156,6 +157,7 @@ export const AgentSummary = Schema.Struct({
   relationship: Schema.optional(Schema.Literal("subagent", "fork")),
   createdBy: Schema.optional(Schema.String),
   delegation: Schema.optional(DelegationRef),
+  recap: Schema.optional(Recap),
 });
 export type AgentSummary = typeof AgentSummary.Type;
 export const RESTORE = ["resumed", "interrupted", "access_lowered", "failed"] as const;

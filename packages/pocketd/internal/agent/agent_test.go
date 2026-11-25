@@ -868,6 +868,43 @@ func TestAnAskWithdrawnAfterAStopLeavesTheAgentOutOfWorking(t *testing.T) {
 	}
 }
 
+func TestASummaryTellsWhatTheLastTurnDidOnceTheTurnEnds(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.Record(timeline.Event{Kind: "user", Text: "fix it"})
+	a.Working()
+	a.Record(timeline.Event{Kind: "assistant_text", Text: "Fixed."})
+	if got := a.Summary().Recap; got != (proto.Recap{}) {
+		t.Fatalf("recap before the turn ended: %+v", got)
+	}
+	a.Record(timeline.Event{Kind: "result", OK: true})
+	a.TurnEnded(false)
+	if got, want := a.Summary().Recap, (proto.Recap{Asked: "fix it", Said: "Fixed."}); got != want {
+		t.Fatalf("%+v, want %+v", got, want)
+	}
+}
+
+func TestARestoredAgentTellsTheRecapOfTheTimelineTheStoreKept(t *testing.T) {
+	r := NewRegistry(hub.New())
+	r.History = func(string) ([]proto.Item, bool) {
+		return []proto.Item{{ID: "i1", Seq: 1, Kind: "user", Text: "look"}, {ID: "i2", Seq: 2, Kind: "assistant", Text: "Looked."}}, true
+	}
+	a := r.Restore(Restored{ID: "a1", Provider: "claude"}, fakeDriver{})
+	if got, want := a.Summary().Recap, (proto.Recap{Asked: "look", Said: "Looked."}); got != want {
+		t.Fatalf("%+v, want %+v", got, want)
+	}
+}
+
+func TestClearingTheTimelineClearsTheRecap(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.Record(timeline.Event{Kind: "user", Text: "fix it"})
+	a.Working()
+	a.TurnEnded(false)
+	a.ClearTimeline()
+	if got := a.Summary().Recap; got != (proto.Recap{}) {
+		t.Fatalf("%+v", got)
+	}
+}
+
 func TestAPromptSteeredIntoATurnLeavesItsOpenCallsToEnd(t *testing.T) {
 	a := NewRegistry(hub.New()).Add("a1", "/w", "antigravity", fakeDriver{})
 	a.Record(timeline.Event{Kind: "user", Text: "one"})

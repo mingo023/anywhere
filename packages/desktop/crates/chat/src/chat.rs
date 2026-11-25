@@ -17,7 +17,7 @@ pub use adapter::{Backend, Capabilities, capabilities, for_provider};
 pub use answers::answers;
 pub use commands::{Builtin, Kind, Local, Slash, menu, skips_queue, slash};
 pub use marks::{Code, Marks, code, marks, marks_outside_code, mention_name};
-pub use outgoing::{Action, Delivery, Outgoing, Pending, action, busy};
+pub use outgoing::{Action, Delivery, Outgoing, Pending, action, busy, trail_text};
 pub use rows::{
     Row, Span, at_work, at_work_on, fold_of, folded, in_background, is_work, live_tail, markdown_blocks, narrates, phase_title, reply, reported, row_of, rows,
     running_agent, settled_tail, splice, step_prompt, top_gap, worked,

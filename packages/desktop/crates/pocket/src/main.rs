@@ -67,7 +67,8 @@ fn main() {
     let daemon = hosts::session::Daemons::new(daemon);
     let path = &own.path;
     let home = path.parent().unwrap_or(path).to_path_buf();
-    let (outbox, mut agent_rx) = agents::connect_with(path, own.token.clone());
+    let links = agents::LinkLog::open(&home.join("logs/desktop.log"));
+    let (outbox, mut agent_rx) = agents::connect_with(path, own.token.clone(), agents::Peer::ThisMac, links.clone());
     let store = Store::load(&home);
     let custom = themes::load(&home);
     if channel::is_release() && store.general.open_at_login {
@@ -181,7 +182,7 @@ fn main() {
                             let _ = handle.update(cx, |_, window, cx| this.update(cx, |d, cx| d.focus_agent(&r.tag, window, cx)));
                         }
                     });
-                    let mut desktop = Desktop::new(daemon, hosts::session::Outboxes::new(outbox), store, themes::Themes::new(custom), window, cx);
+                    let mut desktop = Desktop::new(daemon, hosts::session::Outboxes::new(outbox), links, store, themes::Themes::new(custom), window, cx);
                     desktop.list_worktrees(cx);
                     if !capturing {
                         desktop.load_models(cx);
