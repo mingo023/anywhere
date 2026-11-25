@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 
@@ -40,6 +41,10 @@ func (s *Session) answerer(id json.RawMessage, name string, params json.RawMessa
 		return func() { s.question(id, params, cursorAnswers) }
 	case "x.ai/ask_user_question":
 		return func() { s.question(id, params, grokAnswers) }
+	case "elicitation/create":
+		if s.f.elicits {
+			return func() { s.elicit(id, params) }
+		}
 	}
 	if tell := tells[name]; tell != nil {
 		return func() { s.c.Reply(id, tell(s, params)) }
@@ -54,6 +59,10 @@ func (s *Session) permission(id json.RawMessage, params json.RawMessage) {
 	}
 	json.Unmarshal(params, &p)
 	asked := call(params)
+	if s.f.elicits && decision(asked, p.Options) {
+		s.decide(id, asked.Title, p.Options)
+		return
+	}
 	kind := strings.ToLower(asked.Kind)
 	if t := s.tools[asked.ID]; t != nil {
 		// OpenCode asks about a call it told of, and may name what it asks for
@@ -101,6 +110,47 @@ func (s *Session) permission(id json.RawMessage, params json.RawMessage) {
 		default:
 			s.selected(id, "")
 		}
+	})
+}
+
+// decision is whether asked is a question the agent puts to the user, each
+// choice an option, rather than a tool's approval, which can be refused.
+func decision(asked toolCall, options []option) bool {
+	return strings.HasPrefix(asked.ID, "interaction_") && strings.TrimSpace(asked.Title) != "" && len(options) > 0 &&
+		!slices.ContainsFunc(options, func(o option) bool { return strings.HasPrefix(o.Kind, "reject") })
+}
+
+// decisionQuestion asks title with a choice per option.
+func decisionQuestion(title string, options []option) question {
+	q := question{ID: title, Prompt: title}
+	for _, o := range options {
+		q.Options = append(q.Options, questionOption{ID: o.ID, Label: cmp.Or(o.Name, o.ID)})
+	}
+	q.Options = distinct(q.Options)
+	return q
+}
+
+// distinct tells apart options that share a label by their ids: answers come back as labels.
+func distinct(options []questionOption) []questionOption {
+	out := slices.Clone(options)
+	for i, o := range options {
+		if slices.ContainsFunc(options, func(other questionOption) bool { return other.ID != o.ID && other.Label == o.Label }) {
+			out[i].Label += " (" + o.ID + ")"
+		}
+	}
+	return out
+}
+
+// decide asks the user the agent's decision and answers with the choice they
+// pick. A permission request has no room for typed text, so that cancels.
+func (s *Session) decide(id json.RawMessage, title string, options []option) {
+	q := decisionQuestion(title, options)
+	s.ask(id, s.questionCard([]question{q}), func(a broker.Answer) {
+		chosen := ""
+		if picked := q.picked(a.Answers[q.Prompt]); a.Decision == "allow" && len(picked) == 1 {
+			chosen = picked[0].ID
+		}
+		s.selected(id, chosen)
 	})
 }
 
@@ -154,6 +204,8 @@ type question struct {
 	Header  string
 	Multi   bool
 	Options []questionOption
+	// Other is the form field that takes a typed answer, "" for none.
+	Other string
 }
 
 type questionOption struct{ ID, Label, Description string }
@@ -214,6 +266,16 @@ func (q question) picked(answer string) []questionOption {
 // has a card for, and answers the agent in its own terms; nil answers skip.
 func (s *Session) question(id json.RawMessage, params json.RawMessage, reply func([]question, map[string]string) any) {
 	qs := questions(params)
+	s.ask(id, s.questionCard(qs), func(a broker.Answer) {
+		if a.Decision != "allow" {
+			a.Answers = nil
+		}
+		s.c.Reply(id, reply(qs, a.Answers))
+	})
+}
+
+// questionCard is the request that shows qs as Claude's AskUserQuestion.
+func (s *Session) questionCard(qs []question) proto.PermissionRequest {
 	type asked struct {
 		Question    string           `json:"question"`
 		Header      string           `json:"header,omitempty"`
@@ -228,13 +290,139 @@ func (s *Session) question(id json.RawMessage, params json.RawMessage, reply fun
 		}
 	}
 	input, _ := json.Marshal(map[string]any{"questions": in})
-	req := proto.PermissionRequest{AgentID: s.agentID, ToolName: "AskUserQuestion", Detail: timeline.Detail("AskUserQuestion", input)}
-	s.ask(id, req, func(a broker.Answer) {
-		if a.Decision != "allow" {
-			a.Answers = nil
+	return proto.PermissionRequest{AgentID: s.agentID, ToolName: "AskUserQuestion", Detail: timeline.Detail("AskUserQuestion", input)}
+}
+
+// elicit asks the user an elicitation/create form. One the card can't show
+// is refused, and Antigravity then asks in the chat instead ([B]).
+func (s *Session) elicit(id json.RawMessage, params json.RawMessage) {
+	qs, ok := formQuestions(params)
+	if !ok {
+		s.c.Refuse(id, invalidParams, "Anywhere can't show this form")
+		return
+	}
+	s.ask(id, s.questionCard(qs), func(a broker.Answer) { s.c.Reply(id, formAnswer(qs, a)) })
+}
+
+// property is a form field of the shapes a question card can show.
+type property struct {
+	Type        string    `json:"type"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Enum        []any     `json:"enum"`
+	OneOf       []choice  `json:"oneOf"`
+	AnyOf       []choice  `json:"anyOf"`
+	Items       *property `json:"items"`
+}
+
+type choice struct {
+	Const any    `json:"const"`
+	Title string `json:"title"`
+}
+
+// formQuestions reads a form's fields as questions, false for a form the
+// card can't show. A field "K_other" holds the typed answer to field K.
+func formQuestions(params json.RawMessage) ([]question, bool) {
+	var p struct {
+		Mode   string `json:"mode"`
+		Schema struct {
+			Properties map[string]property `json:"properties"`
+		} `json:"requestedSchema"`
+	}
+	if json.Unmarshal(params, &p) != nil || (p.Mode != "" && p.Mode != "form") || len(p.Schema.Properties) == 0 {
+		return nil, false
+	}
+	props := p.Schema.Properties
+	// The map lost the form's order. Antigravity's keys are qN, and this keeps q2 before q10.
+	keys := slices.SortedFunc(maps.Keys(props), func(a, b string) int { return cmp.Or(cmp.Compare(len(a), len(b)), strings.Compare(a, b)) })
+	var qs []question
+	for _, key := range keys {
+		if base, ok := strings.CutSuffix(key, "_other"); ok {
+			if _, ok := props[base]; ok {
+				continue
+			}
 		}
-		s.c.Reply(id, reply(qs, a.Answers))
-	})
+		q, ok := props[key].question(key)
+		if !ok {
+			return nil, false
+		}
+		if _, ok := props[key+"_other"]; ok {
+			q.Other = key + "_other"
+		}
+		qs = append(qs, q)
+	}
+	return qs, true
+}
+
+func (p property) question(key string) (question, bool) {
+	q := question{ID: key, Prompt: cmp.Or(p.Title, p.Description, key)}
+	var ok bool
+	switch {
+	case p.Type == "string":
+		q.Options, ok = p.choices()
+	case p.Type == "array" && p.Items != nil:
+		q.Multi = true
+		q.Options, ok = p.Items.choices()
+		ok = ok && len(q.Options) > 0
+	}
+	q.Options = distinct(q.Options)
+	return q, ok
+}
+
+// choices is the options p offers, false if one isn't a string.
+func (p property) choices() ([]questionOption, bool) {
+	var out []questionOption
+	for _, v := range p.Enum {
+		s, ok := v.(string)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, questionOption{ID: s, Label: s})
+	}
+	for _, c := range append(p.OneOf, p.AnyOf...) {
+		s, ok := c.Const.(string)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, questionOption{ID: s, Label: cmp.Or(c.Title, s)})
+	}
+	return out, true
+}
+
+// formAnswer answers a form with the consts the user picked, or what they
+// typed where the form takes text. Skip declines; a stop or dismiss cancels.
+func formAnswer(qs []question, a broker.Answer) map[string]any {
+	switch a.Decision {
+	case "allow":
+	case "":
+		return map[string]any{"action": "cancel"}
+	default:
+		return map[string]any{"action": "decline"}
+	}
+	content := map[string]any{}
+	for _, q := range qs {
+		answer := a.Answers[q.Prompt]
+		picked := q.picked(answer)
+		switch {
+		case answer == "":
+		case !q.Multi && len(picked) == 1:
+			content[q.ID] = picked[0].ID
+		case q.Multi && len(picked) > 0 && len(picked) == len(strings.Split(answer, ", ")):
+			ids := []string{}
+			for _, o := range picked {
+				ids = append(ids, o.ID)
+			}
+			content[q.ID] = ids
+		case q.Other != "":
+			content[q.Other] = answer
+		case len(q.Options) == 0:
+			content[q.ID] = answer
+		}
+	}
+	if len(content) == 0 {
+		return map[string]any{"action": "decline"}
+	}
+	return map[string]any{"action": "accept", "content": content}
 }
 
 func cursorAnswers(qs []question, answers map[string]string) any {

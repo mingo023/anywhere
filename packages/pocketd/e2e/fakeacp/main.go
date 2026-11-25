@@ -20,6 +20,10 @@
 //	fail <message>  refuse the prompt with message
 //	stop <reason>   end the turn with that stop reason
 //	/compact        as opencode, summarise the session in a reply and tell fewer tokens
+//	ask <question>  as agy, ask a form of question to a client that takes forms, then reply "echo: form <its answer>";
+//	                else reply "echo: asks in chat: <question>"
+//	decide <question>  as agy, ask question as an interaction_ permission of choices 1 Apple, 2 Pear,
+//	                then reply "echo: decided <optionId or cancelled>"
 //
 // With $HOME/.acp-fake/start it never opens a session: "exit <message>" has
 // it say message and exit 1, "refuse <message>" refuse session/new with it.
@@ -60,6 +64,7 @@ type agent struct {
 	stop    chan struct{} // closed to cancel the turn under way
 	checks  int
 	mcp     []fakemcp.Server
+	forms   bool // initialize offered elicitation forms
 }
 
 type session struct {
@@ -223,6 +228,9 @@ func (a *agent) handle(id json.RawMessage, method string, p map[string]any) {
 	switch method {
 	case "initialize":
 		note("initialize")
+		caps, _ := p["clientCapabilities"].(map[string]any)
+		elicitation, _ := caps["elicitation"].(map[string]any)
+		_, a.forms = elicitation["form"]
 		a.reply(id, map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{"loadSession": true, "mcpCapabilities": map[string]any{"http": true}},
 			"agentInfo": map[string]string{"name": a.name, "version": "0"}, "authMethods": []map[string]string{{"id": "cached_token"}}})
 	case "authenticate":
@@ -427,6 +435,10 @@ func (a *agent) turn(id json.RawMessage, text string, stop chan struct{}) {
 		reason = a.wait(stop, 3*time.Second, rest, reason)
 	} else if rest, ok := arg("hang "); ok {
 		reason = a.wait(stop, 30*time.Second, rest, reason)
+	} else if q, ok := arg("ask "); ok && a.name == "agy" {
+		a.askForm(q, stop)
+	} else if q, ok := arg("decide "); ok && a.name == "agy" {
+		a.decide(q, stop)
 	} else if rest, ok := arg("stop "); ok {
 		reason = rest
 	} else {
@@ -527,6 +539,58 @@ func (a *agent) takeBack(text string) {
 	a.say("took back " + strings.Join(summaries, ", "))
 }
 
+// request asks the client method and waits for its result: nil when it
+// refuses, or stop closes first.
+func (a *agent) request(method string, params map[string]any, stop <-chan struct{}) map[string]any {
+	a.mu.Lock()
+	a.next++
+	n := a.next
+	w := make(chan map[string]any, 1)
+	a.waits[fmt.Sprint(n)] = w
+	a.mu.Unlock()
+	a.send(map[string]any{"id": n, "method": method, "params": params})
+	select {
+	case r := <-w:
+		return r
+	case <-stop:
+		return nil
+	}
+}
+
+// selected is the option a permission request's result picked, or "cancelled".
+func selected(r map[string]any) string {
+	outcome, _ := r["outcome"].(map[string]any)
+	if picked, _ := outcome["optionId"].(string); outcome["outcome"] == "selected" {
+		return picked
+	}
+	return "cancelled"
+}
+
+// askForm asks q as agy does: as a form to a client that takes forms, else in the chat.
+func (a *agent) askForm(q string, stop <-chan struct{}) {
+	if a.forms {
+		schema := map[string]any{"type": "object", "properties": map[string]any{
+			"q1":       map[string]any{"type": "string", "title": q, "oneOf": []map[string]string{{"const": "1", "title": "Apple"}, {"const": "2", "title": "Pear"}}},
+			"q1_other": map[string]any{"type": "string", "title": "Something else"},
+		}}
+		if r := a.request("elicitation/create", map[string]any{"sessionId": a.session.ID, "mode": "form", "message": q, "requestedSchema": schema}, stop); r != nil {
+			b, _ := json.Marshal(r)
+			a.say("form " + string(b))
+			return
+		}
+	}
+	a.say("asks in chat: " + q)
+}
+
+// decide asks q as agy does: an interaction_ permission request whose options are the choices.
+func (a *agent) decide(q string, stop <-chan struct{}) {
+	options := []map[string]string{{"optionId": "1", "name": "Apple", "kind": "allow_once"}, {"optionId": "2", "name": "Pear", "kind": "allow_once"}}
+	picked := selected(a.request("session/request_permission", map[string]any{"sessionId": a.session.ID,
+		"toolCall": map[string]any{"toolCallId": "interaction_" + hex(4), "title": q}, "options": options}, stop))
+	note("decision: %s", picked)
+	a.say("decided " + picked)
+}
+
 // run asks to run cmd as the real agent does, and runs it if allowed. It
 // returns the turn's stop reason.
 func (a *agent) run(cmd string, stop chan struct{}) string {
@@ -552,23 +616,7 @@ func (a *agent) run(cmd string, stop chan struct{}) string {
 		options = []map[string]string{{"optionId": "allow_once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "allow_session", "kind": "allow_always", "name": "Allow for session"},
 			{"optionId": "allow_always", "kind": "allow_always", "name": "Allow always"}, {"optionId": "deny", "kind": "reject_once", "name": "Deny"}}
 	}
-	a.mu.Lock()
-	a.next++
-	n := a.next
-	w := make(chan map[string]any, 1)
-	a.waits[fmt.Sprint(n)] = w
-	a.mu.Unlock()
-	a.send(map[string]any{"id": n, "method": "session/request_permission", "params": map[string]any{"sessionId": a.session.ID, "toolCall": asked, "options": options}})
-	var outcome map[string]any
-	select {
-	case r := <-w:
-		outcome, _ = r["outcome"].(map[string]any)
-	case <-stop:
-	}
-	picked, _ := outcome["optionId"].(string)
-	if outcome["outcome"] != "selected" {
-		picked = "cancelled"
-	}
+	picked := selected(a.request("session/request_permission", map[string]any{"sessionId": a.session.ID, "toolCall": asked, "options": options}, stop))
 	note("permission: %s", picked)
 	allowed := strings.Contains(picked, "allow") || picked == "once" || picked == "always"
 	if a.name != "opencode" {

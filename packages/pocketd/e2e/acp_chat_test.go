@@ -728,6 +728,32 @@ func TestEveryACPAgentChatsThroughTheOneDriver(t *testing.T) {
 	}
 }
 
+// Even in full access, Antigravity's questions wait on the user's answer.
+func TestAChatAntigravityAsksItsQuestionsOnTheQuestionCard(t *testing.T) {
+	_, phone, _, id := chatACP(t, "antigravity", map[string]any{"access": "full"})
+	for _, c := range []struct {
+		prompt, question string
+		answer           map[string]any
+		reply            string
+	}{
+		{"ask Which fruit?", "Which fruit?", map[string]any{"decision": "allow", "answers": map[string]string{"Which fruit?": "Pear"}},
+			`echo: form {"action":"accept","content":{"q1":"2"}}`},
+		{"ask Which tree?", "Which tree?", map[string]any{"decision": "allow", "answers": map[string]string{"Which tree?": "Fig"}},
+			`echo: form {"action":"accept","content":{"q1_other":"Fig"}}`},
+		{"ask Which nut?", "Which nut?", map[string]any{"decision": "deny"}, `echo: form {"action":"decline"}`},
+		{"decide Which pie?", "Which pie?", map[string]any{"decision": "allow", "answers": map[string]string{"Which pie?": "Apple"}}, "echo: decided 1"},
+		{"decide Which jam?", "Which jam?", map[string]any{"decision": "deny"}, "echo: decided cancelled"},
+	} {
+		phone.Prompt(id, c.prompt)
+		req := phone.WaitFor("the question", asked)
+		if req.Request.ToolName != "AskUserQuestion" || !strings.Contains(req.Raw, `"question":"`+c.question+`"`) {
+			t.Fatalf("%s: asked %s", c.prompt, req.Raw)
+		}
+		resolve(phone, req, c.answer)
+		phone.WaitAll(c.prompt, streamOf(id, "assistant", c.reply), statusOf(id, "done"))
+	}
+}
+
 // startsBadly has the fake agent do how instead of opening its session.
 func startsBadly(how string) func(*Harness) {
 	return func(h *Harness) {

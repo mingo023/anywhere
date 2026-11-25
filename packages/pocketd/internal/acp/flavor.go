@@ -40,6 +40,9 @@ type flavor struct {
 	// summary is how its compaction summary starts, which a loaded history
 	// replays as a reply: nothing else marks it.
 	summary string
+	// elicits has it ask the user through elicitation/create, which initialize
+	// offers it, and through permission requests for its interaction_ calls.
+	elicits bool
 }
 
 // flavors has every ACP provider.
@@ -77,11 +80,15 @@ var flavors = map[string]flavor{
 		heldPlan: true,
 	},
 	providers.Antigravity.ID: {
-		caps: map[string]any{"session": map[string]any{"configOptions": map[string]any{"boolean": map[string]any{}}}},
+		caps: map[string]any{
+			"session":     map[string]any{"configOptions": map[string]any{"boolean": map[string]any{}}},
+			"elicitation": map[string]any{"form": map[string]any{}},
+		},
 		// Its server has no mode that runs every tool; pocketd answers for Full.
 		modes:     map[string]string{"ask": "default", "edits": "accept-edits", "auto": "default", "full": "accept-edits"},
 		planMode:  "plan",
 		buildMode: "default",
+		elicits:   true,
 	},
 }
 
