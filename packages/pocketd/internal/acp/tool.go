@@ -268,7 +268,8 @@ func (t *toolCall) delegation() (string, bool) {
 
 // launch is the brief of Antigravity's invoke_subagent, whose input is
 // {"Subagents":[{"Role":…,"TypeName":…,"Prompt":…}]}: one sub-agent's prompt, or
-// each one's prompt after its role. Without them it is the call's title.
+// each one's prompt after its role. Without them it is the call's title, unless
+// that only repeats the tool's name.
 func (t *toolCall) launch() (string, bool) {
 	if t.Name != "invoke_subagent" && t.Name != "start_subagent" {
 		return "", false
@@ -288,10 +289,12 @@ func (t *toolCall) launch() (string, bool) {
 		}
 		prompts, briefs = append(prompts, s.Prompt), append(briefs, brief)
 	}
-	switch len(prompts) {
-	case 0:
+	switch {
+	case len(prompts) == 0 && t.Title == t.Name:
+		return "", true
+	case len(prompts) == 0:
 		return t.Title, true
-	case 1:
+	case len(prompts) == 1:
 		return prompts[0], true
 	}
 	return strings.Join(briefs, "\n"), true

@@ -379,10 +379,11 @@ func TestACallShowsByItsKind(t *testing.T) {
 		"a sub-agent by its meta": {grokMeta("task", "Subagent", `{"description":"List the files","prompt":"ls"}`), "task:task:List the files"},
 		"several Antigravity sub-agents each by its role": {toolCall{Name: "invoke_subagent", RawInput: json.RawMessage(`{"Subagents":[{"Role":"Reviewer","Prompt":"Read the diff"},{"TypeName":"Tester","Prompt":"Run the tests"}]}`)},
 			"task:task:Reviewer: Read the diff\nTester: Run the tests"},
-		"an Antigravity sub-agent by its prompt":                          {toolCall{Name: "invoke_subagent", Title: "Subagent", RawInput: json.RawMessage(`{"Subagents":[{"Role":"DeepCoder","Prompt":"Fix the flaky test"}]}`)}, "task:task:Fix the flaky test"},
-		"an Antigravity sub-agent told in lower case":                     {toolCall{Name: "start_subagent", RawInput: json.RawMessage(`{"subagents":[{"prompt":"Look around"}]}`)}, "task:task:Look around"},
-		"an Antigravity sub-agent whose input it can't read by its title": {toolCall{Name: "invoke_subagent", Title: "Fix the test", RawInput: json.RawMessage(`{"Subagents":"oops"}`)}, "task:task:Fix the test"},
-		"an Antigravity sub-agent with a kind of task by its prompt":      {toolCall{Name: "invoke_subagent", Kind: "task", RawInput: json.RawMessage(`{"Subagents":[{"Role":"DeepCoder","Prompt":"Fix the flaky test"}]}`)}, "task:task:Fix the flaky test"},
+		"an Antigravity sub-agent by its prompt":                              {toolCall{Name: "invoke_subagent", Title: "Subagent", RawInput: json.RawMessage(`{"Subagents":[{"Role":"DeepCoder","Prompt":"Fix the flaky test"}]}`)}, "task:task:Fix the flaky test"},
+		"an Antigravity sub-agent told in lower case":                         {toolCall{Name: "start_subagent", RawInput: json.RawMessage(`{"subagents":[{"prompt":"Look around"}]}`)}, "task:task:Look around"},
+		"an Antigravity sub-agent whose input it can't read by its title":     {toolCall{Name: "invoke_subagent", Title: "Fix the test", RawInput: json.RawMessage(`{"Subagents":"oops"}`)}, "task:task:Fix the test"},
+		"an Antigravity sub-agent with a kind of task by its prompt":          {toolCall{Name: "invoke_subagent", Kind: "task", RawInput: json.RawMessage(`{"Subagents":[{"Role":"DeepCoder","Prompt":"Fix the flaky test"}]}`)}, "task:task:Fix the flaky test"},
+		"an Antigravity sub-agent titled by its tool's name before its input": {toolCall{Name: "invoke_subagent", Title: "invoke_subagent"}, "task:task:"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var merged toolCall
