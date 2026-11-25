@@ -65,6 +65,7 @@ func RunTeardown(shell, script, project, tree string, env []string, limit time.D
 	}
 	cmd := exec.CommandContext(ctx, shell, args...)
 	cmd.Dir, cmd.Env, cmd.WaitDelay = tree, ScriptEnv(env, project, tree), time.Second
+	killGroup(cmd)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return nil

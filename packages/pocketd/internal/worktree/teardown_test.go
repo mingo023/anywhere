@@ -89,3 +89,14 @@ func TestTheTeardownIsSkippedOnceTheFolderIsGone(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestATeardownAtItsLimitStopsWhatItStartedToo(t *testing.T) {
+	tree := t.TempDir()
+	if err := RunTeardown("/bin/sh", `(sleep 1; touch late) & wait`, tree, tree, os.Environ(), 200*time.Millisecond); err == nil {
+		t.Fatal("the teardown didn't time out")
+	}
+	time.Sleep(1500 * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(tree, "late")); err == nil {
+		t.Fatal("a job the teardown started ran on past its limit")
+	}
+}

@@ -252,3 +252,22 @@ func TestAFailedTeardownLeavesTheSubagentsWorktreesToo(t *testing.T) {
 		t.Fatal("the subagent's worktree went though the delete failed")
 	}
 }
+
+func TestAClosedAgentsWorktreeGoesOnceTheLastShellInItCloses(t *testing.T) {
+	var b bench
+	local(t, aPhone, withWorkspace(t, &b))
+	tree := agentTree(t, &b, "shelled")
+	shell, _ := b.terms.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: tree})
+	b.s.AgentClosed("s1", tree, "")
+	if gone(t, tree) {
+		t.Fatal("the worktree went while a shell was open in it")
+	}
+	shell.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for !gone(t, tree) {
+		if time.Now().After(deadline) {
+			t.Fatal("the worktree stayed once its last shell closed")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}

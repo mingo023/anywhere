@@ -253,7 +253,13 @@ func (c *conn) inspect(path string) ([]proto.InspectedTree, int, int, error) {
 				t.Host = cmp.Or(t.Host, h.Host)
 				out = append(out, t)
 			}
-			lost, anyway = lost+there.Lost, anyway+there.LostAnyway
+			// A detached child's own commits go whether or not the branches stay.
+			if len(there.Trees) > 0 && there.Trees[0].Branch == "" {
+				anyway += there.Lost
+			} else {
+				lost += there.Lost
+			}
+			anyway += there.LostAnyway
 		}
 	}
 	return out, lost, anyway, nil

@@ -59,7 +59,13 @@ func (s *Server) reap(tree, session, own string) {
 		return
 	}
 	terminals := c.terminalsIn(tree)
-	if slices.ContainsFunc(terminals, func(x *terminal.Terminal) bool { return x.Info().ID != own }) {
+	if others := slices.DeleteFunc(slices.Clone(terminals), func(x *terminal.Terminal) bool { return x.Info().ID == own }); len(others) > 0 {
+		go func() {
+			for _, x := range others {
+				<-x.Done()
+			}
+			s.reap(tree, session, "")
+		}()
 		return
 	}
 	if dirty, err := worktree.DirtyFiles(tree); err != nil || dirty > 0 || t.Branch == "" && worktree.DetachedCommits(tree) > 0 {
