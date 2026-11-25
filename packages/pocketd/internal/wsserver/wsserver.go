@@ -639,7 +639,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return c.registryVerb(m)
 	case "terminal.list", "terminal.attach", "terminal.detach", "terminal.input", "terminal.resize", "terminal.create", "terminal.close":
 		return c.terminalVerb(m)
-	case "worktree.create", "worktree.delete", "branch.list", "account.list", "agent.account":
+	case "worktree.create", "worktree.delete", "worktree.inspect", "branch.list", "account.list", "agent.account":
 		return c.workspaceVerb(m)
 	case "git.status", "git.watch", "git.diff", "git.log", "git.commit", "git.stage", "git.discard", "git.commit.create", "git.push", "git.pull", "git.compare":
 		return c.gitVerb(m)

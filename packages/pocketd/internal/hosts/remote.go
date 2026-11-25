@@ -88,7 +88,7 @@ func (r *remote) open(ctx context.Context) {
 	socket, token, _ := r.m.Endpoint(r.host)
 	dial, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	c, err := Dial(dial, socket, token, func(kind string, raw []byte) { r.push(func() { r.frame(kind, raw) }) })
+	c, err := Dial(dial, socket, token, func(kind string, raw []byte) { r.push(func() { r.frame(kind, raw) }) }, proto.CapLaunch, proto.CapWorktrees)
 	if err != nil {
 		r.inherit()
 		r.m.drop(r)
@@ -383,7 +383,7 @@ func (m *Manager) connected(ctx context.Context, id string) (*remote, error) {
 	if !ok {
 		return nil, ErrUnknown
 	}
-	offline := fmt.Errorf("%s isn't online", h.Name)
+	offline := Offline{h.Name}
 	if r == nil {
 		return nil, offline
 	}
@@ -406,6 +406,12 @@ func (m *Manager) Launch(ctx context.Context, id string, spec proto.LaunchSpec, 
 	if !slices.Contains(r.client.Caps, proto.CapLaunch) {
 		h, _ := m.host(id)
 		return "", fmt.Errorf("Update Anywhere on %s", h.Name)
+	}
+	if n := spec.Checkout.New; n != nil && !slices.Contains(r.client.Caps, proto.CapWorktrees) {
+		// An older host refuses a spec with forAgent; its worktree stays listed there.
+		n := *n
+		n.ForAgent = false
+		spec.Checkout.New = &n
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
@@ -439,21 +445,32 @@ func (m *Manager) Send(ctx context.Context, id string, msg map[string]any) error
 	return err
 }
 
+// Offline is a linked host whose link is down.
+type Offline struct{ Name string }
+
+func (o Offline) Error() string { return o.Name + " isn't online" }
+
+// Deletion is how a worktree.delete deletes: its branches too, even commits nowhere else, to the Trash, and with
+// its teardown script bounded to TeardownSecs, or skipped.
+type Deletion struct {
+	DeleteBranch, Force, Trash bool
+	TeardownSecs               int
+	Teardown                   bool
+	// Branch is the one the client confirmed deleting; the branch stays if the worktree has left it since.
+	Branch string
+}
+
 // DeleteWorktree deletes the worktree at path on host id as a phone's worktree.delete does, which takes its
 // subagents' there too, for the subagents named. One already gone, made since they closed, or that someone else
 // works in counts as deleted.
-func (m *Manager) DeleteWorktree(ctx context.Context, id, path string, subagents []string, deleteBranch, force bool) error {
-	if _, err := m.connected(ctx, id); err != nil {
-		return err
-	}
-	socket, token, _ := m.Endpoint(id)
-	// Over a conn of its own: workspace.v1 would also subscribe the link to every project.list.
-	c, err := Dial(ctx, socket, token, func(string, []byte) {}, proto.CapWorkspace)
+func (m *Manager) DeleteWorktree(ctx context.Context, id, path string, subagents []string, d Deletion) error {
+	c, err := m.worktrees(ctx, id)
 	if err != nil {
 		return err
 	}
 	defer c.Close()
-	raw, err := c.Call(ctx, "ack", map[string]any{"type": "worktree.delete", "path": path, "deleteBranch": deleteBranch, "force": force, "subagents": subagents})
+	raw, err := c.Call(ctx, "ack", map[string]any{"type": "worktree.delete", "path": path, "deleteBranch": d.DeleteBranch, "force": d.Force, "subagents": subagents,
+		"trash": d.Trash, "teardownSecs": d.TeardownSecs, "teardown": d.Teardown})
 	var e proto.Error
 	if err == nil || json.Unmarshal(raw, &e) != nil || e.Code == "" {
 		return err
@@ -462,6 +479,45 @@ func (m *Manager) DeleteWorktree(ctx context.Context, id, path string, subagents
 		return nil
 	}
 	return Refusal{e}
+}
+
+// InspectWorktree is what deleting the worktree at path on host id would take there.
+func (m *Manager) InspectWorktree(ctx context.Context, id, path string) (proto.WorktreeInspect, error) {
+	var in proto.WorktreeInspect
+	c, err := m.worktrees(ctx, id)
+	if err != nil {
+		return in, err
+	}
+	defer c.Close()
+	raw, err := c.Call(ctx, "worktree.inspect", map[string]any{"type": "worktree.inspect", "path": path})
+	var e proto.Error
+	if json.Unmarshal(raw, &e) == nil && e.Code != "" {
+		return in, Refusal{e}
+	}
+	if err != nil {
+		return in, err
+	}
+	return in, json.Unmarshal(raw, &in)
+}
+
+// worktrees is a conn to host id's pocketd for its worktree verbs, over a conn of its own: workspace.v1 would also
+// subscribe the link to every project.list. A pocketd without worktrees.v1 is refused: it would delete without the
+// teardown.
+func (m *Manager) worktrees(ctx context.Context, id string) (*Client, error) {
+	if _, err := m.connected(ctx, id); err != nil {
+		return nil, err
+	}
+	socket, token, _ := m.Endpoint(id)
+	c, err := Dial(ctx, socket, token, func(string, []byte) {}, proto.CapWorkspace, proto.CapWorktrees)
+	if err != nil {
+		return nil, err
+	}
+	if !slices.Contains(c.Caps, proto.CapWorktrees) {
+		c.Close()
+		h, _ := m.host(id)
+		return nil, Refusal{proto.NewErrorCode("", proto.CodeHostOutdated, "Can't delete worktrees on "+h.Name+": Anywhere there is out of date. Update it on "+h.Name+", then try again.")}
+	}
+	return c, nil
 }
 
 // Refusal is a host's coded error, kept whole so a phone can act on it.

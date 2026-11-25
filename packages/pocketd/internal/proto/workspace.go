@@ -6,6 +6,16 @@ import "pocketd/internal/providers"
 // agent.account and project.list pushes.
 const CapWorkspace = "workspace.v1"
 
+// CapWorktrees gates worktree.inspect and worktree.delete's trash, teardownSecs, teardown and branch.
+const CapWorktrees = "worktrees.v1"
+
+// CodeTeardownFailed: a worktree's teardown script failed, so nothing was deleted; Path names the worktree, Detail
+// holds the end of the script's output.
+const CodeTeardownFailed = "teardown_failed"
+
+// CodeHostOutdated: a linked host's pocketd can't inspect or delete its worktrees for this one.
+const CodeHostOutdated = "host_outdated"
+
 // CodeMainWorktree: the main worktree can't be deleted.
 const CodeMainWorktree = "main_worktree"
 
@@ -28,15 +38,42 @@ var workspaceVerbs = map[string]verbDecoder{
 		return set <= 1 && (m.Name != "" || m.Branch != "" || m.Number != 0)
 	},
 	"worktree.delete": func(f fields, m *ClientMessage) bool {
-		return f.text("path", &m.Path) && f.optionalBool("deleteBranch", &m.DeleteBranch) && f.optionalBool("force", &m.Force) && f.optionalList("subagents", &m.Subagents)
+		return f.text("path", &m.Path) && f.optionalBool("deleteBranch", &m.DeleteBranch) && f.optionalBool("force", &m.Force) && f.optionalList("subagents", &m.Subagents) &&
+			f.optionalBool("trash", &m.Trash) && f.optionalInt("teardownSecs", &m.TeardownSecs, 1, 3600) && f.optionalFlag("teardown", &m.Teardown) &&
+			f.optionalString("branch", &m.Branch)
 	},
-	"branch.list": func(f fields, m *ClientMessage) bool { return f.text("tree", &m.Tree) },
+	"worktree.inspect": func(f fields, m *ClientMessage) bool { return f.text("path", &m.Path) },
+	"branch.list":      func(f fields, m *ClientMessage) bool { return f.text("tree", &m.Tree) },
 	"account.list": func(f fields, m *ClientMessage) bool {
 		return f.optionalString("provider", &m.Provider) && (!f.has("provider") || providers.Get(m.Provider) != nil)
 	},
 	"agent.account": func(f fields, m *ClientMessage) bool {
 		return f.get("agentId", &m.AgentID) && f.text("account", &m.Account)
 	},
+}
+
+// InspectedTree is one worktree a worktree.delete would take: what deleting it closes and loses. Host is the linked
+// host's id, and Path that host's own path, for a subagent's worktree there.
+type InspectedTree struct {
+	Host      string `json:"host,omitempty"`
+	Path      string `json:"path"`
+	Branch    string `json:"branch"`
+	Dirty     int    `json:"dirty"`
+	Terminals int    `json:"terminals"`
+}
+
+// WorktreeInspect is what the delete sheet shows: the worktree first, then its subagents'. Lost counts the commits
+// lost when every branch goes, LostAnyway those only the subagents' detached HEADs hold.
+type WorktreeInspect struct {
+	Type       string          `json:"type"`
+	ID         string          `json:"id"`
+	Trees      []InspectedTree `json:"trees"`
+	Lost       int             `json:"lost"`
+	LostAnyway int             `json:"lostAnyway"`
+}
+
+func NewWorktreeInspect(id string, trees []InspectedTree, lost, lostAnyway int) WorktreeInspect {
+	return WorktreeInspect{"worktree.inspect", id, trees, lost, lostAnyway}
 }
 
 type WorktreeProgress struct {

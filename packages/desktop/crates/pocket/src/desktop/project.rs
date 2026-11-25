@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant, UNIX_EPOCH};
 use store::prefs::sidebar::SessionSort;
 use theme::*;
 use ui::State;
@@ -43,17 +43,13 @@ fn held(tree: &str, terminals: &[Placed]) -> (Vec<String>, Vec<String>) {
     split
 }
 
-/// The trees that hold delegated sessions and nothing else; they exist for the sake of those.
-fn child_only(terminals: &[Placed]) -> HashSet<&str> {
-    let held_by = |hidden: bool| terminals.iter().filter(move |t| t.2 == hidden).filter_map(|t| t.1.as_deref());
-    let others: HashSet<&str> = held_by(false).collect();
-    held_by(true).filter(|t| !others.contains(t)).collect()
-}
-
-/// `trees` without those made for delegated sessions; a project's main tree always stays.
-fn without_child_only(trees: Vec<git::Worktree>, terminals: &[Placed]) -> Vec<git::Worktree> {
-    let only = child_only(terminals);
-    trees.into_iter().filter(|w| w.main || !only.contains(w.path.as_str())).collect()
+/// The worktrees a pocketd listed for a project's sidebar, as git's.
+fn listed(trees: &[agents::worktrees::Tree]) -> Vec<git::Worktree> {
+    let created = |ms: u64| UNIX_EPOCH + Duration::from_millis(ms);
+    trees
+        .iter()
+        .map(|t| git::Worktree { path: t.path.clone(), branch: t.branch.clone(), main: t.is_main, made: false, created: t.created_at.map(created) })
+        .collect()
 }
 
 /// Every project, and each one's sessions as cards, worked out once while the sidebar draws.
@@ -151,21 +147,18 @@ impl Desktop {
         placed.or_else(|| self.project_of(cwd, projects))
     }
 
+    /// The worktree holding `cwd`, from git: one an agent made places its sessions though the sidebar doesn't list it.
     pub fn worktree_of(&self, cwd: &str) -> Option<&git::Worktree> {
-        project::worktree_of(cwd, &self.worktrees, |t| self.store.lists(t))
+        project::worktree_of(cwd, &self.worktrees, |t| self.store.is_tracked(t))
     }
 
-    /// The worktrees `p` lists; `None` until git has listed them.
-    pub fn listed_trees(&self, p: &str, cx: &App) -> Option<Vec<git::Worktree>> {
-        let trees = self.worktrees.get(p).map(|w| project::listed(w, |t| self.store.lists(t)))?;
-        if status::hidden_children(&self.agents.list).is_empty() {
-            return Some(trees);
-        }
-        Some(without_child_only(trees, &self.placed_terminals(cx)))
+    /// The worktrees `p` lists on the sidebar; `None` until its pocketd has listed them.
+    pub fn listed_trees(&self, p: &str) -> Option<Vec<git::Worktree>> {
+        self.agents.projects.get(p).map(|trees| listed(trees))
     }
 
     pub(crate) fn untracked_trees(&self, p: &str) -> Vec<git::Worktree> {
-        self.worktrees.get(p).map(|w| project::untracked(w, |t| self.store.lists(t))).unwrap_or_default()
+        self.worktrees.get(p).map(|w| project::untracked(w, |t| self.store.is_tracked(t))).unwrap_or_default()
     }
 
     pub(crate) fn import_worktrees(&mut self, p: &str, cx: &mut Context<Self>) {
@@ -178,7 +171,7 @@ impl Desktop {
     }
 
     pub fn tree_of(&self, cwd: &str, cx: &App) -> Option<String> {
-        let find = || project::tree_of(cwd, &self.worktrees, |t| self.store.lists(t), || self.projects(cx));
+        let find = || project::tree_of(cwd, &self.worktrees, |t| self.store.is_tracked(t), || self.projects(cx));
         let sidebar = self.sidebar.read(cx);
         let placement = sidebar.placement.borrow();
         let Some(placed) = placement.as_ref() else { return find() };
@@ -301,7 +294,7 @@ impl Desktop {
 
     fn git_cwds(&self, cx: &App) -> Vec<String> {
         let sessions = self.project.as_deref().map(|p| self.cards(p, cx).into_iter().map(|c| c.cwd).collect()).unwrap_or_default();
-        let listed: project::Worktrees = self.project.iter().filter_map(|p| Some((p.clone(), self.listed_trees(p, cx)?))).collect();
+        let listed: project::Worktrees = self.project.iter().filter_map(|p| Some((p.clone(), self.listed_trees(p)?))).collect();
         project::git_cwds(self.project.as_deref(), sessions, &listed, self.cwd(cx))
     }
 
@@ -518,7 +511,7 @@ fn merge_repos(repos: &mut HashMap<String, Arc<Repo>>, read: Vec<(String, Option
 
 #[cfg(test)]
 mod tests {
-    use super::{Arc, HashMap, Placed, Repo, SessionSort, by_project, child_only, held, hidden_terminals, merge_repos, without_child_only};
+    use super::{Arc, HashMap, Placed, Repo, SessionSort, by_project, held, hidden_terminals, listed, merge_repos};
 
     fn repo(branch: &str) -> Repo {
         Repo { branch: branch.into(), ..Repo::default() }
@@ -578,18 +571,15 @@ mod tests {
     }
 
     #[test]
-    fn a_projects_main_tree_stays_listed_when_only_delegated_sessions_run_in_it() {
-        let tree = |path: &str, main: bool| git::Worktree { path: path.into(), branch: String::new(), main, made: false, created: None };
-        let terminals = [at("a", Some("/w"), true), at("b", Some("/w/tests"), true), at("c", Some("/w/docs"), false)];
-        let left = without_child_only(vec![tree("/w", true), tree("/w/tests", false), tree("/w/docs", false)], &terminals);
-        assert_eq!(left.iter().map(|w| w.path.as_str()).collect::<Vec<_>>(), ["/w", "/w/docs"]);
-    }
-
-    #[test]
-    fn a_tree_holding_only_delegated_sessions_exists_for_their_sake() {
-        let terminals =
-            [at("a", Some("/w/tests"), true), at("b", Some("/w/docs"), true), at("c", Some("/w/docs"), false), at("d", Some("/w"), false), at("e", None, true)];
-        assert_eq!(child_only(&terminals).into_iter().collect::<Vec<_>>(), ["/w/tests"]);
+    fn a_delegated_sessions_worktree_pocketd_leaves_off_the_sidebar_still_places_its_folders() {
+        let listed_tree = |path: &str, is_main| agents::worktrees::Tree { path: path.into(), branch: "b".into(), is_main, created_at: Some(1_000) };
+        let rows = listed(&[listed_tree("/w", true), listed_tree("/wt/fix", false)]);
+        assert_eq!(rows.iter().map(|w| w.path.as_str()).collect::<Vec<_>>(), ["/w", "/wt/fix"]);
+        assert_eq!(rows[1].created, Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1)));
+        let tree = |path: &str, main, made| git::Worktree { path: path.into(), branch: String::new(), main, made, created: None };
+        let git = HashMap::from([("/w".to_string(), vec![tree("/w", true, false), tree("/wt/fix", false, true), tree("/wt/delegate-tests", false, true)])]);
+        let placed = project::tree_of("/wt/delegate-tests/src", &git, |_| false, || vec!["/w".into()]);
+        assert_eq!(placed.as_deref(), Some("/wt/delegate-tests"));
     }
 
     #[test]

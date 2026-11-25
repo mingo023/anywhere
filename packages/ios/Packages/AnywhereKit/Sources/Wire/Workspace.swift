@@ -80,6 +80,34 @@ public struct WorktreeCreated: Codable, Hashable, Sendable {
     }
 }
 
+/// What deleting a worktree would close and lose, for it and its subagents' worktrees.
+public struct WorktreeInspect: Codable, Hashable, Sendable {
+    public struct Tree: Codable, Hashable, Sendable {
+        public var host: String?
+        public var path: String
+        public var branch: String
+        public var dirty: Int
+        public var terminals: Int
+        public init(host: String? = nil, path: String, branch: String, dirty: Int, terminals: Int) {
+            self.host = host
+            self.path = path
+            self.branch = branch
+            self.dirty = dirty
+            self.terminals = terminals
+        }
+    }
+    public var trees: [Tree]
+    /// Commits a delete loses unless the branch is kept.
+    public var lost: Int
+    /// Commits on detached subagent heads, lost either way.
+    public var lostAnyway: Int
+    public init(trees: [Tree], lost: Int, lostAnyway: Int) {
+        self.trees = trees
+        self.lost = lost
+        self.lostAnyway = lostAnyway
+    }
+}
+
 public struct Branch: Codable, Hashable, Sendable {
     public var name: String
     /// Unix seconds of its tip commit.
@@ -218,10 +246,20 @@ extension ClientMessage {
         public var deleteBranch: Bool?
         /// Deletes the branch even when commits on it are nowhere else (`unpushed_commits` otherwise).
         public var force: Bool?
-        public init(path: String, deleteBranch: Bool? = nil, force: Bool? = nil) {
+        public var trash: Bool?
+        public var teardownSecs: Int?
+        /// False skips the teardown script, after a `teardown_failed` refusal.
+        public var teardown: Bool?
+        /// The branch the user confirmed deleting; it stays if the worktree has left it since.
+        public var branch: String?
+        public init(path: String, deleteBranch: Bool? = nil, force: Bool? = nil, trash: Bool? = nil, teardownSecs: Int? = nil, teardown: Bool? = nil, branch: String? = nil) {
             self.path = path
             self.deleteBranch = deleteBranch
             self.force = force
+            self.trash = trash
+            self.teardownSecs = teardownSecs
+            self.teardown = teardown
+            self.branch = branch
         }
     }
 

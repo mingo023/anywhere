@@ -108,6 +108,7 @@ var Needs = map[string]Scope{
 	"ws:attach.put":           Drive,
 	"ws:worktree.create":      Spawn,
 	"ws:worktree.delete":      Spawn,
+	"ws:worktree.inspect":     Spawn,
 	"ops:launch-exit":         Observe,
 	"ops:config-set":          Own,
 	"ops:upgrade":             Own,

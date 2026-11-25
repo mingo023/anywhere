@@ -296,6 +296,15 @@ func DetachedCommits(tree string) int {
 	return n
 }
 
+// DirtyFiles is how many files in the Worktree at tree have uncommitted changes, untracked ones included.
+func DirtyFiles(tree string) (int, error) {
+	out, err := exec.Command("git", "-C", tree, "status", "--porcelain", "--untracked-files=all").Output()
+	if err != nil {
+		return 0, err
+	}
+	return len(strings.FieldsFunc(string(out), func(r rune) bool { return r == '\n' })), nil
+}
+
 // Remove deletes a linked Worktree's folder, uncommitted changes included, as
 // the desktop does; its branch stays.
 func Remove(f registry.File, project, path string) error {

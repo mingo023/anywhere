@@ -93,9 +93,11 @@ impl Desktop {
         self.store.save();
         // pocketd starts sessions only in folders it lists.
         self.publish_registry(cx);
-        // Its row needs this now; `refresh_git` lists it two seconds from now.
+        // Its row needs this now; git and pocketd list it two seconds from now.
         self.worktrees
             .insert(path.to_string(), vec![git::Worktree { path: path.to_string(), branch: git::INIT_BRANCH.into(), main: true, made: false, created: None }]);
+        let tree = agents::worktrees::Tree { path: path.to_string(), branch: git::INIT_BRANCH.into(), is_main: true, created_at: None };
+        self.agents.projects.insert(path.to_string(), vec![tree]);
     }
 
     /// Deletes a folder with nothing to lose straight away, and asks about any other.

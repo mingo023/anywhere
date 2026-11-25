@@ -16,7 +16,7 @@ import { HostsClient, HostsServer } from "./hosts.js";
 import { RegistryClient, RegistryServer } from "./registry.js";
 
 export const ProjectListRequest = Schema.Struct({ type: Schema.Literal("project.list"), id: Schema.String });
-export const Worktree = Schema.Struct({ name: Schema.String, path: Schema.String, branch: Schema.String, isMain: Schema.Boolean });
+export const Worktree = Schema.Struct({ name: Schema.String, path: Schema.String, branch: Schema.String, isMain: Schema.Boolean, createdAt: Schema.optional(Schema.Number) });
 export type Worktree = typeof Worktree.Type;
 export const Project = Schema.Struct({ id: Schema.optional(Schema.String), path: Schema.String, name: Schema.String, worktrees: Schema.Array(Worktree) });
 export type Project = typeof Project.Type;
@@ -297,6 +297,7 @@ export const ServerMessage = Schema.Union(
     code: Schema.optional(Schema.String),
     detail: Schema.optional(Schema.String),
     count: Schema.optional(Schema.Int),
+    path: Schema.optional(Schema.String),
   }),
   Schema.Struct({ type: Schema.Literal("host.changed"), host: HostState }),
   Schema.Struct({ type: Schema.Literal("worktree.names"), names: Schema.Record({ key: Schema.String, value: Schema.String }) }),

@@ -1,0 +1,8 @@
+{
+  "type": "error",
+  "id": "wd",
+  "message": "Its teardown script failed",
+  "code": "teardown_failed",
+  "detail": "make: *** [down] Error 1",
+  "path": "/Users/me/.worktrees/pocket/calm-otter"
+}

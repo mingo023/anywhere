@@ -143,6 +143,17 @@ pub enum Event {
     Registry(registry::List),
     /// pocketd refused a change to them; the list it sends next undoes it.
     RegistryFailed(String),
+    /// The worktrees each of the pocketd's projects lists on the sidebar, sent whole.
+    Projects(Vec<crate::worktrees::Project>),
+    /// What deleting a worktree takes, or why pocketd couldn't tell.
+    WorktreeInspected {
+        request: String,
+        reply: Result<crate::worktrees::Inspected, String>,
+    },
+    WorktreeDeleted {
+        request: String,
+        reply: Result<(), crate::worktrees::Refusal>,
+    },
     /// Every automation and run, sent whole.
     Automations {
         automations: Vec<Automation>,

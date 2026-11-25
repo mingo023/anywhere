@@ -47,26 +47,6 @@ pub struct Msg {
     /// Whether an agent at its account's limit moves to another; absent from a pocketd too old to.
     #[serde(rename = "autoSwitch")]
     pub auto_switch: Option<bool>,
-    pub trees: Vec<Tree>,
-}
-
-/// A subagent's worktree from pocketd's lineage: on this Mac, or on `host`. One made at `path` after `since`, in Unix
-/// milliseconds on the machine holding it, is a newer one.
-#[derive(Deserialize, Default, Debug, Clone, PartialEq)]
-#[serde(default)]
-pub struct Tree {
-    pub host: String,
-    pub path: String,
-    pub since: u64,
-}
-
-/// The worktrees this Mac's pocketd's lineage says the subagents of the sessions in `tree` worked in, every generation
-/// down, open or closed. A pocketd from before the op keeps no lineage to name any by. Blocks; call it off the UI thread.
-pub fn subagent_worktrees(tree: &str) -> Result<Vec<Tree>, String> {
-    match request(&json!({"op": "worktree.subagents", "path": tree})) {
-        Err(e) if ["is not a known verb", "no such terminal"].iter().any(|s| e.contains(s)) => Ok(vec![]),
-        reply => reply.map(|m| m.trees),
-    }
 }
 
 /// The part of pocketd's `status` reply Settings reads.
@@ -507,53 +487,6 @@ fn run_until(
     answered.map(|()| out.join("\n"))
 }
 
-/// Runs `script` in `cwd` under the login shell with `env` added, in its own process group so a timeout kills whatever it started too.
-/// Its output, or on failure its last 20 lines.
-pub fn run_script(script: &str, cwd: &str, env: &[(String, String)], timeout: Duration) -> Result<String, String> {
-    run_script_in(login_shell(), [terminal_env(), env.to_vec()].concat(), script, cwd, timeout)
-}
-
-fn run_script_in(shell: &str, env: Vec<(String, String)>, script: &str, cwd: &str, timeout: Duration) -> Result<String, String> {
-    let (mut out, writer) = std::io::pipe().map_err(|e| e.to_string())?;
-    let mut cmd = command(shell);
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(cmd.args(["-l", "-c", script]), 0);
-    #[cfg(windows)]
-    cmd.args(["-NoLogo", "-Command", script]);
-    let mut child = cmd
-        .current_dir(cwd)
-        .env_clear()
-        .envs(env)
-        .stdin(Stdio::null())
-        .stdout(writer.try_clone().map_err(|e| e.to_string())?)
-        .stderr(writer)
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    // It still holds the pipe's write end, and the reader sees EOF only once every copy is closed.
-    drop(cmd);
-    let (tx, rx) = std::sync::mpsc::channel();
-    // Read on its own thread: a script that prints more than the pipe holds blocks until someone reads it.
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = out.read_to_end(&mut buf);
-        let _ = tx.send(buf);
-    });
-    // The pipe closes once the script and everything it started have exited.
-    let Ok(buf) = rx.recv_timeout(timeout) else {
-        kill_tree(&child);
-        let _ = child.wait();
-        return Err(format!("Timed out after {timeout:?}"));
-    };
-    let status = child.wait().map_err(|e| e.to_string())?;
-    let text = String::from_utf8_lossy(&buf).trim().to_string();
-    if status.success() {
-        return Ok(text);
-    }
-    let lines: Vec<&str> = text.lines().collect();
-    let tail = lines[lines.len().saturating_sub(20)..].join("\n");
-    Err(if tail.is_empty() { status.to_string() } else { tail })
-}
-
 /// Kills `child` and whatever it started.
 fn kill_tree(child: &Child) {
     #[cfg(unix)]
@@ -829,31 +762,6 @@ mod tests {
     fn bare_env() -> Vec<(String, String)> {
         let home = std::env::temp_dir().join("pocket-desktop-no-home");
         vec![("HOME".to_string(), home.to_string_lossy().into_owned()), ("PATH".to_string(), "/usr/bin:/bin".to_string())]
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn a_script_returns_its_output_and_on_failure_its_last_twenty_lines() {
-        for shell in ["/bin/zsh", "/bin/bash", "/bin/sh", "/opt/homebrew/bin/fish"].into_iter().filter(|s| Path::new(s).exists()) {
-            let wait = Duration::from_secs(5);
-            assert_eq!(run_script_in(shell, bare_env(), "echo out; echo err >&2", "/", wait), Ok("out\nerr".to_string()), "{shell}");
-            let tail: Vec<String> = (12..=30).map(|n| n.to_string()).chain(["oops".to_string()]).collect();
-            assert_eq!(run_script_in(shell, bare_env(), "seq 30; echo oops >&2; exit 3", "/", wait), Err(tail.join("\n")), "{shell}");
-            assert_eq!(run_script_in(shell, bare_env(), "exit 4", "/", wait), Err("exit status: 4".to_string()), "{shell}");
-        }
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn a_script_that_runs_too_long_is_killed_with_what_it_started() {
-        let marker = std::env::temp_dir().join(format!("pocket-script-{}", std::process::id()));
-        let _ = std::fs::remove_file(&marker);
-        let started = std::time::Instant::now();
-        let script = format!("(sleep 1; touch '{}') & sleep 5", marker.display());
-        assert_eq!(run_script_in("/bin/sh", bare_env(), &script, "/", Duration::from_millis(300)), Err("Timed out after 300ms".to_string()));
-        assert!(started.elapsed() < Duration::from_secs(2));
-        std::thread::sleep(Duration::from_millis(1200));
-        assert!(!marker.exists(), "the background job outlived the timeout");
     }
 
     #[test]

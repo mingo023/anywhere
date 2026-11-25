@@ -67,6 +67,8 @@ type NewWorktree struct {
 	Setup *bool  `json:"setup,omitempty"`
 	// AutoName: Name is a placeholder; pocketd names the branch and Worktree from the prompt.
 	AutoName bool `json:"autoName,omitempty"`
+	// ForAgent: an agent started the session, so the Worktree stays off the sidebar and goes when it closes.
+	ForAgent bool `json:"forAgent,omitempty"`
 }
 
 // valid: at most one of Base, Branch and PR, a Name unless opening a Branch or PR, and AutoName only on a Name.
@@ -187,7 +189,7 @@ func decodeSpec(raw json.RawMessage, dst **LaunchSpec) bool {
 		return false
 	}
 	if n, has := checkout["new"]; has {
-		if _, ok := strictObject(n, "name", "base", "branch", "pr", "copy", "setup", "autoName"); !ok {
+		if _, ok := strictObject(n, "name", "base", "branch", "pr", "copy", "setup", "autoName", "forAgent"); !ok {
 			return false
 		}
 	}

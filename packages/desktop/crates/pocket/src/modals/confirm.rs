@@ -231,11 +231,7 @@ fn enter_confirms(key: &Keystroke, confirm: &Confirm) -> bool {
         && !key.modifiers.modified()
         && matches!(
             confirm,
-            Confirm::DeleteWorktree { requested: true, .. }
-                | Confirm::DeleteLocal(_)
-                | Confirm::DeleteScratch { .. }
-                | Confirm::DeleteAutomation(_)
-                | Confirm::DeleteTicket(_)
+            Confirm::DeleteWorktree { .. } | Confirm::DeleteLocal(_) | Confirm::DeleteScratch { .. } | Confirm::DeleteAutomation(_) | Confirm::DeleteTicket(_)
         )
 }
 
@@ -429,10 +425,7 @@ impl Desktop {
                 &self.repo_name(p),
                 Takes { terminals: self.project_terminals(p, cx).len(), locals: self.agents.locals_removed_with(p).count() },
             ),
-            Confirm::DeleteWorktree { removal, dirty, lost, lost_anyway, subtrees, .. } => {
-                let terminals = std::iter::once(&removal.tree).chain(subtrees.iter().map(|r| &r.tree)).map(|t| self.tree_terminals(t, cx).len()).sum();
-                ConfirmText::delete_worktree(removal, *dirty, *lost, *lost_anyway, terminals, subtrees.len())
-            }
+            Confirm::DeleteWorktree { removal, takes: t } => ConfirmText::delete_worktree(removal, t.dirty, t.lost, t.lost_anyway, t.terminals, t.subtrees),
             Confirm::DeleteLocal(id) => ConfirmText::delete_local(&self.local_name(id), self.tree_terminals(id, cx).len()),
             Confirm::DeleteScratch { path, dirty, lost } => {
                 ConfirmText::delete_scratch(&self.place_name(path), path, *dirty, *lost, self.tree_terminals(path, cx).len())
@@ -500,14 +493,10 @@ impl Desktop {
     fn confirmed(&mut self, confirm: Confirm, window: &mut Window, cx: &mut Context<Self>) {
         match confirm {
             Confirm::RemoveProject(p) => self.remove_project(&p, cx),
-            Confirm::DeleteWorktree { removal, subtrees, .. } => self.delete_worktree(removal, &subtrees, cx),
+            Confirm::DeleteWorktree { removal, .. } => self.delete_worktree(removal, cx),
             Confirm::DeleteLocal(id) => self.delete_local(&id, cx),
             Confirm::DeleteScratch { path, .. } => self.delete_scratch(&path, cx),
-            Confirm::TeardownFailed { removal, failed, subtrees, .. } => {
-                let skip = |r: Removal| Removal { teardown: r.teardown && r.tree != failed, ..r };
-                let subtrees: Vec<Removal> = subtrees.into_iter().map(skip).collect();
-                self.delete_worktree(skip(removal), &subtrees, cx)
-            }
+            Confirm::TeardownFailed { removal, .. } => self.delete_worktree(Removal { teardown: false, ..removal }, cx),
             Confirm::Discard(paths) => self.discard(paths, cx),
             Confirm::SwitchAgent { agent, provider, model } => _ = self.open_switched_chat(&agent, &provider, &model, true, cx),
             Confirm::CloseSession(id) => {
@@ -552,10 +541,8 @@ mod tests {
         assert!(!enter_confirms(&Keystroke::parse("cmd-enter").unwrap(), &delete));
         assert!(!enter_confirms(&Keystroke::parse("space").unwrap(), &delete));
         let removal = Removal { project: "/p".into(), tree: "/t".into(), branch: None, delete_branch: false, teardown: true };
-        let worktree = |requested| Confirm::DeleteWorktree { removal: removal.clone(), dirty: 0, lost: 0, lost_anyway: 0, subtrees: vec![], requested };
-        assert!(enter_confirms(&enter, &worktree(true)));
-        assert!(!enter_confirms(&enter, &worktree(false)), "a host's leftover, asked about on its own");
-        let teardown = Confirm::TeardownFailed { failed: removal.tree.clone(), removal, tail: String::new(), subtrees: vec![] };
+        assert!(enter_confirms(&enter, &Confirm::DeleteWorktree { removal: removal.clone(), takes: Default::default() }));
+        let teardown = Confirm::TeardownFailed { failed: removal.tree.clone(), removal, tail: String::new() };
         assert!(!enter_confirms(&enter, &teardown), "a sheet that arrives on its own");
     }
 

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"pocketd/internal/board"
 	"pocketd/internal/config"
 	"pocketd/internal/names"
+	"pocketd/internal/orch"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
 	"pocketd/internal/terminal"
@@ -70,5 +73,36 @@ func TestWorktreesOnRecordAreClaimedTheFirstTimeOnly(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, []string{"pocket", "early"}) {
 		t.Fatalf("got %v", got)
+	}
+}
+
+func TestTheWorktreesAgentsMadeBeforeAreClaimedOnceAndCleanedUp(t *testing.T) {
+	p := scratch(t)
+	reg := registry.Open(config.Home())
+	add := func(name string) string {
+		c, err := worktree.Add(reg.Load(), p, name, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c.Path
+	}
+	subagent, isolated := add("subagent"), add("isolated")
+	started := time.Now().Add(time.Second).UnixMilli()
+	home := t.TempDir()
+	os.WriteFile(filepath.Join(home, "desktop.json"), []byte(`{"subtrees":{"`+subagent+`":{"started":`+strconv.FormatInt(started, 10)+`},"//devbox/x":{"started":1}}}`), 0o600)
+	later := add("later")
+	var reaped []string
+	reap := func(tree string) { reaped = append(reaped, tree) }
+	claimAgentWorktrees(home, reg, []orch.Session{{Cwd: isolated, CreatedAt: started}}, reap)
+	want := []string{subagent, isolated}
+	if got := reg.Load().AgentWorktrees; !slices.Equal(slices.Sorted(slices.Values(got)), slices.Sorted(slices.Values(want))) {
+		t.Fatalf("recorded %v, want %v", got, want)
+	}
+	if !slices.Equal(slices.Sorted(slices.Values(reaped)), slices.Sorted(slices.Values(want))) {
+		t.Fatalf("cleaned up %v", reaped)
+	}
+	claimAgentWorktrees(home, reg, []orch.Session{{Cwd: later, CreatedAt: time.Now().UnixMilli()}}, reap)
+	if len(reaped) != 2 || slices.Contains(reg.Load().AgentWorktrees, later) {
+		t.Fatal("claimed a second time")
 	}
 }

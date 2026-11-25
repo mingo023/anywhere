@@ -1,7 +1,7 @@
 use crate::accounts::Key;
 use crate::actions::{ResetZoom, ToggleFocus, ToggleRail, ToggleSidebar, ZoomIn, ZoomOut};
 use crate::desktop::Desktop;
-use crate::removal::Removal;
+use crate::removal::{Inspection, Removal};
 use crate::settings::Section;
 use crate::sidebar::column::{changes_dot, has_changes};
 use crate::status::Status;
@@ -66,16 +66,10 @@ pub enum Overlay {
 #[derive(Clone)]
 pub enum Confirm {
     RemoveProject(String),
-    /// `subtrees` are the worktrees its sessions' subagents worked in, which go with it; `lost_anyway` counts the commits
-    /// their detached HEADs alone hold, which go whether or not branches stay. `requested` is false for a sheet that arrives
-    /// on its own, for a host's leftover.
+    /// `takes` is what its pocketd says goes with it, the worktrees its sessions' subagents worked in too.
     DeleteWorktree {
         removal: Removal,
-        dirty: usize,
-        lost: usize,
-        lost_anyway: usize,
-        subtrees: Vec<Removal>,
-        requested: bool,
+        takes: Inspection,
     },
     DeleteLocal(String),
     DeleteScratch {
@@ -83,12 +77,11 @@ pub enum Confirm {
         dirty: usize,
         lost: usize,
     },
-    /// `failed`'s teardown failed; deleting anyway carries on with `removal` and `subtrees`, skipping only that teardown.
+    /// `failed`'s teardown failed, so nothing went; deleting anyway deletes `removal` again without teardowns.
     TeardownFailed {
         removal: Removal,
         failed: String,
         tail: String,
-        subtrees: Vec<Removal>,
     },
     Discard(Vec<String>),
     CloseSession(String),

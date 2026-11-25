@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
@@ -155,13 +156,50 @@ func Projects(f registry.File) []proto.Project {
 	return ps
 }
 
-// Listed is the worktrees of a project the desktop's sidebar lists (`project::listed` over `Store::lists`): the
-// main one, those Anywhere made, those the desktop tracks, and all while it lists those made elsewhere.
+// Listed is the worktrees of a project the sidebar lists: the main one, those a person made in Anywhere, and those
+// tracked. One pocketd made for an agent's session shows only once tracked.
 func Listed(f registry.File, ws []Worktree) []proto.Worktree {
 	out := []proto.Worktree{}
 	for _, w := range ws {
-		if w.Main || w.Made || f.Sidebar.ExternalWorktrees || slices.Contains(f.Tracked, w.Path) {
-			out = append(out, proto.Worktree{Name: w.Name, Path: w.Path, Branch: w.Branch, IsMain: w.Main})
+		tracked := slices.Contains(f.Tracked, w.Path)
+		if w.Main || w.Made && !slices.Contains(f.AgentWorktrees, w.Path) || tracked {
+			out = append(out, proto.Worktree{Name: w.Name, Path: w.Path, Branch: w.Branch, IsMain: w.Main, CreatedAt: born(w.Path) / 1e6})
+		}
+	}
+	return out
+}
+
+// Use is a folder a session an agent started worked in, and when that session started, in Unix milliseconds.
+type Use struct {
+	Cwd     string
+	Started int64
+}
+
+// madeFor bounds how long before a session started its worktree was made: the setup runs in between.
+const madeFor = 15 * time.Minute
+
+// AgentMade is the worktrees of f's projects that Anywhere made for the sessions that used them: each a linked one
+// Anywhere marked, not tracked, whose folder a use is in and that was made in the madeFor before that session
+// started. One made long before, as a person's worktree a session was sent into, or since, isn't theirs.
+func AgentMade(f registry.File, uses []Use) []string {
+	var out []string
+	listed := map[string][]Worktree{}
+	for _, u := range uses {
+		project, ok := Project(f, u.Cwd)
+		if !ok {
+			continue
+		}
+		if _, ok := listed[project]; !ok {
+			listed[project], _ = List(project)
+		}
+		cwd := resolved(u.Cwd)
+		for _, w := range listed[project] {
+			at := MadeAt(w.Path)
+			theirs := cwd == w.Path || strings.HasPrefix(cwd, w.Path+"/")
+			if theirs && !w.Main && w.Made && at <= u.Started && at >= u.Started-madeFor.Milliseconds() &&
+				!slices.Contains(f.Tracked, w.Path) && !slices.Contains(out, w.Path) {
+				out = append(out, w.Path)
+			}
 		}
 	}
 	return out

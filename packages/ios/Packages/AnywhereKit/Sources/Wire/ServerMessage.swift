@@ -38,6 +38,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
     case terminalCreated(TerminalCreated)
     case worktreeProgress(LaunchProgress)
     case worktreeCreated(WorktreeCreated)
+    case worktreeInspect(WorktreeInspect)
     case branchList(BranchList)
     case accountList(AccountList)
     case gitStatus(GitStatus)
@@ -105,6 +106,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case "terminal.created": self = .terminalCreated(try TerminalCreated(from: decoder))
         case "worktree.progress": self = .worktreeProgress(try LaunchProgress(from: decoder))
         case "worktree.created": self = .worktreeCreated(try WorktreeCreated(from: decoder))
+        case "worktree.inspect": self = .worktreeInspect(try WorktreeInspect(from: decoder))
         case "branch.list": self = .branchList(try BranchList(from: decoder))
         case "account.list": self = .accountList(try AccountList(from: decoder))
         case "git.status": self = .gitStatus(try GitStatus(from: decoder))
@@ -175,6 +177,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .terminalCreated(let m): try m.encode(to: encoder)
         case .worktreeProgress(let m): try m.encode(to: encoder)
         case .worktreeCreated(let m): try m.encode(to: encoder)
+        case .worktreeInspect(let m): try m.encode(to: encoder)
         case .branchList(let m): try m.encode(to: encoder)
         case .accountList(let m): try m.encode(to: encoder)
         case .gitStatus(let m): try m.encode(to: encoder)
@@ -242,6 +245,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .terminalCreated: "terminal.created"
         case .worktreeProgress: "worktree.progress"
         case .worktreeCreated: "worktree.created"
+        case .worktreeInspect: "worktree.inspect"
         case .branchList: "branch.list"
         case .accountList: "account.list"
         case .gitStatus: "git.status"

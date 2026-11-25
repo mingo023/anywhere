@@ -1,9 +1,12 @@
 package wsserver
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -11,12 +14,15 @@ import (
 	"time"
 
 	"pocketd/internal/accounts"
+	"pocketd/internal/hostop"
 	"pocketd/internal/hosts"
 	"pocketd/internal/launch"
 	"pocketd/internal/ops"
 	"pocketd/internal/orch"
+	"pocketd/internal/peer"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
+	"pocketd/internal/shellenv"
 	"pocketd/internal/terminal"
 	"pocketd/internal/workspace"
 	"pocketd/internal/worktree"
@@ -34,7 +40,13 @@ type WorkspaceService struct {
 	// SubagentTrees names the worktrees the subagents of the sessions in a worktree worked in, which go with it; nil names none.
 	SubagentTrees func(tree string, treeOf func(cwd string, at int64) string) (orch.Subtrees, error)
 	// HostDelete deletes a worktree on a linked host; nil deletes none there.
-	HostDelete func(ctx context.Context, host, path string, subagents []string, deleteBranch, force bool) error
+	HostDelete func(ctx context.Context, host, path string, subagents []string, d hosts.Deletion) error
+	// HostInspect is what deleting a worktree on a linked host would take there; nil inspects none there.
+	HostInspect func(ctx context.Context, host, path string) (proto.WorktreeInspect, error)
+	// Env is the login env a teardown script runs in; nil runs it in pocketd's own.
+	Env func() []string
+	// TrashDir is where a trashed worktree goes on an OS without a Trash.
+	TrashDir string
 	// Session is the store's row for a session, open or closed; nil knows none.
 	Session func(id string) (*orch.Session, error)
 }
@@ -114,6 +126,11 @@ func (c *conn) workspaceVerb(m proto.ClientMessage) error {
 		return c.worktreeCreate(m)
 	case "worktree.delete":
 		return c.worktreeDelete(m)
+	case "worktree.inspect":
+		if !slices.Contains(c.caps, proto.CapWorktrees) {
+			return proto.ErrMalformed
+		}
+		return c.worktreeInspect(m)
 	case "branch.list":
 		return c.branchList(m)
 	case "account.list":
@@ -156,14 +173,110 @@ func (c *conn) worktreeDelete(m proto.ClientMessage) error {
 	if c.s.Registry == nil {
 		return errors.New("This pocketd can't remove worktrees")
 	}
+	d := hosts.Deletion{DeleteBranch: m.DeleteBranch, Force: m.Force, Trash: m.Trash, TeardownSecs: cmp.Or(m.TeardownSecs, defaultTeardownSecs), Teardown: m.Teardown == nil || *m.Teardown, Branch: m.Branch}
 	go func() {
-		if err := c.removeWorktree(m.Path, m.Subagents, m.DeleteBranch, m.Force); err != nil {
+		if err := c.removeWorktree(m.Path, m.Subagents, d); err != nil {
 			c.send(workspaceError(m.ID, err))
 			return
 		}
 		c.send(proto.NewAck(m.ID))
 	}()
 	return nil
+}
+
+// defaultTeardownSecs bounds a teardown script when the client names no limit.
+const defaultTeardownSecs = 120
+
+func (c *conn) worktreeInspect(m proto.ClientMessage) error {
+	if c.s.Registry == nil {
+		return errors.New("This pocketd can't inspect worktrees")
+	}
+	go func() {
+		trees, lost, anyway, err := c.inspect(m.Path)
+		if err != nil {
+			c.send(workspaceError(m.ID, err))
+			return
+		}
+		c.send(proto.NewWorktreeInspect(m.ID, trees, lost, anyway))
+	}()
+	return nil
+}
+
+// inspect is what deleting the worktree at path takes: it and its subagents' worktrees, here then on linked hosts,
+// as removeWorktree would find them. An offline host's are left out, as the delete skips them.
+func (c *conn) inspect(path string) ([]proto.InspectedTree, int, int, error) {
+	f := c.s.Registry.Load()
+	tree, err := findTree(f, path)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	subtrees, onHosts, err := c.subagentTrees(f, tree.Path)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	line := c.openIn(tree.Path)
+	subtrees = slices.DeleteFunc(subtrees, func(t linkedTree) bool { return c.othersIn(t.Path, line) })
+	var out []proto.InspectedTree
+	for _, t := range append([]linkedTree{tree}, subtrees...) {
+		in, err := c.inspected(t)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		out = append(out, in)
+	}
+	lost, anyway := 0, 0
+	branches := map[string][]string{}
+	if tree.Branch == "" {
+		lost = worktree.DetachedCommits(tree.Path)
+	}
+	for _, t := range append(subtrees, tree) {
+		if t.Branch == "" && t.Path != tree.Path {
+			anyway += worktree.DetachedCommits(t.Path)
+		}
+		if t.Branch != "" && tree.Branch != "" {
+			branches[t.project] = append(branches[t.project], t.Branch)
+		}
+	}
+	for project, bs := range branches {
+		lost += worktree.LostCommits(project, bs...)
+	}
+	if ask := c.s.Workspace.HostInspect; ask != nil {
+		for _, h := range onHosts {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			there, err := ask(ctx, h.Host, h.Path)
+			cancel()
+			if _, offline := errors.AsType[hosts.Offline](err); offline {
+				continue
+			}
+			if r, ok := errors.AsType[hosts.Refusal](err); ok && r.Reply.Code == worktree.Code(worktree.ErrUnknownWorktree) {
+				continue
+			}
+			if err != nil {
+				return nil, 0, 0, err
+			}
+			for _, t := range there.Trees {
+				t.Host = cmp.Or(t.Host, h.Host)
+				out = append(out, t)
+			}
+			// A detached child's own commits go whether or not the branches stay.
+			if len(there.Trees) > 0 && there.Trees[0].Branch == "" {
+				anyway += there.Lost
+			} else {
+				lost += there.Lost
+			}
+			anyway += there.LostAnyway
+		}
+	}
+	return out, lost, anyway, nil
+}
+
+// inspected fails when git can't say what's uncommitted, so a client never takes that for a clean tree.
+func (c *conn) inspected(t linkedTree) (proto.InspectedTree, error) {
+	dirty, err := worktree.DirtyFiles(t.Path)
+	if err != nil {
+		return proto.InspectedTree{}, fmt.Errorf("reading %s: %w", t.Path, err)
+	}
+	return proto.InspectedTree{Path: t.Path, Branch: t.Branch, Dirty: dirty, Terminals: len(c.terminalsIn(t.Path))}, nil
 }
 
 // removeWorktree closes the terminals opened in the worktree at path, removes
@@ -174,11 +287,15 @@ func (c *conn) worktreeDelete(m proto.ClientMessage) error {
 // that refuses or is offline refuse the delete before anything here closes,
 // unless forced. A parent's Mac deleting its subagents' worktree here names
 // them: a worktree someone else works in, or made since they closed, isn't theirs.
-func (c *conn) removeWorktree(path string, subagents []string, deleteBranch, force bool) error {
+func (c *conn) removeWorktree(path string, subagents []string, d hosts.Deletion) error {
+	deleteBranch, force := d.DeleteBranch, d.Force
 	f := c.s.Registry.Load()
 	tree, err := findTree(f, path)
 	if err != nil {
 		return err
+	}
+	if d.Branch != "" && d.Branch != tree.Branch {
+		deleteBranch = false
 	}
 	if subagents != nil && c.othersIn(tree.Path, subagents) {
 		return worktree.ErrInUse
@@ -200,21 +317,65 @@ func (c *conn) removeWorktree(path string, subagents []string, deleteBranch, for
 	}
 	if del := c.s.Workspace.HostDelete; del != nil {
 		for _, h := range onHosts {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			err := del(ctx, h.Host, h.Path, h.Sessions, deleteBranch, force)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(d.TeardownSecs)*time.Second+time.Minute)
+			err := del(ctx, h.Host, h.Path, h.Sessions, d)
 			cancel()
-			if err != nil && !force {
+			// An offline host's go when its pocketd closes their sessions and cleans up after them.
+			if _, offline := errors.AsType[hosts.Offline](err); offline {
+				continue
+			}
+			if err != nil && (!force || isTeardownFailure(err)) {
 				return err
 			}
 		}
 	}
 	c.closeTerminals(trees)
 	for _, t := range trees {
-		if err := c.removeTree(f, t, deleteBranch, force); err != nil {
+		if d.Teardown {
+			if err := c.teardown(f, t, d.TeardownSecs); err != nil {
+				return err
+			}
+		}
+	}
+	for _, t := range trees {
+		if err := c.removeTree(f, t, deleteBranch, force, d.Trash); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// teardownFailed is a worktree whose teardown script failed: nothing of it was deleted.
+type teardownFailed struct {
+	path string
+	worktree.TeardownFailed
+}
+
+func isTeardownFailure(err error) bool {
+	if r, ok := errors.AsType[hosts.Refusal](err); ok {
+		return r.Reply.Code == proto.CodeTeardownFailed
+	}
+	_, ok := errors.AsType[teardownFailed](err)
+	return ok
+}
+
+// teardown runs the project's teardown script in t, as its settings or its repo name it. A non-owner's comes from the
+// project's own checkout only, as its setup does: a branch or PR it picked could carry any script.
+func (c *conn) teardown(f registry.File, t linkedTree, secs int) error {
+	from := t.Path
+	if c.who.Kind != peer.Owner {
+		from = t.project
+	}
+	script := worktree.Teardown(f.Repos[t.project].Teardown, t.project, from)
+	env := os.Environ()
+	if c.s.Workspace.Env != nil {
+		env = c.s.Workspace.Env()
+	}
+	err := worktree.RunTeardown(shellenv.LoginShell(), script, t.project, t.Path, env, time.Duration(secs)*time.Second)
+	if failed, ok := errors.AsType[worktree.TeardownFailed](err); ok {
+		return teardownFailed{t.Path, failed}
+	}
+	return err
 }
 
 // lostCommits is what deleting trees together loses: their branches' commits
@@ -416,14 +577,24 @@ func (c *conn) openIn(tree string) []string {
 	return ids
 }
 
-func (c *conn) closeTerminals(trees []linkedTree) {
+// terminalsIn is the terminals working in tree; a Local's run in its project's checkout but belong to none.
+func (c *conn) terminalsIn(tree string) []*terminal.Terminal {
 	if c.s.Terminals == nil {
-		return
+		return nil
 	}
-	var closing []<-chan struct{}
+	var in []*terminal.Terminal
 	for _, t := range c.s.Terminals.All() {
-		info := t.Info()
-		if info.Local == "" && slices.ContainsFunc(trees, func(w linkedTree) bool { return inside(info.Cwd, w.Path) }) {
+		if info := t.Info(); info.Local == "" && inside(info.Cwd, tree) {
+			in = append(in, t)
+		}
+	}
+	return in
+}
+
+func (c *conn) closeTerminals(trees []linkedTree) {
+	var closing []<-chan struct{}
+	for _, w := range trees {
+		for _, t := range c.terminalsIn(w.Path) {
 			t.Close()
 			closing = append(closing, t.Done())
 		}
@@ -437,18 +608,34 @@ func (c *conn) closeTerminals(trees []linkedTree) {
 	}
 }
 
-func (c *conn) removeTree(f registry.File, t linkedTree, deleteBranch, force bool) error {
+// removeTree removes the worktree t, after moving its folder to the Trash when trash is set, and its branch when
+// deleteBranch is.
+func (c *conn) removeTree(f registry.File, t linkedTree, deleteBranch, force, trash bool) error {
 	path, project := t.Path, t.project
 	t.Branch = branchToDelete(project, path, t.Branch, force)
+	trashed := ""
+	if trash {
+		var err error
+		if trashed, err = hostop.Trash(path, c.s.Workspace.TrashDir); err != nil {
+			log.Printf("worktree: trashing %s: %v", path, err)
+			trashed = ""
+		}
+	}
 	if err := worktree.Remove(f, project, path); err != nil {
 		// Naming it from its prompt may be writing its branch's lock into the git folder git is deleting.
 		time.Sleep(time.Second)
 		if err := worktree.Remove(f, project, path); err != nil {
+			if trashed != "" {
+				os.Rename(trashed, path)
+			}
 			return err
 		}
 	}
 	if c.s.Names != nil {
 		c.s.Names.Forget(path)
+	}
+	if err := c.s.Registry.AgentWorktree(path, false); err != nil {
+		log.Printf("worktree: forgetting %s: %v", path, err)
 	}
 	if p := c.s.Workspace.Projects; p != nil {
 		defer p.Scan()
@@ -543,6 +730,11 @@ func workspaceError(id string, err error) proto.Error {
 	}
 	if g, ok := errors.AsType[branchFailed](err); ok {
 		return proto.NewCodedError(id, proto.CodeGitFailed, g.Error(), g.stderr)
+	}
+	if t, ok := errors.AsType[teardownFailed](err); ok {
+		e := proto.NewCodedError(id, proto.CodeTeardownFailed, t.Error(), t.Tail)
+		e.Path = t.path
+		return e
 	}
 	if code := worktree.Code(err); code != "" {
 		return proto.NewErrorCode(id, code, err.Error())

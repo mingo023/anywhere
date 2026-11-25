@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 pub mod compare;
 pub mod github;
@@ -257,12 +257,6 @@ fn marked(run: &Runner, tree: &str) -> bool {
     marker(run, tree).is_some()
 }
 
-/// When pocketd made the worktree at `tree`, in Unix milliseconds on the machine holding it: its marker is written once.
-pub fn made_at(run: &Runner, tree: &str) -> Option<u64> {
-    let made = marker(run, tree)?.modified?.duration_since(UNIX_EPOCH).ok()?;
-    Some(made.as_millis() as u64)
-}
-
 fn marker(run: &Runner, tree: &str) -> Option<Stat> {
     let pointer = run.read(&format!("{tree}/.git"), 4096).ok()?;
     let pointer = String::from_utf8_lossy(&pointer);
@@ -303,35 +297,6 @@ pub fn ls_files(run: &Runner, cwd: &str) -> Vec<String> {
     lines(git(run, cwd, &["ls-files", "--cached", "--others", "--exclude-standard"]))
 }
 
-/// Deletes the worktree's folder, uncommitted changes included; its branch stays.
-pub fn remove_worktree(run: &Runner, repo: &str, path: &str) -> Result<(), String> {
-    git_result_within(run, repo, &["worktree", "remove", "--force", path], LONG)
-}
-
-/// Commits that deleting `branch` would lose, or with no branch the detached HEAD of `cwd`: those no other branch, remote or tag holds.
-pub fn lost_commits(run: &Runner, cwd: &str, branch: Option<&str>) -> usize {
-    match branch {
-        Some(b) => lost_branch_commits(run, cwd, &[b]),
-        None => git(run, cwd, &["rev-list", "--count", "HEAD", "--not", "--branches", "--remotes", "--tags"]).and_then(|n| n.trim().parse().ok()).unwrap_or(0),
-    }
-}
-
-/// The commits only `branches` hold, taken as one set: a commit two of them share counts once, and neither keeps it for the other.
-pub fn lost_branch_commits(run: &Runner, cwd: &str, branches: &[&str]) -> usize {
-    if branches.is_empty() {
-        return 0;
-    }
-    let tips: Vec<String> = branches.iter().map(|b| format!("refs/heads/{b}")).collect();
-    // `--exclude` matches the names `--branches` lists, which lack `refs/heads/`.
-    let excludes: Vec<String> = branches.iter().map(|b| format!("--exclude={b}")).collect();
-    let mut args = vec!["rev-list", "--count"];
-    args.extend(tips.iter().map(String::as_str));
-    args.push("--not");
-    args.extend(excludes.iter().map(String::as_str));
-    args.extend(["--branches", "--remotes", "--tags"]);
-    git(run, cwd, &args).and_then(|n| n.trim().parse().ok()).unwrap_or(0)
-}
-
 /// Every commit a ref or HEAD reaches in `cwd`; `None` when git can't read it.
 pub fn commit_count(run: &Runner, cwd: &str) -> Option<usize> {
     git(run, cwd, &["rev-list", "--count", "--all"]).and_then(|n| n.trim().parse().ok())
@@ -370,17 +335,6 @@ pub fn dirty_files(run: &Runner, cwd: &str) -> Option<usize> {
         return Some(0);
     }
     git(run, cwd, &["status", "--porcelain", "-uall"]).map(|out| out.lines().count())
-}
-
-/// Whether `branch` was once named `old`, per the entry `git branch -m` leaves in its reflog.
-pub fn renamed_from(run: &Runner, cwd: &str, branch: &str, old: &str) -> bool {
-    let moved = format!("Branch: renamed refs/heads/{old} to ");
-    lines(git(run, cwd, &["log", "-g", "--format=%gs", &format!("refs/heads/{branch}"), "--"])).iter().any(|l| l.starts_with(&moved))
-}
-
-/// Deletes `branch`, merged or not; git refuses while a worktree has it checked out.
-pub fn delete_branch(run: &Runner, repo: &str, branch: &str) -> Result<(), String> {
-    git_result(run, repo, &["branch", "-D", "--", branch])
 }
 
 pub fn clone(run: &Runner, url: &str, dest: &str) -> Result<(), String> {
@@ -595,10 +549,6 @@ mod tests {
         std::fs::write(repo.join(".git/worktrees/ours/anywhere"), "").unwrap();
         let made: Vec<bool> = worktrees(&Runner::Local, r).iter().map(|w| w.made).collect();
         assert_eq!(made, [false, true, false]);
-        let marker = std::fs::metadata(repo.join(".git/worktrees/ours/anywhere")).unwrap().modified().unwrap();
-        let ms = marker.duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
-        assert_eq!(made_at(&Runner::Local, dir.join("ours").to_str().unwrap()), Some(ms));
-        assert_eq!(made_at(&Runner::Local, dir.join("theirs").to_str().unwrap()), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -611,7 +561,6 @@ mod tests {
         assert_eq!(read(&offline, r, true), None);
         assert!(worktrees(&offline, r).is_empty());
         assert_eq!(texts(&offline, r, "a"), (String::new(), String::new()));
-        assert!(remove_worktree(&offline, r, r).unwrap_err().contains("not connected"));
         assert!(repo.join("a").exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -672,13 +621,12 @@ mod tests {
     }
 
     #[test]
-    fn a_clone_or_a_worktrees_removal_on_a_host_gets_longer_than_a_quick_command() {
+    fn a_clone_on_a_host_gets_longer_than_a_quick_command() {
         let host = std::sync::Arc::new(Timeouts::default());
         let run = Runner::Remote(host.clone());
         clone(&run, "https://x/r.git", "/home/me/r").unwrap();
-        remove_worktree(&run, "/home/me/r", "/home/me/w").unwrap();
-        delete_branch(&run, "/home/me/r", "fix").unwrap();
-        assert_eq!(*host.0.lock().unwrap(), [LONG, LONG, TIMEOUT]);
+        remotes(&run, "/home/me/r");
+        assert_eq!(*host.0.lock().unwrap(), [LONG, TIMEOUT]);
     }
 
     #[test]
@@ -689,21 +637,6 @@ mod tests {
         let path = file.to_str().unwrap();
         assert_eq!(Runner::Local.read(path, 6).unwrap(), b"abcdef");
         assert_eq!(Runner::Local.read(path, 5).unwrap_err().kind(), std::io::ErrorKind::FileTooLarge);
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn removing_a_worktree_deletes_its_folder_but_keeps_its_branch() {
-        let dir = scratch_repo("remove");
-        let repo = dir.join("repo");
-        let r = repo.to_str().unwrap();
-        let tree = dir.join("fix");
-        add_worktree(r, tree.to_str().unwrap(), "fix", "HEAD").unwrap();
-        std::fs::write(tree.join("draft"), "unsaved\n").unwrap();
-        remove_worktree(&Runner::Local, r, tree.to_str().unwrap()).unwrap();
-        assert!(!tree.exists());
-        assert!(branches(&Runner::Local, r).contains(&"fix".to_string()));
-        assert_eq!(worktrees(&Runner::Local, r).len(), 1);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1087,52 +1020,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    fn commit_file(dir: &Path, name: &str) {
-        std::fs::write(dir.join(name), "x\n").unwrap();
-        sh(dir, &["add", "."]);
-        sh(dir, &["commit", "-qm", name]);
-    }
-
-    #[test]
-    fn lost_commits_are_those_no_other_branch_remote_or_tag_holds() {
-        let dir = scratch_repo("lost");
-        let repo = dir.join("repo");
-        let r = repo.to_str().unwrap();
-        committer(&repo);
-        sh(&repo, &["branch", "-M", "main"]);
-        let tree = dir.join("fix");
-        add_worktree(r, tree.to_str().unwrap(), "fix/a", "HEAD").unwrap();
-        assert_eq!(lost_commits(&Runner::Local, r, Some("fix/a")), 0);
-        commit_file(&tree, "b");
-        commit_file(&tree, "c");
-        assert_eq!(lost_commits(&Runner::Local, r, Some("fix/a")), 2);
-        sh(&repo, &["update-ref", "refs/remotes/origin/fix/a", "fix/a~1"]);
-        assert_eq!(lost_commits(&Runner::Local, r, Some("fix/a")), 1);
-        sh(&repo, &["update-ref", "refs/remotes/origin/fix/a", "fix/a"]);
-        assert_eq!(lost_commits(&Runner::Local, r, Some("fix/a")), 0);
-        sh(&repo, &["update-ref", "-d", "refs/remotes/origin/fix/a"]);
-        sh(&repo, &["merge", "-q", "--ff-only", "fix/a"]);
-        assert_eq!(lost_commits(&Runner::Local, r, Some("fix/a")), 0);
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn a_commit_two_doomed_branches_share_is_lost_with_both() {
-        let dir = scratch_repo("lost-set");
-        let repo = dir.join("repo");
-        let r = repo.to_str().unwrap();
-        committer(&repo);
-        sh(&repo, &["branch", "-M", "main"]);
-        let tree = dir.join("feat");
-        add_worktree(r, tree.to_str().unwrap(), "feat", "HEAD").unwrap();
-        commit_file(&tree, "b");
-        sh(&repo, &["branch", "child", "feat"]);
-        assert_eq!([lost_commits(&Runner::Local, r, Some("feat")), lost_commits(&Runner::Local, r, Some("child"))], [0, 0]);
-        assert_eq!(lost_branch_commits(&Runner::Local, r, &["feat", "child"]), 1);
-        assert_eq!(lost_branch_commits(&Runner::Local, r, &[]), 0);
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
     #[test]
     fn dirty_files_counts_edited_staged_and_each_untracked_file_but_not_ignored_ones() {
         let dir = scratch_repo("dirty");
@@ -1160,35 +1047,6 @@ mod tests {
         std::fs::write(tree.join("a"), "a\n").unwrap();
         assert_eq!(dirty_files(&Runner::Local, tree.to_str().unwrap()), Some(0));
         assert_eq!(dirty_files(&Runner::Local, dir.join("gone").to_str().unwrap()), None);
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn a_detached_tree_loses_the_commits_only_its_head_holds() {
-        let dir = scratch_repo("lost-detached");
-        let repo = dir.join("repo");
-        committer(&repo);
-        let tree = dir.join("look");
-        sh(&repo, &["worktree", "add", "-q", "--detach", tree.to_str().unwrap()]);
-        let t = tree.to_str().unwrap();
-        assert_eq!(lost_commits(&Runner::Local, t, None), 0);
-        commit_file(&tree, "b");
-        assert_eq!(lost_commits(&Runner::Local, t, None), 1);
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn a_branch_deletes_once_its_worktree_is_removed() {
-        let dir = scratch_repo("delete-branch");
-        let repo = dir.join("repo");
-        let r = repo.to_str().unwrap();
-        let tree = dir.join("fix");
-        add_worktree(r, tree.to_str().unwrap(), "fix", "HEAD").unwrap();
-        assert!(delete_branch(&Runner::Local, r, "fix").unwrap_err().contains("fix"));
-        remove_worktree(&Runner::Local, r, tree.to_str().unwrap()).unwrap();
-        delete_branch(&Runner::Local, r, "fix").unwrap();
-        assert!(!branches(&Runner::Local, r).contains(&"fix".to_string()));
-        assert!(delete_branch(&Runner::Local, r, "fix").is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

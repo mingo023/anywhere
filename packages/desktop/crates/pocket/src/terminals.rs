@@ -307,10 +307,6 @@ impl Desktop {
                     self.daemon.send(json!({"op": "attach", "id": id}));
                 }
                 self.look_up_trees(cx);
-                if let Some(h) = host {
-                    self.removals.host_terminals_listed(h);
-                    self.sweep_host_leftovers(cx);
-                }
                 self.activity_changed(cx);
                 let restoring = !self.workspaces.read(cx).is_restored();
                 match host {

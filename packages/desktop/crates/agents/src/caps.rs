@@ -11,10 +11,11 @@ pub(super) const ACCESS_CAP: &str = "access.v1";
 pub(super) const ORCHESTRATOR_CAP: &str = "orchestrator.v1";
 pub(super) const HOSTS_CAP: &str = "hosts.v1";
 pub(super) const REGISTRY_CAP: &str = "registry.v2";
+pub(super) const WORKTREES_CAP: &str = "worktrees.v1";
 pub(super) const DELIVERY_CAP: &str = "delivery.v1";
 
 /// What this client understands beyond protocol 3.
-pub(super) const CAPS: [&str; 20] = [
+pub(super) const CAPS: [&str; 22] = [
     PAIR_CAP,
     "scopes.v1",
     "summary.v2",
@@ -34,5 +35,7 @@ pub(super) const CAPS: [&str; 20] = [
     ORCHESTRATOR_CAP,
     HOSTS_CAP,
     REGISTRY_CAP,
+    "workspace.v1",
+    WORKTREES_CAP,
     DELIVERY_CAP,
 ];

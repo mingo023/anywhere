@@ -9,7 +9,6 @@
       "force_with_lease": false
     },
     "access": "",
-    "worktree_root": "",
-    "external_worktrees": false
+    "worktree_root": ""
   }
 }

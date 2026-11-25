@@ -285,14 +285,22 @@ func serve(sock, handed string) error {
 		o.host.Hosts, o.host.Envs = hm, environments{hm, o.host.Registry}
 	}
 	ws.OpenSessions = o.openSessions
+	closed := o.engine.OnClosed
+	o.engine.OnClosed = func(id string) {
+		closed(id)
+		if row, _ := o.store.Session(id); row != nil {
+			go ws.AgentClosed(id, row.Cwd, row.Terminal)
+		}
+	}
 	// Off Recapture's caller, which may be a spawn: listing providers runs a shell per agent.
 	d.OnEnv = func() { go ws.PublishProviders() }
 	projectList := workspace.NewProjects(reg)
 	go projectList.Run(ctx)
 	go rescanOnChange(ctx, reg, projectList)
-	ws.Workspace = wsserver.WorkspaceService{Projects: projectList, Accounts: &workspace.AccountList{Store: d.Accounts, Running: d.Running}, Switch: d.Switch, SubagentTrees: o.subagentTrees, Session: o.session}
+	ws.Workspace = wsserver.WorkspaceService{Projects: projectList, Accounts: &workspace.AccountList{Store: d.Accounts, Running: d.Running}, Switch: d.Switch, SubagentTrees: o.subagentTrees, Session: o.session,
+		Env: d.LoginEnv, TrashDir: filepath.Join(home, "trash")}
 	if ws.Hosts != nil {
-		ws.Workspace.HostDelete = ws.Hosts.Manager.DeleteWorktree
+		ws.Workspace.HostDelete, ws.Workspace.HostInspect = ws.Hosts.Manager.DeleteWorktree, ws.Hosts.Manager.InspectWorktree
 	}
 	gh := github.New(func(dir string) []string { return d.GhEnv(d.LoginEnv(), dir) }, reg)
 	ws.GitHub, o.host.PRs = gh, gh.Cached
@@ -346,6 +354,12 @@ func serve(sock, handed string) error {
 	go func() {
 		if d.WaitRestored(ctx) == nil {
 			claimWorktrees(home, reg.Load(), usedFolders(worktreeNames, d.Terminals, tickets, autos))
+			isolated, err := o.store.Isolated()
+			if err != nil {
+				log.Printf("worktrees: %v", err)
+				return
+			}
+			claimAgentWorktrees(home, reg, isolated, ws.ReapAgentWorktree)
 		}
 	}()
 	if err := autos.Reconcile(time.Now()); err != nil {

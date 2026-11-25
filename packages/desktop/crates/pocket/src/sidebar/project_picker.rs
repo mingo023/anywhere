@@ -180,7 +180,7 @@ impl Desktop {
         let trees = |p: &str| {
             let locals = self.agents.locals_in(p).map(|l| l.id.clone());
             let worktrees =
-                self.listed_trees(p, cx).map(|w| self.creates.read(cx).trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main).map(|w| w.path);
+                self.listed_trees(p).map(|w| self.creates.read(cx).trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main).map(|w| w.path);
             locals.chain(worktrees).map(|t| (t.clone(), tree_texts(&t, self.agents.given_name(&t)))).collect()
         };
         let search_texts = |p: &str| project_texts(&self.repo_name(p), self.tree_of(p, cx).as_deref().and_then(|t| self.agents.given_name(t)));

@@ -36,9 +36,10 @@ type File struct {
 	Worktree Worktree        `json:"worktree"`
 	// Tracked is the worktrees the desktop made or imported, by path.
 	Tracked []string `json:"tracked"`
-	Sidebar Sidebar  `json:"sidebar"`
-	Agents  Agents   `json:"agents"`
-	Git     Git      `json:"git"`
+	// AgentWorktrees is the worktrees pocketd made for sessions an agent started, by path.
+	AgentWorktrees []string `json:"-"`
+	Agents         Agents   `json:"agents"`
+	Git            Git      `json:"git"`
 }
 
 // Git is Settings › Git, which phone commits and pushes follow too.
@@ -47,11 +48,6 @@ type Git = proto.GitSettings
 type Agents struct {
 	// Access is Settings › Permission mode, the access new sessions start with.
 	Access string `json:"access"`
-}
-
-type Sidebar struct {
-	// ExternalWorktrees lists the worktrees Anywhere didn't make too.
-	ExternalWorktrees bool `json:"external_worktrees"`
 }
 
 // Worktree is where new worktrees go.
@@ -68,19 +64,20 @@ func (f File) Name(project string) string {
 }
 
 type state struct {
-	Projects []proto.RegistryProject `json:"projects"`
-	Tracked  []string                `json:"tracked"`
-	Settings proto.SharedSettings    `json:"settings"`
+	Projects       []proto.RegistryProject `json:"projects"`
+	Tracked        []string                `json:"tracked"`
+	AgentWorktrees []string                `json:"agent_worktrees"`
+	Settings       proto.SharedSettings    `json:"settings"`
 }
 
 func (s state) file() File {
 	f := File{
-		Repos:    make(map[string]Repo, len(s.Projects)),
-		Tracked:  s.Tracked,
-		Worktree: Worktree{Root: s.Settings.WorktreeRoot},
-		Sidebar:  Sidebar{ExternalWorktrees: s.Settings.ExternalWorktrees},
-		Agents:   Agents{Access: s.Settings.Access},
-		Git:      s.Settings.Git,
+		Repos:          make(map[string]Repo, len(s.Projects)),
+		Tracked:        s.Tracked,
+		AgentWorktrees: s.AgentWorktrees,
+		Worktree:       Worktree{Root: s.Settings.WorktreeRoot},
+		Agents:         Agents{Access: s.Settings.Access},
+		Git:            s.Settings.Git,
 	}
 	for _, p := range s.Projects {
 		f.Projects = append(f.Projects, p.Path)
@@ -148,7 +145,7 @@ func importDesktop(path string) state {
 	}
 	// Key by key, so one the desktop wrote in a shape this can't read loses only itself.
 	var f File
-	for key, into := range map[string]any{"projects": &f.Projects, "repos": &f.Repos, "tracked": &f.Tracked, "git": &f.Git, "agents": &f.Agents, "worktree": &f.Worktree, "sidebar": &f.Sidebar} {
+	for key, into := range map[string]any{"projects": &f.Projects, "repos": &f.Repos, "tracked": &f.Tracked, "git": &f.Git, "agents": &f.Agents, "worktree": &f.Worktree} {
 		if v, ok := keys[key]; ok {
 			if err := json.Unmarshal(v, into); err != nil {
 				log.Printf("registry: %s: %s: %v", path, key, err)
@@ -156,7 +153,7 @@ func importDesktop(path string) state {
 		}
 	}
 	local := func(p string) bool { return !strings.HasPrefix(p, "//") }
-	s := state{Settings: proto.SharedSettings{Git: f.Git, Access: f.Agents.Access, WorktreeRoot: f.Worktree.Root, ExternalWorktrees: f.Sidebar.ExternalWorktrees}}
+	s := state{Settings: proto.SharedSettings{Git: f.Git, Access: f.Agents.Access, WorktreeRoot: f.Worktree.Root}}
 	for _, p := range f.Projects {
 		if local(p) && s.index(p) < 0 {
 			s.Projects = append(s.Projects, proto.RegistryProject{ID: newID(), Path: p, Repo: f.Repos[p]})
@@ -244,6 +241,25 @@ func (r *Registry) Track(path string, tracked bool) error {
 	})
 }
 
+// AgentWorktree records the worktree at path as one pocketd made for an agent's session, or forgets it.
+func (r *Registry) AgentWorktree(path string, made bool) error {
+	return r.AgentWorktrees(func(paths []string) []string {
+		paths = slices.DeleteFunc(paths, func(p string) bool { return p == path })
+		if made {
+			paths = append(paths, path)
+		}
+		return paths
+	})
+}
+
+// AgentWorktrees replaces the agents' worktrees with what change makes of them.
+func (r *Registry) AgentWorktrees(change func([]string) []string) error {
+	return r.update(func(s *state) error {
+		s.AgentWorktrees = change(s.AgentWorktrees)
+		return nil
+	})
+}
+
 func (r *Registry) SetSettings(settings proto.SharedSettings) error {
 	return r.update(func(s *state) error {
 		s.Settings = settings
@@ -258,7 +274,7 @@ func (r *Registry) update(change func(*state) error) error {
 	if r.unread != nil {
 		return r.unread
 	}
-	next := state{Projects: slices.Clone(r.st.Projects), Tracked: slices.Clone(r.st.Tracked), Settings: r.st.Settings}
+	next := state{Projects: slices.Clone(r.st.Projects), Tracked: slices.Clone(r.st.Tracked), AgentWorktrees: slices.Clone(r.st.AgentWorktrees), Settings: r.st.Settings}
 	if err := change(&next); err != nil {
 		return err
 	}
@@ -273,8 +289,11 @@ func (r *Registry) save(next state) error {
 	if err := r.write(next); err != nil {
 		return err
 	}
+	before := list(r.st)
 	r.st, r.file = next, next.file()
-	r.hub.Publish(list(next))
+	if after := list(next); !reflect.DeepEqual(after, before) {
+		r.hub.Publish(after)
+	}
 	return nil
 }
 

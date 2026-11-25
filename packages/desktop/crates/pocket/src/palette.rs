@@ -523,7 +523,7 @@ impl Desktop {
                     .collect();
                 let trees = scope
                     .iter()
-                    .filter_map(|p| Some((p, self.labelled_project(p), self.listed_trees(p, cx)?)))
+                    .filter_map(|p| Some((p, self.labelled_project(p), self.listed_trees(p)?)))
                     .flat_map(|(p, name, trees)| trees.into_iter().map(move |w| (p.clone(), name.clone(), w)))
                     .collect();
                 let locals = scope.iter().flat_map(|p| self.agents.locals_in(p).map(|l| (self.labelled_project(p), l.clone()))).collect();

@@ -1,23 +1,26 @@
-/// `error {id?, message, code?, detail?, count?}`: a refused request, or a failure the client acts on by `code`.
+/// `error {id?, message, code?, detail?, count?, path?}`: a refused request, or a failure the client acts on by `code`.
 public struct ServerError: Codable, Hashable, Sendable, Error {
     public var message: String
     public var code: ErrorCode?
     public var detail: String?
     /// How many commits an `unpushed_commits` refusal would lose.
     public var count: Int?
+    /// The worktree a `teardown_failed` refusal is about.
+    public var path: String?
     /// The id of the message it refuses, when that message was sent without waiting for its reply. Set by the
     /// connection, never coded: payloads leave the id to `ServerFrame`.
     public var replyTo: String?
 
-    public init(message: String, code: ErrorCode? = nil, detail: String? = nil, count: Int? = nil, replyTo: String? = nil) {
+    public init(message: String, code: ErrorCode? = nil, detail: String? = nil, count: Int? = nil, path: String? = nil, replyTo: String? = nil) {
         self.message = message
         self.code = code
         self.detail = detail
         self.count = count
+        self.path = path
         self.replyTo = replyTo
     }
 
-    private enum CodingKeys: String, CodingKey { case message, code, detail, count }
+    private enum CodingKeys: String, CodingKey { case message, code, detail, count, path }
 }
 
 public struct ErrorCode: OpenString {

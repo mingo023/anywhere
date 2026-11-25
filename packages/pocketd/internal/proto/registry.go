@@ -53,8 +53,6 @@ type SharedSettings struct {
 	Access string `json:"access"`
 	// WorktreeRoot is where new worktrees go.
 	WorktreeRoot string `json:"worktree_root"`
-	// ExternalWorktrees lists the worktrees Anywhere didn't make too.
-	ExternalWorktrees bool `json:"external_worktrees"`
 }
 
 type RegistryProject struct {

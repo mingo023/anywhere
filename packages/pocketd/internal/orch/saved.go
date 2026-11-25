@@ -317,3 +317,22 @@ func (s *Store) SetRestorable(entries map[string][]byte) error {
 		return nil
 	})
 }
+
+// Isolated is each session here, open or closed, kept or in lineage, that was given a worktree of its own: a
+// delegation's child with worktree isolation.
+func (s *Store) Isolated() ([]Session, error) {
+	all, err := s.Sessions(`id IN (SELECT child_id FROM delegations WHERE isolation = 'worktree') AND instr(id, '/') = 0`)
+	if err != nil {
+		return nil, err
+	}
+	old, isolated, err := s.archived()
+	if err != nil {
+		return nil, err
+	}
+	for _, x := range old {
+		if isolated[x.ID] && !strings.Contains(x.ID, "/") && !slices.ContainsFunc(all, func(a Session) bool { return a.ID == x.ID }) {
+			all = append(all, x)
+		}
+	}
+	return all, nil
+}

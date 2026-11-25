@@ -6,7 +6,7 @@ use crate::git_ui::changes::push;
 use crate::git_ui::diff::At;
 use crate::git_ui::gh_accounts::Gh;
 use crate::git_ui::pull_requests::PrItem;
-use crate::removal::Removal;
+use crate::removal::Asked;
 use crate::util::now_ms;
 use git::github::{self, Check, Note, Pr, PrState, Thread};
 use gpui_kit::*;
@@ -250,27 +250,7 @@ impl Desktop {
     /// Deletes a merged PR's worktree and its subagents', keeping their branches; asks first if any has changes.
     pub(crate) fn delete_merged(&mut self, tree: &str, cx: &mut Context<Self>) {
         let Some(project) = self.project.clone().filter(|_| self.deletable(tree)) else { return };
-        let removal = Removal { project, tree: tree.to_string(), branch: None, delete_branch: false, teardown: true };
-        let (mut subagents, on_hosts) = self.subagent_removals(&removal, cx);
-        let dir = removal.tree.clone();
-        // Untracked files count even when Changes hides them, so this reads the trees afresh.
-        let dirty = |dir: &str| git::dirty_files(&hosts::runner_for(dir), dir).is_none_or(|n| n > 0);
-        let task = cx.background_executor().spawn(async move {
-            subagents.extend(crate::removal::host_removals(&on_hosts, false));
-            (dirty(&dir) || subagents.iter().any(|r| dirty(&r.tree) || r.lost() > 0), subagents)
-        });
-        cx.spawn(async move |this, cx| {
-            let (dirty, checked) = task.await;
-            this.update(cx, |d, cx| {
-                if dirty {
-                    d.ask_delete_worktree(removal.project, removal.tree, cx);
-                } else {
-                    d.delete_worktree(removal, &checked, cx);
-                }
-            })
-            .ok();
-        })
-        .detach();
+        self.inspect_worktree(Asked { project, tree: tree.to_string(), quiet: true }, cx);
     }
 
     /// Opens the file thread `id` is on as the PR changes it, scrolled to the thread; one whose line is gone shows in Comments instead.

@@ -138,6 +138,8 @@ impl Desktop {
     pub(crate) fn on_agents_from(&mut self, host: Option<&str>, ev: Event, window: &mut Window, cx: &mut Context<Self>) {
         let ev = match ev {
             Event::Registry(list) => return self.on_registry(host, list, cx),
+            Event::WorktreeInspected { request, reply } => return self.on_inspected(request, reply, cx),
+            Event::WorktreeDeleted { request, reply } => return self.on_deleted(request, reply, cx),
             ev => ev,
         };
         let Some(ev) = self.on_agent_reply(ev, window, cx) else { return };
@@ -180,6 +182,7 @@ impl Desktop {
         if connected {
             self.renames.connected(host);
             self.delegated_reconnected();
+            self.removals.forget(host);
         }
         self.agents.apply_from(host, ev);
         if let Some(agent) = paged {
@@ -190,16 +193,9 @@ impl Desktop {
         }
         if listed.is_some() {
             self.delegated_listed();
-            self.remember_subtrees(cx);
-            if let Some(host) = host {
-                self.removals.host_listed(host);
-            }
-            self.sweep_host_leftovers(cx);
         }
         if let Some(parent) = delegating {
             self.delegated_changed(&parent, window, cx);
-            // A host's child may be listed before its delegation names its parent.
-            self.remember_subtrees(cx);
         }
         if let Some((feed, before)) = named {
             let trees = &self.worktrees;

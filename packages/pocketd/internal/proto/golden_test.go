@@ -183,7 +183,7 @@ var serverGolden = map[string]any{
 			GhAccount: "work", Accounts: map[string]string{"claude": "3f9a0c1b2d4e"}, Hidden: []string{"codex"}}},
 		{ID: "q9b8c7d6e5f4a3b2", Path: "/Users/me/other"},
 	}, []string{"/Users/me/.anywhere/worktrees/app/cute-boa"},
-		SharedSettings{Git: GitSettings{Remote: "fork", CommitAll: ptr(false), ForceWithLease: true}, Access: "edits", WorktreeRoot: "/Users/me/.anywhere/worktrees", ExternalWorktrees: true}),
+		SharedSettings{Git: GitSettings{Remote: "fork", CommitAll: ptr(false), ForceWithLease: true}, Access: "edits", WorktreeRoot: "/Users/me/.anywhere/worktrees"}),
 }
 
 func helloOKHost() HelloOK {

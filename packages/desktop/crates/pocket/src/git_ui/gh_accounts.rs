@@ -216,7 +216,7 @@ impl Desktop {
 
     /// Asks `gh` about the project's PRs again, as the account now chosen.
     fn gh_account_changed(&mut self, project: &str, cx: &mut Context<Self>) {
-        for w in self.listed_trees(project, cx).unwrap_or_default() {
+        for w in self.listed_trees(project).unwrap_or_default() {
             self.prs.forget(&w.path);
         }
         self.save_soon(cx);

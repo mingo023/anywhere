@@ -37,22 +37,17 @@ pub fn project_of<'a>(cwd: &str, projects: &'a [String], worktrees: &Worktrees) 
     projects.iter().filter_map(|p| Some((reach(p)?, p))).max_by_key(|(n, _)| *n).map(|(_, p)| p)
 }
 
-/// Whether its project lists `w`: the main worktree, one Anywhere made, or one `tracked`.
+/// Whether `w` is a tree of its own rather than a folder of its project's main tree: the main worktree, one Anywhere made, or one `tracked`.
 fn lists(w: &Worktree, tracked: impl Fn(&str) -> bool) -> bool {
     w.main || w.made || tracked(&w.path)
 }
 
-/// The listed worktree holding `cwd` most closely.
+/// The worktree of its own holding `cwd` most closely.
 pub fn worktree_of<'a>(cwd: &str, worktrees: &'a Worktrees, tracked: impl Fn(&str) -> bool) -> Option<&'a Worktree> {
     worktrees.values().flatten().filter(|w| under(cwd, &w.path) && lists(w, &tracked)).max_by_key(|w| w.path.len())
 }
 
-/// The worktrees a project lists: its main one, those Anywhere made and those `tracked`.
-pub fn listed(trees: &[Worktree], tracked: impl Fn(&str) -> bool) -> Vec<Worktree> {
-    trees.iter().filter(|w| lists(w, &tracked)).cloned().collect()
-}
-
-/// The worktrees git has that a project doesn't list. Their folders belong to the project's main tree.
+/// The worktrees git has that aren't trees of their own, to import. Their folders belong to the project's main tree.
 pub fn untracked(trees: &[Worktree], tracked: impl Fn(&str) -> bool) -> Vec<Worktree> {
     trees.iter().filter(|w| !lists(w, &tracked)).cloned().collect()
 }
@@ -255,11 +250,10 @@ mod tests {
     }
 
     #[test]
-    fn a_worktree_anywhere_made_is_listed_untracked_and_one_made_elsewhere_is_not() {
+    fn a_worktree_anywhere_made_holds_its_folders_untracked_and_one_made_elsewhere_is_left_to_import() {
         let mut worktrees = trees("/a/foo", &["/a/foo", "/w/ours", "/w/theirs"]);
         worktrees.get_mut("/a/foo").unwrap()[1].made = true;
         let paths = |trees: Vec<Worktree>| trees.into_iter().map(|w| w.path).collect::<Vec<_>>();
-        assert_eq!(paths(listed(&worktrees["/a/foo"], |_| false)), ["/a/foo", "/w/ours"]);
         assert_eq!(paths(untracked(&worktrees["/a/foo"], |_| false)), ["/w/theirs"]);
         assert_eq!(worktree_of("/w/ours/src", &worktrees, |_| false).map(|w| w.path.as_str()), Some("/w/ours"));
         assert_eq!(worktree_of("/w/theirs/src", &worktrees, |_| false), None);
@@ -314,12 +308,9 @@ mod tests {
     }
 
     #[test]
-    fn a_project_lists_its_main_worktree_and_only_the_tracked_ones() {
+    fn only_the_worktrees_nobody_tracked_are_left_to_import() {
         let worktrees = trees("/a/foo", &["/a/foo", "/w/fix", "/w/spike"]);
-        let tracked = |t: &str| t == "/w/fix";
-        let shown: Vec<String> = listed(&worktrees["/a/foo"], tracked).into_iter().map(|w| w.path).collect();
-        assert_eq!(shown, list(&["/a/foo", "/w/fix"]));
-        let hidden: Vec<String> = untracked(&worktrees["/a/foo"], tracked).into_iter().map(|w| w.path).collect();
+        let hidden: Vec<String> = untracked(&worktrees["/a/foo"], |t| t == "/w/fix").into_iter().map(|w| w.path).collect();
         assert_eq!(hidden, list(&["/w/spike"]));
     }
 

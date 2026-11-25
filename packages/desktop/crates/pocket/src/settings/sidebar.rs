@@ -34,15 +34,6 @@ pub(super) const ROWS: &[Setting] = &[
     .hint("Status puts Needs you and Failed first"),
     Setting::custom("session-details", "Session list", "Details on each row", |d, s, cx| d.details_row(s, cx))
         .resets(details, |s, d| s.sidebar.details = d.sidebar.details),
-    Setting::switch(
-        "external-worktrees",
-        "Session list",
-        "Show worktrees not created by Anywhere",
-        |s| s.sidebar.external_worktrees,
-        |s, on| s.sidebar.external_worktrees = on,
-    )
-    .hint("Worktrees you made with git worktree add")
-    .advanced(),
     Setting::switch("usage-card", "Context bars", "Show context bars on the rail", |s| s.sidebar.usage_card, |s, on| s.sidebar.usage_card = on)
         .hint("Context left in each agent's newest session"),
     Setting::stepper("usage-warn", "Context bars", "Warn at", (50, 95, 5), "%", |s| s.sidebar.warn_at as i32, |s, n| s.sidebar.set_warn(n as u32))

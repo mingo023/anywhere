@@ -371,14 +371,54 @@ write(join(pocket, "desktop.json"), JSON.stringify({ projects: [...scenario.repo
 const registered = new Map<string, { id: string; repo: Record<string, unknown> }>(
   [...scenario.repos.map(repoPath), join(home, "code", "app-extra")].map((path, i) => [path, { id: `p${i + 1}`, repo: {} }]),
 );
-const registrySettings = { git: { remote: "", commit_all: null, force_with_lease: false }, access: "", worktree_root: "", external_worktrees: false };
+const registrySettings = { git: { remote: "", commit_all: null, force_with_lease: false }, access: "", worktree_root: "" };
 const registryList = () => JSON.stringify({ type: "registry.list", projects: [...registered].map(([path, p]) => ({ id: p.id, path, repo: p.repo })), tracked, settings: registrySettings });
-const registryVerb = (f: { type: string; path?: string; repo?: Record<string, unknown>; settings?: typeof registrySettings }) => {
+const registryVerb = (f: { type: string; path?: string; repo?: Record<string, unknown>; settings?: typeof registrySettings; tracked?: boolean }) => {
   if (f.type === "project.add" && f.path && !registered.has(f.path)) registered.set(f.path, { id: `p${registered.size + 1}`, repo: f.repo ?? {} });
   else if (f.type === "project.remove" && f.path) registered.delete(f.path);
   else if (f.type === "project.set" && f.path && registered.has(f.path)) registered.get(f.path)!.repo = f.repo ?? {};
   else if (f.type === "settings.shared" && f.settings) Object.assign(registrySettings, f.settings);
+  else if (f.type === "worktree.track" && f.path && f.tracked && !tracked.includes(f.path)) tracked.push(f.path);
+  else if (f.type === "worktree.track" && f.path && !f.tracked && tracked.includes(f.path)) tracked.splice(tracked.indexOf(f.path), 1);
   return ["project.add", "project.remove", "project.set", "worktree.track", "settings.shared"].includes(f.type);
+};
+
+// As pocketd's project.list, read from git when sent: each project's main worktree, then the tracked ones, oldest folder first.
+// The worktrees made for subagents (delegate-*) carry Anywhere's marker but stay out, as pocketd leaves out an agent's.
+const gitOut = (cwd: string, ...args: string[]) => Bun.spawnSync(["git", "-C", cwd, ...args], { env: { ...process.env, HOME: home } }).stdout.toString();
+// A folder that isn't a repository lists as its own main worktree.
+const worktreesOf = (project: string) =>
+  (gitOut(project, "worktree", "list", "--porcelain").trim() || `worktree ${project}`).split("\n\n").map((block, i) => ({
+    path: block.match(/^worktree (.*)$/m)![1],
+    branch: block.match(/^branch refs\/heads\/(.*)$/m)?.[1] ?? "",
+    isMain: i === 0,
+  }));
+const born = (path: string) => { const ms = statSync(path, { throwIfNoEntry: false })?.birthtimeMs; return ms === undefined ? undefined : Math.floor(ms); };
+const projectList = () => {
+  const projects = process.env.FIXTURE_REGISTRY ? [...registered.keys()] : scenario.repos.map(repoPath);
+  return JSON.stringify({
+    type: "project.list",
+    projects: projects.map((path) => ({
+      path,
+      worktrees: worktreesOf(path).filter((w) => w.isMain || tracked.includes(w.path)).map((w) => ({ ...w, createdAt: born(w.path) })).sort((a, b) => +b.isMain - +a.isMain || (a.createdAt ?? 0) - (b.createdAt ?? 0)),
+    })),
+  });
+};
+// worktree.inspect and worktree.delete for this Mac's worktrees, by git; subagents' trees aren't followed.
+const projectOf = (tree: string) => [...registered.keys(), ...scenario.repos.map(repoPath)].find((p) => worktreesOf(p).some((w) => w.path === tree));
+const inspect = (tree: string) => {
+  const branch = worktreesOf(projectOf(tree)!).find((w) => w.path === tree)!.branch;
+  const dirty = gitOut(tree, "status", "--porcelain").split("\n").filter(Boolean).length;
+  const lost = Number(gitOut(tree, "rev-list", "--count", "HEAD", "--not", ...(branch ? [`--exclude=${branch}`] : []), "--branches").trim());
+  const terminals = sessions.filter((s) => s.cwd === tree || s.cwd.startsWith(`${tree}/`)).length;
+  return { trees: [{ path: tree, branch, dirty, terminals }], lost, lostAnyway: 0 };
+};
+const deleteTree = (f: { path: string; deleteBranch?: boolean }) => {
+  const project = projectOf(f.path)!;
+  const branch = worktreesOf(project).find((w) => w.path === f.path)!.branch;
+  git(project, "worktree", "remove", "--force", f.path);
+  if (f.deleteBranch && branch) git(project, "branch", "-D", branch);
+  if (tracked.includes(f.path)) tracked.splice(tracked.indexOf(f.path), 1);
 };
 
 type HostTarget = { kind: "alias"; name: string } | { kind: "address"; addr: string; port: number; user?: string; keyFile?: string };
@@ -539,8 +579,6 @@ function antigravity(state?: string) {
 // The sockets of the desktop's line-JSON channel, to tell of terminals that appear while it runs.
 const conns = new Set<Socket>();
 let spawned = 0;
-// This Mac's pocketd's lineage: the worktrees each tree's subagents worked in.
-const macLineage = new Map<string, string[]>();
 const ops = (c: Socket, first: Buffer) => {
   conns.add(c);
   c.on("close", () => conns.delete(c));
@@ -552,7 +590,6 @@ const ops = (c: Socket, first: Buffer) => {
       const op = JSON.parse(line);
       const reply = (msg: object) => c.write(JSON.stringify(msg) + "\n");
       if (op.op === "list") reply({ ev: "terminals", items: sessions });
-      if (op.op === "worktree.subagents") reply({ ev: "worktree.subagents", trees: (macLineage.get(op.path) ?? []).map((path) => ({ path, since: 0 })) });
       if (op.op === "accounts" || op.op === "accounts.usage") reply({ ev: "accounts", accounts: ACCOUNTS, autoSwitch: true });
       if (op.op === "attach") reply({ ev: "snapshot", id: op.id, cols: 140, rows: ROWS, data: Buffer.from(screen(op.id)).toString("base64") });
       if (op.op === "accounts.signin") {
@@ -688,56 +725,16 @@ const handoffState = (tree: string) => {
 };
 // devbox as a real folder: what pocketd's exec and fs ops do there, with its agents' sign-in faked. False for an op it leaves to the rest.
 let dropped = false;
-// FIXTURE_DEVBOX_DROP_MS=n: devbox goes offline for n ms once a delete sheet has read its subagent's worktree twice (FIXTURE_SUBAGENT_HOST).
-let subagentReads = 0;
-let devboxDown = false;
-// devbox's agent websockets, which a real link drop closes.
-const devboxSockets = new Set<{ close(): void }>();
 const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; data: string; stdin?: string; parents: boolean; recursive: boolean }, reply: (msg: object) => void, h = handoffHosts[0]) => {
   const b64 = (s: string | Uint8Array) => Buffer.from(s).toString("base64");
   const fail = (e: unknown) => reply({ ev: "error", error: String((e as Error).message ?? e) });
-  if (devboxDown) reply({ ev: "error", error: "host offline" });
-  else if (op.op === "status") reply({ ev: "status", status: { hostId: h.id, os: h.os, arch: "arm64", userHome: h.home, shell: "/bin/bash", name: h.id, caps: ["exec.v1", "fs.v1", "fork.history.v1"] } });
+  if (op.op === "status") reply({ ev: "status", status: { hostId: h.id, os: h.os, arch: "arm64", userHome: h.home, shell: "/bin/bash", name: h.id, caps: ["exec.v1", "fs.v1", "fork.history.v1"] } });
   else if (op.op === "exec" && ["codex", "claude"].includes(op.argv[0])) {
     const out = op.argv[0] === "claude" ? JSON.stringify({ loggedIn: true, projectsDirectory: join(h.home, ".claude", "projects") }) : "Logged in using ChatGPT";
     reply(h.signedOut ? { ev: "exec", code: 1, stderr: b64("Not logged in\n") } : { ev: "exec", stdout: b64(out) });
   } else if (op.op === "exec") {
     const r = Bun.spawnSync(op.argv, { cwd: op.cwd, stdin: op.stdin ? Buffer.from(op.stdin, "base64") : undefined, env: { ...process.env, HOME: h.home, GIT_CONFIG_NOSYSTEM: "1" } });
     reply({ ev: "exec", code: r.exitCode, stdout: b64(r.stdout), stderr: b64(r.stderr) });
-    const drop = Number(process.env.FIXTURE_DEVBOX_DROP_MS ?? 0);
-    if (drop && op.argv.includes("worktree") && op.argv.includes("list") && op.argv.some((a) => a.endsWith("delegate-host-notes")) && ++subagentReads === 2) {
-      devboxDown = true;
-      if (hostsWs) setLink(hostsWs, h.id, { state: "retrying", failure: "dropped" });
-      devboxSockets.forEach((s) => s.close());
-      // FIXTURE_DEVBOX_GRANDCHILD=1: devbox's child, its close still queued, delegates once more while devbox is away; both close once it's back.
-      // =closed: that grandchild also finished and closed while devbox was away, so only devbox's lineage knows it.
-      const parentTree = op.argv.find((a) => a.endsWith("delegate-host-notes"))!;
-      const deeper = parentTree.replace("delegate-host-notes", "delegate-host-deeper");
-      if (process.env.FIXTURE_DEVBOX_GRANDCHILD) {
-        const clone = parentTree.replace(/\.worktrees\/delegate-host-notes$/, "");
-        git(clone, "worktree", "add", "-q", "-b", "delegate/host-deeper", deeper, "HEAD");
-        writeFileSync(join(clone, ".git", "worktrees", "delegate-host-deeper", "anywhere"), "");
-      }
-      setTimeout(() => {
-        devboxDown = false;
-        if (hostsWs) setLink(hostsWs, h.id, ONLINE);
-        if (!process.env.FIXTURE_DEVBOX_GRANDCHILD || !hostsWs) return;
-        const child = summaries.find((s) => s.id === `devbox/${process.env.FIXTURE_SUBAGENT}-hsub`)!;
-        if (process.env.FIXTURE_DEVBOX_GRANDCHILD !== "closed") summaries.push({ ...child, id: `${child.id}2`, cwd: deeper, title: "Check the notes deeper", parent: child.id, createdAt: Date.now() });
-        // A host lists its sessions again once its link is back.
-        hostsWs.send(JSON.stringify({ type: "agent.list", agents: summaries }));
-        const ws = hostsWs;
-        setTimeout(() => [`${child.id}2`, child.id].filter((id) => summaries.some((s) => s.id === id)).forEach((id) => exit(ws, id)), 3000);
-      }, drop);
-    }
-  } else if (op.op === "worktree.subagents" && process.env.FIXTURE_DEVBOX_LINEAGE_FAILS) reply({ ev: "error", error: "database is locked" });
-  // FIXTURE_DEVBOX_LINEAGE_FAILS=1: devbox can't read its lineage, so the subagent's worktree waits rather than going without its own.
-  else if (op.op === "worktree.subagents") {
-    // As devbox's lineage holds it: the deeper worktree is its child's subagent's.
-    const deeper = op.path.replace(/delegate-host-notes$/, "delegate-host-deeper");
-    const marker = join(deeper.replace(/\.worktrees\/delegate-host-deeper$/, ""), ".git", "worktrees", "delegate-host-deeper", "anywhere");
-    const made = deeper !== op.path && statSync(deeper, { throwIfNoEntry: false }) && statSync(marker, { throwIfNoEntry: false });
-    reply({ ev: "worktree.subagents", trees: made ? [{ path: deeper, since: Math.floor(made.mtimeMs) }] : [] });
   } else if (op.op === "fs.stat") {
     try {
       const st = statSync(op.path);
@@ -839,15 +836,17 @@ if (process.env.FIXTURE_HOST_AGENTS) {
     port: port + 1,
     fetch: (req, server) => (server.upgrade(req) ? undefined : new Response("devbox")),
     websocket: {
-      open: (ws) => void devboxSockets.add(ws),
-      close: (ws) => void devboxSockets.delete(ws),
       message(ws, raw) {
         const f = JSON.parse(raw.toString());
         if (log) appendFileSync(log, raw + "\n");
         if (f.type === "hello") {
-          ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "devbox", hostname: "devbox", protocolVersion: 3, caps: ["scopes.v1", "summary.v2", "access.v1", ...(process.env.FIXTURE_REGISTRY ? ["registry.v2"] : [])], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+          ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "devbox", hostname: "devbox", protocolVersion: 3, caps: ["scopes.v1", "summary.v2", "access.v1", "workspace.v1", ...(process.env.FIXTURE_REGISTRY ? ["registry.v2"] : [])], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
           ws.send(JSON.stringify({ type: "agent.list", agents }));
           if (process.env.FIXTURE_REGISTRY) ws.send(JSON.stringify({ type: "registry.list", projects: [], tracked: [], settings: registrySettings }));
+          // Without worktrees.v1: devbox lists its worktrees but can't delete them.
+          const listed = hostProjects.filter((p) => p.startsWith("//devbox/")).map((p) => p.slice("//devbox".length));
+          const login = (path: string) => (process.env.FIXTURE_HOST_GH && path === "/home/dev/code/app-ios" ? [{ path: HOST_LOGIN, branch: "fix/login", isMain: false }] : []);
+          ws.send(JSON.stringify({ type: "project.list", projects: listed.map((path) => ({ path, worktrees: [{ path, branch: "main", isMain: true }, ...login(path)] })) }));
         }
         if (f.type.startsWith("project.")) ws.send(JSON.stringify({ type: "ack", id: f.id }));
         if (f.type === "agent.create") {
@@ -1048,7 +1047,6 @@ if (process.env.FIXTURE_SUBAGENT) {
   const id = `${parent.id}-sub`;
   const { cwd } = childCheckout(parent.id, parent.cwd, "Write the migration tests");
   write(join(cwd, "notes.md"), "draft\n");
-  macLineage.set(parent.cwd, [cwd]);
   // FIXTURE_SUBAGENT_UNSEEN=1: that child also closed before the desktop ever listed it, so only pocketd's lineage knows it.
   if (!process.env.FIXTURE_SUBAGENT_UNSEEN) sessions.push({ id, cmd: "codex", args: [], cwd });
   if (!process.env.FIXTURE_SUBAGENT_UNSEEN) summaries.push({ ...parent, id, terminalId: id, cwd, title: "Write the migration tests", provider: "codex", status: "idle", chatOnly: true, parent: parent.id, relationship: "subagent", createdAt: Date.now() } as (typeof summaries)[number]);
@@ -1198,9 +1196,10 @@ Bun.serve({
       // What the desktop sent, for checks that a click or key reached pocketd.
       if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG, raw + "\n");
       if (f.type === "hello") {
-        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1", ...(process.env.FIXTURE_REGISTRY ? ["registry.v2"] : []), ...(process.env.FIXTURE_NO_ORCHESTRATOR ? [] : ["orchestrator.v1"]), ...(process.env.FIXTURE_NO_HOSTS ? [] : ["hosts.v1"]), ...(process.env.FIXTURE_DELIVERY ? ["delivery.v1"] : [])], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1", "workspace.v1", "worktrees.v1", ...(process.env.FIXTURE_REGISTRY ? ["registry.v2"] : []), ...(process.env.FIXTURE_NO_ORCHESTRATOR ? [] : ["orchestrator.v1"]), ...(process.env.FIXTURE_NO_HOSTS ? [] : ["hosts.v1"]), ...(process.env.FIXTURE_DELIVERY ? ["delivery.v1"] : [])], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         if (process.env.FIXTURE_REGISTRY) ws.send(registryList());
+        ws.send(projectList());
         ws.send(JSON.stringify({ type: "automations", automations: AUTOMATIONS, runs: RUNS }));
         ws.send(JSON.stringify({ type: "board", tickets: TICKETS, limit: 4 }));
         if (!process.env.FIXTURE_NO_HOSTS) ws.send(JSON.stringify({ type: "host.list", hosts }));
@@ -1208,8 +1207,7 @@ Bun.serve({
         // FIXTURE_SUBAGENT_CLOSE_MS=<ms>: the FIXTURE_SUBAGENT session and its subagent close after that long.
         if (process.env.FIXTURE_SUBAGENT && process.env.FIXTURE_SUBAGENT_CLOSE_MS) {
           setTimeout(() => {
-            const hsub = process.env.FIXTURE_DEVBOX_GRANDCHILD ? [] : [`devbox/${process.env.FIXTURE_SUBAGENT}-hsub`];
-            for (const id of [process.env.FIXTURE_SUBAGENT!, `${process.env.FIXTURE_SUBAGENT}-sub`, ...hsub]) {
+            for (const id of [process.env.FIXTURE_SUBAGENT!, `${process.env.FIXTURE_SUBAGENT}-sub`, `devbox/${process.env.FIXTURE_SUBAGENT}-hsub`]) {
               exit(ws, id);
               const i = sessions.findIndex((s) => s.id === id);
               if (i >= 0) sessions.splice(i, 1);
@@ -1225,6 +1223,19 @@ Bun.serve({
       if (process.env.FIXTURE_REGISTRY && registryVerb(f)) {
         ws.send(JSON.stringify({ type: "ack", id: f.id }));
         ws.send(registryList());
+        ws.send(projectList());
+      }
+      if (f.type === "worktree.inspect" || f.type === "worktree.delete") {
+        try {
+          if (f.type === "worktree.inspect") ws.send(JSON.stringify({ type: "worktree.inspect", id: f.id, ...inspect(f.path) }));
+          else {
+            deleteTree(f);
+            ws.send(projectList());
+            ws.send(JSON.stringify({ type: "ack", id: f.id }));
+          }
+        } catch (e) {
+          ws.send(JSON.stringify({ type: "error", id: f.id, code: "git_failed", message: String(e) }));
+        }
       }
       if (f.type === "pair.begin") {
         const code = "abcdefghijklmnopqrstuv";
