@@ -426,7 +426,7 @@ Column max width 744 (`:34`); box radius 16. Stacked top to bottom:
   - Page 2, Switch: account rows (check, name, plan tag, "Signed out", or a back-at tag; "5h x% · wk y%" and a bar). Then "Only Claude accounts on {machine}" and "Manage…".
   - Pages slide 48 pt over 240 ms.
   - The switch op is `accounts.switch` over the ops socket. **Not on the WebSocket.**
-- **Drafts:** one input is shared, with a parked draft (text plus images) per agent (`drafts.rs`). When a chat closes, its unsent text goes into an error toast with Copy: "Fix CI closed before 2 messages went out" (`chat.rs:44`).
+- **Drafts:** one input is shared, with a parked draft (text plus images) per agent (`drafts.rs`). When a chat closes, its draft and unsent sends are dropped.
 
 ### 2.14 Context meter
 - `AgentSummary.tokensUsed` and `contextWindow`. `context()` returns None until the window is above 0 (`agents.rs:149`).

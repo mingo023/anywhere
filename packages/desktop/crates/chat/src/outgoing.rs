@@ -291,13 +291,6 @@ impl Outgoing {
         self.refused = false;
     }
 
-    /// Takes out every send that won't reach the agent unless sent again, queued or failed, oldest first.
-    pub fn drain(&mut self) -> Vec<String> {
-        let (sending, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.sends).into_iter().partition(|s| in_flight(s.delivery));
-        self.sends = sending;
-        rest.into_iter().map(|s| s.text).collect()
-    }
-
     /// Whether a send waits its turn.
     pub fn holds(&self) -> bool {
         self.sends.iter().any(|s| s.delivery == Delivery::Queued)
@@ -736,17 +729,6 @@ mod tests {
         assert_eq!(texts(&o), ["/Users/me/app/src/main.rs panics on start"]);
         o.push("./run.sh fails".into(), false, 0);
         assert_eq!(o.list().len(), 2);
-    }
-
-    #[test]
-    fn draining_returns_queued_and_failed_text_in_order() {
-        let mut o = Outgoing::default();
-        o.push("lost".into(), false, 0);
-        o.settle(&Transcript::default(), false, 200_000);
-        o.push("sending".into(), false, 200_000);
-        o.push("next".into(), true, 200_000);
-        assert_eq!(o.drain(), ["lost", "next"]);
-        assert_eq!(texts(&o), ["sending"]);
     }
 
     #[test]

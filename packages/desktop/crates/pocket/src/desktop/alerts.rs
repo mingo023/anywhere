@@ -207,8 +207,8 @@ impl Desktop {
             let agents = &self.agents;
             self.pr.update(cx, |p, cx| p.settle(|id| agents.get(id).and_then(Status::of), cx));
         }
-        for (agent, who) in listed.map(|before| gone(&before, &self.agents.list)).unwrap_or_default() {
-            self.chat_closed(&agent, &who, window, cx);
+        for agent in listed.map(|before| gone(&before, &self.agents.list)).unwrap_or_default() {
+            self.chat_closed(&agent, window, cx);
         }
         self.hand_off_creates(cx);
         self.focus_arrived_chat(window, cx);
@@ -390,9 +390,9 @@ pub(crate) fn exited_terminal(list: &[Summary], ev: &Event) -> Option<String> {
     (a.status == "closed" && known.restore != "failed").then(|| known.terminal_id.clone())
 }
 
-/// The agents `before` held that `after` doesn't, with their names: closed, or left out of a host's full list after a reconnect.
-fn gone(before: &[Summary], after: &[Summary]) -> Vec<(String, String)> {
-    before.iter().filter(|a| !after.iter().any(|x| x.id == a.id)).map(|a| (a.id.clone(), who(a))).collect()
+/// The agents `before` held that `after` doesn't: closed, or left out of a host's full list after a reconnect.
+fn gone(before: &[Summary], after: &[Summary]) -> Vec<String> {
+    before.iter().filter(|a| !after.iter().any(|x| x.id == a.id)).map(|a| a.id.clone()).collect()
 }
 
 /// The toast for a stop pocketd refused or never got.
@@ -424,9 +424,9 @@ mod tests {
         let before = [agent("a", "working"), agent("b", "idle"), Summary { title: String::new(), provider: "codex".into(), ..agent("c", "idle") }];
         let mut after = Agents { list: before.to_vec(), ..Default::default() };
         after.apply_from(None, Event::Agents(vec![agent("b", "idle")]));
-        assert_eq!(gone(&before, &after.list), [("a".to_string(), "A".to_string()), ("c".to_string(), "Codex".to_string())]);
+        assert_eq!(gone(&before, &after.list), ["a", "c"]);
         after.apply_from(None, Event::Agent(Box::new(agent("b", "closed"))));
-        assert_eq!(gone(&before[1..2], &after.list), [("b".to_string(), "B".to_string())]);
+        assert_eq!(gone(&before[1..2], &after.list), ["b"]);
     }
 
     #[test]
