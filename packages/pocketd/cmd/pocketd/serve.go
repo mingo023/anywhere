@@ -50,6 +50,7 @@ import (
 	"pocketd/internal/pairing"
 	"pocketd/internal/proc"
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
 	"pocketd/internal/push"
 	"pocketd/internal/reach"
 	"pocketd/internal/registry"
@@ -219,6 +220,11 @@ func serve(sock, handed string) error {
 	}
 	worktreeNames := names.Open(home)
 	l := launch.New(d, reg, settings, evs)
+	d.Accounts.Agy = func() (string, []string, bool) {
+		env := d.LoginEnv()
+		exe, ok := l.Find(providers.Antigravity.ID, env)
+		return exe, env, ok && filepath.IsAbs(exe)
+	}
 	l.Names = worktreeNames
 	o.host.Broker, o.host.Launcher, o.host.LoginEnv, o.host.Projects, o.host.Planning = d.Broker, l, d.LoginEnv, reg, d.Planning
 	l.MCPFlags = o.host.ClaudeFlags

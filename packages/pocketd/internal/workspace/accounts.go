@@ -28,12 +28,16 @@ func Accounts(list []accounts.Account, provider string) []proto.Account {
 }
 
 // name is the desktop's (accounts::name in pocket/src/accounts.rs): the
-// label, else the email.
+// label, else the email, else whether it's signed in, as agy's login is
+// without a readable email.
 func name(a accounts.Account) string {
 	for _, s := range []string{a.Label, a.Email} {
 		if s != "" {
 			return s
 		}
+	}
+	if a.SignedIn {
+		return "Signed in"
 	}
 	return "Not signed in"
 }

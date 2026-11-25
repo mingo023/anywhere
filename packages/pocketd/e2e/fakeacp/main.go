@@ -10,6 +10,7 @@
 //	                more lines go on: "mcp <tool> <json>" again, or "await <name>" until $HOME/.acp-fake/<name> exists
 //	delegate <task> run a sub-agent on task in a session of its own, as OpenCode 2 does, which reports "did <task>";
 //	                as hermes, in the background, telling its work only in a transcript;
+//	                as agy, in an invoke_subagent call that ends as it launches, telling nothing;
 //	                "delegate await <name>" runs its first call until $HOME/.acp-fake/<name> exists
 //	[Anywhere internal background handoff] …
 //	                as hermes, reply "echo: took back <summary>" of each transcript tail it holds
@@ -20,10 +21,10 @@
 //	fail <message>  refuse the prompt with message
 //	stop <reason>   end the turn with that stop reason
 //	/compact        as opencode, summarise the session in a reply and tell fewer tokens
-//	ask <question>  as agy, ask a form of question to a client that takes forms, then reply "echo: form <its answer>";
-//	                else reply "echo: asks in chat: <question>"
-//	decide <question>  as agy, ask question as an interaction_ permission of choices 1 Apple, 2 Pear,
-//	                then reply "echo: decided <optionId or cancelled>"
+//	ask <question>  as agy, ask in an ask_question call and a form to a client that takes forms, then reply
+//	                "echo: form <its answer>"; else reply "echo: asks in chat: <question>"
+//	decide <question>  as agy might, though never seen live, ask question as an interaction_ permission of
+//	                choices 1 Apple, 2 Pear, then reply "echo: decided <optionId or cancelled>"
 //
 // With $HOME/.acp-fake/start it never opens a session: "exit <message>" has
 // it say message and exit 1, "refuse <message>" refuse session/new with it.
@@ -471,8 +472,12 @@ func (a *agent) end() {
 // session, names that session only as the call ends, and its history tells
 // that work only to a load of that session.
 func (a *agent) delegate(task string) {
-	if a.name == "hermes" {
+	switch a.name {
+	case "hermes":
 		a.background(task)
+		return
+	case "agy":
+		a.launch(task)
 		return
 	}
 	call := "call_" + hex(4)
@@ -490,6 +495,16 @@ func (a *agent) delegate(task string) {
 	out := "<subagent sessionID=\"" + kid.ID + "\" state=\"completed\">\ndid " + task + "\n</subagent>"
 	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed", "content": []map[string]any{{"type": "content", "content": textBlock(out)}},
 		"rawOutput": map[string]any{"metadata": map[string]any{"sessionID": kid.ID, "status": "completed", "truncated": false}}})
+	a.say("delegated " + task)
+}
+
+// launch runs a sub-agent on task as agy 1.5.16's invoke_subagent does: a call
+// whose input is the one sub-agent, and which ends as it launches with no output.
+func (a *agent) launch(task string) {
+	call := "call_" + hex(4)
+	a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": call, "name": "invoke_subagent", "status": "in_progress", "kind": "other", "title": "Run invoke_subagent",
+		"rawInput": map[string]string{"Model": "inherit", "Prompt": task, "Role": "Runner", "TypeName": "self"}})
+	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "name": "invoke_subagent", "status": "completed"})
 	a.say("delegated " + task)
 }
 
@@ -566,14 +581,24 @@ func selected(r map[string]any) string {
 	return "cancelled"
 }
 
-// askForm asks q as agy does: as a form to a client that takes forms, else in the chat.
+// askForm asks q as agy 1.5.16 does: in an ask_question call, then as a form to
+// a client that takes forms, else in the chat.
 func (a *agent) askForm(q string, stop <-chan struct{}) {
+	call := "call_" + hex(4)
+	asking := func(status string) {
+		a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "name": "ask_question", "status": status})
+	}
+	a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": call, "name": "ask_question", "status": "in_progress", "kind": "other", "title": "Run ask_question",
+		"rawInput": map[string]any{"questions": []map[string]any{{"is_multi_select": false, "options": []string{"Apple", "Pear"}, "question": q}}}})
+	asking("pending")
 	if a.forms {
 		schema := map[string]any{"type": "object", "properties": map[string]any{
 			"q1":       map[string]any{"type": "string", "title": q, "oneOf": []map[string]string{{"const": "1", "title": "Apple"}, {"const": "2", "title": "Pear"}}},
-			"q1_other": map[string]any{"type": "string", "title": "Something else"},
+			"q1_other": map[string]any{"type": "string", "title": "Other", "description": "Optional free-form answer to: " + q},
 		}}
-		if r := a.request("elicitation/create", map[string]any{"sessionId": a.session.ID, "mode": "form", "message": q, "requestedSchema": schema}, stop); r != nil {
+		if r := a.request("elicitation/create", map[string]any{"sessionId": a.session.ID, "toolCallId": call, "mode": "form", "message": "The agent has a question.", "requestedSchema": schema}, stop); r != nil {
+			asking("in_progress")
+			asking("completed")
 			b, _ := json.Marshal(r)
 			a.say("form " + string(b))
 			return
@@ -582,7 +607,8 @@ func (a *agent) askForm(q string, stop <-chan struct{}) {
 	a.say("asks in chat: " + q)
 }
 
-// decide asks q as agy does: an interaction_ permission request whose options are the choices.
+// decide asks q as agy might, though no live run has shown it: an interaction_
+// permission request whose options are the choices.
 func (a *agent) decide(q string, stop <-chan struct{}) {
 	options := []map[string]string{{"optionId": "1", "name": "Apple", "kind": "allow_once"}, {"optionId": "2", "name": "Pear", "kind": "allow_once"}}
 	picked := selected(a.request("session/request_permission", map[string]any{"sessionId": a.session.ID,

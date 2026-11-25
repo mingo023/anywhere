@@ -40,6 +40,8 @@
 // FIXTURE_LOOSE=1 runs a Claude session in ~/Downloads and a shell in ~/notes, folders no project holds.
 // FIXTURE_EXPIRED=1 adds two Claude accounts whose login expired: one never read, one with stale usage.
 // FIXTURE_ONE_ACCOUNT=1 lists only the built-in Claude login.
+// FIXTURE_ANTIGRAVITY=usage|live|out|old adds Antigravity's built-in login: read (5h full, week at 25%), as a signed-in agy 1.5.16 reported it
+// (no 5h pool, week at 16%), signed out, or on an agy too old to say its usage.
 // FIXTURE_DELIVERY=1 speaks delivery.v1: a prompt is acked at once, then agent.delivery says it started, FIXTURE_DELIVERED_MS later, and the
 // agent takes it; a resent id gets the same answers but reaches the agent once. FIXTURE_DELIVERY_FAIL=<reason> fails each delivery with it.
 // FIXTURE_DROP_FIRST_PROMPT=<ms> drops the link on the first prompt, unanswered, and refuses the socket for <ms>.
@@ -520,7 +522,19 @@ const ACCOUNTS = [
         { id: "lapsed", provider: "claude", label: "Side", email: "lapsed@example.com", plan: "Pro", signedIn: true, expired: true, usage: { ...usage(30, 55), at: now - 90 * MIN, stale: true } },
       ]
     : []),
+  ...antigravity(process.env.FIXTURE_ANTIGRAVITY),
 ];
+
+function antigravity(state?: string) {
+  const row = { id: "builtin", provider: "antigravity", default: true };
+  switch (state) {
+    case "usage": return [{ ...row, signedIn: true, usage: usage(100, 25) }];
+    case "live": return [{ ...row, signedIn: true, usage: { week: { percent: 16.229522228240967, resetsAt: now + 7 * 1440 * MIN }, at: now } }];
+    case "out": return [{ ...row, signedIn: false, usage: { at: now } }];
+    case "old": return [{ ...row, signedIn: true, usage: { at: now }, error: "Update agy to 1.1.11 or later to see its usage" }];
+    default: return [];
+  }
+}
 
 // The sockets of the desktop's line-JSON channel, to tell of terminals that appear while it runs.
 const conns = new Set<Socket>();
@@ -979,7 +993,11 @@ const ALL_TASKS: [string, Provider, string, string][] = [
   ["Update the docs", "opencode", "opencode/big-pickle", "Update docs/auth.md for the new redirect behaviour."],
 ];
 // FIXTURE_DELEGATE_ONE=1: one task with a long title, which finishes; every task of the chat is settled and its panel offers Clear.
-const TASKS = process.env.FIXTURE_DELEGATE_ONE ? [["Review the diff on this branch and list what could break", ALL_TASKS[1][1], ALL_TASKS[1][2], ALL_TASKS[1][3]] as (typeof ALL_TASKS)[number]] : ALL_TASKS;
+// FIXTURE_DELEGATE_MANY=<n>: n tasks (3 at least), more than the chat has room for. Past the first three, every third finishes, every fifth asks, and the rest keep working.
+const MANY = Number(process.env.FIXTURE_DELEGATE_MANY ?? 0);
+const MORE = ["Profile the diff highlighter", "Virtualize the Explorer tree", "Port the board verbs", "Fix the sidebar hover flicker", "Bump the tree-sitter grammars", "Audit reduce-transparency fallbacks", "Trace the git refresh on Linux"];
+const many = (i: number): (typeof ALL_TASKS)[number] => (i < 3 ? ALL_TASKS[i] : [`${MORE[i % MORE.length]} ${i}`, ALL_TASKS[i % 3][1], ALL_TASKS[i % 3][2], "Take this one in your own worktree."]);
+const TASKS = process.env.FIXTURE_DELEGATE_ONE ? [["Review the diff on this branch and list what could break", ALL_TASKS[1][1], ALL_TASKS[1][2], ALL_TASKS[1][3]] as (typeof ALL_TASKS)[number]] : MANY ? Array.from({ length: Math.max(MANY, 3) }, (_, i) => many(i)) : ALL_TASKS;
 const announce = () => conns.forEach((c) => c.write(JSON.stringify({ ev: "terminals", items: sessions }) + "\n"));
 const setTask = (ws: Ws, t: Task, patch: Partial<Task>) => {
   Object.assign(t, patch);
@@ -1117,6 +1135,14 @@ const delegate = (ws: Ws, parentId: string) => {
     setTask(ws, list[2], { status: "failed", error: "opencode exited 2: provider returned 401.", settledAt: Date.now() });
     deliver(ws, list[2], "failed");
   });
+  if (MANY)
+    at(400 + TASKS.length * 150, () =>
+      list.slice(3).forEach((t, i) => {
+        if (i % 3 === 0) setTask(ws, t, { status: "completed", summary: "Done", settledAt: Date.now() });
+        else if (i % 5 === 1) setTask(ws, t, { status: "working", question: "Keep the change small, or refactor the module while it's open?" });
+        else setTask(ws, t, { status: "working" });
+      }),
+    );
   if (process.env.FIXTURE_DELEGATE_WAKE)
     at(2800, () => {
       setTask(ws, list[0], { status: "completed", question: undefined, summary: "24 tests pass", settledAt: Date.now() });

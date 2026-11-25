@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"pocketd/internal/providers"
 )
 
 type Window struct {
@@ -31,7 +33,8 @@ var client = &http.Client{Timeout: 10 * time.Second}
 func (s *Store) Refresh(ctx context.Context, id string) {
 	var wg sync.WaitGroup
 	for _, a := range s.List(func(string, string) int { return 0 }) {
-		if a.Pending || !a.SignedIn || id != "" && a.ID != id {
+		// Antigravity's sign-in is known only from its probe.
+		if a.Pending || !a.SignedIn && a.Provider != providers.Antigravity.ID || id != "" && a.ID != id {
 			continue
 		}
 		wg.Go(func() {
