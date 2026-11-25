@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.62
+
+- A delegated session that takes another turn works its task again (#394): (49bd1df3)
+- feat: agents' worktrees leave the sidebar and clean up after themselves (#391): (8373ae88)
+- fix: deliver each chat prompt once, or say why it wasn't (#392): (01131f01)
+- feat(pocketd): steer a prompt into a running Antigravity turn (#390): (bfa3a2d5)
+- feat(pocketd): nest Antigravity sub-agents' calls under their card until the turn ends (#389): (c8854308)
+- fix: keep answered ACP questions in the chat; Antigravity account follow-ups (#393): (c19325df)
+- Antigravity's account shows its Gemini usage in Settings (#386): (edfa18bc)
+- fix(pocketd): match Antigravity's questions to live agy 1.5.16 (#388): (87d5d104)
+- feat(pocketd): show Antigravity's invoke_subagent as a sub-agent card (#383): (3924dbb4)
+- The Delegated panel stays inside the chat however many sessions it holds (#387): (6b64e71d)
+- feat(pocketd): ask Antigravity's questions on the question card (#384): (96de089d)
+- Closing a chat no longer shows its unsent text as an error (#385): (2d70f0e3)
+- A prompt's images and files sit above its bubble, not inside it (#377): (6fed64e1)
+- A terminal Claude whose reports go quiet still leaves working on its Stop hook (#376): (37c62b80)
+- pocketd owns the project list, so iOS and the desktop list the same projects (#374): (27bbb349)
+- A host project starts in a worktree, and a failed start frees the page (#373): (f6312ca4)
+- Polling a PR costs 2 GraphQL points, not 33 (#372): (a179c8ea)
+- An app a host update replaced relaunches onto the new version (#371): (ba1ff7a4)
+
 ## 0.1.61
 
 - Chat keeps its whole conversation after a restart (#368): (2e97eb7a)
