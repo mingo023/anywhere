@@ -1,0 +1,1143 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anywhere · Settings revamp prototype</title>
+<style>
+:root{
+  --text:#111113;--text-body:#3f3f46;--text-2:#6f6f78;--text-3:#74747d;--text-4:#a1a1aa;
+  --page:#f7f7f7;--side:#f1f1f3;--surface:#fff;--popover:#fff;--well:#f4f4f5;
+  --fill-1:rgba(17,17,19,.031);--fill-2:rgba(17,17,19,.043);--fill-3:rgba(17,17,19,.055);--fill-4:rgba(17,17,19,.067);
+  --sep:rgba(17,17,19,.09);--sep-strong:rgba(17,17,19,.122);
+  --ink:#111113;--on-ink:#fff;--focus:rgba(17,17,19,.5);
+  --on:#2b9a66;--failed:#cd2b31;--failed-bg:rgba(229,72,77,.1);--failed-text:#cd2b31;
+  --waiting:#ad5700;--waiting-bg:rgba(255,178,36,.16);--ok:#18794e;--flash:rgba(255,178,36,.28);
+  --row-shadow:0 1px 2px rgba(17,17,19,.06),0 0 0 .5px rgba(17,17,19,.07);
+  --pop-shadow:0 0 0 .5px rgba(17,17,19,.12),0 12px 32px rgba(17,17,19,.14),0 2px 6px rgba(17,17,19,.06);
+  --cap-shadow:0 0 0 .5px rgba(17,17,19,.14),0 1px 0 rgba(0,0,0,.09);
+  --mono:"Geist Mono","SF Mono",ui-monospace,Menlo,monospace;
+  --sans:system-ui,-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  --out:cubic-bezier(.23,1,.32,1);
+}
+[data-theme=dark]{
+  --text:#ebebeb;--text-body:#c4c4c4;--text-2:#acacac;--text-3:#929292;--text-4:#7a7a7a;
+  --page:#2b2b2c;--side:#232324;--surface:rgba(235,235,235,.07);--popover:#2f2f30;--well:rgba(235,235,235,.05);
+  --fill-1:rgba(235,235,235,.05);--fill-2:rgba(235,235,235,.08);--fill-3:rgba(235,235,235,.1);--fill-4:rgba(235,235,235,.12);
+  --sep:rgba(235,235,235,.08);--sep-strong:rgba(235,235,235,.14);
+  --ink:#ebebeb;--on-ink:#171717;--focus:rgba(235,235,235,.6);
+  --on:#30a46c;--failed:#e5484d;--failed-bg:rgba(229,72,77,.14);--failed-text:#ff9592;
+  --waiting:#ffca16;--waiting-bg:rgba(255,178,36,.14);--ok:#3dd68c;--flash:rgba(255,178,36,.2);
+  --row-shadow:0 0 0 .5px rgba(235,235,235,.1);
+  --pop-shadow:0 0 0 .5px rgba(235,235,235,.14),0 16px 40px rgba(0,0,0,.5);
+  --cap-shadow:0 0 0 .5px rgba(235,235,235,.18),0 1px 0 rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font:13px/1.4 var(--sans);-webkit-font-smoothing:antialiased;color:var(--text);
+  background:radial-gradient(1100px 700px at 12% 0%,#d9dfe9 0%,transparent 60%),radial-gradient(900px 600px at 92% 100%,#e0d9e6 0%,transparent 60%),#c8cdd7}
+[data-theme=dark] body{background:radial-gradient(1100px 700px at 12% 0%,#2b3140 0%,transparent 60%),radial-gradient(900px 600px at 92% 100%,#33293b 0%,transparent 60%),#16181d}
+button,input{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;margin:0;cursor:default;text-align:inherit}
+button:disabled{opacity:.45}
+svg{display:block;flex:none}
+:focus{outline:none}
+:focus-visible{box-shadow:0 0 0 2px var(--page),0 0 0 4px var(--focus)!important;border-radius:7px}
+mark{background:var(--waiting-bg);color:inherit;border-radius:3px;padding:0 1px}
+@media (prefers-reduced-motion:reduce){*{transition-duration:1ms!important;animation-duration:1ms!important}}
+
+#win{position:absolute;inset:24px 24px 64px;display:flex;border-radius:11px;overflow:hidden;background:var(--page);
+  box-shadow:0 0 0 .5px rgba(0,0,0,.28),0 24px 70px rgba(0,0,0,.24),0 6px 18px rgba(0,0,0,.1);user-select:none;-webkit-user-select:none}
+.lights{position:absolute;left:14px;top:15px;display:flex;gap:8px;z-index:5}
+.lights i{width:12px;height:12px;border-radius:50%;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.16)}
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+
+/* nav */
+#nav{width:248px;flex:none;background:var(--side);border-right:.5px solid var(--sep);display:flex;flex-direction:column;min-height:0}
+.navtop{padding:44px 10px 8px;flex:none;display:flex;flex-direction:column;gap:8px}
+.back{display:flex;align-items:center;gap:7px;height:28px;padding:0 8px;border-radius:7px;color:var(--text-body)}
+.back:hover{background:var(--fill-2)}
+.search{display:flex;align-items:center;gap:7px;height:30px;padding:0 9px;border-radius:8px;background:var(--fill-3);color:var(--text-3)}
+.search input{flex:1;min-width:0;border:0;background:none;font-size:13px;color:var(--text)}
+.search input::placeholder{color:var(--text-3)}
+.search:focus-within{box-shadow:0 0 0 2px var(--side),0 0 0 4px var(--focus)}
+kbd{font:11.5px var(--sans);color:var(--text-4)}
+.navscroll{flex:1;min-height:0;overflow:auto;padding:4px 10px 16px;
+  -webkit-mask-image:linear-gradient(transparent 0,#000 10px,#000 calc(100% - 18px),transparent);mask-image:linear-gradient(transparent 0,#000 10px,#000 calc(100% - 18px),transparent)}
+.ngroup{margin-top:12px}
+.ncap{padding:0 8px 4px;font-size:11px;font-weight:600;color:var(--text-4)}
+.ni{width:100%;display:flex;align-items:center;gap:9px;height:30px;padding:0 8px;border-radius:7px;color:var(--text-body);font-weight:450}
+.ni:hover{background:var(--fill-2)}
+.ni.sel{background:var(--fill-4);color:var(--text);font-weight:600}
+.ni.dim{opacity:.45}
+.ni .cnt{margin-left:auto;min-width:18px;height:16px;padding:0 5px;border-radius:8px;background:var(--fill-3);font-size:11px;font-weight:500;color:var(--text-2);display:flex;align-items:center;justify-content:center}
+.ni .cdot{margin-left:auto;width:6px;height:6px;border-radius:50%;background:var(--text-2)}
+
+/* page */
+#page{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
+.top{height:56px;flex:none;display:flex;align-items:center;gap:12px;padding:0 22px;border-bottom:.5px solid var(--sep)}
+.crumbs{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:600}
+.crumbs .up{color:var(--text-3);font-weight:500;padding:2px 4px;border-radius:5px}
+.crumbs .up:hover{background:var(--fill-2);color:var(--text)}
+.crumbs .sepr{color:var(--text-4)}
+.subt{font-size:12px;color:var(--text-3);margin-top:1px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl{min-width:0;flex:1}
+.advsw{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);flex:none}
+.scroll{flex:1;min-height:0;overflow:auto}
+#stage{max-width:700px;margin:0 auto;padding:22px 24px 140px;display:flex;flex-direction:column;gap:22px}
+.gcap{font-size:13px;font-weight:600;color:var(--text-2);margin:0 2px 7px;display:flex;align-items:center;gap:8px}
+.card{background:var(--surface);border-radius:12px;box-shadow:var(--row-shadow)}
+.card>*+*{border-top:.5px solid var(--sep)}
+.related{display:flex;align-items:center;gap:6px;margin:8px 4px 0;font-size:12px;color:var(--text-3)}
+.link{color:var(--text);text-decoration:underline;text-decoration-color:var(--sep-strong);text-underline-offset:2px;font-weight:500}
+.link:hover{text-decoration-color:var(--text)}
+
+.set{display:flex;align-items:center;gap:16px;padding:10px 14px 10px 18px;min-height:52px;position:relative}
+.set .lbl{flex:1;min-width:0;display:flex;align-items:flex-start;gap:8px}
+.set .t{font-size:13px;font-weight:500;line-height:18px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.set .s{font-size:12px;color:var(--text-3);line-height:16px;margin-top:1px}
+.set .s.err{color:var(--failed-text)}
+.set .ctl{flex:none;max-width:62%;display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.set.child .lbl{padding-left:0}
+.sub{color:var(--text-4);width:14px;line-height:18px;flex:none}
+.dot{position:absolute;left:7px;top:50%;width:5px;height:5px;margin-top:-2.5px;border-radius:50%;background:var(--ink)}
+.set.flash,.sc.flash{animation:flash 1.8s ease-out}
+@keyframes flash{0%,35%{background:var(--flash)}100%{background:transparent}}
+.tag{font-size:10.5px;font-weight:500;color:var(--text-3);background:var(--fill-3);padding:1px 6px;border-radius:5px}
+.tag.where{font-size:11px;color:var(--text-2);background:none;box-shadow:inset 0 0 0 .5px var(--sep-strong);border-radius:6px;padding:1px 7px}
+.saved{font-size:11.5px;color:var(--ok);font-weight:500;animation:fadeout 1.6s ease-out forwards}
+@keyframes fadeout{0%,70%{opacity:1}100%{opacity:0}}
+.new{display:none;font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#fff;background:#6e56cf;padding:1px 5px;border-radius:4px;vertical-align:middle}
+body.notes .new{display:inline-block}
+.val{font-size:12.5px;color:var(--text-2)}
+.val.ok{color:var(--ok)}
+.val.warn{color:var(--waiting)}
+.reset{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-3);opacity:0;transition:opacity 120ms}
+.set:hover .reset,.set:focus-within .reset,.sc:hover .reset,.sc:focus-within .reset{opacity:1}
+.reset:hover{background:var(--fill-3);color:var(--text)}
+
+/* controls */
+.sw{width:34px;height:20px;border-radius:10px;background:var(--fill-4);box-shadow:inset 0 0 0 .5px var(--sep-strong);position:relative;flex:none;transition:background 180ms ease-out}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25),0 0 0 .5px rgba(0,0,0,.06);transition:transform 220ms var(--out)}
+.sw[aria-checked=true]{background:var(--on);box-shadow:none}
+.sw[aria-checked=true]::after{transform:translateX(14px)}
+.sw:active::after{width:19px}.sw[aria-checked=true]:active::after{transform:translateX(11px)}
+.sw.sm{width:28px;height:16px}.sw.sm::after{width:12px;height:12px}.sw.sm[aria-checked=true]::after{transform:translateX(12px)}
+.tg{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 11px 0 9px;border-radius:13px;font-size:12px;font-weight:500;color:var(--text-2);box-shadow:inset 0 0 0 1px var(--sep-strong);transition:background 120ms,color 120ms}
+.tg:hover:not(:disabled){background:var(--fill-2)}.tg[aria-checked=true]{background:var(--ink);color:var(--on-ink);box-shadow:none}.tg[aria-checked=true]:hover{background:var(--ink)}.tg:disabled{opacity:.4}
+.gsub{padding:10px 14px 4px;font-size:12px;font-weight:600;color:var(--text-2);border-top:.5px solid var(--sep)}
+.ck{width:18px;height:18px;border-radius:5px;box-shadow:inset 0 0 0 1px var(--sep-strong);display:flex;align-items:center;justify-content:center;color:var(--on-ink);transition:background 120ms}
+.ck[aria-checked=true]{background:var(--ink);box-shadow:none}
+.seg{display:flex;padding:2px;border-radius:8px;background:var(--fill-3);gap:1px}
+.seg button{height:24px;padding:0 10px;border-radius:6px;font-size:12.5px;color:var(--text-2);white-space:nowrap}
+.seg button:hover{color:var(--text)}
+.seg button[aria-checked=true]{background:var(--surface);color:var(--text);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.12),0 0 0 .5px rgba(0,0,0,.06)}
+[data-theme=dark] .seg button[aria-checked=true]{background:rgba(235,235,235,.16)}
+.btn{height:28px;padding:0 11px;border-radius:7px;background:var(--surface);box-shadow:0 0 0 .5px var(--sep-strong),0 1px 1px rgba(0,0,0,.05);font-size:12.5px;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;transition:transform 100ms ease-out}
+[data-theme=dark] .btn{background:var(--fill-3)}
+.btn:active,.sbtn:active,.dd-t:active{transform:scale(.97)}
+.btn.pri{background:var(--ink);color:var(--on-ink);box-shadow:none;font-weight:500}
+.btn.ghost{background:none;box-shadow:none;color:var(--text-2)}
+.btn.ghost:hover{background:var(--fill-2);color:var(--text)}
+.btn.sm{height:24px;padding:0 9px;font-size:12px}
+.dd{position:relative}
+.dd-t{height:28px;padding:0 8px 0 11px;border-radius:7px;background:var(--surface);box-shadow:0 0 0 .5px var(--sep-strong),0 1px 1px rgba(0,0,0,.05);display:flex;align-items:center;gap:8px;font-size:12.5px;white-space:nowrap;transition:transform 100ms ease-out}
+[data-theme=dark] .dd-t{background:var(--fill-3)}
+.dd-t[aria-expanded=true]{background:var(--fill-3)}
+.menu{position:absolute;right:0;top:calc(100% + 5px);min-width:100%;z-index:30;background:var(--popover);border-radius:10px;box-shadow:var(--pop-shadow);padding:5px;display:flex;flex-direction:column;transform-origin:top right;animation:pop 140ms var(--out)}
+@keyframes pop{from{opacity:0;transform:scale(.96) translateY(-3px)}}
+.menu .mi{height:28px;padding:0 10px 0 26px;border-radius:6px;display:flex;align-items:center;gap:8px;white-space:nowrap;font-size:13px;position:relative}
+.menu .mi:hover,.menu .mi:focus-visible{background:var(--fill-3);box-shadow:none!important}
+.menu .mi[aria-checked=true]::before{content:"✓";position:absolute;left:9px;font-size:12px}
+.menu .mi:disabled{opacity:.4}
+.menu .mi .mh{margin-left:auto;padding-left:16px;color:var(--text-3);font-size:11.5px}
+.menu .msep{height:.5px;background:var(--sep);margin:4px 6px}
+.menu .mf{margin:2px 2px 5px;height:28px;border-radius:6px;background:var(--fill-3);display:flex;align-items:center;gap:6px;padding:0 8px;color:var(--text-3)}
+.menu .mf input{border:0;background:none;flex:1;min-width:0}
+.menu .mlist{max-height:240px;overflow:auto;display:flex;flex-direction:column}
+.menu .mempty{padding:8px 10px;color:var(--text-3);font-size:12px}
+.step{display:flex;align-items:center;height:28px;border-radius:7px;background:var(--fill-3)}
+.step button{width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:var(--text-2);border-radius:7px}
+.step button:hover{color:var(--text);background:var(--fill-2)}
+.step input{width:44px;border:0;background:none;text-align:right;font-variant-numeric:tabular-nums;font-size:12.5px;padding:0}
+.step .u{font-size:12.5px;color:var(--text-2);padding:0 2px 0 3px;min-width:14px}
+.field{height:28px;width:240px;border:0;border-radius:7px;background:var(--fill-3);padding:0 9px;font-size:12.5px}
+.field.mono{font-family:var(--mono);font-size:12px}
+.field.bad{box-shadow:inset 0 0 0 1px var(--failed)}
+.field::placeholder{color:var(--text-4)}
+.pathf{height:28px;max-width:240px;border-radius:7px;background:var(--fill-2);display:flex;align-items:center;padding:0 9px;font:12px var(--mono);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+input[type=range]{width:180px;accent-color:var(--ink)}
+.swatches{display:flex;gap:7px}
+.swatches button{width:20px;height:20px;border-radius:50%;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.2)}
+.swatches button[aria-checked=true]{box-shadow:0 0 0 2px var(--page),0 0 0 3.5px var(--text-2)}
+.ansi{display:grid;grid-template-columns:repeat(8,18px);gap:5px}
+.ansi button{width:18px;height:18px;border-radius:5px;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.2)}
+.play{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--fill-3)}
+.preview{margin:0 14px 12px;border-radius:8px;background:var(--well);font:12px/1.7 var(--mono);padding:8px 12px;color:var(--text-body)}
+.preview .del{background:rgba(229,72,77,.12);display:block;margin:0 -12px;padding:0 12px}
+.preview .add{background:rgba(48,164,108,.14);display:block;margin:0 -12px;padding:0 12px}
+.blockrow{display:block}
+.filter{display:flex;align-items:center;gap:7px;height:30px;margin:10px 12px;padding:0 9px;border-radius:8px;background:var(--fill-2);color:var(--text-3)}
+.filter input{flex:1;border:0;background:none;min-width:0}
+.ent{display:flex;align-items:center;gap:12px;padding:9px 14px;min-height:50px;width:100%}
+button.ent:hover{background:var(--fill-1)}
+.tile{width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:#fff;flex:none}
+.tile.soft{background:var(--fill-3);color:var(--text-2)}
+.ent .t{font-size:13px;font-weight:500;display:flex;align-items:center;gap:7px}
+.ent .s{font-size:12px;color:var(--text-3)}
+.ent .grow{flex:1;min-width:0}
+.ent .chev{color:var(--text-4)}
+.pill{font-size:10.5px;font-weight:600;padding:1px 6px;border-radius:5px;background:var(--fill-3);color:var(--text-2)}
+.pill.bad{background:var(--failed-bg);color:var(--failed-text)}
+.pill.ok{background:rgba(48,164,108,.14);color:var(--ok)}
+.fold{display:flex;align-items:center;gap:6px;padding:10px 14px;color:var(--text-2);font-size:12.5px;width:100%}
+.fold:hover{background:var(--fill-1)}
+.days{display:flex;gap:3px}
+.days button{width:24px;height:24px;border-radius:6px;font-size:11.5px;font-weight:600;color:var(--text-3);background:var(--fill-2)}
+.days button[aria-pressed=true]{background:var(--ink);color:var(--on-ink)}
+.ierr{font-size:11.5px;color:var(--failed-text)}
+
+/* notifications matrix */
+.mx{display:grid;grid-template-columns:1fr 84px 84px;align-items:center;padding:9px 14px 9px 18px;min-height:50px;position:relative}
+.mx.head{min-height:40px;background:var(--fill-1);border-radius:12px 12px 0 0;font-size:12px;font-weight:600;color:var(--text-2)}
+.mx .c{display:flex;justify-content:center;align-items:center;gap:7px;position:relative}
+.mx .c .dot{left:auto;right:12px;top:-2px;margin:0}
+.mx .t{font-size:13px;font-weight:500}
+.hhead{border-top:.5px solid var(--sep)}.hfold{display:flex;align-items:center;gap:7px;color:var(--text);font-weight:600;font-size:12.5px}.hfold .n{color:var(--text-3);font-weight:400}.hfold .pill{font-weight:500}
+.ent.off{opacity:.55}
+.mx .s{font-size:12px;color:var(--text-3)}
+
+/* keyboard */
+.ktool{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ksearch{flex:1 1 100%;min-width:220px;height:30px;display:flex;align-items:center;gap:7px;padding:0 4px 0 9px;border-radius:8px;background:var(--fill-3);color:var(--text-3)}
+.ksearch input{flex:1;min-width:0;border:0;background:none}
+.ksearch:focus-within{box-shadow:0 0 0 2px var(--page),0 0 0 4px var(--focus)}
+.kfind{height:24px;padding:0 7px;border-radius:6px;display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-2)}
+.kfind:hover,.kfind[aria-pressed=true]{background:var(--surface);color:var(--text);box-shadow:var(--cap-shadow)}
+.chips{display:flex;gap:4px}
+.chips button{height:26px;padding:0 10px;border-radius:13px;font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:5px}
+.chips button:hover{background:var(--fill-2)}
+.chips button[aria-checked=true]{background:var(--ink);color:var(--on-ink);font-weight:500}
+.chips .n{opacity:.7;font-variant-numeric:tabular-nums}
+.findbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;background:var(--fill-2);font-size:12.5px;color:var(--text-2)}
+.sc{display:flex;align-items:center;gap:10px;padding:7px 10px 7px 18px;min-height:42px;position:relative}
+.sc .lab{flex:1;min-width:0;display:flex;align-items:center;gap:8px;font-size:13px}
+.sc .keys{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.caps{display:inline-flex;gap:3px}
+.cap{min-width:20px;height:20px;padding:0 5px;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;background:var(--surface);box-shadow:var(--cap-shadow);font-size:11.5px;font-weight:500;color:var(--text-2);font-family:var(--sans)}
+[data-theme=dark] .cap{background:rgba(235,235,235,.12);color:var(--text-body)}
+.chip{display:inline-flex;align-items:center;border-radius:7px;position:relative}
+.chip .kb{padding:3px 5px;border-radius:7px;display:flex;align-items:center;gap:3px;background:var(--fill-1);box-shadow:inset 0 0 0 .5px var(--sep-strong)}
+.chip .kb:hover{background:var(--fill-3)}
+.chip .kb .ind{color:var(--text-3);margin-left:1px}
+.chip .x{width:16px;height:16px;border-radius:50%;display:none;align-items:center;justify-content:center;position:absolute;right:-6px;top:-6px;background:var(--text-3);color:var(--page);z-index:2}
+.chip:hover .x,.chip:focus-within .x{display:flex}
+.addk{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-4)}
+.sc:hover .addk,.sc:focus-within .addk{color:var(--text-2)}
+.addk:hover{background:var(--fill-3);color:var(--text)}
+.addtxt{font-size:12px;color:var(--text-2);height:24px;padding:0 9px;border-radius:6px;box-shadow:inset 0 0 0 1px var(--sep-strong);border-style:dashed;display:flex;align-items:center;gap:5px}
+.addtxt:hover{color:var(--text);background:var(--fill-2)}
+.recf{min-width:96px;height:28px;padding:0 8px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;gap:3px;font-size:12px;color:var(--text-3);box-shadow:0 0 0 1.5px var(--ink),0 0 0 4px var(--fill-3);animation:breathe 1.6s ease-in-out infinite}
+.recf.bad{box-shadow:0 0 0 1.5px var(--waiting);animation:none}
+.recf.refuse{box-shadow:0 0 0 1.5px var(--failed);animation:none}
+@keyframes breathe{50%{box-shadow:0 0 0 1.5px var(--ink),0 0 0 6px var(--fill-2)}}
+.rechint{font-size:11.5px;color:var(--text-3);white-space:nowrap}
+.rechint.bad{color:var(--failed-text)}
+.note{margin:0 10px 10px;padding:9px 10px 9px 12px;border-radius:9px;display:flex;align-items:flex-start;gap:9px;font-size:12.5px;line-height:17px}
+.note.clash,.note.warn{background:var(--waiting-bg)}
+.note.refuse{background:var(--failed-bg)}
+.note.shared{background:var(--fill-2)}
+.note .ic{margin-top:1px}
+.note.clash .ic,.note.warn .ic{color:var(--waiting)}
+.note.refuse .ic{color:var(--failed-text)}
+.note .tx{flex:1;min-width:0}
+.note .more{color:var(--text-2);font-size:12px;margin-top:3px}
+.note .acts{display:flex;gap:6px;flex:none}
+.lock{color:var(--text-4)}
+
+/* search */
+.rhead{font-size:12.5px;color:var(--text-3);display:flex;justify-content:space-between}
+.rsec{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:var(--text-2);margin:0 2px 7px}
+.go{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-4)}
+.go:hover{background:var(--fill-3);color:var(--text)}
+.empty{padding:40px 0;text-align:center;color:var(--text-3)}
+
+/* change bar, sheet, toasts */
+.changebar{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:6px 6px 6px 14px;border-radius:12px;background:var(--popover);box-shadow:var(--pop-shadow);font-size:12.5px;color:var(--text-2);white-space:nowrap;animation:rise 220ms var(--out);z-index:10}
+.changebar i{width:6px;height:6px;border-radius:50%;background:var(--ink);display:inline-block;margin-right:2px}
+@keyframes rise{from{opacity:0;transform:translate(-50%,8px)}}
+.toasts{position:absolute;left:50%;bottom:66px;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;align-items:center;z-index:40;pointer-events:none}
+.toast{pointer-events:auto;display:flex;align-items:center;gap:12px;padding:8px 8px 8px 14px;border-radius:11px;background:#1d1d1f;color:#f5f5f7;font-size:12.5px;box-shadow:0 10px 30px rgba(0,0,0,.25);animation:rise2 220ms var(--out);white-space:nowrap}
+.toast.bad{background:#3b1517}
+.toast button{color:#fff;font-weight:600;padding:3px 8px;border-radius:6px}
+.toast button:hover{background:rgba(255,255,255,.12)}
+@keyframes rise2{from{opacity:0;transform:translateY(8px)}}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.18);z-index:50;animation:fade 180ms ease-out}
+@keyframes fade{from{opacity:0}}
+.sheet{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:51;background:var(--popover);border-radius:14px;box-shadow:var(--pop-shadow);padding:20px;animation:sheet 200ms var(--out)}
+@keyframes sheet{from{opacity:0;transform:translate(-50%,-50%) scale(.97)}}
+.sheet h3{margin:0 0 6px;font-size:15px}
+.sheet p{margin:0 0 12px;color:var(--text-2);font-size:12.5px}
+.sheet .lines{border-radius:9px;background:var(--fill-2);padding:4px 0;margin-bottom:16px;max-height:260px;overflow:auto}
+.sheet .ln{display:flex;gap:10px;padding:6px 12px;font-size:12.5px}
+.sheet .ln span:first-child{flex:1;min-width:0}
+.sheet .ln .fr{color:var(--text-3);text-decoration:line-through}
+.sheet .acts{display:flex;justify-content:flex-end;gap:8px}
+
+/* prototype panel */
+#proto{position:fixed;left:24px;right:24px;bottom:14px;height:36px;display:flex;align-items:center;gap:6px;font-size:12px;color:rgba(0,0,0,.65)}
+[data-theme=dark] #proto{color:rgba(255,255,255,.7)}
+#proto .pb{height:28px;padding:0 10px;border-radius:8px;background:rgba(255,255,255,.55);box-shadow:0 0 0 .5px rgba(0,0,0,.12);display:flex;align-items:center;gap:6px;color:#111}
+[data-theme=dark] #proto .pb{background:rgba(255,255,255,.1);color:#eee;box-shadow:0 0 0 .5px rgba(255,255,255,.14)}
+#proto .pb[aria-pressed=true]{background:#111;color:#fff}
+#proto .lbl{font-weight:600;margin-right:4px}
+#proto select{height:28px;border-radius:8px;border:0;padding:0 8px;background:rgba(255,255,255,.55);font:inherit}
+.gallery{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.72);overflow:auto;padding:30px;display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:18px;align-content:start}
+.gallery figure{margin:0;color:#ddd;font-size:12px}
+.gallery img{width:100%;border-radius:8px;display:block;margin-bottom:6px}
+.help{position:fixed;right:30px;bottom:60px;z-index:100;width:320px;background:var(--popover);color:var(--text);border-radius:12px;box-shadow:var(--pop-shadow);padding:14px 16px;font-size:12.5px}
+.help h4{margin:0 0 8px;font-size:13px}
+.help div{display:flex;justify-content:space-between;padding:3px 0;color:var(--text-2)}
+.help div b{color:var(--text);font-weight:500}
+.menu .mcap{padding:6px 10px 2px;font-size:11px;font-weight:600;color:var(--text-3)}
+.menu .mwhy{padding:0 10px 6px 26px;max-width:220px;font-size:11.5px;line-height:15px;color:var(--text-3);white-space:normal}
+.menu .mi.danger{color:var(--failed-text)}
+.menu .mi[aria-selected=true]::before{content:"✓";position:absolute;left:9px;font-size:12px}
+.signin{display:flex;flex-direction:column;gap:10px;padding:4px 14px 14px 46px}
+.signin .st{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:600;color:var(--text)}.signin .st .host{font-weight:400;font-size:12px;color:var(--text-3)}.signin .st.ok{color:var(--ok)}
+.signin .acts{display:flex;align-items:center;gap:6px}
+.signin .devcode{display:flex;align-items:center;gap:10px;font:600 20px var(--mono);color:var(--text)}
+.signin .codef{display:flex;align-items:center;gap:6px;width:260px;height:28px;padding:0 4px 0 10px;border-radius:7px;background:var(--fill-2)}
+.signin .codef:focus-within{box-shadow:0 0 0 2px var(--page),0 0 0 4px var(--focus)}
+.signin .codef input{flex:1;min-width:0;background:none;border:0;outline:0;font:12px var(--mono);color:var(--text)}.signin .codef input:focus-visible{box-shadow:none!important}
+.signin .codef .enter{height:22px;padding:0 8px;border-radius:5px;background:var(--ink);color:var(--on-ink);font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:4px;animation:pop .14s ease-out}
+.signin .out-t{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-3)}.signin .out-t:hover{color:var(--text)}
+.signin .out{padding:10px 12px;border-radius:8px;background:var(--fill-2);font:12px/18px var(--mono);color:var(--text-body);white-space:pre-wrap;word-break:break-all}
+.spin{display:inline-block;width:11px;height:11px;border-radius:50%;border:1.5px solid var(--fill-3);border-top-color:var(--text-2);animation:spin .8s linear infinite;flex:none}
+.spin.dk{border-color:var(--fill-3);border-top-color:var(--text-2);margin-right:6px;vertical-align:-1px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ent.flash{animation:flash 1.8s ease-out}
+</style>
+</head>
+<body class="notes">
+<div id="win">
+  <div class="lights"><i></i><i></i><i></i></div>
+  <nav id="nav" aria-label="Settings">
+    <div class="navtop">
+      <button class="back" data-act="close" data-fid="back"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3 5 8l5 5"/></svg>Back to sessions</button>
+      <label class="search"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3.5 3.5"/></svg><input id="q" placeholder="Search" aria-label="Search settings" autocomplete="off" spellcheck="false"><kbd id="qk">⌘F</kbd></label>
+    </div>
+    <div class="navscroll" id="navlist" role="tablist" aria-orientation="vertical"></div>
+  </nav>
+  <main id="page">
+    <header class="top" id="top"></header>
+    <div class="scroll" id="scroll"><div id="stage"></div></div>
+    <div id="bar"></div>
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+  </main>
+  <div id="modal"></div>
+</div>
+<div id="proto">
+  <span class="lbl">Prototype</span>
+  <button class="pb" id="pDark" aria-pressed="false" title="The Mac’s appearance; System themes follow it">Mac dark <kbd>D</kbd></button>
+  <button class="pb" id="pNotes" aria-pressed="true">Mark new</button>
+  <select id="pState" aria-label="Jump to a state"></select>
+  <button class="pb" id="pBefore">Before (today)</button>
+  <button class="pb" id="pHelp">Keys <kbd>?</kbd></button>
+  <span style="margin-left:auto;opacity:.75">Read-only prototype · nothing is saved · see docs/designs/2026-11-25-settings-revamp.md</span>
+</div>
+<script>
+'use strict';
+/* ---------- icons ---------- */
+const P={
+  back:'<path d="M10 3 5 8l5 5"/>',chev:'<path d="m6 3 5 5-5 5"/>',down:'<path d="M3.5 6 8 10.5 12.5 6"/>',
+  search:'<circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3.5 3.5"/>',reset:'<path d="M3.2 7.5a5 5 0 1 0 1.6-3.7"/><path d="M3 2.5v3h3"/>',
+  plus:'<path d="M8 3.5v9M3.5 8h9"/>',x:'<path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/>',lock:'<rect x="4" y="7" width="8" height="6" rx="1.5"/><path d="M5.5 7V5.5a2.5 2.5 0 0 1 5 0V7"/>',
+  kbd:'<rect x="1.5" y="4" width="13" height="8" rx="2"/><path d="M4 7h.01M6.5 7h.01M9 7h.01M11.5 7h.01M5 9.5h6"/>',check:'<path d="m3.5 8.5 3 3 6-7"/>',
+  warn:'<path d="M8 2.5 14 13H2z"/><path d="M8 6.5v3M8 11.3v.1"/>',info:'<circle cx="8" cy="8" r="6"/><path d="M8 7.5v3.5M8 5.2v.1"/>',
+  arrow:'<path d="M3 8h10M9 4l4 4-4 4"/>',more:'<path d="M3.5 8h.01M8 8h.01M12.5 8h.01"/>',trash:'<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/>',
+  play:'<path d="M5.5 3.5v9l7-4.5z" fill="currentColor" stroke="none"/>',ext:'<path d="M9 3h4v4M13 3 7.5 8.5M11 9.5V13H3V5h3.5"/>',
+  sliders:'<path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6"/><circle cx="10" cy="4.5" r="1.5"/><circle cx="6" cy="11.5" r="1.5"/>',
+  appearance:'<circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11A5.5 5.5 0 0 0 8 2.5z" fill="currentColor"/>',
+  bell:'<path d="M4 11.5V7.5a4 4 0 0 1 8 0v4l1 1H3z"/><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/>',
+  keyboard:'<rect x="1.5" y="4" width="13" height="8" rx="2"/><path d="M4 7h.01M6.5 7h.01M9 7h.01M11.5 7h.01M5 9.5h6"/>',
+  bot:'<rect x="3" y="5.5" width="10" height="7.5" rx="2.2"/><path d="M8 3v2.5M6 9h.01M10 9h.01M1.5 8.5v2M14.5 8.5v2"/><circle cx="8" cy="2.4" r=".7"/>',
+  speaker:'<path d="M3 6.2h2.2L8.5 3.5v9L5.2 9.8H3z"/><path d="M10.8 5.8a3 3 0 0 1 0 4.4M12.6 4.2a5.4 5.4 0 0 1 0 7.6"/>',
+  sparkle:'<path d="M8 2v3M8 11v3M2 8h3M11 8h3M4 4l1.8 1.8M10.2 10.2 12 12M12 4l-1.8 1.8M5.8 10.2 4 12"/>',
+  shield:'<path d="M8 2 13 4v4c0 3-2.2 5-5 6-2.8-1-5-3-5-6V4z"/>',clock:'<circle cx="8" cy="8" r="5.5"/><path d="M8 5v3l2 1.5"/>',
+  server:'<rect x="2.5" y="3" width="11" height="4" rx="1.2"/><rect x="2.5" y="9" width="11" height="4" rx="1.2"/><path d="M5 5h.01M5 11h.01"/>',
+  phone:'<rect x="4.5" y="1.8" width="7" height="12.4" rx="1.8"/><path d="M7 12h2"/>',folder:'<path d="M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/>',
+  terminal:'<rect x="2" y="3" width="12" height="10" rx="1.8"/><path d="m5 6.5 2 1.5-2 1.5M8.5 10H11"/>',file:'<path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/>',
+  globe:'<circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c1.8 2 1.8 9 0 11M8 2.5c-1.8 2-1.8 9 0 11"/>',sidebar:'<rect x="2" y="3" width="12" height="10" rx="1.8"/><path d="M6 3v10"/>',
+  branch:'<circle cx="4.5" cy="4" r="1.5"/><circle cx="4.5" cy="12" r="1.5"/><circle cx="11.5" cy="5.5" r="1.5"/><path d="M4.5 5.5v5M11.5 7c0 2.5-3 2.5-6.5 4"/>',
+  diff:'<rect x="2" y="3" width="12" height="10" rx="1.8"/><path d="M8 3v10M4.5 7h2M5.5 6v2M9.5 9.5h2"/>'
+};
+const ic=(n,s=14,w=1.6)=>`<svg width="${s}" height="${s}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]||''}</svg>`;
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const NEW='<span class="new">New</span>';
+
+/* ---------- keys ---------- */
+const MOD=[['ctrl','⌃'],['alt','⌥'],['shift','⇧'],['cmd','⌘']];
+const KN={enter:'↩',tab:'⇥',backspace:'⌫',delete:'⌦',left:'←',right:'→',up:'↑',down:'↓',space:'Space',escape:'Esc'};
+function parse(c){let key,m=c;if(c.endsWith('--')){key='-';m=c.slice(0,-2)}else{const i=c.lastIndexOf('-');key=i<0?c:c.slice(i+1);m=i<0?'':c.slice(0,i)}return{mods:m?m.split('-'):[],key}}
+const norm=(mods,key)=>[...MOD.map(x=>x[0]).filter(m=>mods.includes(m)),key].join('-');
+const N=c=>{const p=parse(c);return norm(p.mods,p.key)};
+const keyName=k=>KN[k]||(/^f\d+$/.test(k)?k.toUpperCase():k.length>1?k[0].toUpperCase()+k.slice(1):k.toUpperCase());
+function caps(c){const{mods,key}=parse(c);return[...MOD.filter(([m])=>mods.includes(m)).map(x=>x[1]),keyName(key)]}
+const glyph=c=>caps(c).join('');
+const capsHTML=list=>`<span class="caps">${list.map(g=>`<span class="cap">${esc(g)}</span>`).join('')}</span>`;
+const CODE={BracketLeft:'[',BracketRight:']',Comma:',',Period:'.',Slash:'/',Backslash:'\\',Minus:'-',Equal:'=',Semicolon:';',Quote:"'",Backquote:'`',Space:'space',Enter:'enter',Tab:'tab',Backspace:'backspace',Delete:'delete',ArrowLeft:'left',ArrowRight:'right',ArrowUp:'up',ArrowDown:'down',Escape:'escape'};
+function evKey(e){const c=e.code;if(/^Key[A-Z]$/.test(c))return c.slice(3).toLowerCase();if(/^Digit\d$/.test(c))return c.slice(5);if(/^F\d{1,2}$/.test(c))return c.toLowerCase();return CODE[c]||null}
+const evMods=e=>[e.ctrlKey&&'ctrl',e.altKey&&'alt',e.shiftKey&&'shift',e.metaKey&&'cmd'].filter(Boolean);
+
+/* ---------- catalog: rows mirror settings/*.rs (id, group, label, hint, control, advanced, parent) ---------- */
+const sw=(id,group,label,def,o={})=>({id,group,label,kind:'switch',def,...o});
+const ch=(id,group,label,options,def,o={})=>({id,group,label,kind:'choice',options,def,...o});
+const st=(id,group,label,[min,max,step],unit,def,o={})=>({id,group,label,kind:'stepper',min,max,step,unit,def,...o});
+const tx=(id,group,label,ph,def,o={})=>({id,group,label,kind:'text',ph,def,...o});
+const pa=(id,group,label,def,o={})=>({id,group,label,kind:'path',def,...o});
+const cu=(id,group,label,o={})=>({id,group,label,kind:'custom',...o});
+
+const PROVIDERS=[
+  {id:'claude',name:'Claude Code',on:true,color:'#d97757',g:'✳',status:'Hooks · Needs you, Done, Failed',ver:'2.1.4'},
+  {id:'codex',name:'Codex',on:true,color:'#111',g:'◎',status:'Session events · Needs you, Done, Failed',ver:'0.48.0'},
+  {id:'cursor',name:'Cursor',on:true,color:'#2b2b2b',g:'⬢',status:'Chat only · Needs you, Done, Failed',ver:'1.9'},
+  {id:'opencode',name:'OpenCode',on:true,color:'#3a3a3a',g:'▣',status:'Chat only · Needs you, Done, Failed',ver:'0.15'},
+  {id:'pi',name:'Pi',on:true,color:'#1f1f1f',g:'π',status:'Chat only · always full access',ver:'0.9'},
+  {id:'hermes',name:'Hermes Agent',on:true,color:'#444',g:'☿',status:'Chat only · Needs you, Done, Failed',ver:'0.4'},
+  {id:'antigravity',name:'Antigravity',on:true,color:'#3e8ef7',g:'A',status:'Chat only · Needs you, Done, Failed',ver:'1.2'},
+  {id:'grok',name:'Grok Build',on:false,color:'#555',g:'Ø',status:'Not installed'},{id:'omp',name:'omp',on:false,color:'#8e4ec6',g:'π',status:'Not installed'},{id:'fx',name:'fx',on:false,color:'#555',g:'ƒ',status:'Not installed'}];
+const INSTALLED=PROVIDERS.filter(p=>p.on);
+const MODELS={claude:['Default (Sonnet 5.5)','Opus 5.5','Sonnet 5.5','Haiku 5.5','Fable 5.2'],
+  codex:['Default (gpt-5.5-codex)','gpt-5.5-codex','gpt-5.5','gpt-5.5-mini','gpt-5.4-codex','gpt-5.4','gpt-5.4-mini','o5','o5-mini','o5-pro','codex-mini','gpt-oss-120b']};
+// [name, path, worktrees, color, host]. The same repo can live on more than one machine.
+const PROJECTS=[['anywhere','~/code/anywhere',4,'#5b5bd6','This Mac'],['pocket-ios','~/code/pocket-ios',2,'#e5484d','This Mac'],['api','~/srv/api',1,'#30a46c','build-box'],['web','~/code/web',3,'#f76b15','mac-mini'],['docs','~/code/docs',0,'#8e4ec6','This Mac'],['infra','~/srv/infra',1,'#3e8ef7','build-box'],['design-system','~/code/design-system',2,'#c2298a','This Mac'],['cli','~/srv/cli',0,'#ffb224','build-box'],['playground','~/scratch/playground',5,'#6f6f78','This Mac'],['anywhere','~/srv/anywhere',1,'#5b5bd6','build-box']];
+// [name, detail, tone, state, actions]; the first action is the row's button, all of them are in its ⋯ menu (ssh_hosts.rs).
+const HOSTS=[['This Mac','macOS 26 · pocketd 0.1.62','ok','Local',[]],['build-box','Ubuntu 24.04 · pocketd 0.1.58','ok','Connected',['Update…','Open','Reconnect']],['mac-mini','macOS 15 · mac-mini.local','bad','Offline',['Reconnect']],['gpu-box','Ubuntu 22.04 · gpu.lan','bad','Sign-in failed',['Use password','Reconnect']],['win-dev','Windows 11 · win-dev.lan','warn','Needs pocketd',['Install','Reconnect']]];
+// [name, detail, provider, 5h %, week %, default, built-in login, running sessions]
+const ACCOUNTS=[['me@example.com','Max','Claude Code',42,72,true,true,0],['Work','work@example.com · Team','Claude Code',100,64,false,false,2],['Old team','old@example.com · Team','Claude Code',0,0,false,false,0],['me@example.com','Plus','Codex',18,31,true,true,0],['me@gmail.com','Google AI Pro','Antigravity',12,40,true,true,0]];
+// What each CLI's login prints (illustrative). `code` is a device code the CLI shows; `pastes` takes a code back (pastes_code).
+const SIGNIN={'Claude Code':{pastes:true,lines:['Opening browser to sign in…','If the browser didn’t open, visit:','https://claude.ai/oauth/authorize?z-kQfC30PRT2mNWB3ebvrnnFAsH1h5uQSuWJHSrtyQmCg','Paste code here if prompted >'],who:['new@example.com','Pro']},
+  Codex:{code:'K7QF-2M9X',lines:['Follow these steps to sign in with ChatGPT:','1. Open this link in your browser and sign in','   https://auth.openai.com/codex/device','2. Enter this one-time code (expires in 15 minutes)','   K7QF-2M9X'],who:['new@example.com','Plus']},
+  Antigravity:{lines:['Sign in with your Google account:','https://accounts.google.com/o/oauth2/v2/auth?client_id=1071006…','Waiting for authorization…'],who:['new@gmail.com','Google AI Pro']}};
+const LIGHT=['Graphite Light','Paper','Solarized Light'],DARK=['Graphite Dark','Ink','Solarized Dark'];
+
+const CMD={claude:'claude',codex:'codex',cursor:'cursor-agent',opencode:'opencode',pi:'pi',hermes:'hermes',antigravity:'antigravity',grok:'grok',omp:'omp',fx:'fx'};
+const FORKS=new Set(['claude','codex']);
+function providerRows(p){const D='Defaults',L='Launch';return[
+  sw(`en-${p.id}`,'Enabled','Enabled',true,{hint:'Off hides it from the new-session picker and the + menu'}),
+  tx(`${p.id}-label`,D,'Label',p.name,'',{hint:'Replaces the built-in name everywhere in the app'}),
+  ch(`${p.id}-model`,D,'Model',MODELS[p.id]||['Default'],(MODELS[p.id]||['Default'])[0],{look:'dropdown',filter:(MODELS[p.id]||[]).length>8,hint:'The list comes from the CLI'}),
+  ch(`${p.id}-effort`,D,'Effort',['Default','Low','Medium','High','XHigh'],'Default',{look:'dropdown'}),
+  tx(`${p.id}-command`,L,'Command',CMD[p.id],'',{mono:true,hint:'Binary name or path. Found on PATH by default'}),
+  tx(`${p.id}-prompt-args`,L,'Prompt-only args','--','',{mono:true,hint:'Added only when launching with a prompt, e.g. --, --prompt, -i'}),
+  tx(`${p.id}-resume-args`,L,'Resume args','--resume','',{mono:true,hint:"Used to restore a previous session; its id goes after these. Leave empty if the agent can't resume by id"}),
+  ...(FORKS.has(p.id)?[tx(`${p.id}-fork-args`,L,'Fork args','--fork-session {sessionId}','',{mono:true,hint:"Clones a previous session without changing it. Put {sessionId} where its id belongs"})]:[]),
+  cu(`${p.id}-status`,'Status','How Anywhere reads status',{draw:'prov-status'})]}
+
+const SECTIONS=[
+ {id:'general',label:'General',nav:'App',icon:'sliders',sub:'Updates, startup, quitting and how hard the app works in the background.',rows:[
+  cu('update','Software update','Software update',{hint:'Check for a new version of Anywhere'}),
+  sw('auto-install','Software update','Install updates automatically',true,{hint:'Downloads in the background and installs the next time you quit'}),
+  sw('whats-new','Software update','Show “What’s new” after updating',true,{hint:'A card in the sidebar links to the release notes, once'}),
+  ch('check-updates','Software update','Check for updates',['Hourly','Every 6 hours','Daily','Weekly'],'Daily',{adv:true,look:'dropdown',hint:'How often to look for a new version'}),
+  cu('star','Software update','Star Anywhere on GitHub',{hint:'It’s free and open source. A star helps others find it.'}),
+  sw('open-at-login','Startup & background','Open at login',false,{hint:'Opens Anywhere when you log in to the Mac'}),
+  sw('resume-agents','Startup & background','Resume agents after restart',true,{hint:'Reopens agent sessions when the service or the Mac restarts'}),
+  sw('restore-tabs','Startup & background','Restore tabs and splits',true,{hint:'Reopens the last window layout instead of a fresh window'}),
+  cu('background-service','Startup & background','Background service',{adv:true,hint:'Restart the service that hosts every terminal and agent'}),
+  cu('cli','Startup & background','Command line tool',{hint:'Lets scripts and agents outside Anywhere run its sessions'}),
+  ch('layout','Launch layout','Layout at launch',['Last used','Sidebars','Compact','Focus'],'Last used',{hint:'Focus hides both sidebars so the terminal fills the window'}),
+  ch('right-panel','Launch layout','Right panel at launch',['Open','Closed'],'Closed',{hint:'Sessions, Explorer and Changes'}),
+  ch('window-close','Quitting & sleep','When the window closes',['Stay in the background','Quit Anywhere'],'Stay in the background',{look:'dropdown',hint:'In the background the Dock badge and notifications stay; ⌘Q quits'}),
+  ch('confirm-quit','Quitting & sleep','Confirm before quitting',['Never','Always','While agents are working'],'While agents are working',{look:'dropdown',hint:'Agents keep going in the background after you quit'}),
+  sw('keep-awake','Quitting & sleep','Keep Mac awake while agents work',true,{hint:'Stops idle sleep; the display can still turn off'}),
+  ch('stay-awake','Quitting & sleep','Stay awake after agents stop',['Off','2 minutes','10 minutes','30 minutes'],'10 minutes',{look:'dropdown',hint:'Gives you time to read the result before the Mac sleeps',when:{id:'keep-awake'}}),
+  sw('battery-saver','Performance','Battery saver',false,{hint:'Checks git every 10 s and pull requests every 5 min instead'}),
+  st('refresh-git','Performance','Refresh git status every',[2,60,1],' s',2,{adv:true,hint:'Branch, ahead/behind and changed files',when:{id:'battery-saver',not:true}}),
+  ch('refresh-prs','Performance','Refresh pull requests every',['15 s','30 s','1 min','5 min'],'30 s',{adv:true,hint:'Checks and review status from GitHub',when:{id:'battery-saver',not:true}})]},
+ {id:'appearance',label:'Appearance',nav:'App',icon:'appearance',sub:'Theme, color and type for the app. The terminal has its own font and colors.',rows:[
+  ch('theme','Theme','Theme',[],'System',{look:'dropdown',hint:'System follows macOS light and dark',menuGroups:()=>[[null,['System']],['Light',LIGHT],['Dark',DARK],...(S.themes.length?[['Custom',S.themes]]:[])]}),
+  ch('day','Theme','Day',[],'Graphite Light',{look:'dropdown',hint:'While macOS is light',when:{id:'theme',is:'System'},menuGroups:()=>[['Light',LIGHT]]}),
+  ch('night','Theme','Night',[],'Graphite Dark',{look:'dropdown',hint:'While macOS is dark',when:{id:'theme',is:'System'},menuGroups:()=>[['Dark',DARK],...(S.themes.length?[['Custom',S.themes]]:[])]}),
+  cu('custom-themes','Theme','Custom themes',{hint:'Import a theme file, or start from one on GitHub'}),
+  ch('accent','Theme','Accent color',['Ink','Blue','Purple','Pink','Red','Orange','Yellow','Green'],'Ink',{look:'swatch',hint:'Selection, focus rings and primary buttons'}),
+  st('glass','Theme','Window opacity',[50,100,5],'%',85,{look:'slider',hint:'Lower lets more of the desktop show through the glass',off:()=>!isDark()&&'Dark themes only. Lower lets the desktop show through.'}),
+  cu('background-image','Theme','Background image',{hint:'Shown behind the New session page and chats'}),
+  ch('reduce-motion','Theme','Reduce motion',['System','On','Off'],'System',{hint:'System follows the macOS accessibility setting'}),
+  ch('ui-font','Fonts','Interface font',['System (SF Pro)','Inter','Geist'],'System (SF Pro)',{look:'dropdown'}),
+  ch('code-font','Fonts','Code font',['Geist Mono','SF Mono','JetBrains Mono','Berkeley Mono'],'Geist Mono',{look:'dropdown',hint:'Diffs, the editor and file previews'}),
+  st('code-size','Fonts','Code size',[9,24,1],' pt',12),
+  cu('font-preview','Fonts','Preview',{block:true}),
+  ch('syntax','Code colors','Syntax theme',['From theme','GitHub','One','Solarized'],'From theme',{look:'dropdown'}),
+  ch('diff-colors','Code colors','Diff colors',['From theme','Blue & orange'],'From theme',{hint:'Blue and orange are easier to tell apart with red–green color blindness'}),
+  cu('custom-diff-colors','Code colors','Custom diff colors',{adv:true,hint:'Override the added and removed colors'})]},
+ {id:'notifications',label:'Notifications & Sounds',nav:'App',icon:'bell',sub:'How agents reach you, by urgency: Needs you, Failed, Done.',rows:[
+  cu('alert-matrix','Alerts','Alerts',{block:true,index:false}),
+  sw('banners','Banners','Banners',true,{hint:'A macOS banner when a session needs you, fails or is done',inBlock:1}),
+  sw('banner-needs-you','Banners','Needs you',true,{hint:'An agent asks for an approval or an answer',when:{id:'banners'},inBlock:1}),
+  sw('banner-failed','Banners','Failed',true,{hint:'An agent exited with an error',when:{id:'banners'},inBlock:1}),
+  sw('banner-done','Banners','Done',true,{hint:'An agent completed its turn and is idle',when:{id:'banners'},inBlock:1}),
+  sw('sounds','Sounds','Play sounds',true,{inBlock:1}),
+  sw('sound-needs-you','Sounds','Needs you',true,{when:{id:'sounds'},inBlock:1}),
+  sw('sound-failed','Sounds','Failed',true,{when:{id:'sounds'},inBlock:1}),
+  sw('sound-done','Sounds','Done',true,{when:{id:'sounds'},inBlock:1}),
+  sw('on-screen','Alerts','Alert even when the session is on screen',false,{hint:'Off: no banner or sound for the pane you are looking at'}),
+  ch('sound','Sound & volume','Notification sound',['Chime','Ping','Gasp','Glass','Pop','Custom audio…'],'Chime',{look:'dropdown',play:true,hint:'Pick a sound or add your own (.mp3, .wav, .ogg)',when:{id:'sounds'}}),
+  st('volume','Sound & volume','Volume',[10,100,10],'%',100,{look:'slider',when:{id:'sounds'}}),
+  ch('dock-badge','Dock & bell','Dock badge',['Off','Needs you count','Inbox count'],'Needs you count',{look:'dropdown',hint:'The number on the app icon'}),
+  ch('terminal-bell','Dock & bell','Terminal bell',['Off','Sound','Flash'],'Flash',{hint:'When a program in a terminal rings the bell'})]},
+ {id:'keyboard',label:'Keyboard',nav:'App',icon:'keyboard',sub:'Every shortcut, grouped by what it does. Click keys to change them.',rows:[]},
+ {id:'agents',label:'Agents',nav:'Agents',icon:'bot',sub:'The agent providers you use, and what a new session starts with.',rows:[
+  cu('providers','Providers','Providers',{block:true,index:false}),
+  ch('default-agent','New sessions','Default agent',INSTALLED.map(p=>p.name),'Claude Code',{look:'dropdown',hint:"Starts in a project that hasn't picked one, and in new agent tabs"}),
+  ch('permission-mode','New sessions','Permission mode',["Agent's settings",'Ask','Edits','Auto','Full'],"Agent's settings",{look:'segmented',hint:"Agent's settings uses the agent's own config. Full skips every approval"}),
+  sw('plan-mode','New sessions','Start in plan mode',false,{hint:'For providers that support plan mode'}),
+  sw('start-as-chat','New sessions','Start as a chat',false,{hint:"Experimental. New chat in a tab's + menu always starts one"}),
+  ch('runs-in','New sessions','Runs in',['Local','Worktree'],'Local',{hint:"A new worktree keeps the agent's edits off your branch"}),
+  ch('agent-exits','Tabs','When an agent exits',['Return to shell','Close tab'],'Return to shell'),
+  ch('new-tabs','Tabs','New tabs and splits open',['Shell','Default agent'],'Shell'),
+  ch('add-to-chat','Composer','“Add to chat”',['Send now','Paste only'],'Paste only',{hint:'Paste only lets you edit before sending'}),
+  ch('add-to-chat-target','Composer','Send “Add to chat” to',['Focused session','Most recent agent','Ask each time'],'Focused session',{look:'dropdown',adv:true})],
+  related:{Tabs:['Where new tabs open is set in','files','Files & Editor › Tabs']}},
+ {id:'accounts',label:'Accounts',nav:'Agents',icon:'shield',sub:'Agent sign-ins on each machine, and the one new agents start on. GitHub sign-in lives in Git & GitHub.',rows:[
+  sw('acc-switch','This Mac','Switch accounts at a limit',true,{hint:'A session that hits its limit resumes on the account with the most left'}),
+  cu('acc-list','This Mac','Accounts',{block:true,index:false})]},
+ {id:'automations',label:'Automations',nav:'Agents',icon:'clock',sub:'Defaults for new automations, and what happens to runs the Mac missed.',rows:[
+  ch('automation-agent','Defaults for new automations','Agent',INSTALLED.map(p=>p.name),'Claude Code',{look:'dropdown',hint:'The agent a new automation starts with'}),
+  cu('automation-schedule','Defaults for new automations','Schedule',{hint:'For automations that run at a time of day',def:'09:00|Mon,Tue,Wed,Thu,Fri'}),
+  cu('automation-every','Defaults for new automations','Repeat interval',{hint:'For automations that repeat through the day',def:60}),
+  ch('automation-access','Defaults for new automations','Permission mode',['Ask','Edits','Auto'],'Edits'),
+  sw('automation-worktree','Defaults for new automations','Run in a new worktree',true,{hint:'Each run gets its own worktree and branch'}),
+  sw('catch-up','Missed runs','Catch up after sleep',true,{hint:'Runs a missed schedule once when the Mac wakes'}),
+  ch('late-window','Missed runs','Run late if missed by less than',['1 hour','6 hours','12 hours','24 hours'],'6 hours',{look:'dropdown',hint:'Older missed runs are skipped, as when the Mac was asleep',when:{id:'catch-up'}}),
+  st('run-history','History','Keep run history',[10,500,10],' runs',50,{adv:true,hint:'Per automation; older runs leave the list'})]},
+ {id:'hosts',label:'Hosts',nav:'Machines',icon:'server',sub:'Machines your agents run on: this Mac, and any machine you can sign in to over SSH.',rows:[
+  cu('hosts','Hosts','Hosts',{block:true,index:false})]},
+ {id:'phone',label:'Phone & Remote',nav:'Machines',icon:'phone',sub:'Pair the iPhone app and decide how much it can approve, and from where.',rows:[
+  cu('pair-phone','Devices','Pair a new phone',{hint:'Shows a QR code that expires after 5 minutes'}),
+  cu('phones','Devices','Paired phones',{block:true,index:false}),
+  ch('reachable','Network','Reachable from',['This Mac','Tailnet'],'This Mac',{hint:'Tailnet lets the phone connect from anywhere over Tailscale'}),
+  cu('tailscale','Network','Tailscale',{when:{id:'reachable',is:'Tailnet'}}),
+  st('phone-port','Network','Port',[1024,65535,1],'',7878,{adv:true,hint:'Restart pairing after changing it'})]},
+ {id:'projects',label:'Projects',nav:'Workspace',icon:'folder',sub:'Where code lives on disk, per-project setup, and what happens when a worktree is deleted.',rows:[
+  pa('worktree-folder','Locations','Worktree folder','~/.worktrees',{hint:'New worktrees go in <folder>/<project>/<name>'}),
+  pa('clone-folder','Locations','Clone folder','~/code',{hint:'Where Add project › Clone puts new repositories'}),
+  cu('projects','Projects','Projects',{block:true,index:false}),
+  sw('delete-branch','Deleting a worktree','Also delete its branch',true,{hint:'Local branch only. Remote branches are never deleted'}),
+  ch('worktree-files','Deleting a worktree','Worktree files',['Move to Trash','Delete permanently'],'Move to Trash'),
+  st('teardown-timeout','Deleting a worktree','Teardown script timeout',[10,600,10],' s',60,{adv:true,hint:"Stops the project's teardown script if it runs longer"})]},
+ {id:'terminal',label:'Terminal',nav:'Workspace',icon:'terminal',sub:'The terminal that every shell and agent runs in.',rows:[
+  ch('terminal-font','Text','Font',['Same as code font','SF Mono','JetBrains Mono'],'Same as code font',{look:'dropdown'}),
+  st('terminal-size','Text','Size',[9,24,1],' pt',13),
+  st('line-height','Text','Line height',[100,200,10],'%',120,{adv:true}),
+  sw('ligatures','Text','Ligatures',false,{adv:true,hint:'Joins characters like => and != into one glyph'}),
+  st('padding','Text','Padding',[0,32,1],' px',8,{adv:true,hint:'Space between the text and the pane edge'}),
+  ch('color-scheme','Colors','Color scheme',['Default','Graphite','Solarized','Custom'],'Default',{hint:'16 ANSI colors. Click one to change it'}),
+  cu('swatches','Colors','Colors',{resetsWith:'color-scheme'}),
+  ch('cursor-shape','Cursor','Cursor shape',['Block','Bar','Underline'],'Block'),
+  sw('blink','Cursor','Blink',true),
+  ch('option-meta','Keyboard & mouse','Use Option as Meta',['Off','Both keys','Left Option only','Right Option only'],'Off',{look:'dropdown',hint:'Leave off if you type characters like @ or € with Option'}),
+  sw('copy-on-select','Keyboard & mouse','Copy on select',false),
+  sw('confirm-paste','Keyboard & mouse','Confirm multi-line paste',true,{hint:'Asks before pasting text that would run several commands'}),
+  ch('open-links-with','Keyboard & mouse','Open links with',['⌘-click','Click'],'⌘-click'),
+  ch('shell','Shell','Shell',['Login shell','Custom'],'Login shell'),
+  tx('shell-path','Shell','Shell path','/bin/zsh','',{mono:true,when:{id:'shell',is:'Custom'}}),
+  tx('shell-args','Shell','Arguments','-l','',{mono:true,hint:'Split at spaces',when:{id:'shell',is:'Custom'}}),
+  sw('confirm-close','Shell','Confirm before closing a terminal in use',true,{hint:'When a command other than the shell has it'}),
+  st('scrollback','Shell','Scrollback',[1000,100000,1000],' lines',10000,{adv:true})],
+  related:{'Keyboard & mouse':['Terminal shortcuts are in','keyboard','Keyboard']}},
+ {id:'files',label:'Files & Editor',nav:'Workspace',icon:'file',sub:'Tabs, the built-in editor and what the Explorer shows.',rows:[
+  ch('open-tabs','Tabs','Open new tabs',['At the end','After current'],'After current'),
+  sw('preview-tabs','Tabs','Preview tabs',true,{hint:'A single click opens a temporary tab; the next click replaces it'}),
+  ch('markdown','Tabs','Open Markdown as',['Rendered','Source'],'Rendered'),
+  sw('soft-wrap','Editor','Soft wrap',true),sw('line-numbers','Editor','Line numbers',true),
+  st('tab-width','Editor','Tab width',[1,8,1],' spaces',2),
+  ch('autosave','Editor','Autosave',['Off','After 1 second','When focus changes'],'When focus changes',{look:'dropdown'}),
+  sw('hide-dotfiles','Explorer','Hide dotfiles',false,{hint:'Files and folders that start with a dot'}),
+  sw('hide-ignored','Explorer','Hide gitignored files',true),sw('folders-first','Explorer','Folders first',true),
+  sw('case-sensitive','Explorer','Case-sensitive sort',false,{adv:true,hint:'Off sorts README next to readme'}),
+  tx('also-hide','Explorer','Also hide','node_modules, *.log','',{adv:true,hint:'Names separated by commas; * matches any run of characters'})],
+  related:{Tabs:['Whether a new tab starts a shell or an agent is set in','agents','Agents › Tabs']}},
+ {id:'browser',label:'Browser',nav:'Workspace',icon:'globe',sub:'The in-app browser for docs, pull requests and your dev servers.',rows:[
+  ch('search-engine','General','Search engine',['Google','DuckDuckGo','Bing','Kagi','Custom…'],'Google',{look:'dropdown'}),
+  tx('search-url','General','Search URL','https://example.com/?q=%s','',{mono:true,hint:'%s stands for what you type',when:{id:'search-engine',is:'Custom…'},valid:v=>!v||v.includes('%s')||'Must contain %s where the search goes'}),
+  ch('home-page','General','Home page',['Dev server','Blank','Custom'],'Dev server',{hint:'Dev server opens the URL below for the focused project'}),
+  tx('custom-home','General','Custom home page','https://','',{when:{id:'home-page',is:'Custom'}}),
+  ch('open-links','General','Open links in',['In-app browser','System browser'],'In-app browser',{hint:'Links clicked in terminals and chats'}),
+  cu('dev-servers','Dev servers','Dev servers',{block:true,index:false})]},
+ {id:'sidebar',label:'Sidebar & Inbox',nav:'Workspace',icon:'sidebar',sub:'How sessions are listed in the sidebar, the right panel and the Inbox.',rows:[
+  ch('sort-sessions','Session list','Sort sessions by',['Newest','Status','Last activity','Name'],'Status',{look:'dropdown',hint:'Status puts Needs you and Failed first'}),
+  cu('session-details','Session list','Details on each row'),
+  sw('usage-card','Context bars','Show context bars on the rail',true,{hint:"Context left in each agent's newest session"}),
+  st('usage-warn','Context bars','Warn at',[50,95,5],'%',75,{hint:'The bars turn amber',when:{id:'usage-card'}}),
+  st('usage-critical','Context bars','Critical at',[60,99,1],'%',90,{hint:'The bars turn red',when:{id:'usage-card'}}),
+  sw('jump-hints','Jump hints','Show jump hints while holding Control',true,{hint:'Numbers appear on sessions; press one with ⌃ to jump'}),
+  st('hint-delay','Jump hints','Delay before hints appear',[0,1000,20],' ms',300,{adv:true,when:{id:'jump-hints'}}),
+  ch('sort-inbox','Inbox','Sort inbox by',['Most urgent first','Newest','Oldest'],'Most urgent first',{look:'dropdown'}),
+  ch('inbox-filter','Inbox','Open the inbox showing',['All','Needs you','Failed','Done'],'All')]},
+ {id:'git',label:'Git & GitHub',nav:'Git',icon:'branch',sub:'Committing, pushing, AI commit messages and pull requests.',rows:[
+  cu('gh','GitHub','GitHub CLI',{hint:'Each project’s pull requests and new terminals use its account below'}),
+  ...PROJECTS.slice(0,4).map(p=>ch('gh-acct-'+p[0],'Account for each project',p[0],['Active account (dev)','dev','acme-bot'],'Active account (dev)',{look:'dropdown',hint:p[1]})),
+  ch('remote','Repository','Default remote',['origin','upstream'],'origin',{look:'dropdown',hint:'Where Push sends commits'}),
+  sw('untracked','Repository','Show untracked files',true,{hint:'In Changes and in the file counts'}),
+  ch('nothing-staged','Committing','If nothing is staged',['Commit all changes','Staged only'],'Commit all changes',{hint:'Staged only stops and asks you to stage first'}),
+  sw('force-with-lease','Committing','Force push with lease',false,{adv:true,hint:'Push replaces a rebased or amended branch, using --force-with-lease'}),
+  sw('ai','AI commit messages','Write commit messages with AI',true,{hint:'Drafts a message from the changes to commit. You can edit it before committing'}),
+  ch('ai-agent','AI commit messages','Agent',['Claude Code','Codex','Cursor','OpenCode'],'Claude Code',{look:'dropdown',when:{id:'ai'}}),
+  ch('ai-model','AI commit messages','Model',['Haiku 5.5','Sonnet 5.5','Opus 5.5'],'Haiku 5.5',{look:'dropdown',when:{id:'ai'}}),
+  ch('ai-style','AI commit messages','Style',['Recent','Conventional','Plain','Custom'],'Recent',{hint:"Recent follows this repo's latest subjects",when:{id:'ai'}}),
+  tx('ai-prompt','AI commit messages','Custom prompt','Write a one-line subject…','',{when:{id:'ai-style',is:'Custom'}}),
+  sw('pr-draft','Pull requests','Create as draft',false),
+  ch('open-prs','Pull requests','Open pull requests in',['In-app browser','System browser'],'In-app browser')]},
+ {id:'diff',label:'Diff & Graph',nav:'Git',icon:'diff',sub:'How changes and history are shown in Changes and the commit graph.',rows:[
+  ch('diff-style','Diff','Diff style',['Unified','Split'],'Unified'),
+  ch('changes-list','Diff','Changes list',['List','Tree'],'Tree'),
+  st('context','Diff','Context lines',[0,20,1],' lines',3,{hint:'Unchanged lines shown around each change'}),
+  sw('ignore-whitespace','Diff','Ignore whitespace changes',false),
+  cu('diff-preview','Diff','Preview',{block:true}),
+  ch('graph-from','Graph','Show commits from',['Base branch only','All branches'],'Base branch only'),
+  st('graph-page','Graph','Commits per page',[20,500,10],'',100,{adv:true})]},
+];
+for(const p of PROVIDERS)SECTIONS.push({id:'p-'+p.id,label:p.name,parent:'agents',icon:'bot',sub:p.on?`${p.status} · v${p.ver}`:'Not found on your login PATH. Set its Command, or install it.',rows:providerRows(p),hidden:true,prov:p,related:{Defaults:['Sign-ins for this agent are in','accounts','Accounts']}});
+const SEC=Object.fromEntries(SECTIONS.map(s=>[s.id,s]));
+const ROW={};for(const s of SECTIONS)for(const r of s.rows){r.sec=s.id;ROW[r.id]=r}
+for(const r of Object.values(ROW))if(r.menuGroups)Object.defineProperty(r,'options',{get:()=>r.menuGroups().flatMap(g=>g[1])});
+const NAVGROUPS=['App','Agents','Machines','Workspace','Git'];
+const NAVORDER={App:['general','appearance','notifications','keyboard'],Agents:['agents','accounts','automations'],Machines:['hosts','phone'],Workspace:['projects','terminal','files','browser','sidebar'],Git:['git','diff']};
+
+/* ---------- shortcuts: mirror actions.rs bindings + keybindings.rs labels ---------- */
+const TOPICS=['Sessions','Navigation','Panels & tabs','Browser','App'];
+const sc=(id,label,topic,keys,place=null,o={})=>({id,label,topic,keys:keys.map(N),place,...o});
+const SC=[
+  sc('StartSession','New session','Sessions',['cmd-n']),sc('NewWorktree','New worktree','Sessions',['cmd-shift-n']),
+  sc('NextNeedsYou','Next Needs you','Sessions',['cmd-j']),sc('GoToUpNext','Go to Up next','Sessions',['cmd-shift-j']),
+  sc('NextSession','Next session','Sessions',['ctrl-tab']),sc('PrevSession','Previous session','Sessions',['ctrl-shift-tab']),
+  sc('JumpTo','Jump to session','Sessions',[],null,{group:{mods:'ctrl',set:'digits'}}),
+  sc('OpenSession','Open session','Sessions',['cmd-enter'],'Inbox'),sc('BackToParent','Back to the chat that delegated this one','Sessions',['cmd-[']),
+  sc('AddToChat','Add selection to chat','Sessions',['cmd-l']),sc('PrevPrompt','Previous prompt in chat','Sessions',['alt-up']),sc('NextPrompt','Next prompt in chat','Sessions',['alt-down']),
+  sc('OpenPalette','Command palette','Navigation',['cmd-k']),sc('GoToFile','Go to file','Navigation',['cmd-p']),
+  sc('ToggleSidebar','Toggle sidebar','Navigation',['cmd-b']),sc('ToggleRail','Toggle rail','Navigation',['cmd-\\']),sc('ToggleFocus','Focus mode','Navigation',['cmd-.']),
+  sc('SwitchSpace','Switch space','Navigation',[],null,{group:{mods:'ctrl-cmd',set:'digits'}}),
+  sc('OpenAutomations','Go to Automations','Navigation',['cmd-shift-a']),sc('OpenActivity','Go to Activity','Navigation',[]),
+  sc('NewTab','New tab','Panels & tabs',['cmd-t']),sc('CloseTab','Close tab','Panels & tabs',['cmd-w']),
+  sc('PrevTab','Previous tab','Panels & tabs',['cmd-shift-[']),sc('NextTab','Next tab','Panels & tabs',['cmd-shift-]']),
+  sc('JumpToTab','Jump to tab','Panels & tabs',[],null,{group:{mods:'cmd',set:'digits'}}),
+  sc('SplitRight','Split right','Panels & tabs',['cmd-d']),sc('SplitDown','Split down','Panels & tabs',['cmd-shift-d']),
+  sc('FocusPane','Focus pane','Panels & tabs',[],null,{group:{mods:'alt-cmd',set:'arrows'}}),
+  sc('ZoomPane','Zoom pane','Panels & tabs',['cmd-shift-enter']),sc('EqualizePanes','Equalize panes','Panels & tabs',['ctrl-cmd-=']),
+  sc('NewBrowser','New browser','Browser',['cmd-shift-b']),sc('FocusAddress','Focus address bar','Browser',['cmd-l'],'Browser'),
+  sc('Reload','Reload','Browser',['cmd-r'],'Browser'),sc('Back','Back','Browser',['cmd-['],'Browser'),sc('Forward','Forward','Browser',['cmd-]'],'Browser'),
+  sc('OpenSettings','Settings','App',['cmd-,']),sc('FocusSearch','Search settings','App',['cmd-f'],'Settings'),
+  sc('ZoomIn','Zoom in','App',['cmd-=']),sc('ZoomOut','Zoom out','App',['cmd--']),sc('ResetZoom','Actual size','App',['cmd-0']),
+  sc('Save','Save','App',['cmd-s']),sc('Quit','Quit','App',['cmd-q']),
+  sc('CopySelection','Copy','App',['cmd-c'],'Terminal'),sc('SelectAll','Select all','App',['cmd-a'],'Terminal'),sc('Paste','Paste','App',['cmd-v'],'Terminal'),
+  sc('CopyWorktreePath','Copy worktree path','App',['cmd-shift-c'])];
+const SCI=Object.fromEntries(SC.map(r=>[r.id,r]));
+/* Each built-in binding's spot in actions::bindings(). rebind keeps a changed key in its built-in spot. */
+const AT={OpenPalette:0,AddToChat:1,GoToFile:2,StartSession:3,NextNeedsYou:4,GoToUpNext:5,NextSession:6,PrevSession:7,ToggleSidebar:8,ToggleRail:9,ToggleFocus:10,NewTab:11,CloseTab:12,Save:13,Quit:14,NewWorktree:15,OpenSettings:16,OpenAutomations:17,ZoomIn:18,ZoomOut:19,ResetZoom:20,FocusSearch:21,OpenSession:22,CopySelection:23,SelectAll:24,Paste:25,NewBrowser:26,SplitRight:27,SplitDown:28,FocusPane:29,PrevTab:39,NextTab:40,ZoomPane:41,PrevPrompt:42,NextPrompt:43,EqualizePanes:44,FocusAddress:45,Reload:46,BackToParent:47,Back:48,Forward:49,CopyWorktreePath:66,JumpToTab:67,JumpTo:76,SwitchSpace:85};
+const ADDED=1000,TERMINAL=2000;
+/** The key in an action's built-in spot: its default until changed, `null` once removed. */
+const spotKey=id=>id in S.spot?S.spot[id]:SCI[id]?.keys[0]??null;
+/** Where the key recorded into `slot` would sit. Replacing the built-in key, or adding one while that spot is empty, keeps the built-in spot.
+    Any other key joins the added keys, after every built-in binding and before the terminal's, in the order they were added. */
+function at(id,slot){const r=SCI[id],next=ADDED+S.seqN+1;if(!r||!(id in AT))return next;if(r.group)return AT[id];
+  return r.keys.length&&(slot==='new'?spotKey(id)==null:eff(id)[slot]===spotKey(id))?AT[id]:next}
+/** Where a key an action already has sits. */
+function posOf(id,combo){const r=SCI[id];if(r&&id in AT&&(r.group||combo===spotKey(id)))return AT[id];return ADDED+(S.seq[id+'|'+combo]||0)}
+const GROUPSETS={digits:{keys:['1','2','3','4','5','6','7','8','9'],show:'1…9',opts:['ctrl','cmd','alt','ctrl-cmd','alt-cmd','ctrl-alt']},arrows:{keys:['left','right','up','down'],show:'←→↑↓',opts:['alt-cmd','ctrl-cmd','ctrl-alt','ctrl-shift']}};
+const INPUTKEYS=[['cmd-b','Bold',35],['cmd-i','Italic',36],['cmd-e','Code',37],['cmd-k','Link',38]].map(([k,l,at])=>({combo:N(k),label:l,place:'Text fields',at}));
+// gpui-base's text bindings that take ⌘, ⌃ or ⌥ on macOS (input/base/state.rs, text/state.rs), bound before ours.
+// Left out: ⌘⌥↑/↓, which our own Input bindings already take, and ⌃⌘Space, which macOS keeps.
+const BASEKEYS=[...[['ctrl-backspace','Delete back'],['cmd-backspace','Delete to line start'],['cmd-delete','Delete to line end'],['alt-backspace','Delete word back'],['alt-delete','Delete word forward'],['cmd-enter','Secondary Enter'],['cmd-]','Indent'],['cmd-[','Outdent'],
+  ['cmd-a','Select all'],['cmd-c','Copy'],['cmd-x','Cut'],['cmd-v','Paste'],['cmd-z','Undo'],['cmd-shift-z','Redo'],['cmd-f','Find'],['cmd-shift-f','Replace'],['cmd-.','Code actions'],
+  ['ctrl-a','Line start'],['ctrl-e','Line end'],['cmd-left','Line start'],['cmd-right','Line end'],['cmd-up','Text start'],['cmd-down','Text end'],['alt-left','Previous word'],['alt-right','Next word'],
+  ['ctrl-shift-a','Select to line start'],['ctrl-shift-e','Select to line end'],['cmd-shift-left','Select to line start'],['cmd-shift-right','Select to line end'],['cmd-shift-up','Select to start'],['cmd-shift-down','Select to end'],['alt-shift-left','Select previous word'],['alt-shift-right','Select next word']
+  ].map(([k,l])=>({combo:N(k),label:l,place:'Text fields',at:-1})),...[['cmd-a','Select all'],['cmd-c','Copy']].map(([k,l])=>({combo:N(k),label:l,place:'Selectable text',at:-1}))];
+const PAGEEDIT=[['cmd-c','Copy'],['cmd-x','Cut'],['cmd-v','Paste'],['cmd-a','Select all'],['cmd-z','Undo'],['cmd-shift-z','Redo']].map(([k,l],i)=>({combo:N(k),label:l+' (page)',place:'Browser',at:50+i}));
+const FIXEDKINDS=new Set(['input','base','page','term']);
+const SYSTEM=Object.fromEntries([['cmd-tab','switching apps'],['cmd-space','Spotlight'],['cmd-h','Hide Anywhere'],['cmd-m','Minimize'],['cmd-alt-h','Hide others'],['ctrl-cmd-q','Lock Screen'],['cmd-shift-3','screenshots'],['cmd-shift-4','screenshots'],['cmd-shift-5','screenshots'],['cmd-`','cycling windows'],['ctrl-cmd-space','Emoji & Symbols'],['cmd-alt-escape','Force Quit']].map(([k,v])=>[N(k),v]));
+// keys.rs binds these to NoAction in the Terminal so the CLI gets them.
+const TERMRES=Object.fromEntries([['tab','Tab completion'],['shift-tab','Shift-Tab'],['cmd-enter','⌘↩']].map(([k,v])=>[N(k),v]));
+const TERMKEYS={c:'interrupt',d:'end of input',z:'suspend',r:'reverse search',a:'start of line',e:'end of line',l:'clear screen',u:'delete line',w:'delete word',k:'delete to end',p:'previous command',n:'next command'};
+const FIXED=[['Close a menu, then recording, then search, then Settings',['Esc']],['Move in the palette',['↑','↓']],['Open from the palette',['↩']],['Next in Inbox',['J','↓']],['Previous in Inbox',['K','↑']]];
+
+/* ---------- state ---------- */
+const S0=()=>({section:'general',q:'',adv:{},vals:{},menu:null,mfilter:'',errors:{},failOnce:{'open-at-login':true},saved:{},flash:null,reveal:null,
+  keys:{},groups:{},spot:{},seq:{},seqN:0,rec:null,find:null,kq:'',kfilter:'all',fixedOpen:false,pendingReset:null,
+  acctDef:{},signin:null,themes:['Midnight Ink'],sheet:null,toasts:[],provFold:true,projQ:'',projFold:{},intUnit:'min'});
+let S=S0();
+let osDark=false;
+/** Dark when the chosen theme is dark, or under System when the Mac is dark. Imported themes are dark here. */
+const isDark=()=>{const t=get('theme');return t==='System'?osDark:!LIGHT.includes(t)};
+
+/* ---------- values ---------- */
+const get=id=>id in S.vals?S.vals[id]:ROW[id]?.def;
+function set(id,v){const r=ROW[id];if(r&&v===r.def)delete S.vals[id];else S.vals[id]=v}
+const isChanged=r=>r.def!==undefined&&r.id in S.vals;
+const tilde=v=>v;
+function fmt(r,v){if(v===undefined)return'—';switch(r.kind){case'switch':return v?'On':'Off';case'stepper':return v+(r.unit||'');case'text':return v?`“${v}”`:'Empty';case'custom':return r.id==='automation-every'?intervalText(v):r.id==='automation-schedule'?(([t,d])=>`${t}, ${d.split(',').length} days`)(v.split('|')):String(v);default:return String(v)}}
+function allowed(r){if(!r.when)return true;const p=ROW[r.when.id];const v=get(r.when.id);const ok=r.when.is!==undefined?v===r.when.is:r.when.not?!v:!!v;return ok&&allowed(p)}
+function turnOnLabel(r){const p=ROW[r.when.id];return r.when.is!==undefined?`Set ${p.label} to ${r.when.is}`:r.when.not?`Turn off ${p.label}`:`Turn on ${p.label}`}
+function satisfy(r){if(!r.when)return;const p=ROW[r.when.id];satisfy(p);set(p.id,r.when.is!==undefined?r.when.is:!r.when.not)}
+const offReason=r=>r.off?r.off():null;
+function changedIn(secId){const s=SEC[secId];if(secId==='keyboard')return kbChanges();return s.rows.filter(isChanged).map(r=>{const prev=S.vals[r.id];return{label:r.label,from:fmt(r,get(r.id)),to:fmt(r,r.def),reset:()=>delete S.vals[r.id],
+  undo:()=>{if(!(r.id in S.vals))S.vals[r.id]=prev}}})}
+
+/* ---------- search ---------- */
+const words=q=>q.toLowerCase().split(/\s+/).filter(Boolean);
+const reEsc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+function wmatch(ws,fields){const hay=fields.filter(Boolean).join(' \u0001 ').toLowerCase();return ws.every(w=>new RegExp('(^|[^\\p{L}\\p{N}])'+reEsc(w),'u').test(hay)||(w.length>2&&hay.includes(w)))}
+function hl(text){const ws=words(S.q);let out=esc(text);if(!ws.length)return out;for(const w of ws){out=out.replace(new RegExp('(^|[^\\p{L}\\p{N}&;])('+reEsc(esc(w))+'[\\p{L}\\p{N}]*)','giu'),(m,a,b)=>`${a}\u0002${b}\u0003`)}return out.replace(/\u0002/g,'<mark>').replace(/\u0003/g,'</mark>')}
+function results(){const ws=words(S.q);if(!ws.length)return[];const out=[];
+  for(const s of SECTIONS){const parent=s.parent?SEC[s.parent]:null;const crumb=parent?`${parent.label} › ${s.label}`:s.label;
+    const own=r=>[r.label,r.group,r.hint,...(r.options||[])];const secF=[s.label,parent?.label];
+    const rows=s.rows.filter(r=>r.index!==false&&wmatch(ws,[...own(r),...secF])&&ws.some(w=>wmatch([w],own(r))));const score=r=>ws.filter(w=>wmatch([w],own(r))).length*2+wmatch(ws,[r.label]);rows.sort((x,y)=>score(y)-score(x));
+    const ext=[];
+    if(wmatch(ws,[s.label,parent?.label,s.sub]))ext.push({type:'sec',s});
+    if(s.id==='agents')for(const p of PROVIDERS)if(!p.on&&wmatch(ws,[p.name,'agent provider']))ext.push({type:'prov',p});
+    if(s.id==='accounts')for(const a of ACCOUNTS)if(wmatch(ws,[a[0],a[1],a[2],'account']))ext.push({type:'acct',a});
+    if(s.id==='projects')for(const p of PROJECTS)if(wmatch(ws,[p[0],p[1],p[4],'project']))ext.push({type:'proj',p});
+    if(s.id==='appearance')for(const t of S.themes)if(wmatch(ws,[t,'theme imported custom']))ext.push({type:'theme',t});
+    if(s.id==='hosts')for(const h of HOSTS)if(wmatch(ws,[h[0],h[1],'host ssh']))ext.push({type:'host',h});
+    if(s.id==='keyboard')for(const r of SC)if(wmatch(ws,[r.label,r.topic,r.place,'shortcut',...eff(r.id).map(glyph),...eff(r.id)]))ext.push({type:'key',r});
+    if(rows.length||ext.length)out.push({s,crumb,rows,ext})}
+  return out.sort((x,y)=>y.rows.concat(y.ext).some(r=>wmatch(ws,[r.label||r.p?.name||r.r?.label||'']))-x.rows.concat(x.ext).some(r=>wmatch(ws,[r.label||r.p?.name||r.r?.label||''])))}
+
+/* ---------- shortcuts logic ---------- */
+const eff=id=>{const r=SCI[id];if(!r)return[];if(r.group)return groupKeys(r);return S.keys[id]??r.keys};
+const groupMods=r=>S.groups[r.id]??r.group.mods;
+const groupKeys=(r,mods=groupMods(r))=>GROUPSETS[r.group.set].keys.map(k=>N(mods+'-'+k));
+const overlap=(a,b)=>a===b||a==null||b==null;
+function pool(){const out=[];for(const r of SC)for(const [i,k] of eff(r.id).entries())out.push({id:r.id,slot:i,combo:k,label:r.label,place:r.place,kind:r.group?'group':'row',at:posOf(r.id,k)});
+  for(const x of INPUTKEYS)out.push({...x,kind:'input'});const ours=new Set(out.filter(b=>b.place==null).map(b=>b.combo));for(const x of BASEKEYS)if(!ours.has(x.combo))out.push({...x,kind:'base'});for(const x of PAGEEDIT)out.push({...x,kind:'page'});
+  for(const [k,v] of Object.entries(TERMRES))out.push({combo:k,label:v,place:'Terminal',at:TERMINAL,kind:'term'});return out}
+function ownerOf(id){return SCI[id]}
+const placeOf=id=>ownerOf(id)?.place??null;
+const labelOf=id=>{const o=ownerOf(id);return o?.label||o?.name};
+/* GPUI dispatch (vendor/gpui-pre/src/keymap.rs): the deepest context wins, and a binding with no context counts as the deepest,
+   so where a place has focus its own bindings tie with global ones and the one later in the keymap wins. The keymap is
+   gpui-base's bindings, then ours in actions::bindings() order, then the terminal's (actions::rebind). An action the focused
+   view doesn't handle passes the key on: ⌘B formats only in a prompt with a selection, and is Toggle sidebar otherwise. */
+function conflicts(id,slot,combo){const place=placeOf(id),mine=at(id,slot),notes=[],g=glyph(combo),me=esc(labelOf(id));
+  if(SYSTEM[combo])notes.push({level:'refuse',text:`macOS uses <b>${g}</b> for ${SYSTEM[combo]}. Pick another shortcut.`});
+  for(const b of pool()){if(b.combo!==combo||(b.id===id&&b.slot===slot))continue;if(b.id===id){notes.push({level:'refuse',text:`This action already has <b>${g}</b>.`});continue}
+    if(!overlap(place,b.place))continue;
+    const L=esc(b.label),P=b.place,win=mine>b.at,fixed=FIXEDKINDS.has(b.kind),tail=b.kind==='group'?' Change that set’s modifier first.':'';
+    const clash=text=>notes.push({level:'clash',other:b,replaceable:b.kind!=='group',text:text+tail});
+    if(place===P){if(!fixed)clash(`<b>${g}</b> is already <b>${L}</b>${P?' in the '+P:''}.`);
+      else notes.push(win?{level:'warn',text:`In the ${P}, <b>${L}</b> loses <b>${g}</b>.`}:{level:'refuse',text:`In the ${P}, <b>${g}</b> stays <b>${L}</b>, which comes first, so this shortcut would never run.`})}
+    else if(place==null){
+      if(!win)notes.push({level:'shared',text:b.kind==='input'?`In a prompt with text selected, <b>${g}</b> is <b>${L}</b>. Everywhere else it runs <b>${me}</b>.`:b.kind==='term'?`In a terminal, <b>${g}</b> still goes to the program. Everywhere else it runs <b>${me}</b>.`:`In the ${P}, <b>${g}</b> stays <b>${L}</b>. Everywhere else it runs <b>${me}</b>.`});
+      else if(b.kind==='input')notes.push({level:'warn',text:`Prompts lose <b>${g}</b> (${L}): your shortcut comes later in the keymap, so it runs first.`});
+      else if(b.kind==='base')notes.push({level:'warn',text:`${P==='Text fields'?'Text fields':'Selectable text'} ${P==='Text fields'?'lose':'loses'} <b>${g}</b> (${L}): your shortcut runs before ${P==='Text fields'?'them':'it'}.`});
+      else if(b.kind==='page')notes.push({level:'warn',text:`Web pages lose <b>${g}</b> (${L.replace(" (page)","")}): your shortcut runs before them.`});
+      else clash(`<b>${g}</b> is <b>${L}</b> in the ${P}. Your shortcut comes later in the keymap, so it takes <b>${g}</b> there too.`)}
+    else{if(win)notes.push({level:'shared',text:`In the ${place}, <b>${g}</b> will be <b>${me}</b>; everywhere else it stays <b>${L}</b>.`});
+      else clash(`<b>${g}</b> is <b>${L}</b>, which comes first in the ${place} too, so this shortcut would never run.`)}}
+  const p=parse(combo);const term=p.mods.length===1&&p.mods[0]==='ctrl'&&TERMKEYS[p.key];
+  if(term&&(place==null||place==='Terminal'))notes.push({level:'warn',text:`Terminal programs won’t get <b>${g}</b> (${term}): your shortcut runs before the terminal sees it.`});
+  const rank={refuse:0,clash:1,warn:2,shared:3};return notes.sort((a,b)=>rank[a.level]-rank[b.level])}
+function setKeys(id,arr){if(SCI[id]){const d=SCI[id].keys;if(arr.length===d.length&&arr.every((k,i)=>k===d[i])){delete S.keys[id];delete S.spot[id]}else{S.keys[id]=arr;if(spotKey(id)!=null&&!arr.includes(spotKey(id)))S.spot[id]=null}}}
+function removeCombo(id,combo){setKeys(id,eff(id).filter(k=>k!==combo))}
+function kbChanges(){const out=[];for(const r of SC){if(r.group){if(S.groups[r.id]&&S.groups[r.id]!==r.group.mods)out.push({label:r.label,from:glyph(N(S.groups[r.id]+'-x')).slice(0,-1)+' '+GROUPSETS[r.group.set].show,to:glyph(N(r.group.mods+'-x')).slice(0,-1)+' '+GROUPSETS[r.group.set].show,reset:()=>delete S.groups[r.id],undo:(prev=>()=>r.id in S.groups?null:restoreKeys(r.id,()=>{S.groups[r.id]=prev}))(S.groups[r.id])});continue}
+  if(r.id in S.keys)out.push({label:r.label,from:S.keys[r.id].map(glyph).join(', ')||'None',to:r.keys.map(glyph).join(', ')||'None',reset:()=>{delete S.keys[r.id];delete S.spot[r.id]},undo:((prev,had,sp)=>()=>r.id in S.keys?null:restoreKeys(r.id,()=>{S.keys[r.id]=prev;if(had)S.spot[r.id]=sp}))(S.keys[r.id],r.id in S.spot,S.spot[r.id])})}
+  return out}
+function startRec(id,slot){S.rec={id,slot,live:[],msg:null,pending:null};S.pendingReset=null;S.menu=null;render()}
+function commitRec(combo){const r=S.rec;if(at(r.id,r.slot)<ADDED&&!SCI[r.id].group)S.spot[r.id]=combo;else S.seq[r.id+'|'+combo]=++S.seqN;const arr=eff(r.id).slice();if(r.slot==='new')arr.push(combo);else arr[r.slot]=combo;setKeys(r.id,arr);S.rec=null;toastSaved(`${labelOf(r.id)} is now ${glyph(combo)}`);render()}
+function tryAssign(combo){const r=S.rec;if(r.slot!=='new'&&eff(r.id)[r.slot]===combo){S.rec=null;render();return}const notes=conflicts(r.id,r.slot,combo);if(!notes.length){commitRec(combo);return}r.pending={combo,notes};render()}
+function resolve(how){const r=S.rec;if(!r?.pending)return;const{combo,notes}=r.pending;if(how==='cancel'){r.pending=null;r.msg=null;render();return}
+  if(how==='replace')for(const n of notes)if(n.level==='clash'&&n.other)removeCombo(n.other.id,combo);commitRec(combo)}
+function defaultKeys(id){const r=SCI[id];return r?(r.group?groupKeys(r,r.group.mods):r.keys):[]}
+/** Who else holds any of `keys` where `id` works, ignoring pairs that share a key out of the box (⌘L: Add to chat, and Focus address bar in the Browser). */
+function takenBy(id,keys){const place=placeOf(id);return pool().filter(b=>b.id!==id&&keys.includes(b.combo)&&!FIXEDKINDS.has(b.kind)&&overlap(b.place,place)&&!(defaultKeys(b.id).includes(b.combo)&&defaultKeys(id).includes(b.combo)&&b.place!==place))}
+/** Puts back a removed key. If a newer key has filled its built-in spot since, that key keeps the spot, and this one comes back after
+    every built-in binding, but only when that raises no conflict, since its precedence changes. Returns why it can't. */
+function undoRemove(id,k,sp){if(sp&&spotKey(id)!=null){const n=conflicts(id,'new',k);if(n.length)return n[0].text.replace(/<[^>]+>/g,'');
+    const why=restoreKeys(id,()=>{S.seq[id+'|'+k]=++S.seqN;setKeys(id,[...eff(id),k])});if(!why)setTimeout(()=>toast(`${glyph(k)} is back as an extra shortcut; ${glyph(spotKey(id))} keeps the built-in spot`));return why}
+  return restoreKeys(id,()=>{setKeys(id,[...eff(id),k]);if(sp&&id in S.keys)S.spot[id]=k})}
+function resetKeysOf(id){const r=SCI[id];if(r.group)delete S.groups[id];else{delete S.keys[id];delete S.spot[id]}}
+function tryReset(id){const r=SCI[id];const others=takenBy(id,defaultKeys(id));
+  if(others.length){S.pendingReset={id,others};render();return}resetKeysOf(id);toast(`${r.label} is back to ${r.group?glyph(N(r.group.mods+'-x')).slice(0,-1)+' '+GROUPSETS[r.group.set].show:r.keys.map(glyph).join(', ')||'no shortcut'}`);render()}
+/** Restores keys only if no other action took them meanwhile; returns why not. */
+function restoreKeys(id,apply){const was=eff(id).slice(),before={keys:{...S.keys},groups:{...S.groups},spot:{...S.spot}};apply();const clash=takenBy(id,eff(id).filter(k=>!was.includes(k)))[0];
+  if(clash){S.keys=before.keys;S.groups=before.groups;S.spot=before.spot;return`${glyph(clash.combo)} now belongs to ${clash.label}`}return null}
+
+/* ---------- rendering helpers ---------- */
+const segLook=r=>r.look?r.look==='segmented':r.options.length<=4&&r.options.join('').length<=34;
+function swHTML(id,v,label,dis,cls=''){return`<button class="sw ${cls}" role="switch" aria-checked="${!!v}" aria-label="${esc(label)}" data-act="toggle" data-id="${id}" data-fid="c:${id}"${dis?' disabled':''}></button>`}
+function seg(r,v,dis){return`<div class="seg" role="radiogroup" aria-label="${esc(r.label)}">${r.options.map((o,i)=>`<button role="radio" aria-checked="${o===v}" tabindex="${o===v?0:-1}" data-act="pick" data-id="${r.id}" data-v="${esc(o)}" data-fid="c:${r.id}:${i}"${dis?' disabled':''}>${esc(o)}</button>`).join('')}</div>`}
+function dropdown(r,v,dis){const open=S.menu===r.id;const f=S.mfilter.toLowerCase();const opts=r.options.filter(o=>!r.filter||!f||o.toLowerCase().includes(f));
+  const item=o=>`<button class="mi" role="option" aria-selected="${o===v}" data-act="pick" data-id="${r.id}" data-v="${esc(o)}" data-fid="m:${r.id}:${r.options.indexOf(o)}">${esc(o)}</button>`;
+  const list=r.menuGroups?r.menuGroups().map(([cap,os])=>(cap?`<div class="mcap" role="presentation">${cap}</div>`:'')+os.map(item).join('')).join(''):opts.map(item).join('');
+  return`<div class="dd"><button class="dd-t" aria-haspopup="listbox" aria-expanded="${open}" aria-label="${esc(r.label)}: ${esc(v)}" data-act="menu" data-id="${r.id}" data-fid="c:${r.id}"${dis?' disabled':''}>${esc(v)}${ic('down',12)}</button>${open?`<div class="menu" role="listbox" aria-label="${esc(r.label)}" data-menu="${r.id}">${r.filter?`<div class="mf">${ic('search',12)}<input data-mfilter placeholder="Filter ${r.options.length} models" value="${esc(S.mfilter)}" data-fid="mf"></div>`:''}<div class="mlist">${list||'<div class="mempty">No model matches</div>'}</div></div>`:''}</div>`}
+function stepper(r,v,dis){return`<div class="step"><button aria-label="Decrease ${esc(r.label)}" data-act="step" data-id="${r.id}" data-d="-1"${dis||v<=r.min?' disabled':''}>${'–'}</button><input inputmode="numeric" aria-label="${esc(r.label)}" value="${v}" data-commit="${r.id}" data-fid="c:${r.id}"${dis?' disabled':''}><span class="u">${esc((r.unit||'').trim())}</span><button aria-label="Increase ${esc(r.label)}" data-act="step" data-id="${r.id}" data-d="1"${dis||v>=r.max?' disabled':''}>+</button></div>`}
+function slider(r,v,dis){return`<input type="range" min="${r.min}" max="${r.max}" step="${r.step}" value="${v}" aria-label="${esc(r.label)}" data-range="${r.id}" data-fid="c:${r.id}"${dis?' disabled':''}><span class="val" style="width:38px;text-align:right">${v}${esc(r.unit)}</span>`}
+const SWC={Ink:'#3f3f46',Blue:'#3e8ef7',Purple:'#8e4ec6',Pink:'#c2298a',Red:'#e5484d',Orange:'#f76b15',Yellow:'#ffb224',Green:'#30a46c'};
+function control(r){const v=get(r.id),dis=!!offReason(r)||(S.q&&!allowed(r));
+  switch(r.kind){
+    case'switch':return swHTML(r.id,v,r.label,dis);
+    case'choice':if(r.look==='swatch')return`<div class="swatches" role="radiogroup" aria-label="Accent color">${r.options.map(o=>`<button role="radio" aria-label="${o}" aria-checked="${o===v}" style="background:${SWC[o]}" data-act="pick" data-id="${r.id}" data-v="${o}" data-fid="c:${r.id}:${o}"></button>`).join('')}</div>`;
+      return(segLook(r)?seg(r,v,dis):dropdown(r,v,dis))+(r.play?`<button class="play" aria-label="Play ${esc(v)}" data-act="toast" data-msg="▶ ${esc(v)}">${ic('play',12)}</button>`:'');
+    case'stepper':return r.look==='slider'?slider(r,v,dis):stepper(r,v,dis);
+    case'text':{const bad=S.errors['v:'+r.id];return`<input class="field${r.mono?' mono':''}${bad?' bad':''}" aria-label="${esc(r.label)}" value="${esc(S.vals['draft:'+r.id]??v)}" placeholder="${esc(r.ph)}" data-commit="${r.id}" data-fid="c:${r.id}"${dis?' disabled':''}>`}
+    case'path':return`<div class="pathf" title="${esc(v)}">${esc(tilde(v))}</div><button class="btn" data-act="path" data-id="${r.id}" data-fid="c:${r.id}">Choose…</button>`;
+    case'custom':return(DRAW[r.draw||r.id]||(()=>''))(r)}}
+function rowHTML(r,{search=false}={}){
+  if(r.block&&!search)return`<div class="blockrow" data-row="${r.id}">${DRAW[r.id](r)}</div>`;
+  const changed=isChanged(r),err=S.errors[r.id],verr=S.errors['v:'+r.id],off=offReason(r),blocked=!allowed(r),child=!!r.when&&!search&&ROW[r.when.id].group===r.group;
+  const saved=S.saved[r.id]&&Date.now()-S.saved[r.id]<1700;
+  let hint=r.hint?hl(r.hint):'';
+  if(off)hint=esc(off)+(r.id==='glass'?` <button class="link" data-act="go-dark" data-fid="go-dark">Use ${esc(get('night'))}</button>`:'');
+  if(verr)hint=`<span class="ierr">${esc(verr)}</span>`;
+  if(err)hint=`${esc(err)} <button class="link" data-act="retry" data-id="${r.id}" data-fid="retry:${r.id}">Retry</button>`;
+  const reset=changed?`<button class="reset" title="Reset to default (${esc(fmt(r,r.def))})" aria-label="Reset ${esc(r.label)} to ${esc(fmt(r,r.def))}" data-act="reset-row" data-id="${r.id}" data-fid="r:${r.id}">${ic('reset',13)}</button>`:'';
+  const ctl=blocked&&(search||S.reveal===r.id)?`<button class="btn sm" data-act="satisfy" data-id="${r.id}" data-fid="sat:${r.id}">${esc(turnOnLabel(r))}</button>`:control(r);
+  const where=search?`<span class="tag where">${esc(r.group)}</span>`:'';
+  return`<div class="set${child?' child':''}${S.flash===r.id?' flash':''}" data-row="${r.id}">${changed?'<i class="dot" title="Changed from default"></i>':''}
+    <div class="lbl">${child?'<span class="sub">↳</span>':''}<div><div class="t">${hl(r.label)}${where}${r.adv?'<span class="tag">Advanced</span>':''}${saved?`<span class="saved">${ic('check',11,2)}Saved</span>`:''}</div>${hint?`<div class="s${err?' err':''}">${hint}</div>`:''}</div></div>
+    <div class="ctl">${reset}${ctl}${search?`<button class="go" title="Show in ${esc(SEC[r.sec].label)}" aria-label="Show in ${esc(SEC[r.sec].label)}" data-act="goto" data-sec="${r.sec}" data-id="${r.id}">${ic('arrow',13)}</button>`:''}</div></div>`}
+
+/* ---------- sign-in panel ---------- */
+function signinHTML(prov){const t=S.signin,sc=SIGNIN[prov];
+  if(t.state==='done')return`<div class="signin" aria-live="polite"><div class="st ok">${ic('check',13,2.2)} Signed in as ${esc(sc.who[0])}</div></div>`;
+  const st=`<div class="st" aria-live="polite"><i class="spin"></i><span>${sc.code?`Enter this code in your browser to sign in to ${esc(prov)}…`:`Finish signing in to ${esc(prov)} in your browser…`}</span><span class="host">this Mac</span></div>`;
+  const dev=sc.code?`<div class="devcode">${sc.code}<button class="btn sm" data-act="toast" data-msg="Copied ${sc.code}">Copy code</button></div>`:'';
+  const field=sc.pastes?`<label class="codef"><input data-code placeholder="Code from the page, if any" aria-label="Code from the sign-in page" data-fid="code-in" value="${esc(t.input)}" spellcheck="false" autocomplete="off">${t.input.trim()?`<button class="enter" data-act="code-send" data-fid="code-send" title="Send the code (↩)">↩ Enter</button>`:''}</label>`:'';
+  const out=t.output?`<div class="out">${sc.lines.map(esc).join('\n')}</div>`:'';
+  return`<div class="signin">${st}${dev}<div class="acts"><button class="btn sm" data-act="signin-open" data-fid="signin-open">Open again</button><button class="btn sm" data-act="toast" data-msg="Copied the sign-in link">Copy link</button>${field}<span style="flex:1"></span><button class="btn sm" data-act="signin-cancel" data-fid="signin-cancel">Cancel</button></div>
+  <div><button class="out-t" data-act="signin-output" aria-expanded="${!!t.output}" data-fid="signin-output">${ic(t.output?'down':'chev',11)} Terminal output</button></div>${out}</div>`}
+function signinFinish(){const t=S.signin;if(!t||t.state!=='run')return;const [mail,plan]=SIGNIN[t.prov].who;t.state='done';
+  ACCOUNTS.push([mail,plan,t.prov,0,0,false,false,0]);render();setTimeout(()=>{if(S.signin===t){S.signin=null;S.newAcct=ACCOUNTS.length-1;toast(`Added ${mail} to ${t.prov}`);render();setTimeout(()=>{S.newAcct=null},1800)}},1200)}
+function signinSend(){if(S.signin?.input.trim())signinFinish()}
+
+/* ---------- custom draws ---------- */
+const intervalText=m=>m%1440===0?`${m/1440} day${m>1440?'s':''}`:m%60===0?`${m/60} h`:`${m} min`;
+const DRAW={
+  update:()=>`<span class="val">0.1.62 · up to date</span><button class="btn" data-act="toast" data-msg="You’re on the latest version" data-fid="c:update">Check now</button>`,
+  star:()=>`<button class="btn" data-act="toast" data-msg="Opens GitHub in your browser" data-fid="c:star">☆ Star</button>`,
+  'background-service':()=>`<span class="val ok">Running</span><button class="btn" data-act="toast" data-msg="Background service restarted" data-fid="c:svc">Restart…</button>`,
+  cli:()=>`<span class="val">/usr/local/bin/anywhere</span>`,
+  'background-image':()=>`<button class="btn" data-act="toast" data-msg="Opens a file picker" data-fid="c:bg">Choose…</button>`,
+  'custom-themes':()=>`${S.themes.map(t=>`<span class="pill">${esc(t)}</span><button class="go" aria-label="Delete ${esc(t)}" data-act="del-theme" data-v="${esc(t)}" data-fid="c:deltheme">${ic('trash',13)}</button>`).join('')}<button class="btn" data-act="toast" data-msg="Opens the starter theme on GitHub">Starter ${ic('ext',11)}</button><button class="btn" data-act="toast" data-msg="Opens a file picker for .json themes">Import…</button>`,
+  'custom-diff-colors':()=>`<div class="swatches"><button style="background:#30a46c" aria-label="Added color"></button><button style="background:#e5484d" aria-label="Removed color"></button></div>`,
+  'font-preview':()=>`<div class="preview" style="font-family:${get('code-font')==='SF Mono'?'SF Mono':'var(--mono)'};font-size:${get('code-size')}px"><span style="color:var(--text-3)">hooks/use-restore-preview.ts</span><span class="del">- const ready = isRestored;</span><span class="add">+ const ready = isRestored &amp;&amp; !pending;</span></div>`,
+  'diff-preview':()=>`<div class="preview"><span class="del">- return items.length</span><span class="add">+ return items.filter(Boolean).length</span></div>`,
+  swatches:()=>`<div class="ansi">${['#1d1f21','#cc6666','#b5bd68','#f0c674','#81a2be','#b294bb','#8abeb7','#c5c8c6','#666','#d54e53','#b9ca4a','#e7c547','#7aa6da','#c397d8','#70c0b1','#eaeaea'].map((c,i)=>`<button style="background:${c}" aria-label="ANSI color ${i}" data-act="toast" data-msg="Opens a color picker for ANSI ${i}"></button>`).join('')}</div>`,
+  gh:()=>`<span class="val ok">Signed in · 2 accounts</span><button class="btn" data-act="toast" data-msg="Checks gh auth status again">Check again</button>`,
+  'session-details':()=>`<div class="seg">${['Branch','Agent','Time','Diff'].map((o,i)=>`<button role="checkbox" aria-checked="${i<3}" data-act="toast" data-msg="Toggles ${o} on each row">${o}</button>`).join('')}</div>`,
+  'pair-phone':()=>`<button class="btn pri" data-act="toast" data-msg="Shows the pairing QR code" data-fid="c:pair">Pair…</button>`,
+  tailscale:()=>`<span class="val ok">Connected · dev-mac.tail2a.ts.net</span>`,
+  'prov-status':r=>{const p=SEC[r.sec].prov;return`<span class="val">${esc(p.status.split(' · ')[0])}</span>`},
+  'automation-schedule':()=>{const[t,d]=get('automation-schedule').split('|');const days=d?d.split(','):[];const e=S.errors['v:automation-schedule'];
+    return`<input class="field${e?' bad':''}" style="width:70px;text-align:center" value="${esc(S.vals['draft:automation-schedule']??t)}" aria-label="Time of day" data-sched data-fid="c:automation-schedule"><div class="days" role="group" aria-label="Days">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(x=>`<button aria-pressed="${days.includes(x)}" aria-label="${x}" data-act="day" data-v="${x}" data-fid="day:${x}">${x[0]}</button>`).join('')}</div>`},
+  'automation-every':()=>{const m=get('automation-every');const u=S.intUnit;const div=u==='days'?1440:u==='h'?60:1;const e=S.errors['v:automation-every'];
+    return`<input class="field${e?' bad':''}" style="width:64px;text-align:right" inputmode="numeric" aria-label="Repeat interval" value="${Math.round(m/div*100)/100}" data-int data-fid="c:int"><div class="seg" role="radiogroup" aria-label="Unit">${['min','h','days'].map(x=>`<button role="radio" aria-checked="${x===u}" data-act="int-unit" data-v="${x}">${x}</button>`).join('')}</div>${NEW}`},
+  'alert-matrix':()=>{const ev=[['needs-you','Needs you','An agent asks for an approval or an answer'],['failed','Failed','An agent exited with an error'],['done','Done','An agent completed its turn and is idle']];
+    const b=get('banners'),s=get('sounds');
+    const master=(id,label,hint,on)=>`<div class="set" data-row="${id}">${isChanged(ROW[id])?'<i class="dot" title="Changed from default"></i>':''}<div class="lbl"><div><div class="t">${label}</div><div class="s">${hint}</div></div></div><div class="ctl">${swHTML(id,on,label)}</div></div>`;
+    const pill=(id,on,kind,label)=>`<button class="tg" role="switch" aria-checked="${!!get(id)}" aria-label="${kind} when ${label}" data-act="toggle" data-id="${id}" data-fid="c:${id}"${on?'':` disabled title="${kind==='Banner'?'Show banners':'Play sounds'} is off"`}>${ic(kind==='Banner'?'bell':'speaker',12)}${kind}</button>`;
+    const rv=S.reveal&&ROW[S.reveal]?.inBlock&&!allowed(ROW[S.reveal])?ROW[S.reveal]:null;
+    const pre=rv?`<div class="note shared" style="margin:8px 10px" role="status"><span class="ic">${ic('info',14)}</span><div class="tx">${esc(ROW[rv.when.id].label)} is off, so “${esc(rv.label)}” can’t be changed.</div><div class="acts"><button class="btn sm pri" data-act="satisfy" data-id="${rv.id}" data-fid="sat:${rv.id}">${esc(turnOnLabel(rv))}</button></div></div>`:'';
+    return master('banners','Show banners','A macOS banner when an agent needs you, fails or is done',b)+master('sounds','Play sounds','Pick the sound and volume below',s)
+      +`<div class="gsub">When an agent… ${NEW}</div>${pre}`
+      +ev.map(([k,l,h])=>`<div class="set${S.flash==='banner-'+k||S.flash==='sound-'+k?' flash':''}" data-row="banner-${k}">${isChanged(ROW['banner-'+k])||isChanged(ROW['sound-'+k])?'<i class="dot" title="Changed from default"></i>':''}<div class="lbl"><div><div class="t">${l}</div><div class="s">${h}</div></div></div><div class="ctl">${pill('banner-'+k,b,'Banner',l)}${pill('sound-'+k,s,'Sound',l)}</div></div>`).join('')},
+  providers:()=>{const on=PROVIDERS.filter(p=>p.on),off=PROVIDERS.filter(p=>!p.on);const def=get('default-agent');
+    const ent=p=>{const en=get('en-'+p.id),mid='pm:'+p.id,open=S.menu===mid;return`<div class="ent" style="padding-right:10px${en?'':';opacity:.6'}"><button class="ent" style="padding:0;min-height:0" data-act="nav" data-sec="p-${p.id}" data-fid="prov:${p.id}" aria-label="${esc(p.name)} settings"><span class="tile" style="background:${p.color}">${p.g}</span><span class="grow"><span class="t">${esc(p.name)}${p.name===def?'<span class="pill">Default</span>':''}${en?'':'<span class="pill">Off</span>'}</span><span class="s">${esc(p.status)} · v${p.ver}</span></span></button>${swHTML('en-'+p.id,en,'Enable '+p.name)}<div class="dd"><button class="go" aria-haspopup="menu" aria-expanded="${open}" aria-label="More for ${esc(p.name)}" data-act="menu" data-id="${mid}" data-fid="c:${mid}">${ic('more',14,2)}</button>${open?`<div class="menu" role="menu"><button class="mi" data-act="pick" data-id="default-agent" data-v="${esc(p.name)}"${p.name===def||!en?' disabled':''}>Make default</button><button class="mi" data-act="toggle" data-id="en-${p.id}">${en?'Disable':'Enable'}</button><div class="msep"></div><button class="mi" data-act="nav" data-sec="p-${p.id}">Settings…</button></div>`:''}</div><button class="go" data-act="nav" data-sec="p-${p.id}" tabindex="-1" aria-hidden="true">${ic('chev',13)}</button></div>`};
+    return`${on.map(ent).join('')}<button class="fold" data-act="prov-fold" aria-expanded="${!S.provFold}">${ic(S.provFold?'chev':'down',12)} ${off.length} not installed ${NEW}</button>${S.provFold?'':off.map(p=>`<div class="ent"><span class="tile soft">${p.g}</span><span class="grow"><span class="t">${esc(p.name)}</span><span class="s">Not found on your login PATH</span></span><button class="btn sm ghost" data-act="nav" data-sec="p-${p.id}" data-fid="setcmd:${p.id}">Set command…</button><button class="btn sm" data-act="toast" data-msg="Opens ${esc(p.name)}’s install page">Install…</button></div>`).join('')}`},
+  'acc-list':()=>{const by={};ACCOUNTS.forEach((a,i)=>(by[a[2]]=by[a[2]]||[]).push([a,i]));return Object.entries(by).map(([prov,list])=>{const cur=S.acctDef[prov]??list.find(([a])=>a[5])[1];return`<div class="mx head" style="grid-template-columns:1fr auto;border-radius:0"><div>${prov} · <span style="font-weight:400">the selected account is the one new agents start on</span></div>${S.signin?.prov===prov?'<button class="btn sm" disabled><i class="spin dk"></i>Signing in…</button>':`<button class="btn sm" data-act="acct-add" data-p="${prov}" data-fid="acct-add:${prov}">Add account</button>`}</div><div role="radiogroup" aria-label="${prov} account for new agents">${list.map(([a,i])=>{const mid='am:'+i,open=S.menu===mid;return`<div class="ent${S.newAcct===i?' flash':''}"><button class="ck" style="border-radius:50%" role="radio" aria-checked="${cur===i}" aria-label="Start new ${prov} agents on ${esc(a[0])}" data-act="acct-default" data-v="${i}" data-p="${prov}" data-fid="acct:${i}">${cur===i?'<span style="width:8px;height:8px;border-radius:50%;background:var(--on-ink)"></span>':''}</button><span class="grow"><span class="t">${hl(a[0])}${cur===i?'<span class="pill">New agents</span>':''}${a[3]>=100?'<span class="pill bad">Limited · back 16:34</span>':''}</span><span class="s">${hl(a[1])}</span></span><span class="s" style="font-variant-numeric:tabular-nums">5h ${a[3]}% · week ${a[4]}%</span><div class="dd"><button class="go" aria-haspopup="menu" aria-expanded="${open}" aria-label="More for ${esc(a[0])}" data-act="menu" data-id="${mid}" data-fid="c:${mid}">${ic('more',14,2)}</button>${open?`<div class="menu" role="menu"><button class="mi" data-act="acct-default" data-v="${i}" data-p="${prov}"${cur===i?' disabled':''}>Use for new agents</button>${a[6]?'':'<button class="mi" data-act="toast" data-msg="Rename inline">Rename…</button>'}<div class="msep"></div><button class="mi" data-act="toast" data-msg="Asks before signing out ${esc(a[0])}">Sign out…</button>${(why=>why?`<button class="mi" disabled data-fid="arm:${i}">Remove…</button><div class="mwhy">${why}</div>`:`<button class="mi danger" data-act="toast" data-msg="Asks before removing ${esc(a[0])}" data-fid="arm:${i}">Remove…</button>`)(a[6]?'The built-in login stays. Sign out instead.':a[7]?`Close its ${a[7]} session${a[7]>1?'s':''} first.`:'')}</div>`:''}</div></div>`}).join('')}</div>${S.signin?.prov===prov?signinHTML(prov):''}`}).join('')},
+  hosts:()=>`${HOSTS.map((h,i)=>{const mid='hm:'+i,open=S.menu===mid,[act]=h[4];const msg={'Update…':`Asks before updating pocketd on ${h[0]}`,'Open':`Opens ${h[0]}’s space`,'Reconnect':`Reconnecting to ${h[0]}…`,'Use password':`Opens the password sign-in for ${h[0]}`,'Install':`Installs pocketd on ${h[0]} over SSH`};
+    return`<div class="ent"><button class="ent" style="padding:0;min-height:0" data-act="toast" data-msg="${h[2]==='ok'?`Opens ${esc(h[0])}’s space in the sidebar`:`${esc(h[0])} isn’t connected yet`}" data-fid="host:${i}"><span class="tile soft">${ic('server',14)}</span><span class="grow"><span class="t">${hl(h[0])}<span class="pill ${h[2]==='ok'?'ok':h[2]==='bad'?'bad':''}">${h[3]}</span></span><span class="s">${esc(h[1])}</span></span></button>${act?`<button class="btn sm" data-act="toast" data-msg="${esc(msg[act])}" data-fid="hact:${i}">${act}</button>`:''}${i?`<div class="dd"><button class="go" aria-haspopup="menu" aria-expanded="${open}" aria-label="More for ${esc(h[0])}" data-act="menu" data-id="${mid}" data-fid="c:${mid}">${ic('more',14,2)}</button>${open?`<div class="menu" role="menu">${h[4].map(x=>`<button class="mi" data-act="toast" data-msg="${esc(msg[x])}">${x}</button>`).join('')}<div class="msep"></div><button class="mi danger" data-act="toast" data-msg="Asks before removing ${esc(h[0])}">Remove…</button></div>`:''}</div>`:''}</div>`}).join('')}<button class="fold" data-act="toast" data-msg="Opens the Add host sheet (unchanged)">${ic('plus',12)} Add a host…</button>`,
+  phones:()=>`<div class="ent"><span class="tile soft">${ic('phone',14)}</span><span class="grow"><span class="t">iPhone 16 Pro</span><span class="s">Paired Nov 12 · last seen 3 min ago · can approve edits</span></span><button class="btn sm" data-act="toast" data-msg="Rename inline">Rename</button><button class="btn sm ghost" data-act="toast" data-msg="Asks before removing the phone">Remove…</button></div>`,
+  projects:()=>{const q=S.projQ.toLowerCase(),match=p=>!q||[p[0],p[1],p[4]].some(x=>x.toLowerCase().includes(q));
+    const hosts=HOSTS.filter(h=>PROJECTS.some(p=>p[4]===h[0])),many=hosts.length>1;
+    const row=(p,off)=>`<button class="ent${off?' off':''}" data-act="toast" data-msg="${off?`${esc(p[4])} is offline. Its project settings open once it reconnects`:`Opens Project settings for ${esc(p[0])} on ${esc(p[4])} (unchanged)`}"><span class="tile" style="background:${p[3]}">${p[0][0].toUpperCase()}</span><span class="grow"><span class="t">${hl(p[0])}</span><span class="s">${esc(p[1])} · ${p[2]} worktree${p[2]===1?'':'s'}</span></span><span class="chev">${ic('chev',13)}</span></button>`;
+    let html=PROJECTS.length>6?`<div class="filter">${ic('search',13)}<input placeholder="Filter ${PROJECTS.length} projects${many?` on ${hosts.length} machines`:''}" value="${esc(S.projQ)}" data-projq data-fid="projq" aria-label="Filter projects">${NEW}</div>`:'',any=false;
+    for(const h of hosts){const list=PROJECTS.filter(p=>p[4]===h[0]&&match(p));if(!list.length)continue;any=true;const off=h[2]!=='ok',open=q||!S.projFold[h[0]];
+      if(many)html+=`<div class="mx head hhead" style="grid-template-columns:1fr auto;border-radius:0"><button class="hfold" data-act="proj-fold" data-v="${esc(h[0])}" data-fid="pf:${esc(h[0])}" aria-expanded="${!!open}">${ic(open?'down':'chev',11)}${ic('server',13)}<span>${hl(h[0])}</span><span class="pill ${h[2]==='ok'?'ok':h[2]==='bad'?'bad':''}">${h[3]}</span><span class="n">${PROJECTS.filter(p=>p[4]===h[0]).length}</span></button>${off?`<button class="btn sm" data-act="toast" data-msg="Reconnecting to ${esc(h[0])}…">Reconnect</button>`:`<button class="btn sm ghost" data-act="toast" data-msg="Opens Add project on ${esc(h[0])}" data-fid="padd:${esc(h[0])}">${ic('plus',11)} Add</button>`}</div>`;
+      if(open)html+=list.map(p=>row(p,off)).join('')}
+    if(!any)html+='<div class="empty">No project matches</div>';
+    return html+`<div style="display:flex"><button class="fold" style="width:auto" data-act="toast" data-msg="Opens Add project, starting with which machine it’s on">${ic('plus',12)} Add project…</button><button class="fold" style="width:auto" data-act="toast" data-msg="Opens Add project › Clone">${ic('plus',12)} Clone…</button></div>`},
+  'dev-servers':()=>PROJECTS.slice(0,4).map((p,i)=>`<div class="set"><div class="lbl"><div><div class="t">${p[0]}</div></div></div><div class="ctl"><input class="field mono" value="${i<2?'http://localhost:'+(3000+i):''}" placeholder="http://localhost:3000" aria-label="Dev server for ${p[0]}"></div></div>`).join('')
+};
+
+/* ---------- pages ---------- */
+function groupsOf(rows){const g=[];for(const r of rows)if(!g.includes(r.group))g.push(r.group);return g}
+function genericPage(s){const adv=!!S.adv[s.id];let html='';
+  for(const g of groupsOf(s.rows)){const rows=s.rows.filter(r=>r.group===g&&!r.inBlock&&(adv||!r.adv)&&(allowed(r)||S.reveal===r.id));if(!rows.length)continue;
+    const rel=s.related?.[g];
+    html+=`<section><div class="gcap">${esc(g)}</div><div class="card">${rows.map(r=>rowHTML(r)).join('')}</div>${rel?`<div class="related">${ic('info',12)} ${esc(rel[0])} <button class="link" data-act="nav" data-sec="${rel[1]}">${esc(rel[2])}</button> ${NEW}</div>`:''}</section>`}
+  return html}
+function scRow(r){const keys=eff(r.id),rec=S.rec?.id===r.id?S.rec:null,changed=r.group?S.groups[r.id]&&S.groups[r.id]!==r.group.mods:r.id in S.keys;
+  let ks='';
+  if(r.group){const set=GROUPSETS[r.group.set];const mods=groupMods(r);const open=S.menu==='grp:'+r.id;
+    ks=`<div class="dd chip"><button class="kb" aria-haspopup="menu" aria-expanded="${open}" data-act="menu" data-id="grp:${r.id}" data-fid="grp:${r.id}" aria-label="Change modifier for ${esc(r.label)}">${capsHTML([...caps(N(mods+'-x')).slice(0,-1),set.show])}<span class="ind">${ic('down',10)}</span></button>${open?`<div class="menu" role="menu"><div class="mempty">Modifier for the whole set ${NEW}</div>${set.opts.map(o=>{const ks=groupKeys(r,o);const hit=pool().find(b=>b.id!==r.id&&ks.includes(b.combo)&&overlap(b.place,null)&&!FIXEDKINDS.has(b.kind));return`<button class="mi" role="menuitemradio" aria-checked="${o===mods}" data-act="grp-pick" data-id="${r.id}" data-v="${o}"${hit&&o!==mods?' disabled':''}>${capsHTML([...caps(N(o+'-x')).slice(0,-1),set.show])}<span class="mh">${hit&&o!==mods?'Used by '+esc(hit.label):''}</span></button>`}).join('')}</div>`:''}</div>`}
+  else{ks=keys.map((k,i)=>rec&&rec.slot===i?recField(rec):`<span class="chip"><button class="kb" data-act="rec" data-id="${r.id}" data-slot="${i}" data-fid="k:${r.id}:${i}" aria-label="Change ${glyph(k)} for ${esc(r.label)}">${capsHTML(caps(k))}</button><button class="x" tabindex="-1" aria-label="Remove ${glyph(k)}" data-act="rmkey" data-id="${r.id}" data-slot="${i}">${ic('x',9,2)}</button></span>`).join('<span class="rechint">or</span>');
+    if(rec&&rec.slot==='new')ks+=recField(rec);
+    else if(!rec)ks+=keys.length?`<button class="addk" title="Add another shortcut" aria-label="Add another shortcut for ${esc(r.label)}" data-act="rec" data-id="${r.id}" data-slot="new" data-fid="k:${r.id}:new">${ic('plus',12)}</button>`:`<button class="addtxt" data-act="rec" data-id="${r.id}" data-slot="new" data-fid="k:${r.id}:new">${ic('plus',11)} Add shortcut</button>`}
+  const reset=changed?`<button class="reset" style="opacity:1" title="Reset to ${esc(r.group?glyph(N(r.group.mods+'-x')).slice(0,-1)+GROUPSETS[r.group.set].show:r.keys.map(glyph).join(', ')||'none')}" aria-label="Reset ${esc(r.label)}" data-act="kreset" data-id="${r.id}" data-fid="kr:${r.id}">${ic('reset',13)}</button>`:'';
+  let below='';
+  if(rec){if(rec.pending)below=noteHTML(rec.pending);else below=`<div class="note shared" style="background:none;padding-top:0;margin-top:-4px;justify-content:flex-end"><span class="rechint${rec.msg?' bad':''}">${rec.msg?esc(rec.msg):'Press the new shortcut · Esc cancels'+(rec.slot!=='new'?' · ⌫ removes it':'')}</span></div>`}
+  if(S.pendingReset?.id===r.id){const os=S.pendingReset.others;const locked=os.find(o=>o.kind==='group');
+    const list=[...new Map(os.map(o=>[o.id,o])).values()].map(o=>`<b>${os.filter(x=>x.id===o.id).map(x=>glyph(x.combo)).join(', ')}</b> now ${os.filter(x=>x.id===o.id).length>1?'belong':'belongs'} to <b>${esc(o.label)}</b>`).join('; ');
+    below=`<div class="note clash" role="alert"><span class="ic">${ic('warn',14)}</span><div class="tx">${list}. ${locked?`Change ${esc(locked.label)}’s modifier first.`:'Taking them back removes them there.'}</div><div class="acts"><button class="btn sm" data-act="kreset-cancel">Cancel</button>${locked?'':'<button class="btn sm pri" data-act="kreset-take" data-fid="take">Take back</button>'}</div></div>`}
+  return`<div class="sc${S.flash===r.id?' flash':''}" data-row="${r.id}">${changed?'<i class="dot"></i>':''}<div class="lab">${hl(r.label)}${r.place?`<span class="tag where">${r.place}</span>`:''}</div><div class="keys">${reset}${ks}</div></div>${below}`}
+function recField(rec){const p=rec.pending;const lvl=p?.notes[0].level;const shown=p?caps(p.combo):rec.live.length?MOD.filter(([m])=>rec.live.includes(m)).map(x=>x[1]):null;
+  return`<span class="recf${p?(lvl==='refuse'?' refuse':' bad'):''}" role="status" aria-live="assertive" data-fid="recf" tabindex="-1">${shown?capsHTML(shown):'Press keys…'}</span>`}
+function noteHTML(p){const n=p.notes[0];const icn=n.level==='shared'?'info':'warn';let acts='';
+  if(n.level==='refuse')acts=`<button class="btn sm" data-act="resolve" data-v="cancel" data-fid="res">Pick another</button>`;
+  else if(n.level==='clash')acts=`<button class="btn sm" data-act="resolve" data-v="cancel">Cancel</button>${n.replaceable?`<button class="btn sm pri" data-act="resolve" data-v="replace" data-fid="res">Replace</button>`:''}`;
+  else if(n.level==='warn')acts=`<button class="btn sm" data-act="resolve" data-v="cancel">Cancel</button><button class="btn sm pri" data-act="resolve" data-v="keep" data-fid="res">Use anyway</button>`;
+  else acts=`<button class="btn sm" data-act="resolve" data-v="cancel">Cancel</button><button class="btn sm pri" data-act="resolve" data-v="keep" data-fid="res">Keep both</button>`;
+  const more=p.notes.slice(1).filter(m=>m.level!=='refuse').map(m=>`<div class="more">${m.text}</div>`).join('');
+  return`<div class="note ${n.level}" role="alert"><span class="ic">${ic(icn,14)}</span><div class="tx">${n.text}${n.level==='clash'&&n.replaceable?` Replacing leaves ${esc(n.other.label)} ${eff(n.other.id).length>1?'with its other shortcut':'with no shortcut'}.`:''}${more}</div><div class="acts">${acts}</div></div>`}
+function keyboardPage(){
+  const ws=words(S.kq);const custom=new Set([...Object.keys(S.keys),...Object.keys(S.groups).filter(k=>S.groups[k]!==SCI[k].group.mods)]);
+  const unassigned=SC.filter(r=>!r.group&&!eff(r.id).length);
+  const visible=r=>{if(S.find?.combo&&!eff(r.id).includes(S.find.combo))return false;if(S.kfilter==='changed'&&!custom.has(r.id))return false;if(S.kfilter==='unassigned'&&eff(r.id).length)return false;
+    return!ws.length||wmatch(ws,[r.label,r.topic,r.place,...eff(r.id).map(glyph),...eff(r.id)])};
+  const chips=[['all','All',SC.length],['changed','Changed',custom.size],['unassigned','Unassigned',unassigned.length]];
+  let html=`<div class="ktool"><label class="ksearch">${ic('search',13)}<input id="kq" placeholder="Search by name or keys" value="${esc(S.kq)}" aria-label="Search shortcuts" data-fid="kq"><button class="kfind" aria-pressed="${!!S.find}" data-act="find" data-fid="find" title="Press keys to see what they do">${ic('kbd',13)} Find by keys ${NEW}</button></label>
+    <div class="chips" role="radiogroup" aria-label="Show">${chips.map(([k,l,n])=>`<button role="radio" aria-checked="${S.kfilter===k}" data-act="kfilter" data-v="${k}" data-fid="kf:${k}">${l} <span class="n">${n}</span>${k==='unassigned'?NEW:''}</button>`).join('')}</div>
+    <span style="flex:1"></span><button class="btn ghost" data-act="reset-section" data-fid="kresetall"${custom.size?'':' disabled'}>${ic('reset',12)} Reset all…</button></div>`;
+  if(S.find)html+=`<div class="findbar" role="status">${S.find.combo?`Showing what ${capsHTML(caps(S.find.combo))} does${SYSTEM[S.find.combo]?` · macOS uses it for ${SYSTEM[S.find.combo]}`:''}`:'Press the keys you want to look up · Esc cancels'}<span style="flex:1"></span><button class="btn sm" data-act="find-clear">Clear</button></div>`;
+  let any=false;
+  for(const t of TOPICS){const rows=SC.filter(r=>r.topic===t&&visible(r));if(!rows.length)continue;any=true;html+=`<section><div class="gcap">${t}</div><div class="card">${rows.map(scRow).join('')}</div></section>`}
+  if(S.find?.combo){const c=S.find.combo,p=parse(c),tk=p.mods.length===1&&p.mods[0]==='ctrl'&&TERMKEYS[p.key];
+    const ro=pool().filter(b=>FIXEDKINDS.has(b.kind)&&b.combo===c).map(b=>[b.label,b.kind==='term'?'Terminal programs':b.kind==='input'?'Prompt with a selection':b.place]);if(tk)ro.push([tk[0].toUpperCase()+tk.slice(1),'Terminal programs']);
+    if(ro.length){any=true;html+=`<section><div class="gcap">Built in elsewhere <span style="font-weight:400;color:var(--text-3)">· can’t change here</span></div><div class="card">${ro.map(([l,w])=>`<div class="sc" data-ro><div class="lab">${esc(l)}<span class="tag where">${esc(w)}</span></div><div class="keys"><span class="lock" title="Built in">${ic('lock',12)}</span>${capsHTML(caps(c))}</div></div>`).join('')}</div></section>`}}
+  if(!any)html+=`<div class="empty">${S.find?.combo?`Nothing uses ${glyph(S.find.combo)} yet. <button class="link" data-act="find-clear">Clear</button>`:S.kfilter==='changed'?'No shortcut is changed yet.':'No shortcut matches.'}</div>`;
+  if(S.kfilter==='all'&&!ws.length&&!S.find)html+=`<section><button class="gcap" data-act="fixed" aria-expanded="${S.fixedOpen}" data-fid="fixed">${ic(S.fixedOpen?'down':'chev',12)} Fixed keys <span style="font-weight:400;color:var(--text-3)">· handled before the keymap, so they can’t change</span></button>${S.fixedOpen?`<div class="card">${FIXED.map(([l,k])=>`<div class="sc"><div class="lab">${l}</div><div class="keys"><span class="lock" title="Fixed: handled outside the keymap">${ic('lock',12)}</span>${k.map(x=>capsHTML([x])).join('<span class="rechint">or</span>')}</div></div>`).join('')}</div>`:''}</section>`;
+  return html}
+function searchPage(){const res=results();const n=res.reduce((a,x)=>a+x.rows.length+x.ext.length,0);res.forEach(x=>x.ext.sort((a,b)=>(b.type==='sec')-(a.type==='sec')));
+  if(!n)return`<div class="empty">Nothing matches “${esc(S.q)}”.<br><span style="font-size:12px">Search covers settings, agents, accounts, projects, hosts and shortcuts.</span></div>`;
+  let html=`<div class="rhead"><span>${n} result${n===1?'':'s'} for “${esc(S.q)}”</span><span>↩ opens the first · Esc clears</span></div>`;
+  for(const {s,crumb,rows,ext} of res){html+=`<section><div class="rsec">${ic(SEC[s.parent||s.id].icon,13)} ${esc(crumb)}</div><div class="card">`;
+    html+=rows.map(r=>rowHTML(r,{search:true})).join('');
+    for(const e of ext){
+      if(e.type==='sec')html+=`<button class="ent" data-act="nav" data-sec="${e.s.id}"><span class="tile soft">${ic(SEC[e.s.parent||e.s.id].icon,13)}</span><span class="grow"><span class="t">${hl(e.s.label)}<span class="tag where">${e.s.parent?'Agent provider':'Section'}</span></span><span class="s">${esc(e.s.sub)}</span></span><span class="chev">${ic('chev',13)}</span></button>`;
+      if(e.type==='prov')html+=`<button class="ent" data-act="nav" data-sec="p-${e.p.id}"><span class="tile" style="background:${e.p.color}">${e.p.g}</span><span class="grow"><span class="t">${hl(e.p.name)}<span class="tag where">Agent provider</span></span><span class="s">${e.p.on?esc(e.p.status):'Not installed'}</span></span><span class="chev">${ic('chev',13)}</span></button>`;
+      if(e.type==='acct')html+=`<button class="ent" data-act="nav" data-sec="accounts"><span class="tile soft">${ic('shield',13)}</span><span class="grow"><span class="t">${hl(e.a[0])}<span class="tag where">${esc(e.a[2])} account</span></span><span class="s">${hl(e.a[1])}</span></span><span class="chev">${ic('chev',13)}</span></button>`;
+      if(e.type==='proj')html+=`<button class="ent" data-act="nav" data-sec="projects"><span class="tile" style="background:${e.p[3]}">${e.p[0][0].toUpperCase()}</span><span class="grow"><span class="t">${hl(e.p[0])}<span class="tag where">Project · ${esc(e.p[4])}</span></span><span class="s">${esc(e.p[1])}</span></span><span class="chev">${ic('chev',13)}</span></button>`;
+      if(e.type==='host')html+=`<button class="ent" data-act="nav" data-sec="hosts"><span class="tile soft">${ic('server',13)}</span><span class="grow"><span class="t">${hl(e.h[0])}<span class="tag where">Host</span></span><span class="s">${esc(e.h[1])}</span></span><span class="chev">${ic('chev',13)}</span></button>`;
+      if(e.type==='theme')html+=`<button class="ent" data-act="goto" data-sec="appearance" data-id="custom-themes" data-fid="theme:${esc(e.t)}"><span class="tile soft">${ic('appearance',13)}</span><span class="grow"><span class="t">${hl(e.t)}<span class="tag where">Imported theme</span></span><span class="s">Pick it in Theme, or as the Night theme</span></span><span class="chev">${ic('chev',13)}</span></button>`;
+      if(e.type==='key')html+=scRow(e.r)}
+    html+=`</div></section>`}
+  return html}
+
+/* ---------- shell render ---------- */
+function navHTML(){const res=S.q?results():null;let html='';
+  for(const g of NAVGROUPS){html+=`<div class="ngroup" role="presentation"><div class="ncap">${g}${g==='Machines'?' '+NEW:''}</div>`;
+    for(const id of NAVORDER[g]){const s=SEC[id];const cnt=res?res.filter(x=>x.s.id===id||x.s.parent===id).reduce((a,x)=>a+x.rows.length+x.ext.length,0):0;const sel=!S.q&&(S.section===id||SEC[S.section].parent===id);
+      const chg=changedIn(id).length;
+      html+=`<button class="ni${sel?' sel':''}${res&&!cnt?' dim':''}" role="tab" aria-selected="${sel}" tabindex="${sel||(S.q&&id==='general')?0:-1}" data-act="nav" data-sec="${id}" data-fid="nav:${id}">${ic(s.icon,16)}<span>${esc(s.label)}</span>${cnt?`<span class="cnt">${cnt}</span>`:chg&&!res?`<span class="cdot" title="${chg} changed"></span>`:''}</button>`}
+    html+='</div>'}
+  return html}
+function topHTML(){if(S.q)return`<div class="tl"><div class="crumbs">Search</div><div class="subt">Change a setting right here, or press → on a row to see it in its page.</div></div>`;
+  const s=SEC[S.section];const parent=s.parent?SEC[s.parent]:null;const advN=s.rows.filter(r=>r.adv).length;
+  return`<div class="tl"><div class="crumbs">${parent?`<button class="up" data-act="nav" data-sec="${parent.id}" data-fid="crumb" title="Back to ${parent.label} (⌘[)">${esc(parent.label)}</button><span class="sepr">›</span>`:''}<span>${esc(s.label)}</span>${parent?NEW:''}</div><div class="subt">${esc(s.sub)}</div></div>
+   ${s.prov?(get('default-agent')===s.prov.name?'<span class="pill">Default agent</span>':`<button class="btn sm" data-act="pick" data-id="default-agent" data-v="${esc(s.prov.name)}"${get('en-'+s.prov.id)?'':' disabled'}>Make default</button>`):''}
+   ${advN?`<label class="advsw">Advanced <span style="color:var(--text-4)">${advN}</span>${swHTML('adv:'+s.id,!!S.adv[s.id],'Show advanced settings','','sm')}${NEW}</label>`:''}`}
+function barHTML(){if(S.q)return'';const c=changedIn(S.section);if(!c.length)return'';return`<div class="changebar" role="status"><span><i></i> ${c.length} change${c.length>1?'s':''} from default in ${esc(SEC[S.section].label)}</span><button class="btn sm" data-act="reset-section" data-fid="bar">Review & reset…</button>${NEW}</div>`}
+function sheetHTML(){if(!S.sheet)return'';const c=changedIn(S.sheet);const label=SEC[S.sheet].label;
+  return`<div class="scrim" data-act="sheet-cancel"></div><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sh-t"><h3 id="sh-t">Reset ${esc(label)} to defaults?</h3><p>${c.length} setting${c.length>1?'s go':' goes'} back. Everything else here is already at its default.</p>
+   <div class="lines">${c.map(x=>`<div class="ln"><span>${esc(x.label)}</span><span class="fr">${esc(x.from)}</span><span>→ ${esc(x.to)}</span></div>`).join('')}</div>
+   <div class="acts"><button class="btn" data-act="sheet-cancel" data-fid="sh-cancel">Cancel</button><button class="btn pri" data-act="sheet-ok" data-fid="sh-ok">Reset ${c.length}</button></div></div>`}
+function toastsHTML(){return S.toasts.map(t=>`<div class="toast${t.bad?' bad':''}">${esc(t.text)}${t.undo?`<button data-act="undo" data-v="${t.id}">Undo</button>`:''}${t.retry?`<button data-act="retry" data-id="${t.retry}">Retry</button>`:''}</div>`).join('')}
+let lastFocus=null;
+function render(){document.documentElement.dataset.theme=isDark()?'dark':'light';const a=document.activeElement;const fid=a?.dataset?.fid;const sel=a&&a.selectionStart!=null?[a.selectionStart,a.selectionEnd]:null;
+  document.getElementById('navlist').innerHTML=navHTML();document.getElementById('top').innerHTML=topHTML();
+  const s=SEC[S.section];
+  document.getElementById('stage').innerHTML=S.q?searchPage():S.section==='keyboard'?keyboardPage():genericPage(s);
+  document.getElementById('bar').innerHTML=barHTML();document.getElementById('modal').innerHTML=sheetHTML();document.getElementById('toasts').innerHTML=toastsHTML();
+  document.getElementById('qk').style.display=S.q?'none':'';
+  for(const id of['nav','page','proto'])document.getElementById(id).inert=!!S.sheet;
+  const explicit=!!S.focusNext;const want=S.focusNext||fid;const alt=S.focusAlt;S.focusNext=null;S.focusAlt=null;
+  if(want){const el=document.querySelector(`[data-fid="${CSS.escape(want)}"]`)||(explicit&&alt?document.querySelector(`[data-fid="${CSS.escape(alt)}"]`):null);if(el&&el!==document.activeElement){el.focus({preventScroll:true});if(sel&&el.setSelectionRange&&el.type!=='range')try{el.setSelectionRange(...sel)}catch{}}}
+  if(S.menu){const m=document.querySelector('.menu');if(m&&!m.contains(document.activeElement)){const t=m.querySelector('[data-mfilter]')||m.querySelector('.mi[aria-checked=true],.mi[aria-selected=true]')||m.querySelector('.mi');t?.focus({preventScroll:true})}}
+  if(S.scrollTo){document.querySelector(`[data-row="${CSS.escape(S.scrollTo)}"]`)?.scrollIntoView({block:'center'});S.scrollTo=null}
+  if(S.rec&&!S.rec.pending)document.querySelector('[data-fid=recf]')?.focus({preventScroll:true});
+  if(S.rec?.pending)document.querySelector('[data-fid=res]')?.focus({preventScroll:true});
+  if(S.sheet)document.querySelector('[data-fid=sh-ok]')?.focus();
+  if(S.flash){const el=document.querySelector(`[data-row="${CSS.escape(S.flash)}"]`);if(el){el.scrollIntoView({block:'center'});if(!explicit)el.querySelector('[data-fid]')?.focus({preventScroll:true})}const id=S.flash;setTimeout(()=>{if(S.flash===id)S.flash=null},1800)}
+  document.getElementById('pDark').setAttribute('aria-pressed',osDark)}
+
+/* ---------- actions ---------- */
+let tid=0;
+function toast(text,o={}){const t={id:++tid,text,...o};S.toasts.push(t);setTimeout(()=>{S.toasts=S.toasts.filter(x=>x!==t);document.getElementById('toasts').innerHTML=toastsHTML()},o.ms||(o.undo?6000:2600));document.getElementById('toasts').innerHTML=toastsHTML()}
+function toastSaved(text){toast(text)}
+function write(id,v){const r=ROW[id];if(S.failOnce[id]){delete S.failOnce[id];S.errors[id]='Couldn’t save: macOS needs you to allow the login item in System Settings.';toast(`Couldn’t save ${r.label}`,{bad:true,retry:id});render();return}
+  delete S.errors[id];set(id,v);S.saved[id]=Date.now();render()}
+function nav(id){S.section=id;S.q='';document.getElementById('q').value='';S.menu=null;S.rec=null;S.reveal=null;S.find=null;document.getElementById('scroll').scrollTop=0;S.focusNext=null;render()}
+function gotoRow(sec,id){const r=ROW[id];S.q='';document.getElementById('q').value='';S.section=sec;if(r?.adv)S.adv[sec]=true;const blocked=r&&!allowed(r);S.reveal=blocked?id:null;
+  S.flash=r?.inBlock&&/^(sound|banner)-/.test(id)?'banner-'+id.replace(/^(sound|banner)-/,''):id;S.focusNext=r?(blocked?'sat:'+id:(r.kind==='choice'&&segLook(r)?`c:${id}:${r.options.indexOf(get(id))}`:'c:'+id)):null;render()}
+function closeLayer(){if(S.menu){const id=S.menu;S.menu=null;S.mfilter='';S.focusNext=id.startsWith('grp:')?id:'c:'+id;render();return true}
+  if(S.sheet){S.sheet=null;S.focusNext=S.sheetFrom;S.focusAlt='nav:'+S.section;render();return true}
+  if(S.rec){if(S.rec.pending){S.rec.pending=null;render();return true}const id=S.rec.id,slot=S.rec.slot;S.rec=null;S.focusNext=`k:${id}:${slot}`;render();return true}
+  if(S.pendingReset){S.pendingReset=null;render();return true}
+  if(S.find){S.find=null;S.focusNext='find';render();return true}
+  if(S.q){S.q='';document.getElementById('q').value='';render();return true}
+  if(SEC[S.section].parent){nav(SEC[S.section].parent);return true}
+  toast('Esc here closes Settings and returns to your sessions');return true}
+
+document.addEventListener('click',e=>{const t=e.target.closest('[data-act]');if(!t||t.disabled)return;const a=t.dataset.act,id=t.dataset.id,v=t.dataset.v;
+  switch(a){
+    case'nav':nav(t.dataset.sec);break;
+    case'proj-fold':S.projFold[v]=!S.projFold[v];S.focusNext='pf:'+v;render();break;
+    case'close':toast('Back closes Settings and returns to your sessions');break;
+    case'toggle':S.menu=null;if(id.startsWith('adv:')){const s=id.slice(4);S.adv[s]=!S.adv[s];render();break}write(id,!get(id));break;
+    case'pick':if(id){const r=ROW[id];if(v==='Custom audio…'){S.menu=null;toast('Opens a file picker for .mp3, .wav or .ogg');render();break}S.menu=null;S.mfilter='';S.focusNext='c:'+id;write(id,v);}break;
+    case'menu':S.menu=S.menu===id?null:id;S.mfilter='';render();break;
+    case'step':{const r=ROW[id];write(id,Math.min(r.max,Math.max(r.min,get(id)+r.step*+t.dataset.d)));break}
+    case'reset-row':{const r=ROW[id];delete S.vals[id];delete S.errors[id];delete S.errors['v:'+id];delete S.vals['draft:'+id];S.focusNext='c:'+id;toast(`${r.label} reset to ${fmt(r,r.def)}`);render();break}
+    case'reset-section':S.sheet=S.q?null:S.section;S.sheetFrom=t.dataset.fid;render();break;
+    case'sheet-cancel':S.sheet=null;S.focusNext=S.sheetFrom;S.focusAlt='nav:'+S.section;render();break;
+    case'sheet-ok':{const c=changedIn(S.sheet);c.forEach(x=>x.reset());const n=c.length;S.sheet=null;S.focusNext=S.sheetFrom;S.focusAlt='nav:'+S.section;
+      toast(`Reset ${n} setting${n>1?'s':''}`,{undo:true,restore:()=>{const why=c.map(x=>x.undo()).filter(Boolean);if(why.length)setTimeout(()=>toast(`Kept some defaults: ${why[0]}`,{bad:true}))}});render();break}
+    case'undo':{const tt=S.toasts.find(x=>x.id==+v);const why=tt?.restore?.();S.toasts=S.toasts.filter(x=>x!==tt);if(typeof why==='string')toast(`Can’t undo: ${why}`,{bad:true});render();break}
+    case'retry':delete S.errors[id];S.toasts=S.toasts.filter(x=>x.retry!==id);write(id,!get(id));break;
+    case'satisfy':{const r=ROW[id];const l=turnOnLabel(r);satisfy(r);S.reveal=null;S.flash=r.inBlock?'banner-'+id.replace(/^(sound|banner)-/,''):id;S.focusNext='c:'+id;toast(`${l}: done`);render();break}
+    case'goto':gotoRow(t.dataset.sec,id);break;
+    case'go-dark':write('theme',get('night'));break;
+    case'toast':toast(t.dataset.msg);break;
+    case'path':toast('Opens a folder picker');break;
+    case'del-theme':S.themes=S.themes.filter(x=>x!==v);toast(`Moved ${v} to the Trash`,{undo:true,restore:()=>S.themes.push(v)});render();break;
+    case'acct-add':S.signin={prov:t.dataset.p,input:'',state:'run',output:false};S.focusNext=SIGNIN[t.dataset.p].pastes?'code-in':'signin-cancel';render();break;
+    case'signin-cancel':{const p=S.signin?.prov;S.signin=null;S.focusNext='acct-add:'+p;render();break}
+    case'signin-output':S.signin.output=!S.signin.output;render();break;
+    case'signin-open':toast('Opens the sign-in page in your browser again');if(!SIGNIN[S.signin.prov].pastes)setTimeout(signinFinish,1200);break;
+    case'code-send':signinSend();break;
+    case'acct-default':S.acctDef[t.dataset.p]=+v;S.menu=null;S.focusNext='acct:'+v;toast(`New ${t.dataset.p} agents start on ${ACCOUNTS[+v][0]}`);render();break;
+    case'prov-fold':S.provFold=!S.provFold;render();break;
+    case'day':{const[t0,d0]=get('automation-schedule').split('|');let days=d0?d0.split(','):[];days=days.includes(v)?days.filter(x=>x!==v):[...days,v];if(!days.length){toast('Pick at least one day');break}const order=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];S.focusNext='day:'+v;write('automation-schedule',`${t0}|${order.filter(x=>days.includes(x)).join(',')}`);break}
+    case'int-unit':S.intUnit=v;render();break;
+    case'rec':startRec(id,t.dataset.slot==='new'?'new':+t.dataset.slot);break;
+    case'rmkey':{const k=eff(id)[+t.dataset.slot],sp=spotKey(id)===k;setKeys(id,eff(id).filter((_,i)=>i!=+t.dataset.slot));toast(`Removed ${glyph(k)} from ${labelOf(id)}`,{undo:true,restore:()=>undoRemove(id,k,sp)});render();break}
+    case'resolve':resolve(v);break;
+    case'kreset':tryReset(id);break;
+    case'kreset-cancel':S.pendingReset=null;render();break;
+    case'kreset-take':{const{id:rid,others}=S.pendingReset;for(const o of others)removeCombo(o.id,o.combo);resetKeysOf(rid);S.pendingReset=null;toast(`${labelOf(rid)} has its default keys back`);render();break}
+    case'grp-pick':S.groups[id]=v===SCI[id].group.mods?undefined:v;if(!S.groups[id])delete S.groups[id];S.menu=null;S.focusNext='grp:'+id;render();break;
+    case'kfilter':S.kfilter=v;render();break;
+    case'find':S.find=S.find?null:{combo:null};S.rec=null;render();break;
+    case'find-clear':S.find=null;render();break;
+    case'fixed':S.fixedOpen=!S.fixedOpen;render();break;
+  }});
+// Close in place: re-rendering here would replace the pressed control before its click lands.
+document.addEventListener('pointerdown',e=>{if(!S.menu)return;if(e.target.closest('.menu')||e.target.closest(`[data-act=menu][data-id="${CSS.escape(S.menu)}"]`))return;
+  S.menu=null;S.mfilter='';document.querySelectorAll('.menu').forEach(m=>m.remove());document.querySelectorAll('[data-act=menu][aria-expanded=true]').forEach(b=>b.setAttribute('aria-expanded','false'))},true);
+document.addEventListener('input',e=>{const t=e.target;if(t.dataset.code!==undefined){const had=!!S.signin.input.trim();S.signin.input=t.value;if(had!==!!t.value.trim())render();return}
+  if(t.id==='q'){S.q=t.value;S.menu=null;render();return}
+  if(t.id==='kq'){S.kq=t.value;render();return}
+  if(t.dataset.mfilter!==undefined){S.mfilter=t.value;render();return}
+  if(t.dataset.projq!==undefined){S.projQ=t.value;render();return}
+  if(t.dataset.range){S.vals[t.dataset.range]=+t.value;if(+t.value===ROW[t.dataset.range].def)delete S.vals[t.dataset.range];t.nextElementSibling.textContent=t.value+ROW[t.dataset.range].unit;return}
+  if(t.dataset.commit){S.vals['draft:'+t.dataset.commit]=t.value}});
+document.addEventListener('change',e=>{if(e.target.dataset.range)render()});
+function commitField(t,silent){const W=silent?(id,v)=>{set(id,v);S.saved[id]=Date.now()}:write,R=silent?()=>{}:render;const id=t.dataset.commit;if(id){const r=ROW[id];delete S.vals['draft:'+id];
+    if(r.kind==='stepper'){let n=parseInt(t.value,10);if(isNaN(n))n=get(id);n=Math.min(r.max,Math.max(r.min,Math.round(n/r.step)*r.step));if(n!==get(id))W(id,n);else R();return}
+    const ok=r.valid?r.valid(t.value):true;if(ok!==true){S.errors['v:'+id]=ok;S.vals['draft:'+id]=t.value;render();return}delete S.errors['v:'+id];if(t.value!==get(id))W(id,t.value);else R();return}
+  if(t.dataset.sched!==undefined){const v=t.value.trim();if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)){S.errors['v:automation-schedule']='Use 24-hour time, like 09:00';S.vals['draft:automation-schedule']=v;render();return}
+    delete S.errors['v:automation-schedule'];delete S.vals['draft:automation-schedule'];const d=get('automation-schedule').split('|')[1];if(v!==get('automation-schedule').split('|')[0])W('automation-schedule',`${v}|${d}`);else R();return}
+  if(t.dataset.int!==undefined){const div=S.intUnit==='days'?1440:S.intUnit==='h'?60:1;const n=parseFloat(t.value)*div;if(isNaN(n)||n<5||n>10080){S.errors['v:automation-every']='Between 5 minutes and 7 days';render();return}delete S.errors['v:automation-every'];const m=Math.round(n/5)*5;if(m===60)delete S.vals['automation-every'];else S.vals['automation-every']=m;S.saved['automation-every']=Date.now();R()}}
+document.addEventListener('focusout',e=>{const t=e.target;if(t.dataset?.commit||t.dataset?.int!==undefined||t.dataset?.sched!==undefined)commitField(t,!!e.relatedTarget?.closest?.('button'))});
+
+/* ---------- keyboard ---------- */
+window.addEventListener('keydown',e=>{
+  if(e.target.dataset?.code!==undefined&&e.key==='Enter'){e.preventDefault();signinSend();return}
+  if(S.sheet&&e.key==='Tab'){e.preventDefault();const b=[...document.querySelectorAll('.sheet button')];const i=b.indexOf(document.activeElement);b[(i+(e.shiftKey?-1:1)+b.length)%b.length].focus();return}
+  if(S.rec&&!S.rec.pending){e.preventDefault();e.stopPropagation();const r=S.rec;
+    if(['Shift','Control','Alt','Meta'].includes(e.key)){r.live=evMods(e);r.msg=null;const f=document.querySelector('[data-fid=recf]');if(f)f.innerHTML=r.live.length?capsHTML(MOD.filter(([m])=>r.live.includes(m)).map(x=>x[1])):'Press keys…';return}
+    const key=evKey(e),mods=evMods(e);if(!key)return;
+    if(key==='escape'&&!mods.length){closeLayer();return}
+    if(key==='backspace'&&!mods.length){if(r.slot!=='new'){const k=eff(r.id)[r.slot];setKeys(r.id,eff(r.id).filter((_,i)=>i!==r.slot));toast(`Removed ${glyph(k)} from ${labelOf(r.id)}`)}S.rec=null;render();return}
+    if(!/^f\d+$/.test(key)&&!mods.some(m=>m!=='shift')){r.msg=`${keyName(key)} alone types text. Add ⌘, ⌃ or ⌥.`;render();return}
+    tryAssign(norm(mods,key));return}
+  if(S.find&&!S.find.combo){const key=evKey(e),mods=evMods(e);if(!key)return;e.preventDefault();if(key==='escape'&&!mods.length){closeLayer();return}S.find.combo=norm(mods,key);render();return}
+  const inField=e.target.matches('input,textarea');
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='f'){e.preventDefault();const q=document.getElementById('q');q.focus();q.select();return}
+  if(e.metaKey&&e.key==='['){const p=SEC[S.section].parent;if(p){e.preventDefault();nav(p);S.focusNext='nav:'+p}return}
+  if(e.key==='Escape'){e.preventDefault();if(e.target.id==='q'&&S.q){S.q='';e.target.value='';render();return}closeLayer();return}
+  if(e.target.id==='q'&&e.key==='Enter'){e.preventDefault();const res=results();if(!res.length)return;const f=res[0];if(f.rows[0])gotoRow(f.s.id,f.rows[0].id);else{const x=f.ext[0];if(x.type==='key')gotoRow('keyboard',x.r.id);else nav(x.type==='sec'?x.s.id:f.s.id)}return}
+  if(e.target.id==='q'&&e.key==='ArrowDown'){e.preventDefault();document.querySelector('#stage [data-fid],#stage button')?.focus();return}
+  if(e.target.closest('.menu')&&['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();const items=[...document.querySelectorAll('.menu .mi:not(:disabled)')];const i=items.indexOf(document.activeElement);items[(i+(e.key==='ArrowDown'?1:-1)+items.length)%items.length]?.focus();return}
+  if(e.target.matches('[data-mfilter]')&&e.key==='ArrowDown'){e.preventDefault();document.querySelector('.menu .mi')?.focus();return}
+  if(e.target.matches('[data-mfilter]')&&e.key==='Enter'){document.querySelector('.menu .mi')?.click();return}
+  if(e.target.closest('#navlist')&&['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();const items=[...document.querySelectorAll('#navlist .ni')];const i=items.indexOf(document.activeElement);const n=items[(i+(e.key==='ArrowDown'?1:-1)+items.length)%items.length];n.focus();return}
+  if(e.target.closest('[role=radiogroup]')&&['ArrowLeft','ArrowRight'].includes(e.key)&&!inField){e.preventDefault();const g=e.target.closest('[role=radiogroup]');const items=[...g.querySelectorAll('[role=radio]:not(:disabled)')];const i=items.indexOf(e.target);const n=items[(i+(e.key==='ArrowRight'?1:-1)+items.length)%items.length];n.click();setTimeout(()=>document.querySelector(`[data-fid="${CSS.escape(n.dataset.fid||'')}"]`)?.focus());return}
+  if(inField&&e.key==='Enter'){e.target.blur();return}
+  if(!inField&&!e.metaKey&&!e.ctrlKey){if(e.key==='d'||e.key==='D'){toggleDark();return}if(e.key==='?'){toggleHelp();return}if(e.key==='/'){e.preventDefault();document.getElementById('q').focus();return}}
+},true);
+window.addEventListener('keyup',e=>{if(S.rec&&!S.rec.pending&&['Shift','Control','Alt','Meta'].includes(e.key)){S.rec.live=evMods(e);const f=document.querySelector('[data-fid=recf]');if(f)f.innerHTML=S.rec.live.length?capsHTML(MOD.filter(([m])=>S.rec.live.includes(m)).map(x=>x[1])):'Press keys…'}});
+
+/* ---------- prototype controls ---------- */
+function toggleDark(){osDark=!osDark;render()}
+function toggleHelp(){const h=document.querySelector('.help');if(h){h.remove();return}const d=document.createElement('div');d.className='help';d.innerHTML=`<h4>Prototype keys</h4>${[['⌘F or /','Search settings'],['↩ in search','Open the first result'],['↑ ↓ in the sidebar','Move between sections'],['← → on a segment','Change the choice'],['Space','Toggle a focused switch'],['⌘[','Up one level (Codex › Agents)'],['Esc','Menu → recording → search → Settings'],['D','Mac dark / light (System themes follow it)'],['?','This list']].map(([k,v])=>`<div><b>${k}</b><span>${v}</span></div>`).join('')}<p style="margin:8px 0 0;color:var(--text-3)">Browsers keep ⌘W, ⌘T, ⌘N and ⌘Q for themselves, so record other keys here, or use the state menu.</p>`;document.body.appendChild(d)}
+document.getElementById('pDark').onclick=toggleDark;
+document.getElementById('pNotes').onclick=e=>{document.body.classList.toggle('notes');e.currentTarget.setAttribute('aria-pressed',document.body.classList.contains('notes'))};
+document.getElementById('pHelp').onclick=toggleHelp;
+document.getElementById('pBefore').onclick=()=>{const g=document.createElement('div');g.className='gallery';g.title='Click to close';
+  g.innerHTML=[['general','General: title twice, “1 more in Advanced” per group'],['search','Search: links only, ambiguous “Needs you”, partial highlight'],['notifications','Notifications: events listed twice, long sound list'],['agents','Agents: 10 “Built in” rows, then a status table repeating them'],['keyboard','Keyboard: editable rows look read-only; ⌃1–9 locked'],['keyclash','Clash: Cancel or Replace only'],['reset','Reset: sheet opens with nothing to reset'],['appearance','Appearance: dark-only slider live in light'],['accounts','Accounts'],['dark-general','Dark']].map(([f,c])=>`<figure><img src="settings-revamp/before/${f}.png" alt="${c}"><figcaption>${c}</figcaption></figure>`).join('');g.onclick=()=>g.remove();document.body.appendChild(g)};
+
+/* ---------- states (also ?s=name for screenshots) ---------- */
+const STATES={
+  'General':()=>{},
+  'General · 3 changed':()=>{S.vals['auto-install']=false;S.vals['layout']='Focus';S.vals['battery-saver']=true},
+  'General · reset sheet':()=>{STATES['General · 3 changed']();S.sheet='general'},
+  'General · save failed':()=>{delete S.failOnce['open-at-login'];S.errors['open-at-login']='Couldn’t save: macOS needs you to allow the login item in System Settings.';setTimeout(()=>toast('Couldn’t save Open at login',{bad:true,retry:'open-at-login',ms:60000}))},
+  'General · advanced on':()=>{S.adv.general=true},
+  'Appearance (light: opacity explains itself)':()=>{S.section='appearance'},
+  'Appearance · undo delete':()=>{S.section='appearance';S.themes=[];setTimeout(()=>toast('Moved Midnight Ink to the Trash',{undo:true,restore:()=>S.themes.push('Midnight Ink'),ms:60000}))},
+  'Notifications · matrix':()=>{S.section='notifications';S.vals['sound-done']=false},
+  'Search · “sound”':()=>{S.q='sound'},
+  'Search · hidden row (“volume”, sounds off)':()=>{S.q='volume';S.vals.sounds=false},
+  'Search · “codex model”':()=>{S.q='codex model'},
+  'Search · “⌘K”-style key search (“palette”)':()=>{S.q='palette'},
+  'Agents':()=>{S.section='agents'},
+  'Agents › Codex':()=>{S.section='p-codex'},
+  'Agents › Codex · model menu':()=>{S.section='p-codex';S.menu='codex-model';S.mfilter='mini'},
+  'Projects · filter':()=>{S.section='projects';S.projQ='de'},
+  'Projects · grouped by machine':()=>{S.section='projects'},
+  'Automations · interval field':()=>{S.section='automations';S.intUnit='h'},
+  'Automations · invalid time':()=>{S.section='automations';S.vals['draft:automation-schedule']='9am';S.errors['v:automation-schedule']='Use 24-hour time, like 09:00'},
+  'Accounts':()=>{S.section='accounts'},
+  'Hosts':()=>{S.section='hosts'},
+  'Accounts · Claude sign-in':()=>{S.section='accounts';S.signin={prov:'Claude Code',input:'',state:'run',output:true};S.scrollTo='acc-list'},
+  'Accounts · Claude code typed (Enter shows)':()=>{S.section='accounts';S.signin={prov:'Claude Code',input:'a8Kq2-Lm9x',state:'run',output:false};S.scrollTo='acc-list';S.focusNext='code-in'},
+  'Accounts · Codex device sign-in':()=>{S.section='accounts';S.signin={prov:'Codex',input:'',state:'run',output:false};S.scrollTo='acc-list'},
+  'Accounts · Remove explains why':()=>{S.section='accounts';S.menu='am:1'},
+  'Appearance · theme menu':()=>{S.section='appearance';S.menu='theme'},
+  'Search · imported theme (“midnight”)':()=>{S.q='midnight'},
+  'Git · account per project':()=>{S.section='git';S.scrollTo='gh-acct-anywhere'},
+  'Search · “codex effort”':()=>{S.q='codex effort'},
+  'Search · “sound done” (sounds off)':()=>{S.q='sound done';S.vals.sounds=false},
+  'Browser · invalid URL':()=>{S.section='browser';S.vals['search-engine']='Custom…';S.vals['draft:search-url']='https://kagi.com/search';S.errors['v:search-url']='Must contain %s where the search goes'},
+  'Keyboard':()=>{S.section='keyboard'},
+  'Keyboard · changed':()=>{S.section='keyboard';S.keys.NextNeedsYou=[N('cmd-shift-u')];S.keys.OpenActivity=[N('cmd-shift-y')];S.groups.JumpTo='alt-cmd';S.kfilter='changed'},
+  'Keyboard · recording':()=>{S.section='keyboard';S.rec={id:'NewWorktree',slot:0,live:['cmd','shift'],msg:null,pending:null}},
+  'Keyboard · clash (⌘K)':()=>{S.section='keyboard';S.rec={id:'NewWorktree',slot:0,live:[],msg:null,pending:{combo:N('cmd-k'),notes:conflicts('NewWorktree',0,N('cmd-k'))}}},
+  'Keyboard · terminal warning (⌃R)':()=>{S.section='keyboard';S.rec={id:'NextSession',slot:0,live:[],msg:null,pending:{combo:N('ctrl-r'),notes:conflicts('NextSession',0,N('ctrl-r'))}}},
+  'Keyboard · takes key from Browser (⌘R)':()=>{S.section='keyboard';S.rec={id:'ToggleSidebar',slot:'new',live:[],msg:null,pending:{combo:N('cmd-r'),notes:conflicts('ToggleSidebar','new',N('cmd-r'))}}},
+  'Keyboard · Browser keeps its key (⌘R)':()=>{S.section='keyboard';S.rec={id:'ToggleFocus',slot:0,live:[],msg:null,pending:{combo:N('cmd-r'),notes:conflicts('ToggleFocus',0,N('cmd-r'))}}},
+  'Keyboard · text fields lose ⌘Z':()=>{S.section='keyboard';S.rec={id:'OpenActivity',slot:'new',live:[],msg:null,pending:{combo:N('cmd-z'),notes:conflicts('OpenActivity','new',N('cmd-z'))}}},
+  'Keyboard · text fields lose ⌘⌫':()=>{S.section='keyboard';S.rec={id:'OpenActivity',slot:'new',live:[],msg:null,pending:{combo:N('cmd-backspace'),notes:conflicts('OpenActivity','new',N('cmd-backspace'))}}},
+  'Appearance · Graphite Dark chosen':()=>{S.section='appearance';S.vals.theme='Graphite Dark'},
+  'Keyboard · find by keys (⌘C)':()=>{S.section='keyboard';S.find={combo:N('cmd-c')}},
+  'Keyboard · browser-only key (⌘B on Reload)':()=>{S.section='keyboard';S.rec={id:'Reload',slot:0,live:[],msg:null,pending:{combo:N('cmd-b'),notes:conflicts('Reload',0,N('cmd-b'))}}},
+  'Keyboard · text-field key (⌘I)':()=>{S.section='keyboard';S.rec={id:'ToggleRail',slot:0,live:[],msg:null,pending:{combo:N('cmd-i'),notes:conflicts('ToggleRail',0,N('cmd-i'))}}},
+  'Keyboard · group reset blocked':()=>{S.section='keyboard';S.groups.JumpTo='alt-cmd';S.keys.ToggleRail=[N('ctrl-1')];S.pendingReset={id:'JumpTo',others:takenBy('JumpTo',defaultKeys('JumpTo'))}},
+  'Keyboard · macOS refuses (⌘H)':()=>{S.section='keyboard';S.rec={id:'ToggleSidebar',slot:'new',live:[],msg:null,pending:{combo:N('cmd-h'),notes:conflicts('ToggleSidebar','new',N('cmd-h'))}}},
+  'Keyboard · plain key refused':()=>{S.section='keyboard';S.rec={id:'GoToFile',slot:0,live:[],msg:'G alone types text. Add ⌘, ⌃ or ⌥.',pending:null}},
+  'Keyboard · reset takes key back':()=>{S.section='keyboard';S.keys.NextNeedsYou=[N('cmd-shift-u')];S.keys.GoToUpNext=[N('cmd-j')];S.pendingReset={id:'NextNeedsYou',others:takenBy('NextNeedsYou',defaultKeys('NextNeedsYou'))}},
+  'Keyboard · set modifier (⌃1–9)':()=>{S.section='keyboard';S.menu='grp:JumpTo'},
+  'Keyboard · find by keys (⌘K)':()=>{S.section='keyboard';S.find={combo:N('cmd-k')}},
+  'Keyboard · unassigned':()=>{S.section='keyboard';S.kfilter='unassigned'},
+};
+const sel=document.getElementById('pState');sel.innerHTML=Object.keys(STATES).map(k=>`<option>${esc(k)}</option>`).join('');
+function applyState(name){S=S0();STATES[name]?.();S.scrollTo=S.scrollTo||S.rec?.id||S.pendingReset?.id||null;document.getElementById('q').value=S.q;render()}
+sel.onchange=()=>applyState(sel.value);
+const qs=new URLSearchParams(location.search);if(qs.get('dark'))osDark=true;if(qs.get('notes')==='0'){document.body.classList.remove('notes');document.getElementById('pNotes').setAttribute('aria-pressed','false')}
+const st0=qs.get('s');if(st0){const k=Object.keys(STATES).find(k=>k.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')===st0);if(k){sel.value=k;applyState(k)}else render()}else render();
+</script>
+</body>
+</html>
