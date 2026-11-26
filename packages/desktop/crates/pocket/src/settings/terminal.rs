@@ -96,7 +96,7 @@ pub(super) const ROWS: &[Setting] = &[
         .note(|_| Some(format!("Login shell is {}{SHELL_SOURCE}", daemon::login_shell()))),
     Setting::custom("shell-path", "Shell", "Shell path", shell_path).under(|s| s.terminal.shell == Shell::Custom).resets(
         |s| if s.terminal.shell_path.is_empty() { "Not set".into() } else { crate::util::tilde(&s.terminal.shell_path) },
-        |s, _| s.terminal.shell_path.clear(),
+        |s, from| s.terminal.shell_path = from.terminal.shell_path.clone(),
     ),
     Setting::text("shell-args", "Shell", "Arguments", "--login", |s| s.terminal.shell_args.clone(), |s, v| s.terminal.shell_args = v)
         .hint("Split at spaces")

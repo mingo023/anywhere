@@ -52,6 +52,44 @@ pub(crate) fn pick_row(id: impl Into<ElementId>, checked: bool) -> Stateful<Div>
         .child(div().w(px(14.)).flex_none().when(checked, |d| d.child(icon("check", 13., TEXT))))
 }
 
+/// Makes `button` open the menu `id` on press, so a second press shuts it (`docs/DESIGN.md`), and on Space or Enter once focused.
+/// `open` is whether the menu showed in the frame that drew `button`.
+pub(crate) fn trigger(button: Stateful<Div>, id: &'static str, open: bool, cx: &mut Context<Settings>) -> Stateful<Div> {
+    trigger_with(button, open, move |this| this.menu = Some(id), cx)
+}
+
+/// `trigger` for a menu that notes more than its id when it opens, such as which project's it is.
+pub(crate) fn trigger_with(button: Stateful<Div>, open: bool, opens: impl Fn(&mut Settings) + 'static, cx: &mut Context<Settings>) -> Stateful<Div> {
+    let opens = Rc::new(move |this: &mut Settings, cx: &mut Context<Settings>| {
+        opens(this);
+        this.menu_scroll = Default::default();
+        cx.notify();
+    });
+    let on_press = opens.clone();
+    let keys = button.cursor_pointer().on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
+        // A mouse press already opened or shut it.
+        if matches!(ev, ClickEvent::Keyboard(_)) {
+            if open {
+                this.menu = None;
+                cx.notify();
+            } else {
+                opens(this, cx);
+            }
+        }
+    }));
+    ui::popover_trigger(keys, open, cx.listener(move |this, _: &MouseDownEvent, _, cx| on_press(this, cx)))
+}
+
+/// Shuts the menu `id` on a press outside it, unless that press already opened another.
+pub(crate) fn shuts<E: InteractiveElement>(menu: E, id: &'static str, cx: &mut Context<Settings>) -> E {
+    menu.on_mouse_down_out(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+        if this.menu == Some(id) {
+            this.menu = None;
+            cx.notify();
+        }
+    }))
+}
+
 /// `trigger` opening a menu while `settings.menu` is `id`; `pick` gets the chosen value. An agent can list hundreds of
 /// models, so `rows` are made only once the menu is open and again when `from` changes, and only those in view are built.
 #[expect(clippy::too_many_arguments, reason = "a view helper takes each part it draws")]
@@ -66,11 +104,7 @@ pub(crate) fn dropdown(
     cx: &mut Context<Settings>,
 ) -> Div {
     let open = d.menu == Some(id);
-    let trigger = trigger.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-        this.menu = (!open).then_some(id);
-        this.menu_scroll = Default::default();
-        cx.notify();
-    }));
+    let trigger = self::trigger(super::focus_ring(trigger.tab_index(0)), id, open, cx);
     if !open {
         return div().relative().child(trigger);
     }
@@ -101,7 +135,7 @@ pub(crate) fn dropdown(
         }
     };
     let fit = |list: UniformList| list.with_sizing_behavior(ListSizingBehavior::Infer).with_width_from_item(widest).min_w(px(172.)).max_h(px(ROW * ROWS));
-    let list = pick_list(SharedString::from(format!("{id}-options")), count, &d.menu_scroll, ui::pop(div()).p(px(4.)), fit, line, cx);
+    let list = pick_list(SharedString::from(format!("{id}-options")), count, &d.menu_scroll, shuts(ui::pop(div()).p(px(4.)), id, cx), fit, line, cx);
     let menu = ui::menu_in(SharedString::from(format!("{id}-menu-in")), list);
     div().relative().child(trigger).child(ui::dropdown_right(30., menu))
 }

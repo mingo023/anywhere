@@ -82,6 +82,14 @@ pub fn list_dirs(dirs: Vec<PathBuf>, files: &store::prefs::files::Files) -> Hash
     dirs.into_iter().filter_map(|d| list_dir(&d, files).map(|l| (d, l))).collect()
 }
 
+/// Moves a file to the Trash for an Undo: where it landed, `None` when it was already gone, `Err` when the Trash refused it.
+pub fn trash_for_undo(path: &Path) -> Result<Option<PathBuf>, ()> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    trash(path).map(Some).ok_or(())
+}
+
 /// Moves `path` to the Trash, returning where it landed; `None` when it couldn't.
 pub fn trash(path: &Path) -> Option<PathBuf> {
     if let crate::fs::Fs::Remote(host) = fs_at(path) {

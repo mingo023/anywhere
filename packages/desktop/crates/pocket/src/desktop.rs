@@ -738,7 +738,7 @@ impl Desktop {
                 |d| {
                     d.child(
                         ui::button("blank-new", ui::Variant::Primary, Some("sparkle"), "New session")
-                            .child(ui::button_kbd("⌘N"))
+                            .children(crate::settings::hint(&crate::actions::StartSession, cx).map(|k| ui::button_kbd(&k)))
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_session(None, false, window, cx))),
                     )
                 },
@@ -855,6 +855,7 @@ impl Render for Desktop {
                 .on_action(cx.listener(Self::project_settings))
                 .on_action(cx.listener(Self::open_settings))
                 .on_action(cx.listener(Self::focus_settings_search))
+                .on_action(cx.listener(Self::settings_up))
                 .map(|root| pages::on_actions(root, cx))
                 .on_action(cx.listener(Self::check_for_updates))
                 .on_action(cx.listener(Self::next_needs_you))

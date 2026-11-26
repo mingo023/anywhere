@@ -61,8 +61,11 @@ pub(super) const ROWS: &[Setting] = &[
         |s, i| s.terminal.system_browser = i == 1,
     )
     .hint("Links clicked in terminals and chats"),
-    Setting::custom("dev-servers", "Dev servers", "Dev servers", |d, _, _| d.dev_servers())
-        .resets(dev_urls, |s, _| s.repos.values_mut().for_each(|r| r.dev_url.clear())),
+    Setting::custom("dev-servers", "Dev servers", "Dev servers", |d, _, _| d.dev_servers()).resets(dev_urls, |s, from| {
+        for (path, repo) in &mut s.repos {
+            repo.dev_url = from.repos.get(path).map(|r| r.dev_url.clone()).unwrap_or_default();
+        }
+    }),
 ];
 
 impl Settings {

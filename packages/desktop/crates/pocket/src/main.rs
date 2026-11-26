@@ -98,7 +98,7 @@ fn main() {
         syntax::init();
         follow_reduce_motion(store.appearance.reduce_motion, cx);
         follow_reduce_transparency(cx);
-        cx.bind_keys(actions::keymap(&store.keys));
+        cx.bind_keys(actions::keymap(&store.keys, &store.added));
         cx.bind_keys(keys::bindings());
         cx.on_action(|_: &actions::Quit, cx| cx.quit());
         let check = channel::is_release().then(|| [MenuItem::action("Check for Updates…", actions::CheckForUpdates), MenuItem::separator()]);

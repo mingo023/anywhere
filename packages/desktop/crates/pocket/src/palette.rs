@@ -55,7 +55,19 @@ pub struct Entry {
     lead: Lead,
     title: String,
     detail: String,
-    keys: Option<&'static str>,
+}
+
+/// The action an entry does that a shortcut can run too, so its row shows that shortcut.
+fn shortcut_of(pick: &Pick) -> Option<Box<dyn Action>> {
+    use crate::actions::{GoToUpNext, NewBrowser, NextNeedsYou, StartSession};
+    match pick {
+        Pick::New => Some(Box::new(StartSession)),
+        Pick::Next => Some(Box::new(NextNeedsYou)),
+        Pick::UpNext => Some(Box::new(GoToUpNext)),
+        Pick::Browser => Some(Box::new(NewBrowser)),
+        Pick::Go(screen) => pages::action_to(*screen),
+        _ => None,
+    }
 }
 
 /// The typed text as lowercase words; a leading `>` searches actions only.
@@ -176,7 +188,6 @@ fn session_entry((project, branch, c): SessionCard) -> Entry {
             .collect::<Vec<_>>()
             .join(" · "),
         title: c.title,
-        keys: None,
         pick: Pick::Session(c.id),
     }
 }
@@ -214,7 +225,6 @@ fn tree_entries(words: &[String], trees: Vec<(String, String, git::Worktree)>, a
                 pick: Pick::Tree { project, tree: (!w.main).then_some(w.path) },
                 lead: Lead::Icon(WORKTREE_ICON),
                 title,
-                keys: None,
             })
         })
         .take(5)
@@ -234,7 +244,6 @@ fn local_entries(words: &[String], locals: Vec<(String, Local)>) -> Vec<Entry> {
             lead: Lead::Icon(LOCAL_ICON),
             title: l.name,
             detail: project_name,
-            keys: None,
         })
         .take(5)
         .collect()
@@ -256,7 +265,7 @@ fn file_entries(words: &[String], root: &str, changed: &[String], files: &[Strin
                 (false, true) => format!("{dir} · modified"),
                 _ => dir,
             };
-            Entry { pick: Pick::File(format!("{root}/{p}")), lead: Lead::File, title: basename(p), detail, keys: None }
+            Entry { pick: Pick::File(format!("{root}/{p}")), lead: Lead::File, title: basename(p), detail }
         })
         .collect()
 }
@@ -267,27 +276,20 @@ fn action_entries(words: &[String], project: &str, sounds: &Sounds, agents: &Age
         lead: Lead::Icon("bell"),
         title: format!("{} sound: {}", cue.name(), if cue.on(sounds) { "On" } else { "Off" }),
         detail: String::new(),
-        keys: None,
     };
-    let pages = pages::offered(agents).map(|p| Entry {
-        pick: Pick::Go(p.screen),
-        lead: Lead::Icon(p.icon),
-        title: p.title.into(),
-        detail: String::new(),
-        keys: p.keys,
-    });
+    let pages = pages::offered(agents).map(|p| Entry { pick: Pick::Go(p.screen), lead: Lead::Icon(p.icon), title: p.title.into(), detail: String::new() });
     [
-        Entry { pick: Pick::New, lead: Lead::Icon("sparkle"), title: format!("New session in {project}"), detail: String::new(), keys: Some("⌘ N") },
-        Entry { pick: Pick::Split, lead: Lead::Icon("split-right"), title: "Open selected in a split".into(), detail: String::new(), keys: None },
-        Entry { pick: Pick::Next, lead: Lead::Waiting, title: "Go to next Needs you".into(), detail: String::new(), keys: Some("⌘ J") },
-        Entry { pick: Pick::UpNext, lead: Lead::Icon("forward"), title: "Go to Up next".into(), detail: String::new(), keys: Some("⌘ ⇧ J") },
-        Entry { pick: Pick::Browser, lead: Lead::Icon("globe"), title: "Open browser".into(), detail: String::new(), keys: Some("⌘ ⇧ B") },
+        Entry { pick: Pick::New, lead: Lead::Icon("sparkle"), title: format!("New session in {project}"), detail: String::new() },
+        Entry { pick: Pick::Split, lead: Lead::Icon("split-right"), title: "Open selected in a split".into(), detail: String::new() },
+        Entry { pick: Pick::Next, lead: Lead::Waiting, title: "Go to next Needs you".into(), detail: String::new() },
+        Entry { pick: Pick::UpNext, lead: Lead::Icon("forward"), title: "Go to Up next".into(), detail: String::new() },
+        Entry { pick: Pick::Browser, lead: Lead::Icon("globe"), title: "Open browser".into(), detail: String::new() },
     ]
     .into_iter()
     .chain(pages)
     .chain([
-        Entry { pick: Pick::PairPhone, lead: Lead::Icon("shield"), title: "Pair phone…".into(), detail: String::new(), keys: None },
-        Entry { pick: Pick::HostFolder, lead: Lead::Icon("globe"), title: "Open folder on a host…".into(), detail: String::new(), keys: None },
+        Entry { pick: Pick::PairPhone, lead: Lead::Icon("shield"), title: "Pair phone…".into(), detail: String::new() },
+        Entry { pick: Pick::HostFolder, lead: Lead::Icon("globe"), title: "Open folder on a host…".into(), detail: String::new() },
     ])
     .chain(Cue::ALL.map(sound))
     .filter(|e| match e.pick {
@@ -395,7 +397,8 @@ impl Render for Palette {
                     Lead::File => file_icon(&e.title, false, false, 16.).into_any_element(),
                     Lead::Icon(name) => icon(name, 13., TEXT_2).into_any_element(),
                 };
-                let keys = e.keys.or((i == selected).then_some("↵"));
+                let hinted = shortcut_of(&e.pick).and_then(|a| crate::settings::hint(a.as_ref(), cx));
+                let keys = hinted.as_deref().or((i == selected).then_some("↵"));
                 let pick = e.pick.clone();
                 let (title, detail) = (marked(e.title.clone(), words), marked(e.detail.clone(), words));
                 body = body.child(
@@ -550,7 +553,7 @@ impl Desktop {
             if self.handoff.read(cx).moving(&s.id) { crate::handoff::menu_label(true).to_string() } else { format!("Hand off “{}” to a host…", s.title) };
         let projects = self.projects(cx);
         let detail = format!("{} · {}", self.agent_name(&s.provider), self.repo_name(self.agent_project(s, &s.cwd, &projects).unwrap_or(&s.cwd)));
-        Some(Entry { pick: Pick::Handoff(s.id.clone()), lead: Lead::Icon("server"), title, detail, keys: None })
+        Some(Entry { pick: Pick::Handoff(s.id.clone()), lead: Lead::Icon("server"), title, detail })
     }
 
     fn activate(&mut self, pick: Pick, window: &mut Window, cx: &mut Context<Self>) {
