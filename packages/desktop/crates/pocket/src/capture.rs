@@ -36,7 +36,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 308] = [
+const STEPS: [(&str, Step); 310] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -992,6 +992,12 @@ const STEPS: [(&str, Step); 308] = [
     }),
     ("key-clash", |d, _, cx| d.settings.update(cx, |s, _| s.keyboard.recording = Some(("desktop::NewWorktree".into(), Some("cmd-k".into()))))),
     ("dark", |d, window, cx| d.set_appearance(WindowAppearance::Dark, window, cx)),
+    ("glass", |_, _, _| theme::set_glass(60)),
+    // `CAPTURE_BACKGROUND` is the picture's path.
+    ("background", |d, _, cx| {
+        d.store.appearance.background = next_arg("CAPTURE_BACKGROUND", ';');
+        crate::settings::show_background(d.store.appearance.background.as_deref(), cx);
+    }),
     ("syntax-github", |d, _, cx| syntax(d, store::SyntaxTheme::Github, cx)),
     ("syntax-one", |d, _, cx| syntax(d, store::SyntaxTheme::One, cx)),
     ("syntax-solarized", |d, _, cx| syntax(d, store::SyntaxTheme::Solarized, cx)),

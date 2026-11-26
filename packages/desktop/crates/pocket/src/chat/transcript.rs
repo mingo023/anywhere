@@ -602,7 +602,7 @@ fn prompt_bubble(
         let row = id.to_string();
         (user_bubble::Fold { lines, toggled }, cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_expanded(&row, cx)))
     });
-    let bubble = user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), view.flashing(id), here, toggle);
+    let bubble = user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), view.flashing(id), here, toggle, window, cx);
     let under = under.unwrap_or_else(|| {
         let key = format!("prompt:{id}");
         user_bubble::actions(id, view.copied(&key), copy(key, text.to_string(), cx), Some(at))
@@ -649,7 +649,16 @@ impl View {
         let sticky = self.sticky(window, cx);
         let cover = sticky.as_ref().map_or(0., |(_, cover)| *cover);
         let timeline = self.timeline(window, cx);
-        div().relative().flex_1().min_h_0().child(sticky::below(cover, rows)).children(sticky.map(|(card, _)| card)).children(timeline).children(pill)
+        // A see-through page has no fill for the breadcrumb to fade the rows into, so nothing paints under it.
+        let clip = if see_through() { inset } else { 0. };
+        div()
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .child(sticky::below(cover.max(clip), rows))
+            .children(sticky.map(|(card, _)| sticky::below(clip, card)))
+            .children(timeline)
+            .children(pill)
     }
 
     /// Opens or closes a fold, phase or sub-agent, and has the list measure again what that shows or hides.

@@ -116,9 +116,9 @@ fn lift(shift: f32) -> f32 {
     (1. + shift / SETTLE).clamp(0., 1.)
 }
 
-/// Paints `child` only below `top`, where a stuck prompt's card ends, so the margins around the card show the chat's
-/// background rather than transcript text cut off by the card. Only the paint is cut: the list under it still takes
-/// the wheel there.
+/// Paints `child` only below `top`, where a stuck prompt's card or a see-through page's breadcrumb ends, so the chat's
+/// background shows there rather than transcript text cut off by them. Only the paint is cut: the list under it still
+/// takes the wheel there.
 pub(super) struct Below {
     top: Pixels,
     child: AnyElement,

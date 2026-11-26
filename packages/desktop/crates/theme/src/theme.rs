@@ -1017,6 +1017,15 @@ fn nav_rgba(dark: bool, glass: u32) -> u32 {
     if dark && glass < 0xff { 0 } else { NAV.resolve(dark) }
 }
 
+/// Whether what's behind the page shows through it: dark glass below full opacity, or a background picture.
+pub fn see_through() -> bool {
+    shows_through(is_dark(), GLASS_ALPHA.load(Ordering::Relaxed), image_behind())
+}
+
+fn shows_through(dark: bool, glass: u32, image: bool) -> bool {
+    image || (dark && glass < 0xff)
+}
+
 /// Glass in dark; pale desktops make translucent light chrome illegible.
 /// Reads the last `set_theme`, so a window opened before `init` stays opaque.
 pub fn window_background() -> WindowBackgroundAppearance {
@@ -1032,7 +1041,7 @@ mod tests {
         PROVIDER_NAMES, SELECTION, SEPARATOR, SEPARATOR_STRONG, SIDE, SPRING, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
         SYN_STRING, SYNTAX_THEMES, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, WHITE, WINDOW, WINDOW_SOLID, WORKING, accent_rgba,
         glass_alpha, gradient_delay, gradient_opacity, highlight_theme_with, lit_at, material, material_icon, nav_rgba, provider_glyph, provider_name,
-        provider_svg,
+        provider_svg, shows_through,
     };
     use gpui_kit::component::input::HighlightStyleResolver;
     use gpui_kit::{Hsla, SpringState, rgba};
@@ -1238,6 +1247,14 @@ mod tests {
     fn dark_sidebar_is_clear_below_full_opacity_and_solid_at_it() {
         assert_eq!([nav_rgba(true, glass_alpha(99)), nav_rgba(true, glass_alpha(40))], [0, 0]);
         assert_eq!(nav_rgba(true, glass_alpha(100)), NAV.pick(true));
+    }
+
+    #[test]
+    fn the_page_shows_through_under_dark_glass_or_a_picture_and_not_when_solid() {
+        assert!(shows_through(true, glass_alpha(99), false), "dark glass");
+        assert!(shows_through(false, 0xff, true), "a picture, light or dark");
+        assert!(!shows_through(true, glass_alpha(100), false), "full opacity");
+        assert!(!shows_through(false, glass_alpha(40), false), "light ignores the dark window's opacity");
     }
 
     #[test]
