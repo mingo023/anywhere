@@ -5,7 +5,7 @@ description: Run and follow coding agent sessions (Claude Code, Codex and the ot
 
 # zoes
 
-`zoes` acts as the user on this Mac. Every session it starts shows in the Zoes app like one the user opened. Zoes was called Anywhere; `anywhere` is the same command and still works.
+`zoes` acts as the user on this Mac. Every session it starts shows in the Zoes app like one the user opened. Zoes was called Anywhere, and `anywhere` is the same command: if `zoes` is not found, run each command below as `anywhere`.
 
 ## Commands
 
