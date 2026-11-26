@@ -140,9 +140,12 @@ impl Inbox {
                 .mt(px(2.))
                 .flex()
                 .min_w_0()
+                .items_center()
+                .gap(px(4.))
                 .text_size(px(12.))
                 .text_color(TEXT_3)
-                .child("↳ Delegated by\u{a0}")
+                .child(icon("corner-down-right", 13., TEXT_4))
+                .child("Delegated by")
                 .child(div().truncate().font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(parent))
         });
         let body = match self.answers.settled(c) {
