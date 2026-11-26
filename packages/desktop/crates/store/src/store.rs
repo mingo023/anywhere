@@ -515,6 +515,16 @@ impl Store {
         s
     }
 
+    /// Points each path `moved` maps where it says, as `load` does, for a home pocketd moved after this loaded.
+    pub fn rehome(&mut self, moved: impl Fn(&str) -> Option<String>) {
+        let Ok(mut v) = serde_json::to_value(&*self) else { return };
+        rehome(&mut v, &moved);
+        let Ok(mut s) = serde_json::from_value::<Self>(v) else { return };
+        s.path = std::mem::take(&mut self.path);
+        s.ids = std::mem::take(&mut self.ids).into_iter().map(|(path, id)| (moved(&path).unwrap_or(path), id)).collect();
+        *self = s;
+    }
+
     /// The folder Pocket keeps its files in.
     pub fn home(&self) -> &Path {
         self.path.parent().unwrap_or(&self.path)
@@ -944,6 +954,12 @@ mod tests {
         assert_eq!(s.repos.keys().collect::<Vec<_>>(), ["/u/.zoes/sessions/calm"]);
         assert_eq!(s.repos["/u/.zoes/sessions/calm"].name, "before");
         assert_eq!(s.appearance.background.as_deref(), Some("/u/.zoes/backgrounds/1-sky.png"));
+
+        let mut later = Store::load(&dir, |_| None);
+        later.ids.insert("/u/.anywhere/sessions/calm".into(), "p1".into());
+        later.rehome(moved);
+        assert_eq!((&later.projects, &later.repos, &later.tracked), (&s.projects, &s.repos, &s.tracked), "a store loaded before the move catches up");
+        assert_eq!((later.ids.keys().map(String::as_str).collect::<Vec<_>>(), later.home()), (vec!["/u/.zoes/sessions/calm"], dir.as_path()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

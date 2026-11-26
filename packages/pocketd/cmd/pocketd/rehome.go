@@ -20,6 +20,9 @@ func rehome(db *sql.DB, moves []config.Move) error {
 	user, _ := os.UserHomeDir()
 	accounts, _ := filepath.Glob(filepath.Join(config.AccountsDir(), "claude", "*", "projects"))
 	projects := append([]string{filepath.Join(user, ".claude", "projects")}, accounts...)
+	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+		projects = append(projects, filepath.Join(dir, "projects"))
+	}
 	for _, m := range moves {
 		errs = append(errs, worktree.RepairMoved(filepath.Join(config.SharedHome(), "worktrees"), m.From))
 		for _, p := range projects {
