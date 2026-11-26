@@ -125,8 +125,8 @@ fn refused(k: &Keystroke) -> String {
 }
 
 /// Each matching shortcut's action, and its place and keys as the Keyboard page shows them, for Settings search.
-pub(super) fn search(words: &[String], custom: &BTreeMap<String, String>) -> Vec<(&'static str, Div)> {
-    let c = Custom { keys: custom.clone(), added: Vec::new() };
+pub(super) fn search(words: &[String], keys: &BTreeMap<String, String>, added: &[(String, String)]) -> Vec<(&'static str, Div)> {
+    let c = Custom { keys: keys.clone(), added: added.to_vec() };
     find(&SHORTCUTS, &c, words)
         .into_iter()
         .map(|r| (r.label, div().flex().items_center().gap(px(8.)).children(r.place.map(ui::tag)).child(key_list(&r.keys(&c)))))

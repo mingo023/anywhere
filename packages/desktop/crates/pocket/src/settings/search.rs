@@ -477,7 +477,7 @@ impl Settings {
     pub(super) fn search_results(&mut self, words: &[String], cx: &mut Context<Self>) -> Div {
         let query = self.search.read(cx).value().trim().to_string();
         let (store, live, entries) = (self.store.clone(), self.live.clone(), self.entries());
-        let mut keys = keybindings::search(words, &store.keys);
+        let mut keys = keybindings::search(words, &store.keys, &store.added);
         let shortcuts: Vec<&'static str> = keys.iter().map(|(label, _)| *label).collect();
         let groups = results(words, &Inputs { store: &store, live: &live, entries: &entries, shortcuts: &shortcuts });
         let n: usize = groups.iter().map(|g| g.hits.len()).sum();
@@ -739,7 +739,7 @@ impl Settings {
     pub(crate) fn open_first_result(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let words = self.query(cx);
         let (store, live, entries) = (self.store.clone(), self.live.clone(), self.entries());
-        let shortcuts: Vec<&'static str> = keybindings::search(&words, &store.keys).into_iter().map(|(label, _)| label).collect();
+        let shortcuts: Vec<&'static str> = keybindings::search(&words, &store.keys, &store.added).into_iter().map(|(label, _)| label).collect();
         let groups = results(&words, &Inputs { store: &store, live: &live, entries: &entries, shortcuts: &shortcuts });
         let Some(Group { section, hits }) = groups.into_iter().next() else { return };
         match hits.into_iter().next() {

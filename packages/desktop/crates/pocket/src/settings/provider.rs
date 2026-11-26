@@ -46,7 +46,13 @@ const fn rows<const P: usize>() -> [Setting; 9] {
     [
         Setting::custom(ROW_IDS[P][0], ENABLED, "Enabled", |d, s, cx| d.enabled_row(P, s, cx)).resets(
             |s| if s.agents.disabled.contains(LaunchPick::PROVIDERS[P]) { "Off" } else { "On" }.into(),
-            |s, _| s.agents.enable(LaunchPick::PROVIDERS[P]),
+            |s, from| {
+                if from.agents.disabled.contains(LaunchPick::PROVIDERS[P]) {
+                    s.agents.disabled.insert(LaunchPick::PROVIDERS[P].into());
+                } else {
+                    s.agents.enable(LaunchPick::PROVIDERS[P]);
+                }
+            },
         ),
         Setting::text(
             ROW_IDS[P][1],
@@ -60,17 +66,17 @@ const fn rows<const P: usize>() -> [Setting; 9] {
         Setting::custom(ROW_IDS[P][2], DEFAULTS, "Model", |d, s, cx| d.model_row(P, s, cx))
             .resets(
                 |s| model_or_default(&s.agents.provider(LaunchPick::PROVIDERS[P]).model),
-                |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).model.clear(),
+                |s, from| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).model = from.agents.provider(LaunchPick::PROVIDERS[P]).model,
             )
             .hint("The list comes from the CLI"),
         Setting::custom(ROW_IDS[P][3], DEFAULTS, "Effort", |d, s, cx| d.effort_row(P, s, cx)).resets(
             |s| effort_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).effort),
-            |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).effort.clear(),
+            |s, from| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).effort = from.agents.provider(LaunchPick::PROVIDERS[P]).effort,
         ),
         Setting::custom(ROW_IDS[P][4], LAUNCH, "Command", |d, s, _| d.launch_row(P, Launch::Command, s))
             .resets(
                 |s| command_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).command),
-                |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).command.clear(),
+                |s, from| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).command = from.agents.provider(LaunchPick::PROVIDERS[P]).command,
             )
             .effect(|d, cx| d.send_launch(P, Launch::Command, cx))
             .hint("Binary name or path. Found on PATH by default"),
@@ -89,7 +95,10 @@ const fn args_row<const P: usize, const A: usize>() -> Setting {
     Setting::custom(ROW_IDS[P][5 + A], LAUNCH, label, |d, s, _| d.launch_row(P, Launch::Args(Args::ALL[A]), s))
         .resets(
             |s| args_label(&s.agents.args(LaunchPick::PROVIDERS[P], Args::ALL[A])),
-            |s, _| *s.agents.provider_mut(LaunchPick::PROVIDERS[P]).args_mut(Args::ALL[A]) = None,
+            |s, from| {
+                *s.agents.provider_mut(LaunchPick::PROVIDERS[P]).args_mut(Args::ALL[A]) =
+                    from.agents.provider(LaunchPick::PROVIDERS[P]).args_mut(Args::ALL[A]).clone()
+            },
         )
         .effect(|d, cx| d.send_launch(P, Launch::Args(Args::ALL[A]), cx))
 }
@@ -404,6 +413,23 @@ mod tests {
         }
         let ids: std::collections::HashSet<_> = PAGES.iter().flat_map(|page| page.iter().map(|row| row.id)).collect();
         assert_eq!(ids.len(), PAGES.iter().map(|page| page.len()).sum::<usize>(), "no two rows share a focus or hover group");
+    }
+
+    #[test]
+    fn undo_after_a_reset_brings_back_a_provider_s_own_values() {
+        let mut store = Store::default();
+        store.agents.provider_mut("codex").model = "gpt-6".into();
+        store.agents.provider_mut("codex").command = "/opt/codex".into();
+        store.agents.disabled.insert("codex".into());
+        let before = store.settings_view();
+        for row in PAGES[1] {
+            row.reset_to_default(&mut store);
+        }
+        for row in PAGES[1] {
+            row.restore(&mut store, &before);
+        }
+        assert_eq!((store.agents.provider("codex").model, store.agents.provider("codex").command), ("gpt-6".into(), "/opt/codex".into()));
+        assert!(store.agents.disabled.contains("codex"));
     }
 
     #[test]
