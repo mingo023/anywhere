@@ -861,6 +861,7 @@ impl Render for Desktop {
                 .on_action(cx.listener(Self::project_settings))
                 .on_action(cx.listener(Self::open_settings))
                 .on_action(cx.listener(Self::focus_settings_search))
+                .on_action(cx.listener(Self::settings_up))
                 .map(|root| pages::on_actions(root, cx))
                 .on_action(cx.listener(Self::check_for_updates))
                 .on_action(cx.listener(Self::next_needs_you))

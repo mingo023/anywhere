@@ -6,6 +6,7 @@ mod browser;
 pub(crate) mod catalog;
 mod diff;
 pub(crate) mod dropdown;
+pub(crate) mod fields;
 mod files;
 mod general;
 mod git;
@@ -23,6 +24,7 @@ mod sidebar;
 pub(crate) mod ssh_hosts;
 mod terminal;
 mod themes;
+pub(crate) mod toasts;
 
 pub(crate) use appearance::{reduce_motion, show_background};
 pub(crate) use side::Side;
@@ -32,6 +34,7 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, Screen, drag_area};
 use ::agents::providers;
 use catalog::{Control, Look, Setting};
+use fields::{Bounds, Commit, TextField};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::slider::SliderState;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -42,6 +45,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use store::Store;
 use theme::*;
+use toasts::{Saves, Toast, Toasts, Undo};
 use ui::Segment;
 
 pub(crate) const CONTEXT: &str = "Settings";
@@ -77,13 +81,13 @@ impl Section {
         Section::Agents,
         Section::Accounts,
         Section::Automations,
-        Section::Phone,
         Section::Hosts,
+        Section::Phone,
         Section::Projects,
-        Section::Sidebar,
         Section::Terminal,
         Section::Files,
         Section::Browser,
+        Section::Sidebar,
         Section::Git,
         Section::Diff,
     ];
@@ -136,8 +140,9 @@ impl Section {
     fn group(self) -> &'static str {
         match self {
             Section::General | Section::Appearance | Section::Notifications | Section::Keyboard => "App",
-            Section::Agents | Section::Accounts | Section::Automations | Section::Phone | Section::Hosts | Section::Provider(_) => "Agents",
-            Section::Projects | Section::Sidebar | Section::Terminal | Section::Files | Section::Browser => "Projects",
+            Section::Agents | Section::Accounts | Section::Automations | Section::Provider(_) => "Agents",
+            Section::Hosts | Section::Phone => "Machines",
+            Section::Projects | Section::Terminal | Section::Files | Section::Browser | Section::Sidebar => "Projects",
             Section::Git | Section::Diff => "Git",
         }
     }
@@ -170,7 +175,7 @@ impl Section {
             Section::Appearance => "appearance",
             Section::Notifications => "bell",
             Section::Keyboard => "keyboard",
-            Section::Agents | Section::Provider(_) => "sparkle",
+            Section::Agents | Section::Provider(_) => "bot",
             Section::Accounts => "shield",
             Section::Automations => "clock",
             Section::Phone => "phone",
@@ -209,9 +214,14 @@ impl Section {
 
     /// The nav item that stays selected; a provider's page sits under Agents.
     fn nav(self) -> Section {
+        self.parent().unwrap_or(self)
+    }
+
+    /// The page one level up, which the breadcrumb links and ⌘[ opens.
+    pub(crate) fn parent(self) -> Option<Section> {
         match self {
-            Section::Provider(_) => Section::Agents,
-            s => s,
+            Section::Provider(_) => Some(Section::Agents),
+            _ => None,
         }
     }
 }
@@ -238,26 +248,43 @@ impl Return {
 pub(crate) type Setter = Rc<dyn Fn(&mut Store, &::agents::Agents)>;
 
 pub(crate) enum SettingsEvent {
-    Write { setting: Option<&'static Setting>, apply: Setter },
+    Write {
+        setting: Option<&'static Setting>,
+        apply: Setter,
+    },
     Shown(Section),
     Close,
     Ask(Confirm),
     FocusRoot,
     Error(String),
-    Port { port: u32, before: u32 },
-    RenamePhone { id: String, name: String },
+    Port {
+        port: u32,
+        before: u32,
+    },
+    RenamePhone {
+        id: String,
+        name: String,
+    },
     RestartService,
     RestartToUpdate,
     CheckUpdates,
     StarOnGithub,
     FontsLoaded,
     ImportTheme,
-    Launch { i: usize, f: provider::Launch, text: String, before: String },
+    Launch {
+        i: usize,
+        f: provider::Launch,
+        text: String,
+        before: String,
+    },
     OpenAutomations,
     PairPhone,
     CheckGh,
     GhLogin,
-    PickGhAccount { project: String, account: String },
+    PickGhAccount {
+        project: String,
+        account: String,
+    },
     EditProject(String),
     AddProject,
     CloneProject,
@@ -265,6 +292,9 @@ pub(crate) enum SettingsEvent {
     ChooseBackground(&'static Setting),
     Hosts(HostsAct),
     Accounts(AccountsAct),
+    /// Retry after `desktop.json` couldn't be written.
+    SaveAgain,
+    Undo(Undo),
 }
 
 pub(crate) enum HostsAct {
@@ -303,7 +333,9 @@ pub struct Settings {
     /// The row a search result opened, tinted until the section changes.
     pub(crate) found: Option<&'static str>,
     /// Every text row's field, by row id.
-    pub(crate) fields: HashMap<&'static str, Entity<InputState>>,
+    pub(crate) fields: HashMap<&'static str, TextField>,
+    /// Every stepper's typed value, by row id.
+    numbers: HashMap<&'static str, TextField>,
     /// The dropdown row whose menu is open.
     menu: Option<&'static str>,
     /// The project whose GitHub account menu is open, while `menu` is `git::ACCOUNT_MENU`.
@@ -327,6 +359,16 @@ pub struct Settings {
     pub(crate) store: Arc<Store>,
     pub(crate) live: Arc<::agents::Agents>,
     pub(crate) side: Side,
+    pub(crate) toasts: Toasts,
+    pub(crate) saves: Saves,
+    /// How many rows differ from their default, per `Section::ALL`; counted when the store changes, not per frame.
+    changed: Vec<usize>,
+    /// The store changed since the fields last followed it.
+    resync: bool,
+    /// Each nav item's focus, per `Section::ALL`, so arrows can move it.
+    nav_focus: Vec<FocusHandle>,
+    /// Each row control's focus, by row id, so a search result can focus it.
+    focus: HashMap<&'static str, FocusHandle>,
     _subs: Vec<Subscription>,
 }
 
@@ -340,19 +382,25 @@ impl Settings {
             InputEvent::Change => cx.notify(),
             _ => {}
         })];
-        let mut fields = HashMap::new();
+        let (mut fields, mut numbers) = (HashMap::new(), HashMap::new());
         // The provider pages are reached from Agents, so ALL leaves them out.
         for setting in Section::ALL.into_iter().chain((0..providers::COUNT).map(Section::Provider)).flat_map(|s| s.rows()) {
-            let Control::Text { placeholder, get, set } = setting.control else { continue };
-            let value = get(store);
-            let field = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder).default_value(value));
-            subs.push(cx.subscribe_in(&field, window, move |this, field, ev: &InputEvent, _, cx| {
-                if let InputEvent::Change = ev {
-                    let text = field.read(cx).value().to_string();
-                    this.set(setting, cx, move |s| set(s, text.clone()));
+            let (value, placeholder) = match setting.control {
+                Control::Text { placeholder, get, .. } => (get(store), placeholder),
+                Control::Stepper { get, .. } => (get(store).to_string(), ""),
+                _ => continue,
+            };
+            let input = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder).default_value(value.clone()));
+            subs.push(cx.subscribe_in(&input, window, move |this, _, ev: &InputEvent, window, cx| {
+                if matches!(ev, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                    this.commit_field(setting, window, cx);
                 }
             }));
-            fields.insert(setting.id, field);
+            let field = TextField::new(input, value);
+            match setting.control {
+                Control::Stepper { .. } => numbers.insert(setting.id, field),
+                _ => fields.insert(setting.id, field),
+            };
         }
         let (host, host_subs) = host::Host::new(store, window, cx);
         subs.extend(host_subs);
@@ -370,6 +418,7 @@ impl Settings {
             search,
             found: None,
             fields,
+            numbers,
             menu: None,
             account_menu: None,
             host,
@@ -386,6 +435,12 @@ impl Settings {
             store: Arc::new(store.settings_view()),
             live: Arc::default(),
             side: Side::default(),
+            toasts: Toasts::default(),
+            saves: Saves::default(),
+            changed: Section::ALL.iter().map(|s| catalog::changed_count(s.rows(), store)).collect(),
+            resync: false,
+            nav_focus: Section::ALL.iter().map(|_| cx.focus_handle().tab_stop(true)).collect(),
+            focus: HashMap::new(),
             _subs: subs,
         }
     }
@@ -395,7 +450,10 @@ impl Settings {
         if store.is_none() && live.is_none() {
             return;
         }
-        self.store = store.unwrap_or_else(|| self.store.clone());
+        if let Some(store) = store {
+            self.changed = Section::ALL.iter().map(|s| catalog::changed_count(s.rows(), &store)).collect();
+            (self.store, self.resync) = (store, true);
+        }
         self.live = live.unwrap_or_else(|| self.live.clone());
         crate::region::notify_after_draw(cx);
     }
@@ -405,6 +463,9 @@ impl Settings {
     }
 
     pub(crate) fn write(&mut self, setting: Option<&'static Setting>, cx: &mut Context<Self>, apply: impl Fn(&mut Store, &::agents::Agents) + 'static) {
+        if let Some(setting) = setting {
+            self.saves.wrote(setting);
+        }
         cx.emit(SettingsEvent::Write { setting, apply: Rc::new(apply) });
     }
 
@@ -452,13 +513,7 @@ impl Settings {
         }
     }
 
-    pub(crate) fn sync_fields(&mut self, store: &Store, section: Section, moved: &[&'static Setting], window: &mut Window, cx: &mut Context<Self>) {
-        for setting in moved {
-            if let (Control::Text { get, .. }, Some(field)) = (setting.control, self.fields.get(setting.id)) {
-                let value = get(store);
-                field.update(cx, |f, cx| f.set_value(value, window, cx));
-            }
-        }
+    pub(crate) fn sync_fields(&mut self, store: &Store, section: Section, window: &mut Window, cx: &mut Context<Self>) {
         if section == Section::Browser {
             self.load_dev_urls(window, cx);
         }
@@ -473,6 +528,105 @@ impl Settings {
         if self.host.port.read(cx).value() != port {
             self.host.port.update(cx, |f, cx| f.set_value(port, window, cx));
         }
+    }
+
+    /// Commits a text row's draft, or a stepper's typed value, on Enter or blur.
+    fn commit_field(&mut self, setting: &'static Setting, window: &mut Window, cx: &mut Context<Self>) {
+        match setting.control {
+            Control::Text { get, set, .. } => {
+                let (stored, valid) = (get(&self.store), setting.valid.unwrap_or(fields::any));
+                let Some(field) = self.fields.get_mut(setting.id) else { return };
+                if let Commit::Save(text) = field.commit(&stored, valid, cx) {
+                    self.set(setting, cx, move |s| set(s, text.clone()));
+                    self.tick_saved(cx);
+                }
+            }
+            Control::Stepper { min, max, step, get, set, .. } => {
+                let Some(field) = self.numbers.get_mut(setting.id) else { return };
+                let current = get(&self.store);
+                let typed = field.input.read(cx).value().to_string();
+                let bounds = Bounds { min: min.into(), max: max.into(), step: step.into() };
+                let n = fields::typed_step(&typed, current.into(), bounds) as i32;
+                // Written back, since the typed text may have been clamped or rounded.
+                field.draft = fields::Draft::new(n.to_string());
+                field.input.update(cx, |f, cx| f.set_value(n.to_string(), window, cx));
+                if n != current {
+                    self.set(setting, cx, move |s| set(s, n));
+                }
+            }
+            _ => {}
+        }
+        cx.notify();
+    }
+
+    /// Redraws once the "Saved" tick's time is up, so it goes.
+    fn tick_saved(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async |this, cx| {
+            cx.background_executor().timer(fields::SAVED_FOR).await;
+            this.update(cx, |_, cx| cx.notify()).ok();
+        })
+        .detach();
+    }
+
+    /// Every text field and typed stepper follows the store, except one being typed in or holding an invalid draft. The one way
+    /// a store change reaches the fields, whatever made it: a stepper, a reset, Undo, Retry or another device.
+    fn sync_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.resync = false;
+        let store = self.store.clone();
+        for (id, field) in self.fields.iter_mut().chain(self.numbers.iter_mut()) {
+            let stored = match catalog::find(id).map(|s| s.control) {
+                Some(Control::Text { get, .. }) => get(&store),
+                Some(Control::Stepper { get, .. }) => get(&store).to_string(),
+                _ => continue,
+            };
+            field.sync(&stored, window, cx);
+        }
+    }
+
+    /// The focus a row's control takes, made the first time it's asked for.
+    pub(crate) fn control_focus(&mut self, id: &'static str, cx: &mut Context<Self>) -> FocusHandle {
+        self.focus.entry(id).or_insert_with(|| cx.focus_handle().tab_stop(true)).clone()
+    }
+
+    /// Moves focus to the control of row `id`, as a search result opening it does.
+    #[expect(dead_code, reason = "the Search slice focuses the row a result opens")]
+    pub(crate) fn focus_row(&mut self, id: &'static str, window: &mut Window, cx: &mut Context<Self>) {
+        match self.fields.get(id).or(self.numbers.get(id)) {
+            Some(field) => field.input.update(cx, |f, cx| f.focus(window, cx)),
+            None => window.focus(&self.control_focus(id, cx), cx),
+        }
+    }
+
+    /// How many rows of `section` differ from their default.
+    pub(crate) fn changed_in(&self, section: Section) -> usize {
+        match Section::ALL.iter().position(|s| *s == section) {
+            Some(i) => self.changed.get(i).copied().unwrap_or(0),
+            None => catalog::changed_count(section.rows(), &self.store),
+        }
+    }
+
+    /// Opens the page one level up; false on a page with none.
+    pub(crate) fn up(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(parent) = self.section.parent() else { return false };
+        self.show_section(parent, cx);
+        true
+    }
+
+    /// Puts one row back to its default, with a toast naming the value.
+    fn reset_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) {
+        self.saves.clear(setting.id);
+        self.toasts.forget(setting.id);
+        if let Some(field) = self.fields.get_mut(setting.id) {
+            field.draft.error = None;
+        }
+        let to = setting.default_value().unwrap_or_default();
+        self.write(Some(setting), cx, move |s, _| setting.reset_to_default(s));
+        self.toast(Toast::tell(format!("{} reset to {to}", setting.label)), cx);
+    }
+
+    /// The menu, then a recording, then the search close before Settings does.
+    pub(crate) fn innermost(&self, cx: &App) -> Layer {
+        innermost(self.menu.is_some() || self.swatch.is_some(), self.keyboard.recording.is_some(), !self.search.read(cx).value().is_empty())
     }
 
     pub(crate) fn installed(&self, provider: &str) -> bool {
@@ -504,6 +658,24 @@ impl Settings {
     }
 }
 
+/// What Esc closes first, innermost out.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Layer {
+    Menu,
+    Recording,
+    Search,
+    Settings,
+}
+
+fn innermost(menu: bool, recording: bool, searching: bool) -> Layer {
+    match () {
+        _ if menu => Layer::Menu,
+        _ if recording => Layer::Recording,
+        _ if searching => Layer::Search,
+        _ => Layer::Settings,
+    }
+}
+
 fn nav_groups() -> Vec<(&'static str, Vec<Section>)> {
     let mut groups: Vec<(&'static str, Vec<Section>)> = Vec::new();
     for s in Section::ALL {
@@ -515,7 +687,30 @@ fn nav_groups() -> Vec<(&'static str, Vec<Section>)> {
     groups
 }
 
+/// What `setting_row` adds to the row a page draws: tags after the title, a hint in place of its own, a reset button before
+/// the control, and whether the control is off. It travels through a thread-local so that every page's `row(…)` call,
+/// custom rows included, carries it without each draw passing it along.
+#[derive(Default)]
+struct Decor {
+    tags: Vec<AnyElement>,
+    hint: Option<AnyElement>,
+    reset: Option<AnyElement>,
+    off: bool,
+}
+
+thread_local! {
+    static DECOR: std::cell::RefCell<Option<Decor>> = const { std::cell::RefCell::new(None) };
+}
+
 fn row(title: impl IntoElement, hint: Option<&str>, control: impl IntoElement) -> Div {
+    let decor = DECOR.with_borrow_mut(Option::take).unwrap_or_default();
+    let hint = decor.hint.or_else(|| hint.map(|h| h.to_string().into_any_element()));
+    let control = if decor.off {
+        // Dimmed, with a cover that takes its presses, since a control can't be told it's off.
+        div().relative().opacity(0.45).child(control).child(div().absolute().inset_0().occlude()).into_any_element()
+    } else {
+        control.into_any_element()
+    };
     div()
         .px(px(14.))
         .py(px(10.))
@@ -529,10 +724,27 @@ fn row(title: impl IntoElement, hint: Option<&str>, control: impl IntoElement) -
                 .flex()
                 .flex_col()
                 .gap(px(1.))
-                .child(div().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(title))
-                .children(hint.map(|h| div().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(h.to_string()))),
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .items_center()
+                        .gap(px(7.))
+                        .text_size(px(13.))
+                        .line_height(px(18.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(TEXT)
+                        .child(title)
+                        .children(decor.tags),
+                )
+                .children(hint.map(|h| div().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(h))),
         )
-        .child(div().flex_none().max_w(relative(0.6)).flex().justify_end().child(control))
+        .child(div().flex_none().max_w(relative(0.6)).flex().items_center().justify_end().gap(px(8.)).children(decor.reset).child(control))
+}
+
+/// The ring a focused control shows when focus came from the keyboard.
+pub(crate) fn focus_ring<E: InteractiveElement>(e: E) -> E {
+    e.focus_visible(|s| s.shadow(vec![ui::ring(ACCENT_GLOW, 2.)]))
 }
 
 /// The title of a row that belongs to the one above it.
@@ -562,8 +774,9 @@ fn card(rows: Vec<Div>) -> Div {
         .children(rows)
 }
 
+/// A button; it takes focus, and Space or Enter presses it.
 fn action(id: impl Into<ElementId>, label: impl IntoElement) -> Stateful<Div> {
-    div()
+    let button = div()
         .id(id)
         .h(px(26.))
         .px(px(10.))
@@ -574,37 +787,72 @@ fn action(id: impl Into<ElementId>, label: impl IntoElement) -> Stateful<Div> {
         .bg(SURFACE)
         .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(rgba(0x0000000d), 1., 1.5)])
         .cursor_pointer()
+        .tab_index(0)
         .hover(|d| d.bg(FILL_3))
         .text_size(px(12.5))
         .font_weight(FontWeight::MEDIUM)
         .text_color(TEXT)
         .whitespace_nowrap()
-        .child(label)
+        .child(label);
+    focus_ring(button)
 }
 
-fn header(section: Section) -> Div {
-    let tile = div()
-        .size(px(40.))
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .rounded(px(10.))
-        .bg(SURFACE)
-        .shadow(vec![ui::ring(SEPARATOR, 0.5), ui::shadow(rgba(0x0000000d), 1., 1.5)])
-        .child(icon(section.icon(), 20., TEXT));
-    let text = div()
-        .flex()
-        .flex_col()
-        .gap(px(2.))
-        .child(div().text_size(px(20.)).line_height(px(26.)).font_weight(FontWeight::BOLD).text_color(TEXT).child(section.label()))
-        .child(div().text_size(px(12.5)).line_height(px(17.)).text_color(TEXT_2).child(section.subtitle()));
-    div().mb(px(4.)).flex().items_center().gap(px(14.)).child(tile).child(text)
+/// A link inside a hint: a fix for a row that can't apply, or Retry.
+fn hint_link(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Stateful<Div> {
+    focus_ring(ui::link(id, label).text_size(px(12.)).tab_index(0).rounded(px(3.)))
+}
+
+/// A small grey tag after a row's title: "Advanced".
+fn tag(text: &'static str) -> Div {
+    div()
+        .px(px(6.))
+        .py(px(1.))
+        .rounded(px(5.))
+        .bg(FILL_3)
+        .text_size(px(10.5))
+        .line_height(px(14.))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(TEXT_3)
+        .child(text)
 }
 
 /// The box a text or folder value sits in.
 fn field_box() -> Div {
     div().w(px(220.)).h(px(26.)).px(px(9.)).flex().items_center().gap(px(6.)).rounded(px(7.)).bg(FILL_2)
+}
+
+/// One choice of a few, side by side: a single stop for Tab, where ← and → move the choice.
+pub(crate) fn segmented_control(
+    id: impl Into<ElementId>,
+    labels: Vec<SharedString>,
+    chosen: usize,
+    pick: impl Fn(&mut Settings, usize, &mut Context<Settings>) + 'static,
+    cx: &mut Context<Settings>,
+) -> Stateful<Div> {
+    let (pick, last) = (Rc::new(pick), labels.len().saturating_sub(1));
+    let items = labels.into_iter().enumerate().map(|(i, label)| Segment { icon: None, value: i, label, badge: None }).collect();
+    let on = pick.clone();
+    let group = div()
+        .id(id)
+        .tab_index(0)
+        .rounded(px(11.))
+        .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, _, cx| {
+            if let Some(i) = segment_step(&ev.keystroke.key, chosen, last) {
+                pick(this, i, cx);
+                cx.stop_propagation();
+            }
+        }))
+        .child(ui::segmented(items, chosen, true, false, move |this: &mut Settings, i, cx| on(this, i, cx), cx));
+    focus_ring(group)
+}
+
+/// Where ← or → moves a segmented choice from `chosen`; `None` for another key or at an end.
+fn segment_step(key: &str, chosen: usize, last: usize) -> Option<usize> {
+    match key {
+        "left" if chosen > 0 => Some(chosen - 1),
+        "right" if chosen < last => Some(chosen + 1),
+        _ => None,
+    }
 }
 
 fn dropdown_menu(
@@ -621,35 +869,8 @@ fn dropdown_menu(
             this.choose(setting, i, cx);
         }))
     });
-    ui::menu_in(SharedString::from(format!("{}-menu-in", setting.id)), ui::pop(div()).min_w(px(160.)).p(px(4.)).flex().flex_col().children(rows))
-}
-
-fn segments(options: &'static [&'static str]) -> Vec<Segment<usize>> {
-    options.iter().enumerate().map(|(i, label)| Segment { icon: None, value: i, label: (*label).into(), badge: None }).collect()
-}
-
-/// "Agents › Claude Code" for a provider's page, else the section's name.
-fn breadcrumb(section: Section) -> String {
-    match section.nav() {
-        nav if nav == section => section.label().into(),
-        nav => format!("{} \u{203a} {}", nav.label(), section.label()),
-    }
-}
-
-fn more_in_advanced(id: impl Into<ElementId>, n: usize) -> Stateful<Div> {
-    div()
-        .id(id)
-        .px(px(14.))
-        .py(px(8.))
-        .flex()
-        .items_center()
-        .gap(px(6.))
-        .cursor_pointer()
-        .hover(|d| d.bg(FILL_1))
-        .text_size(px(12.))
-        .text_color(TEXT_3)
-        .child(format!("{n} more in Advanced"))
-        .child(icon("chevron-down", 14., TEXT_3))
+    let menu = ui::pop(div()).min_w(px(160.)).p(px(4.)).flex().flex_col().children(rows);
+    ui::menu_in(SharedString::from(format!("{}-menu-in", setting.id)), dropdown::shuts(menu, setting.id, cx))
 }
 
 impl Settings {
@@ -714,38 +935,43 @@ impl Settings {
         match setting.control {
             Control::Switch { get, .. } => {
                 let on = get(&self.store);
-                div()
+                let focus = self.control_focus(setting.id, cx);
+                let switch = div()
                     .id(setting.id)
+                    .track_focus(&focus)
                     .flex_none()
+                    .rounded(px(9.))
                     .cursor_pointer()
                     .child(ui::toggle("switch", on))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_switch(setting, !on, cx)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_switch(setting, !on, cx)));
+                focus_ring(switch).into_any_element()
+            }
+            Control::Choice { options, look: Look::Segmented, get, .. } => {
+                let focus = self.control_focus(setting.id, cx);
+                let labels = options.iter().map(|o| SharedString::from(*o)).collect();
+                segmented_control(setting.id, labels, get(&self.store), move |this, i, cx| this.choose(setting, i, cx), cx)
+                    .track_focus(&focus)
                     .into_any_element()
             }
-            Control::Choice { options, look: Look::Segmented, get, .. } => div()
-                .id(setting.id)
-                .child(ui::segmented(segments(options), get(&self.store), true, false, move |this: &mut Self, i, cx| this.choose(setting, i, cx), cx))
-                .into_any_element(),
             Control::Choice { options, look: Look::Dropdown, .. } => {
                 let chosen = setting.chosen(&self.store, &self.live);
                 let open = self.menu == Some(setting.id);
+                let focus = self.control_focus(setting.id, cx);
                 let button = action(setting.id, options.get(chosen).copied().unwrap_or_default())
+                    .track_focus(&focus)
                     .gap(px(6.))
-                    .child(icon("chevron-down", 12., TEXT_3))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.menu = (!open).then_some(setting.id);
-                        cx.notify();
-                    }));
+                    .when(open, |d| d.bg(FILL_3))
+                    .child(icon("chevron-down", 12., TEXT_3));
                 div()
                     .relative()
-                    .child(button)
+                    .child(dropdown::trigger(button, setting.id, open, cx))
                     .when(open, |d| d.child(ui::dropdown_right(30., dropdown_menu(setting, options, chosen, &self.store, &self.live, cx))))
                     .into_any_element()
             }
             Control::Stepper { min, max, step, unit, get, .. } => {
                 let n = get(&self.store);
                 let button = |id: &'static str, glyph: &'static str, by: i32, enabled: bool| {
-                    div()
+                    let b = div()
                         .id(SharedString::from(format!("{}-{id}", setting.id)))
                         .size(px(22.))
                         .flex()
@@ -754,14 +980,16 @@ impl Settings {
                         .rounded(px(5.))
                         .text_size(px(14.))
                         .text_color(if enabled { TEXT_2 } else { TEXT_4 })
-                        .when(enabled, |d| d.cursor_pointer().hover(|d| d.bg(FILL_3)))
+                        .when(enabled, |d| d.cursor_pointer().tab_index(0).hover(|d| d.bg(FILL_3)))
                         .child(glyph)
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             if enabled {
                                 this.set_number(setting, catalog::step(n, by, min, max), cx);
                             }
-                        }))
+                        }));
+                    focus_ring(b)
                 };
+                let value = self.numbers.get(setting.id).map(|f| Input::new(&f.input).appearance(false).p_0().text_size(px(12.5)));
                 div()
                     .h(px(26.))
                     .px(px(2.))
@@ -773,20 +1001,23 @@ impl Settings {
                     .child(button("less", "\u{2212}", -step, n > min))
                     .child(
                         div()
-                            .min_w(px(56.))
+                            .w(px(56.))
                             .flex()
+                            .items_center()
                             .justify_center()
                             .text_size(px(12.5))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(TEXT)
-                            .child(format!("{n}{unit}")),
+                            .child(div().w(px(30.)).children(value))
+                            .child(div().text_color(TEXT_2).child(unit.trim().to_string())),
                     )
                     .child(button("more", "+", step, n < max))
                     .into_any_element()
             }
             Control::Text { .. } => match self.fields.get(setting.id) {
                 Some(field) => field_box()
-                    .child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(field).appearance(false).p_0().text_size(px(12.))))
+                    .when(field.draft.error.is_some(), |d| d.shadow(vec![ui::ring(FAILED, 1.)]))
+                    .child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(&field.input).appearance(false).p_0().text_size(px(12.))))
                     .into_any_element(),
                 None => div().into_any_element(),
             },
@@ -796,16 +1027,18 @@ impl Settings {
                 let shown = field_box()
                     .child(icon("folder", 13., TEXT_3))
                     .child(div().flex_1().min_w_0().truncate().font_family(MONO).text_size(px(12.)).text_color(TEXT).child(crate::util::tilde(&path)));
-                let choose =
-                    action(SharedString::from(format!("{}-choose", setting.id)), "Choose…").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                let focus = self.control_focus(setting.id, cx);
+                let choose = action(SharedString::from(format!("{}-choose", setting.id)), "Choose…").track_focus(&focus).on_click(cx.listener(
+                    move |this, _: &ClickEvent, window, cx| {
                         this.pick_paths(true, window, cx, move |this, paths, cx| {
                             if let Some(p) = paths.into_iter().next() {
                                 this.set_path(setting, p.to_string_lossy().into_owned(), cx);
                             }
                         });
-                    }));
+                    },
+                ));
                 let reset = custom.then(|| {
-                    ui::link(SharedString::from(format!("{}-default", setting.id)), "Use default")
+                    hint_link(SharedString::from(format!("{}-default", setting.id)), "Use default")
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_path(setting, String::new(), cx)))
                 });
                 div().flex().items_center().gap(px(6.)).child(shown).child(choose).children(reset).into_any_element()
@@ -814,7 +1047,76 @@ impl Settings {
         }
     }
 
+    /// What the row adds around the page's own drawing of it: the Advanced tag and Saved tick, a hint that says why it
+    /// failed, is invalid or can't apply, and a reset while it's changed.
+    fn decor(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Decor {
+        let mut decor = Decor::default();
+        if setting.advanced {
+            decor.tags.push(tag("Advanced").into_any_element());
+        }
+        let field = self.fields.get(setting.id);
+        if field.is_some_and(|f| f.just_saved(std::time::Instant::now())) {
+            let saved = div().flex().items_center().gap(px(3.)).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(SUCCESS);
+            decor.tags.push(saved.child(icon("check", 11., SUCCESS)).child("Saved").into_any_element());
+        }
+        let invalid = field.and_then(|f| f.draft.error.clone());
+        let off = setting.off_in(&self.store);
+        decor.off = off.is_some();
+        decor.hint = if let Some(error) = self.saves.error(setting.id) {
+            let retry = error.retry.clone();
+            let link = hint_link(SharedString::from(format!("{}-retry", setting.id)), "Retry")
+                .text_color(TEXT)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.retry(&retry, cx)));
+            Some(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(4.))
+                    .text_color(FAILED_TEXT)
+                    .child(format!("{}.", error.message.trim_end_matches('.')))
+                    .child(link)
+                    .into_any_element(),
+            )
+        } else if let Some(error) = invalid {
+            Some(div().text_size(px(11.5)).text_color(FAILED_TEXT).child(error).into_any_element())
+        } else {
+            off.map(|off| {
+                let fix = off.fix.map(|(label, apply)| {
+                    hint_link(SharedString::from(format!("{}-fix", setting.id)), label)
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.write(Some(setting), cx, move |s, _| apply(s))))
+                });
+                div().flex().flex_wrap().gap(px(4.)).child(off.reason).children(fix).into_any_element()
+            })
+        };
+        if setting.is_changed(&self.store) {
+            let to = setting.default_value().unwrap_or_default();
+            let tip = format!("Reset to default ({to})");
+            let group = SharedString::from(format!("row-{}", setting.id));
+            let reset = div()
+                .id(SharedString::from(format!("{}-reset", setting.id)))
+                .size(px(24.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(6.))
+                .cursor_pointer()
+                .tab_index(0)
+                .opacity(0.)
+                .group_hover(group, |s| s.opacity(1.))
+                .hover(|s| s.bg(FILL_3))
+                .focus_visible(|s| s.opacity(1.).shadow(vec![ui::ring(ACCENT_GLOW, 2.)]))
+                .child(icon("discard", 13., TEXT_3))
+                .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.reset_row(setting, cx)));
+            decor.reset = Some(reset.into_any_element());
+        }
+        decor
+    }
+
     fn setting_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
+        let decor = self.decor(setting, cx);
+        let changed = setting.is_changed(&self.store);
+        DECOR.with_borrow_mut(|d| *d = Some(decor));
         let row = match setting.control {
             Control::Custom(draw) => draw(self, setting, cx),
             _ => {
@@ -827,24 +1129,20 @@ impl Settings {
                 row(title, note.as_deref().or(setting.hint), control)
             }
         };
-        row.when(self.found == Some(setting.id), |d| d.bg(ACCENT_TINT))
+        // A custom draw that drew no `row` leaves its decor unused.
+        DECOR.with_borrow_mut(|d| *d = None);
+        row.relative()
+            .group(SharedString::from(format!("row-{}", setting.id)))
+            .when(changed, |d| d.child(div().absolute().left(px(5.)).top_0().bottom_0().flex().items_center().child(ui::dot(5., TEXT))))
+            .when(self.found == Some(setting.id), |d| d.bg(ACCENT_TINT))
     }
 
-    /// A group's card: its rows the parent allows, Advanced ones only while open, else a line counting them.
+    /// A group's card: its rows the parent allows, Advanced ones only while the page shows them.
     fn setting_group(&mut self, section: Section, title: &'static str, cx: &mut Context<Self>) -> Option<Div> {
         let open = self.advanced_open(section);
-        let allowed: Vec<&'static Setting> = section.rows().iter().filter(|r| r.group == title && r.allowed(&self.store)).collect();
-        let hidden = if open { 0 } else { allowed.iter().filter(|r| r.advanced).count() };
-        let mut rows: Vec<Div> = allowed.into_iter().filter(|r| open || !r.advanced).map(|r| self.setting_row(r, cx)).collect();
-        if rows.is_empty() {
-            return None;
-        }
-        if hidden > 0 {
-            let more = more_in_advanced(SharedString::from(format!("settings-more-{title}")), hidden)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_advanced(section, true, cx)));
-            rows.push(div().child(more));
-        }
-        Some(group(title, rows))
+        let shown: Vec<&'static Setting> = section.rows().iter().filter(|r| r.group == title && r.allowed(&self.store) && (open || !r.advanced)).collect();
+        let rows: Vec<Div> = shown.into_iter().map(|r| self.setting_row(r, cx)).collect();
+        (!rows.is_empty()).then(|| group(title, rows))
     }
 
     /// Every group of the section's rows, in order.
@@ -852,84 +1150,134 @@ impl Settings {
         catalog::groups(section.rows()).into_iter().filter_map(|g| self.setting_group(section, g, cx)).collect()
     }
 
-    fn settings_footer(&mut self, section: Section, cx: &mut Context<Self>) -> Option<Div> {
-        let rows = section.rows();
-        let advanced = catalog::advanced_count(rows);
-        let resettable = rows.iter().any(|r| !matches!(r.control, Control::Custom(_)) || r.resets.is_some());
-        if advanced == 0 && !resettable {
+    /// The line under the toolbar's title.
+    fn subtitle(&self, section: Section) -> Option<SharedString> {
+        match section {
+            Section::Provider(_) => None,
+            s => Some(s.subtitle().into()),
+        }
+    }
+
+    /// Buttons a page puts in the toolbar, before Advanced.
+    #[expect(clippy::match_single_binding, reason = "each page that has toolbar buttons adds its arm")]
+    fn page_actions(&mut self, section: Section, _cx: &mut Context<Self>) -> Vec<AnyElement> {
+        match section {
+            _ => Vec::new(),
+        }
+    }
+
+    /// "Advanced 4" and its switch, for a page that has Advanced rows.
+    fn advanced_toggle(&mut self, section: Section, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let n = catalog::advanced_count(section.rows());
+        if n == 0 {
             return None;
         }
         let open = self.advanced_open(section);
-        let toggle = (advanced > 0).then(|| {
-            div()
-                .id("settings-advanced")
-                .h(px(28.))
-                .pl(px(8.))
-                .pr(px(10.))
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .rounded(px(7.))
-                .bg(FILL_2)
+        let toggle = div()
+            .id("settings-advanced")
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(8.))
+            .rounded(px(9.))
+            .cursor_pointer()
+            .tab_index(0)
+            .text_size(px(12.))
+            .text_color(TEXT_2)
+            .child("Show advanced")
+            .child(div().text_color(TEXT_4).child(n.to_string()))
+            .child(ui::toggle("settings-advanced-switch", open))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_advanced(section, !open, cx)));
+        Some(focus_ring(toggle))
+    }
+
+    /// The breadcrumb, with the page one level up as a link, then the page's subtitle on one line.
+    fn crumbs(&mut self, section: Section, cx: &mut Context<Self>) -> Div {
+        let up = section.parent().map(|parent| {
+            let link = div()
+                .id("settings-crumb-up")
+                .px(px(4.))
+                .py(px(2.))
+                .rounded(px(5.))
                 .cursor_pointer()
-                .hover(|d| d.bg(FILL_3))
-                .text_size(px(12.5))
+                .tab_index(0)
+                .text_color(TEXT_3)
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(TEXT_2)
-                .child(icon(if open { "chevron-down" } else { "chevron-right" }, 13., TEXT_3))
-                .child(if open { "Hide advanced settings" } else { "Show advanced settings" })
-                .child(div().font_weight(FontWeight::NORMAL).text_color(TEXT_4).child(format!("({advanced})")))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_advanced(section, !open, cx)))
+                .hover(|d| d.bg(FILL_2).text_color(TEXT))
+                .child(parent.label())
+                .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(format!("Back to {} (\u{2318}[)", parent.label())).build(window, cx))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.show_section(parent, cx)));
+            div().flex().items_center().gap(px(4.)).child(focus_ring(link)).child(div().text_color(TEXT_4).child("\u{203a}"))
         });
-        let reset = resettable.then(|| {
-            div()
-                .id("settings-reset")
-                .h(px(28.))
-                .px(px(10.))
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .rounded(px(7.))
-                .cursor_pointer()
-                .hover(|d| d.bg(FILL_2))
-                .text_size(px(12.5))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(TEXT_2)
-                .child(icon("discard", 13., TEXT_2))
-                .child(format!("Reset {} to defaults…", section.label()))
-                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                    cx.emit(SettingsEvent::Ask(Confirm::ResetSection(section)));
-                }))
-        });
-        Some(div().pt(px(6.)).px(px(2.)).flex().items_center().justify_between().gap(px(12.)).child(div().children(toggle)).children(reset))
+        let title =
+            div().flex().items_center().gap(px(4.)).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).children(up).child(section.label());
+        let subtitle = self.subtitle(section).filter(|s| !s.is_empty()).map(|s| div().mt(px(1.)).truncate().text_size(px(12.)).text_color(TEXT_3).child(s));
+        div().flex_1().min_w_0().flex().flex_col().child(title).children(subtitle)
+    }
+
+    /// "3 changes from default in General · Review & reset…", floated over the page's foot while anything differs.
+    fn change_bar(&mut self, section: Section, cx: &mut Context<Self>) -> Option<Div> {
+        let n = self.changed_in(section);
+        if n == 0 || section == Section::Keyboard {
+            return None;
+        }
+        let what = if n == 1 { "change" } else { "changes" };
+        let review = action("settings-reset", "Review & reset\u{2026}")
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Ask(Confirm::ResetSection(section)))));
+        let bar = ui::pop(div())
+            .id("settings-change-bar")
+            .occlude()
+            .pl(px(14.))
+            .pr(px(6.))
+            .py(px(6.))
+            .flex()
+            .items_center()
+            .gap(px(12.))
+            .rounded(px(12.))
+            .text_size(px(12.5))
+            .text_color(TEXT_2)
+            .whitespace_nowrap()
+            .child(div().flex().items_center().gap(px(6.)).child(ui::dot(6., TEXT)).child(format!("{n} {what} from default in {}", section.label())))
+            .child(review);
+        Some(div().absolute().left_0().right_0().bottom(px(16.)).flex().justify_center().child(bar))
     }
 
     fn settings_page(&mut self, cx: &mut Context<Self>) -> Div {
         let section = self.section;
         let words = self.query(cx);
-        let (title, column) = if words.is_empty() {
-            let body = match section {
+        let searching = !words.is_empty();
+        let column = if !searching {
+            match section {
                 Section::Keyboard => self.keybinding_settings(cx),
                 Section::Notifications => self.notification_settings(cx),
                 Section::Automations => self.automations_settings(cx),
                 Section::Accounts => self.accounts_settings(cx),
                 Section::Provider(i) => self.provider_page(i, cx),
                 _ => div().flex().flex_col().gap(px(22.)).children(self.setting_groups(section, cx)),
-            };
-            // Keyboard's Reset all sits above its list.
-            let footer = (section != Section::Keyboard).then(|| self.settings_footer(section, cx)).flatten();
-            let head = (section.nav() == section).then(|| header(section));
-            (breadcrumb(section), div().children(head).child(body).children(footer))
+            }
         } else {
-            ("Search results".into(), self.search_results(&words, cx))
+            self.search_results(&words, cx)
         };
+        let head = if searching {
+            div().flex_1().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child("Search results")
+        } else {
+            self.crumbs(section, cx)
+        };
+        let actions = if searching { Vec::new() } else { self.page_actions(section, cx) };
+        let advanced = (!searching).then(|| self.advanced_toggle(section, cx)).flatten();
         let bar = drag_area(ui::page_bar())
-            .px(px(16.))
+            .h(px(56.))
+            .px(px(22.))
+            .gap(px(12.))
             .border_b(px(0.5))
             .border_color(SEPARATOR)
-            .child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title));
-        let column = column.w_full().max_w(px(704.)).px(px(32.)).pt(px(26.)).pb(px(40.)).flex().flex_col().gap(px(22.));
+            .child(head)
+            .children(actions)
+            .children(advanced);
+        let changes = (!searching).then(|| self.change_bar(section, cx)).flatten();
+        let column = column.w_full().max_w(px(704.)).px(px(32.)).pt(px(22.)).pb(px(96.)).flex().flex_col().gap(px(22.));
         ui::page(div())
+            .relative()
             .flex_1()
             .min_w_0()
             .h_full()
@@ -937,11 +1285,16 @@ impl Settings {
             .flex_col()
             .child(bar)
             .child(div().id("settings-body").flex_1().min_h_0().overflow_y_scroll().child(div().w_full().flex().justify_center().child(column)))
+            .children(changes)
+            .children(self.toasts_view(cx))
     }
 }
 
 impl Render for Settings {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.resync {
+            self.sync_inputs(window, cx);
+        }
         self.settings_page(cx)
     }
 }
@@ -949,13 +1302,17 @@ impl Render for Settings {
 /// The sheet listing what Reset would put back.
 fn reset_sheet(section: Section, store: &Store) -> crate::modals::confirm::Sheet {
     let changes = catalog::changed(section.rows(), store);
-    let lead = match changes.len() {
-        0 => "Every setting here is already at its default.".to_string(),
-        1 => "Only this section changes. 1 setting you changed will go back:".to_string(),
-        n => format!("Only this section changes. {n} settings you changed will go back:"),
-    };
-    let lines = changes.into_iter().map(|c| (c.label.to_string(), format!("{} → {}", c.from, c.to))).collect();
+    let lead = reset_lead(changes.len());
+    let lines = changes.into_iter().map(|c| (c.label.to_string(), c.from, c.to)).collect();
     crate::modals::confirm::Sheet::Reset { title: format!("Reset {} to defaults?", section.label()), lead, lines }
+}
+
+fn reset_lead(n: usize) -> String {
+    match n {
+        0 => "Every setting here is already at its default.".to_string(),
+        1 => "1 setting goes back. Everything else here is already at its default.".to_string(),
+        n => format!("{n} settings go back. Everything else here is already at its default."),
+    }
 }
 
 impl Desktop {
@@ -1032,17 +1389,38 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Esc clears a search before it closes Settings.
+    /// Esc closes the innermost layer: a menu, then a recording, then the search, then Settings.
     pub(crate) fn escape_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.fleet.form.open {
             return self.close_add_host(window, cx);
         }
-        if self.settings.read(cx).search.read(cx).value().is_empty() {
-            return self.close_settings(window, cx);
+        match self.settings.read(cx).innermost(cx) {
+            Layer::Menu => self.settings.update(cx, |s, cx| {
+                (s.menu, s.account_menu, s.swatch) = (None, None, None);
+                cx.notify();
+            }),
+            Layer::Recording => self.settings.update(cx, |s, cx| {
+                s.keyboard.stop();
+                cx.notify();
+            }),
+            Layer::Search => {
+                self.settings.update(cx, |s, cx| s.clear_search(window, cx));
+                window.focus(&self.root, cx);
+            }
+            Layer::Settings => return self.close_settings(window, cx),
         }
-        self.settings.update(cx, |s, cx| s.clear_search(window, cx));
-        window.focus(&self.root, cx);
         cx.notify();
+    }
+
+    pub(crate) fn settings_up(&mut self, _: &crate::actions::SettingsUp, _: &mut Window, cx: &mut Context<Self>) {
+        if self.screen == Screen::Settings && !self.settings.update(cx, |s, cx| s.up(cx)) {
+            cx.propagate();
+        }
+    }
+
+    /// Shows `toast` inside Settings, where the main view's toasts can't be seen.
+    pub(crate) fn settings_toast(&mut self, toast: Toast, cx: &mut Context<Self>) {
+        self.settings.update(cx, |s, cx| s.toast(toast, cx));
     }
 
     pub(crate) fn focus_settings_search(&mut self, _: &crate::actions::FocusSearch, window: &mut Window, cx: &mut Context<Self>) {
@@ -1083,8 +1461,10 @@ impl Desktop {
             SettingsEvent::Shown(section) => self.load_section(*section, cx),
             SettingsEvent::Close => self.close_settings(window, cx),
             SettingsEvent::FocusRoot => window.focus(&self.root, cx),
-            SettingsEvent::Error(e) => {
-                self.fail(e.clone(), cx);
+            SettingsEvent::Error(e) => self.settings_toast(Toast::failed(e.clone(), None), cx),
+            SettingsEvent::SaveAgain => self.save_soon(cx),
+            SettingsEvent::Undo(undo) => {
+                (undo.0)(self, window, cx);
                 cx.notify();
             }
             SettingsEvent::Port { port, before } => self.set_port(*port, *before, window, cx),
@@ -1155,16 +1535,36 @@ impl Desktop {
         cx.notify();
     }
 
+    /// Puts the section back to its defaults, with a toast whose Undo restores each row still at its default.
     pub(crate) fn reset_section(&mut self, section: Section, window: &mut Window, cx: &mut Context<Self>) {
+        let before = self.store.settings_view();
         let moved = catalog::reset(section.rows(), &mut self.store);
-        for setting in &moved {
+        self.apply_moved(section, &moved, window, cx);
+        if moved.is_empty() {
+            return;
+        }
+        let n = moved.len();
+        let undo = Undo::new(move |d, window, cx| {
+            let back: Vec<&'static Setting> = moved.iter().copied().filter(|r| !r.is_changed(&d.store)).collect();
+            for r in &back {
+                r.restore(&mut d.store, &before);
+            }
+            d.apply_moved(section, &back, window, cx);
+        });
+        let text = if n == 1 { "Reset 1 setting".to_string() } else { format!("Reset {n} settings") };
+        self.settings_toast(Toast::undo(text, undo), cx);
+    }
+
+    /// Reruns the effects of the rows a reset or its Undo moved, and saves.
+    fn apply_moved(&mut self, section: Section, moved: &[&'static Setting], window: &mut Window, cx: &mut Context<Self>) {
+        for setting in moved {
             if let Some(apply) = setting.effect {
                 apply(self, cx);
             }
         }
         self.sync_settings(cx);
         let store = &self.store;
-        self.settings.update(cx, |s, cx| s.sync_fields(store, section, &moved, window, cx));
+        self.settings.update(cx, |s, cx| s.sync_fields(store, section, window, cx));
         self.save_soon(cx);
         cx.notify();
     }
@@ -1172,7 +1572,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Return, Section, breadcrumb, nav_groups};
+    use super::{Layer, Return, Section, innermost, nav_groups, reset_lead, segment_step};
     use crate::desktop::chrome::Screen;
 
     #[test]
@@ -1184,7 +1584,9 @@ mod tests {
     #[test]
     fn the_nav_groups_sections_by_what_they_set() {
         let groups: Vec<_> = nav_groups().into_iter().map(|(g, s)| (g, s.len())).collect();
-        assert_eq!(groups, [("App", 4), ("Agents", 5), ("Projects", 5), ("Git", 2)]);
+        assert_eq!(groups, [("App", 4), ("Agents", 3), ("Machines", 2), ("Projects", 5), ("Git", 2)]);
+        let workspace = nav_groups().into_iter().find(|(g, _)| *g == "Projects").map(|(_, s)| s.into_iter().map(Section::label).collect::<Vec<_>>());
+        assert_eq!(workspace.unwrap(), ["Projects", "Terminal", "Files & Editor", "Browser", "Sidebar & Inbox"]);
     }
 
     #[test]
@@ -1194,9 +1596,32 @@ mod tests {
     }
 
     #[test]
-    fn a_provider_s_page_sits_under_agents() {
+    fn a_provider_s_page_sits_one_level_under_agents() {
         assert_eq!((Section::Provider(0).nav(), Section::General.nav()), (Section::Agents, Section::General));
-        assert_eq!((breadcrumb(Section::Provider(1)), breadcrumb(Section::Git)), ("Agents \u{203a} Codex".to_string(), "Git & GitHub".to_string()));
+        assert_eq!((Section::Provider(1).parent(), Section::Agents.parent(), Section::Git.parent()), (Some(Section::Agents), None, None));
+    }
+
+    #[test]
+    fn esc_closes_a_menu_then_a_recording_then_the_search_then_settings() {
+        assert_eq!(innermost(true, true, true), Layer::Menu);
+        assert_eq!(innermost(false, true, true), Layer::Recording);
+        assert_eq!(innermost(false, false, true), Layer::Search);
+        assert_eq!(innermost(false, false, false), Layer::Settings);
+    }
+
+    #[test]
+    fn left_and_right_move_a_segmented_choice_and_stop_at_its_ends() {
+        assert_eq!(
+            [segment_step("right", 0, 2), segment_step("left", 1, 2), segment_step("left", 0, 2), segment_step("right", 2, 2)],
+            [Some(1), Some(0), None, None]
+        );
+        assert_eq!(segment_step("space", 1, 2), None);
+    }
+
+    #[test]
+    fn the_reset_sheet_counts_what_goes_back() {
+        assert_eq!(reset_lead(3), "3 settings go back. Everything else here is already at its default.");
+        assert_eq!(reset_lead(1), "1 setting goes back. Everything else here is already at its default.");
     }
 
     #[test]
