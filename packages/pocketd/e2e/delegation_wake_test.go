@@ -111,6 +111,26 @@ func TestAPromptToASettledChildIsAFollowUpWithItsOwnResultAndWake(t *testing.T) 
 	})
 }
 
+func TestAWakeCarryingAReportOfSeveralKilobytesKeepsItsOriginWhole(t *testing.T) {
+	h, phone, _, parent := chatClaude(t)
+	brief := "long " + strings.Repeat("the report keeps going ", 200)
+	args, _ := json.Marshal(map[string]any{"task": brief, "title": "Long"})
+	phone.Prompt(parent, "mcp delegate_task "+string(args))
+	task := settledAndWoken(h, phone, parent, "completed")
+	if len(task.Summary) < 4000 {
+		t.Fatalf("summary of %d bytes, want several KB", len(task.Summary))
+	}
+	var marked []acpItem
+	for _, it := range timelineItems(phone, parent) {
+		if it.Kind == "user" && strings.Contains(it.Text, task.TaskID) {
+			marked = append(marked, it)
+		}
+	}
+	if len(marked) != 1 || marked[0].Origin != orch.OriginWake || !strings.Contains(marked[0].Text, "\n"+strings.TrimSpace(task.Summary)) {
+		t.Fatalf("the wake %+v, want one origin wake item holding the %d-byte report", marked, len(task.Summary))
+	}
+}
+
 func TestAThreadWaitThatTimesOutSaysTheChildIsStillWorkingAndTheParentIsWokenWhenItSettles(t *testing.T) {
 	h, phone, _, parent := chatClaude(t)
 	phone.Prompt(parent, `mcp delegate_task {"task":"await release","title":"Held"}`)
