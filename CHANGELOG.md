@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.64
+
+- fix: run pocketd, its CLI and the desktop on Windows (#411): (04b8568a)
+- fix(browser): a closed tab's page leaves the window (#412): (d8a55ab0)
+- feat(inbox): the inbox opens as a popover from the bell (#409): (415de3da)
+- feat(settings): revamp Settings with live search, per-row reset and editable shortcuts (#408): (76f00a36)
+
 ## 0.1.63
 
 - fix(chat): see-through breadcrumb without a band, and a sent image fits its frame (#407): (a9548693)
