@@ -62,11 +62,12 @@ func chatACP(t *testing.T, provider string, extra map[string]any, opts ...func(*
 
 // acpItem is a timeline item with what the ACP tests read of its tool call.
 type acpItem struct {
-	Kind  string `json:"kind"`
-	Text  string `json:"text"`
-	OK    bool   `json:"ok"`
-	Error string `json:"error"`
-	Tasks []struct {
+	Kind   string `json:"kind"`
+	Text   string `json:"text"`
+	Origin string `json:"origin"`
+	OK     bool   `json:"ok"`
+	Error  string `json:"error"`
+	Tasks  []struct {
 		Text, Status string
 	} `json:"items"`
 	Call struct {

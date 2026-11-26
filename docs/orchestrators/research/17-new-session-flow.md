@@ -173,7 +173,7 @@ let mut args: Vec<String> = match (f.provider, f.perm) {
   - Footer rows "New project…" (L2459) and "Don't work in a project" (L2439).
   - Chip labels "No project" (L2936) and "No project selected" (L3384).
 - **Checkout model**
-  - The doc comment says "t3code's env-mode: `local | worktree`". "Current worktree" is deliberately not a third mode (Z crates/proto/src/view.rs:540).
+  - The doc comment names the env-mode `local | worktree`. "Current worktree" is deliberately not a third mode (Z crates/proto/src/view.rs:540).
   - `CheckoutKind` is `Local` (the default) or `NewWorktree` (L547).
   - The plan is `CurrentCheckout{branch}`, `ReuseWorktree{path,branch}`, or `NewWorktree{base}` (L557-571).
   - Labels are "New worktree", "Current worktree" (the picked ref has a worktree path), or "Current checkout" (L586).

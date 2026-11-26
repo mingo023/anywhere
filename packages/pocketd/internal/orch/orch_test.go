@@ -779,12 +779,17 @@ func TestAChildWhoseReplyLandsAfterItsTurnEndsPublishesThatReply(t *testing.T) {
 	}
 }
 
-func TestAChildTakingAnotherTurnWorksItsTaskAgainAndWakesTheParentOnceMore(t *testing.T) {
+func TestATurnTheChildStartsOnItsOwnLeavesItsSettledTaskAloneAndAPromptOpensAFollowUp(t *testing.T) {
 	s := openTest(t)
 	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	// As the host's does, a turn start returns once the turn it asked for began.
+	begun := make(chan struct{})
 	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
-		if e.Kind == EffLaunch {
+		switch {
+		case e.Kind == EffLaunch:
 			return map[string]any{"childId": "child-1"}, nil
+		case e.Kind == EffTurnStart && e.Lane == "child-1":
+			<-begun
 		}
 		return nil, nil
 	}}
@@ -796,11 +801,11 @@ func TestAChildTakingAnotherTurnWorksItsTaskAgainAndWakesTheParentOnceMore(t *te
 	}
 	var task Delegation
 	json.Unmarshal(r.Result, &task)
-	get := func() Delegation {
-		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
-		return ts[0]
+	tasks := func() []Delegation {
+		ts, _ := s.Delegations(`child_id = 'child-1' ORDER BY created_at, rowid`)
+		return ts
 	}
-	waitFor(t, func() bool { return get().Status == TaskWorking })
+	waitFor(t, func() bool { ts := tasks(); return len(ts) == 1 && ts[0].Status == TaskWorking })
 	k := NewSink(s)
 	defer k.Close()
 	k.OnTurn = e.OnTurn
@@ -810,38 +815,136 @@ func TestAChildTakingAnotherTurnWorksItsTaskAgainAndWakesTheParentOnceMore(t *te
 	k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
 	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
 	k.Flush()
-	waitFor(t, func() bool { return get().Status == TaskCompleted && deliveries() == 1 })
+	waitFor(t, func() bool { return tasks()[0].Status == TaskCompleted && deliveries() == 1 })
+	unchanged := func(when string) {
+		t.Helper()
+		time.Sleep(100 * time.Millisecond)
+		if ts := tasks(); len(ts) != 1 || ts[0].Status != TaskCompleted || ts[0].Summary != "Redirect fixed" || deliveries() != 1 {
+			t.Fatalf("%s changed the tasks: %+v, %d wakes", when, ts, deliveries())
+		}
+	}
 
 	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working", Compacting: true})
 	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
 	k.Flush()
-	time.Sleep(100 * time.Millisecond)
-	if g := get(); g.Status != TaskCompleted || g.Summary != "Redirect fixed" || deliveries() != 1 {
-		t.Fatalf("a compaction reopened the task: %+v", g)
-	}
+	unchanged("a compaction")
 
 	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
-	k.Flush()
-	waitFor(t, func() bool { return get().Status == TaskWorking })
-	if g := get(); g.SettledAt != 0 || g.Summary != "" {
-		t.Fatalf("reopened task kept its old result: %+v", g)
-	}
-	k.Item("child-1", 1, proto.Item{ID: "i3", Seq: 3, Kind: "assistant", Text: "Tests added too"})
-	k.Item("child-1", 1, proto.Item{ID: "i4", Seq: 4, Kind: "result", OK: true})
-	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
-	k.Flush()
-	waitFor(t, func() bool { return get().Status == TaskCompleted && deliveries() == 2 })
-	if g := get(); g.Summary != "Tests added too" {
-		t.Fatalf("summary %q", g.Summary)
-	}
-
-	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Item("child-1", 1, proto.Item{ID: "i3", Seq: 3, Kind: "notice", Text: "Monitor: CI · green"})
+	k.Item("child-1", 1, proto.Item{ID: "i4", Seq: 4, Kind: "assistant", Text: "CI went green"})
 	k.Item("child-1", 1, proto.Item{ID: "i5", Seq: 5, Kind: "result", OK: true})
 	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
 	k.Flush()
-	waitFor(t, func() bool { return get().Status == TaskCompleted && deliveries() == 3 })
-	if g := get(); g.Summary != "" {
-		t.Fatalf("a turn with no reply reported %q", g.Summary)
+	unchanged("a turn on a background notice")
+
+	if _, err := e.Dispatch(NewCommand("m1", CmdMessageSend, "child-1", SendPayload{Text: "Add a test"})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return strings.Contains(strings.Join(f.kinds(), " "), EffTurnStart+"@child-1") })
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Flush()
+	close(begun)
+	k.Item("child-1", 1, proto.Item{ID: "i6", Seq: 6, Kind: "user", Text: "Add a test"})
+	k.Item("child-1", 1, proto.Item{ID: "i7", Seq: 7, Kind: "assistant", Text: "Test added"})
+	k.Item("child-1", 1, proto.Item{ID: "i8", Seq: 8, Kind: "result", OK: true})
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { ts := tasks(); return len(ts) == 2 && ts[1].Status == TaskCompleted && deliveries() == 2 })
+	ts := tasks()
+	if ts[0].TaskID != task.TaskID || ts[0].Summary != "Redirect fixed" {
+		t.Fatalf("the settled task changed: %+v", ts[0])
+	}
+	if g := ts[1]; g.ParentID != "p" || g.Brief != "Add a test" || g.Summary != "Test added" || g.Delivery != DeliverDelivered {
+		t.Fatalf("follow-up %+v", g)
+	}
+}
+
+// followUpsAfter sends a settled child msg, whose turn start answers with start, runs the child's next turn, and
+// returns the child's tasks after the one it settled. sent, if set, runs once the turn start is done.
+func followUpsAfter(t *testing.T, msg SendPayload, start func() (map[string]any, error), sent func(*Store)) []Delegation {
+	t.Helper()
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		switch {
+		case e.Kind == EffLaunch:
+			return map[string]any{"childId": "child-1"}, nil
+		case e.Kind == EffTurnStart && e.Lane == "child-1":
+			return start()
+		}
+		return nil, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	if _, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "fix the redirect", Title: "Fix redirect"})); err != nil {
+		t.Fatal(err)
+	}
+	tasks := func() []Delegation {
+		ts, _ := s.Delegations(`child_id = 'child-1' ORDER BY created_at, rowid`)
+		return ts
+	}
+	waitFor(t, func() bool { ts := tasks(); return len(ts) == 1 && ts[0].Status == TaskWorking })
+	k := NewSink(s)
+	defer k.Close()
+	k.OnTurn = e.OnTurn
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Item("child-1", 1, proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Redirect fixed"})
+	k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { return tasks()[0].Status == TaskCompleted })
+	if _, err := e.Dispatch(NewCommand("m1", CmdMessageSend, "child-1", msg)); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool {
+		var n int
+		s.db.QueryRow(`SELECT COUNT(*) FROM outbox WHERE session_id = 'child-1' AND kind = ? AND state IN ('done', 'failed')`, EffTurnStart).Scan(&n)
+		return n == 1
+	})
+	if sent != nil {
+		sent(s)
+	}
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Item("child-1", 1, proto.Item{ID: "i3", Seq: 3, Kind: "assistant", Text: "Next reply"})
+	k.Item("child-1", 1, proto.Item{ID: "i4", Seq: 4, Kind: "result", OK: true})
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	time.Sleep(150 * time.Millisecond)
+	return tasks()[1:]
+}
+
+func started() (map[string]any, error) { return map[string]any{"started": true}, nil }
+
+func TestAPromptSentBeforeTheSinkRecordedTheTurnBeforeAsEndedStillOpensAFollowUp(t *testing.T) {
+	late := func(s *Store) {
+		s.db.Exec(`UPDATE turns SET ended_at = (SELECT MAX(created_at) + 5 FROM outbox WHERE session_id = 'child-1') WHERE session_id = 'child-1'`)
+	}
+	if fs := followUpsAfter(t, SendPayload{Text: "Add a test"}, started, late); len(fs) != 1 || fs[0].Summary != "Next reply" {
+		t.Fatalf("follow-ups %+v", fs)
+	}
+}
+
+func TestAWakeToASettledChildOpensAFollowUp(t *testing.T) {
+	if fs := followUpsAfter(t, SendPayload{Text: "Delegated task t9 reached a terminal state.", Origin: OriginWake}, started, nil); len(fs) != 1 || fs[0].Summary != "Next reply" {
+		t.Fatalf("follow-ups %+v", fs)
+	}
+}
+
+func TestAQuestionNoticeToASettledChildOpensNoFollowUp(t *testing.T) {
+	if fs := followUpsAfter(t, SendPayload{Text: "Delegated task t9 is blocked on a question.", Origin: OriginQuestion}, started, nil); len(fs) != 0 {
+		t.Fatalf("follow-ups %+v", fs)
+	}
+}
+
+func TestAPromptTheChildRefusedOpensNoFollowUp(t *testing.T) {
+	if fs := followUpsAfter(t, SendPayload{Text: "Add a test"}, func() (map[string]any, error) { return nil, errors.New("the agent is gone") }, nil); len(fs) != 0 {
+		t.Fatalf("follow-ups %+v", fs)
+	}
+}
+
+func TestAPromptThatStartsNoTurnOpensNoFollowUp(t *testing.T) {
+	if fs := followUpsAfter(t, SendPayload{Text: "/goal pause"}, func() (map[string]any, error) { return map[string]any{"turnless": true}, nil }, nil); len(fs) != 0 {
+		t.Fatalf("follow-ups %+v", fs)
 	}
 }
 

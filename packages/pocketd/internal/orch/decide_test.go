@@ -3,7 +3,9 @@ package orch
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func closedState() State {
@@ -184,35 +186,65 @@ func TestASettleForATurnOlderThanTheChildsLatestIsDropped(t *testing.T) {
 	}
 }
 
-func TestReopeningACancelledTaskClearsItsResultAndWakesNoOneYet(t *testing.T) {
-	task := Delegation{TaskID: "t1", ParentID: "p", ChildID: "c", Status: TaskCancelled, Summary: "Stopped by the user", SettledAt: 5, Delivery: DeliverDisposed}
-	d, err := decide(State{Task: &task}, NewCommand("", CmdDelegateReopen, "p", TaskPayload{TaskID: "t1"}))
-	if err != nil || len(d.Delegations) != 1 || len(d.Follow) != 0 {
+func TestAFollowUpIsANewTaskAndTheSettledOneKeepsItsResult(t *testing.T) {
+	task := Delegation{TaskID: "t1", ParentID: "p", ChildID: "c", Title: "Fix redirect", Mode: "wait", Status: TaskCompleted, Summary: "Fixed", SettledAt: 5, Delivery: DeliverDelivered}
+	d, err := decide(State{Task: &task, Now: 9}, NewCommand("f1", CmdDelegateFollow, "p", TaskPayload{TaskID: "t1", Brief: "Add a test"}))
+	if err != nil || len(d.Delegations) != 1 {
 		t.Fatalf("decision %+v %v", d, err)
 	}
-	if g := d.Delegations[0]; g.Status != TaskWorking || g.Summary != "" || g.SettledAt != 0 || g.Delivery != DeliverNone {
-		t.Fatalf("reopened %+v", g)
+	f := d.Delegations[0]
+	if f.TaskID == "t1" || f.ParentID != "p" || f.ChildID != "c" || f.Title != "Fix redirect" || f.Brief != "Add a test" || f.Mode != "async" ||
+		f.Status != TaskWorking || f.Summary != "" || f.SettledAt != 0 || f.Delivery != DeliverNone || f.CreatedAt != 9 {
+		t.Fatalf("follow-up %+v", f)
 	}
 	working := Delegation{TaskID: "t1", Status: TaskWorking}
-	if d, _ := decide(State{Task: &working}, NewCommand("", CmdDelegateReopen, "p", TaskPayload{TaskID: "t1"})); len(d.Delegations) != 0 {
-		t.Fatalf("a working task reopened: %+v", d.Delegations)
+	if d, _ := decide(State{Task: &working}, NewCommand("f2", CmdDelegateFollow, "p", TaskPayload{TaskID: "t1"})); len(d.Delegations) != 0 {
+		t.Fatalf("a working task took a follow-up: %+v", d.Delegations)
 	}
 }
 
-func TestReopeningATaskTakesItOutOfTheWakeStillQueued(t *testing.T) {
-	task := Delegation{TaskID: "t1", ParentID: "p", Status: TaskCompleted, Delivery: DeliverQueued}
+func TestReadingAResultTakesItsTaskOutOfTheWakeStillQueued(t *testing.T) {
+	t1 := Delegation{TaskID: "t1", ParentID: "p", Status: TaskCompleted, Summary: "one", Delivery: DeliverQueued}
+	t2 := Delegation{TaskID: "t2", ParentID: "p", Status: TaskCompleted, Summary: "two", Delivery: DeliverQueued}
 	queue := []QueueEntry{
-		{ID: "w1", Origin: OriginWake, State: EntryPending, Refs: []string{"t1", "t2"}, Text: WakeText([]string{"t1", "t2"})},
-		{ID: "w2", Origin: OriginWake, State: EntryPending, Refs: []string{"t1"}, Text: WakeText([]string{"t1"})},
+		{ID: "w1", Origin: OriginWake, State: EntryPending, Refs: []string{"t1", "t2"}, Text: WakeText([]Delegation{t1, t2})},
+		{ID: "w2", Origin: OriginWake, State: EntryPending, Refs: []string{"t1"}, Text: WakeText([]Delegation{t1})},
 	}
-	d, err := decide(State{Task: &task, Queue: queue}, NewCommand("", CmdDelegateReopen, "p", TaskPayload{TaskID: "t1"}))
-	if err != nil || len(d.Queue) != 2 {
-		t.Fatalf("queue %+v %v", d.Queue, err)
+	d, err := decide(State{Task: &t1, Queue: queue, Children: []Delegation{t1, t2}}, NewCommand("", CmdDelegateWaited, "p", TaskPayload{TaskID: "t1"}))
+	if err != nil || len(d.Queue) != 2 || len(d.Delegations) != 1 || d.Delegations[0].Delivery != DeliverReturned {
+		t.Fatalf("decision %+v %v", d, err)
 	}
-	if w := d.Queue[0]; w.State != EntryPending || !slices.Equal(w.Refs, []string{"t2"}) || w.Text != WakeText([]string{"t2"}) {
+	if w := d.Queue[0]; w.State != EntryPending || !slices.Equal(w.Refs, []string{"t2"}) || w.Text != WakeText([]Delegation{t2}) {
 		t.Fatalf("shared wake %+v", w)
 	}
 	if d.Queue[1].State != EntryCancelled {
 		t.Fatalf("its own wake %+v", d.Queue[1])
+	}
+	delivered := t1
+	delivered.Delivery = DeliverDelivered
+	if d, _ := decide(State{Task: &delivered}, NewCommand("", CmdDelegateWaited, "p", TaskPayload{TaskID: "t1"})); len(d.Delegations) != 0 {
+		t.Fatalf("a delivered wake was read again: %+v", d.Delegations)
+	}
+}
+
+func TestAWakeCarriesEachReportAndCutsOneTooLong(t *testing.T) {
+	done := Delegation{TaskID: "t1", Title: "Fix redirect", Status: TaskCompleted, Summary: "Fixed in auth.ts\nTests pass"}
+	failed := Delegation{TaskID: "t2", Title: "Bump deps", Status: TaskFailed, Error: "rate limited"}
+	text := WakeText([]Delegation{done, failed})
+	for _, want := range []string{"Delegated tasks t1, t2 reached a terminal state.", "t1 (\"Fix redirect\") completed:\nFixed in auth.ts\nTests pass", "t2 (\"Bump deps\") failed (rate limited), with no report."} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("wake lacks %q:\n%s", want, text)
+		}
+	}
+	long := done
+	long.Summary = strings.Repeat("é", wakeReports)
+	text = WakeText([]Delegation{long})
+	if len(text) > wakeReports+300 || !utf8.ValidString(text) || !strings.HasSuffix(text, "[Cut short; task_status has the whole report.]") {
+		t.Fatalf("a long report: %d bytes, valid %v, ends %q", len(text), utf8.ValidString(text), text[len(text)-60:])
+	}
+	edge := done
+	edge.Summary = strings.Repeat("a", wakeReports)
+	if strings.Contains(WakeText([]Delegation{edge}), "Cut short") {
+		t.Fatal("a report exactly at the bound was cut")
 	}
 }

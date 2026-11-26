@@ -103,8 +103,11 @@ func openOrchestrator(home string, settings *config.Settings, reg *agent.Registr
 		for _, t := range c.Delegations {
 			h.Publish(proto.NewDelegationUpdate(t.ParentID, wsserver.WireDelegation(e, t)))
 			if t.ChildID != "" {
+				// A change to an older task of the child, as its read result, leaves the child showing its newest.
 				if a, err := reg.Get(t.ChildID); err == nil {
-					a.SetDelegation(&proto.DelegationRef{TaskID: t.TaskID, Status: t.Status, WorkState: t.WorkState})
+					if ref := e.Store().Lineage(t.ChildID).Delegation; ref != nil {
+						a.SetDelegation(ref)
+					}
 				}
 			}
 		}

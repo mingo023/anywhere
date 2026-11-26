@@ -115,11 +115,15 @@ func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
 	case orch.EffTurnStart:
 		var p orch.TurnPayload
 		json.Unmarshal(e.Payload, &p)
-		if err := prompt(ctx, a, p); err != nil {
+		started, err := prompt(ctx, a, p)
+		if err != nil {
 			return nil, err
 		}
 		if t, ok := a.Driver().(agent.Turnless); ok && t.Turnless(p.Text) {
 			return map[string]any{"turnless": true}, nil
+		}
+		if started {
+			return map[string]any{"started": true}, nil
 		}
 		return nil, nil
 	case orch.EffInterrupt:
@@ -205,7 +209,7 @@ func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
 // prompt starts a turn with p. A wake or notice to a session still resuming
 // from a restart waits until it has, since nobody sends it again; the user's
 // own prompt is refused at once, as before.
-func prompt(ctx context.Context, a *agent.Agent, p orch.TurnPayload) error {
+func prompt(ctx context.Context, a *agent.Agent, p orch.TurnPayload) (started bool, err error) {
 	own := p.Origin != "" && p.Origin != orch.OriginUser
 	if own {
 		a.Timeline.Expect(p.Text, p.Origin)
@@ -222,13 +226,14 @@ func prompt(ctx context.Context, a *agent.Agent, p orch.TurnPayload) error {
 		err := d.Prompt(p.Text)
 		if t, ok := d.(agent.Turnless); err == nil && idle && !(ok && t.Turnless(p.Text)) {
 			began(ctx, a, starts)
+			started = true
 		}
 		if !errors.Is(err, agent.ErrResuming) || p.Origin == orch.OriginUser {
-			return unsent(err)
+			return started, unsent(err)
 		}
 		select {
 		case <-ctx.Done():
-			return unsent(err)
+			return false, unsent(err)
 		case <-time.After(200 * time.Millisecond):
 		}
 	}

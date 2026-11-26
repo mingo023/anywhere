@@ -105,6 +105,7 @@ pub enum Outcome {
 pub struct Child {
     /// Its agent id, which opens it.
     pub id: String,
+    pub task_id: String,
     pub title: String,
     /// Its provider.
     pub agent: String,

@@ -4,7 +4,6 @@
 
 **Read first:**
 - `docs/plans/2026-11-16-orchestrator.md`: Decisions → Group B and C.
-- T3 `f8c8f30e`: `docs/orchestration-v2/thread-lineage-and-context-transfer.md`, `provider-switching-and-context.md`, `apps/server/src/mcp/toolkits/thread/tools.ts` (`t3_thread_transfer`).
 - `packages/pocketd/internal/naming`, `internal/wsserver/retitle.go`.
 - `packages/pocketd/internal/automation` (store, scheduler, launch).
 - `packages/desktop/crates/hosts` (`link.rs`, `ssh.rs`, `install.rs`, `owner.rs`), `docs/plans/2026-10-12-remote-hosts.md`.

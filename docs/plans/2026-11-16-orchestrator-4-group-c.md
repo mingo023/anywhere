@@ -5,7 +5,6 @@
 **Read first:**
 - `docs/plans/2026-11-16-orchestrator.md`: Decisions → Group B and C.
 - `packages/pocketd/internal/timeline/timeline.go` (`Lasting`, `LastingAgents`), `internal/daemon/stream.go:435` (`interrupt`, `stop_task`).
-- T3 `f8c8f30e`: `apps/server/src/mcp/toolkits/orchestrator/tools.ts` (`t3_background_wait`, `t3_workflow_stop`).
 
 ---
 

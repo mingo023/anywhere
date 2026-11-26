@@ -20,7 +20,8 @@ pub struct Item {
     pub items: Vec<TaskItem>,
     /// A compact's: "manual" or "auto".
     pub trigger: String,
-    /// A delivery's: the sessions, titles and agents pocketd told the chat of, side by side.
+    /// A delivery's: the tasks, sessions, titles and agents pocketd told the chat of, side by side.
+    pub task_ids: Vec<String>,
     pub child_ids: Vec<String>,
     pub titles: Vec<String>,
     pub agents: Vec<String>,

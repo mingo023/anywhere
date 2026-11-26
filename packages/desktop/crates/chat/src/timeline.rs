@@ -239,7 +239,9 @@ fn delivered(item: &Item) -> Option<Delivered> {
         _ => return None,
     };
     let at = |list: &[String], i: usize| list.get(i).cloned().unwrap_or_default();
-    let children = (0..item.child_ids.len()).map(|i| Child { id: item.child_ids[i].clone(), title: at(&item.titles, i), agent: at(&item.agents, i) }).collect();
+    let children = (0..item.child_ids.len())
+        .map(|i| Child { id: item.child_ids[i].clone(), task_id: at(&item.task_ids, i), title: at(&item.titles, i), agent: at(&item.agents, i) })
+        .collect();
     Some(Delivered { id: item.id.clone(), outcome, question: item.question.clone(), children })
 }
 
@@ -661,10 +663,10 @@ mod tests {
     #[test]
     fn a_delivery_item_becomes_a_block_naming_each_session_and_an_unknown_outcome_none() {
         let t = fold(&items(json!([
-            {"kind": "delivery", "outcome": "asks", "question": "Which test runner?", "childIds": ["a2", "a3"], "titles": ["Write the tests", "Review"], "agents": ["codex", "claude"]},
+            {"kind": "delivery", "outcome": "asks", "question": "Which test runner?", "taskIds": ["task-a2", "task-a3"], "childIds": ["a2", "a3"], "titles": ["Write the tests", "Review"], "agents": ["codex", "claude"]},
             {"kind": "delivery", "outcome": "paused", "childIds": ["a4"]},
         ])));
-        let child = |id: &str, title: &str, agent: &str| Child { id: id.into(), title: title.into(), agent: agent.into() };
+        let child = |id: &str, title: &str, agent: &str| Child { id: id.into(), task_id: format!("task-{id}"), title: title.into(), agent: agent.into() };
         assert_eq!(
             t.turns[0].blocks,
             vec![Block::Delivered(Delivered {

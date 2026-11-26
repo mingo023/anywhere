@@ -425,7 +425,7 @@ func (e *Engine) load(tx *Tx, cmd Command) (State, error) {
 			st.Task = &ts[0]
 		}
 	case cmd.Kind == CmdRequestOpen || cmd.Kind == CmdRequestClose:
-		ts, err := loadDelegations(tx, `child_id = ? ORDER BY created_at DESC LIMIT 1`, cmd.Session)
+		ts, err := loadDelegations(tx, `child_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, cmd.Session)
 		if err != nil {
 			return st, err
 		}

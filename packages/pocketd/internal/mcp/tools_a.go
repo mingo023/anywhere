@@ -117,6 +117,7 @@ type taskView struct {
 	EnvironmentID      string   `json:"environmentId,omitempty"`
 	HasPendingQuestion bool     `json:"hasPendingQuestion"`
 	WaitTimedOut       bool     `json:"waitTimedOut"`
+	LatestReply        string   `json:"latestReply,omitempty"`
 	Next               string   `json:"next,omitempty"`
 	Warnings           []string `json:"warnings,omitempty"`
 }
@@ -203,13 +204,13 @@ func groupA() []Tool {
 			Schema:      `{"type":"object","properties":{"search":{"type":"string","description":"Filter models by this text."}}}`,
 			Run:         capabilities},
 		{Name: "delegate_task", Group: "A",
-			Description: "Start a child session on any agent with a brief, in a new worktree by default. mode 'async' (default) wakes you when it finishes; 'wait' returns the result if it lands within 45 s. The child runs with your access.",
+			Description: "Start a child session on any agent with a brief, in a new worktree by default. mode 'async' (default) wakes you with its report when it finishes; 'wait' returns the result if it lands within 45 s. The child runs with your access.",
 			Schema: `{"type":"object","required":["task"],"properties":{"task":{"type":"string","description":"The brief: the child's only prompt."},"target":` + targetSchema + `,"title":{"type":"string"},"role":{"type":"string","enum":["implementation","research","review","design","test","general"]},` +
 				`"isolation":{"type":"string","enum":["worktree","shared"],"description":"'worktree' (default): a new worktree from your HEAD commit; uncommitted edits stay out. 'shared': your checkout."},` +
 				`"mode":{"type":"string","enum":["async","wait"]},"completionWake":{"type":"string","enum":["settled_only","always"],"description":"'always' also wakes you when the task is cancelled."},"timeoutMs":{"type":"number","description":"wait only; at most 45000."},"clientRequestId":{"type":"string"}}}`,
 			Run: delegateTask},
 		{Name: "task_status", Group: "A",
-			Description: "Read delegated tasks: status, result summary when settled, and whether one is blocked on a question.",
+			Description: "Read delegated tasks: status, result summary when settled, the child's latest reply when it said more since, and whether one is blocked on a question. A message to a settled child opens a follow-up task, with its own id and result.",
 			Schema:      `{"type":"object","properties":{"taskId":{"type":"string"},"taskIds":{"type":"array","items":{"type":"string"}}}}`,
 			Run:         taskStatus},
 		{Name: "task_cancel", Group: "A",
@@ -416,6 +417,7 @@ func taskStatus(ctx context.Context, c *Call) (any, error) {
 		}
 	}
 	var out []taskView
+	var read []string
 	for _, id := range ids {
 		t, err := task(c, id)
 		if err != nil {
@@ -426,7 +428,22 @@ func taskStatus(ctx context.Context, c *Call) (any, error) {
 		}
 		v := viewTask(t)
 		v.Warnings = unreachable(c, t)
+		if t.Terminal() && t.ChildID != "" {
+			store := c.Host.Engine().Store()
+			// A follow-up's words are its own task's; only the child's newest task reads them.
+			newest, _ := store.Delegations(`child_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, t.ChildID)
+			if reply := store.LatestReply(t.ChildID); len(newest) == 1 && newest[0].TaskID == t.TaskID && reply != t.Summary {
+				v.LatestReply = reply
+			}
+		}
+		if t.Terminal() && t.ParentID == c.Caller.ID && (t.Delivery == orch.DeliverPending || t.Delivery == orch.DeliverQueued || t.Delivery == orch.DeliverWaiting) {
+			read = append(read, t.TaskID)
+		}
 		out = append(out, v)
+	}
+	// Only a call that returns the results has them read.
+	for _, id := range read {
+		c.Host.Engine().Dispatch(orch.NewCommand("", orch.CmdDelegateWaited, c.Caller.ID, orch.TaskPayload{TaskID: id}))
 	}
 	return map[string]any{"tasks": out}, nil
 }
