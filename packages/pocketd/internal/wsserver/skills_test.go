@@ -62,6 +62,7 @@ func TestSkillsListRefusesAFolderThatIsntAProject(t *testing.T) {
 func TestSkillsListSendsTheAccountsSkillsForHomeBeforeASessionHasAProject(t *testing.T) {
 	home, opt := withSkills(t, t.TempDir())
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	skill := filepath.Join(home, ".claude", "skills", "ship", "SKILL.md")
 	os.MkdirAll(filepath.Dir(skill), 0o755)
 	os.WriteFile(skill, []byte("---\ndescription: Ship it\n---\n"), 0o644)

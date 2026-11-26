@@ -25,6 +25,7 @@ func TestHomeStandsForASessionWithNoProjectButAnotherFolderIsRefused(t *testing.
 	l := launcher(t, `["/p"]`)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	l.d.Accounts = &accounts.Store{Root: filepath.Join(home, "accounts"), Home: home}
 	if dir, err := l.ConfigDir("claude", "", home); err != nil || dir != filepath.Join(home, ".claude") {
 		t.Fatalf("home: %q, %v", dir, err)
@@ -37,6 +38,7 @@ func TestHomeStandsForASessionWithNoProjectButAnotherFolderIsRefused(t *testing.
 func TestHomeIsAProjectOnceItIsOne(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	if launcher(t, `[`+strconv.Quote(home)+`]`).Projectless(home) {
 		t.Fatal("home as a project was taken for none")
 	}
