@@ -128,7 +128,9 @@ func TestAWorktreeHandedOffUnderAnotherMacsProjectNameIsDeletedFromTheDesktop(t 
 	h := Start(t, launchReady(""))
 	tree := filepath.Join(h.Home, ".anywhere", "worktrees", "coding-pocket", "feat")
 	gitOut(t, h.Repo, "worktree", "add", "-q", "-b", "feat", tree)
-	os.WriteFile(filepath.Join(gitOut(t, tree, "rev-parse", "--absolute-git-dir"), "anywhere"), nil, 0o644)
+	if err := os.WriteFile(filepath.Join(gitOut(t, tree, "rev-parse", "--absolute-git-dir"), "anywhere"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	desktop := h.Owner(proto.CapWorkspace, proto.CapWorktrees)
 	for _, m := range []map[string]any{

@@ -292,7 +292,9 @@ func TestAWorktreeHandedOffUnderAnotherMacsProjectNameCanBeDeleted(t *testing.T)
 	_, _, p := local(t, aPhone, withWorkspace(t, &b))
 	wt := filepath.Join(b.root, "coding-pocket", "feat")
 	gitOut(t, b.project, "worktree", "add", "-q", "-b", "feat", wt)
-	os.WriteFile(filepath.Join(gitOut(t, wt, "rev-parse", "--absolute-git-dir"), "anywhere"), nil, 0o644)
+	if err := os.WriteFile(filepath.Join(gitOut(t, wt, "rev-parse", "--absolute-git-dir"), "anywhere"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	helloWith(p, proto.CapWorkspace, proto.CapWorktrees)
 	p.send(`{"type":"worktree.inspect","id":"wi","path":"` + wt + `"}`)
 	if m := p.reply("wi"); m["type"] != "worktree.inspect" {
