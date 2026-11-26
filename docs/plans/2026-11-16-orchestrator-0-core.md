@@ -4,7 +4,6 @@
 
 **Read first:**
 - `docs/plans/2026-11-16-orchestrator.md`: Decisions, Contracts → Store, Engine, Wire additions.
-- T3 `f8c8f30e`: `docs/internals/overview.md` ("Durable intent and side effects"), `apps/server/src/orchestration-v2/EffectOutbox.ts` (`claimNext`), `EventSink.ts`, `EffectWorker.ts`.
 - `packages/pocketd/internal/skills/store.go`: the SQLite pattern.
 - `packages/pocketd/internal/agent/agent.go`: `Driver`, the optional driver interfaces, `Registry`, and `OnStatus`, which runs under the agent's lock (`:131`, `:352`).
 - `packages/pocketd/internal/daemon/stream.go`, `codex_chat.go`, `acp_chat.go`, `pi_chat.go`: the chat drivers.

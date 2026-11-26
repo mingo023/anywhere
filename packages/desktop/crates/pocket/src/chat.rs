@@ -31,6 +31,7 @@ mod tool_detail;
 pub(crate) mod tool_row;
 pub(crate) mod transcript;
 pub(crate) mod user_bubble;
+pub(crate) mod workflow;
 mod working;
 
 use crate::desktop::Desktop;

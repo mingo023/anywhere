@@ -667,11 +667,6 @@ pub fn marquee(
     div().relative().w_full().min_w_0().flex().overflow_hidden().child(measure).child(label)
 }
 
-/// The accent line a dragged row lands on: under the row when moving down, over it when moving up.
-pub fn drop_line(below: bool) -> Vec<BoxShadow> {
-    vec![BoxShadow { inset: true, ..shadow(ACCENT, if below { -2. } else { 2. }, 0.) }]
-}
-
 pub fn provider_label(provider: &str, faded: bool) -> Div {
     div()
         .flex()

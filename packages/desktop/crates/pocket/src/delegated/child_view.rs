@@ -4,6 +4,7 @@ use crate::desktop::chrome::Screen;
 use crate::status;
 use agents::Summary;
 use chrono::{Local, TimeZone};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::fmt::Display;
 use theme::*;
@@ -32,7 +33,8 @@ where
     if at > 0 { format!("Delegated by {by} \u{b7} {}", clock(at, tz)) } else { format!("Delegated by {by}") }
 }
 
-/// `‹ <chat> / <session>` over the top of a delegated session's chat, which fades out beneath it; Back is the chat that delegated it.
+/// `‹ <chat> / <session>` over the top of a delegated session's chat; Back is the chat that delegated it.
+/// The chat fades out beneath it, or on a see-through page, stops at its edge.
 #[derive(Clone)]
 pub(crate) struct Crumb {
     parent: String,
@@ -77,7 +79,7 @@ impl Render for Crumb {
             .right_0()
             .h(px(CRUMB_H))
             .px(px(14.))
-            .bg(linear_gradient(180., linear_color_stop(solid, 0.55), linear_color_stop(solid.opacity(0.), 1.)))
+            .when(!see_through(), |d| d.bg(linear_gradient(180., linear_color_stop(solid, 0.55), linear_color_stop(solid.opacity(0.), 1.))))
             .block_mouse_except_scroll()
             .flex()
             .items_center()

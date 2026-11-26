@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.63
+
+- fix(chat): see-through breadcrumb without a band, and a sent image fits its frame (#407): (a9548693)
+- feat(pocketd): follow-up tasks, and wakes that carry the report (#403): (5a97bea3)
+- fix(pocketd): settle a delegated task after its queued prompt, and keep each wake's origin (#398): (783d8ddd)
+- fix: find a handed-off worktree's project by its repo (#406): (0b926aef)
+- feat(chat): a sent prompt reads Thinking… until the agent's turn shows (#405): (acdb7bf0)
+- feat: show a Claude workflow's progress in the Inspector (#401): (f89a4087)
+- Landing page demo plays three stories on its own, on any screen (#404): (3e8a34f4)
+- feat(sidebar): dragged rows slide like tabs do (#400): (164fe01f)
+- feat(pocketd): keep pocketd's state in state/pocketd.db (#397): (84d52ab9)
+- fix: show a thread another desktop made under Threads (#396): (8a9f4f61)
+
 ## 0.1.62
 
 - A delegated session that takes another turn works its task again (#394): (49bd1df3)

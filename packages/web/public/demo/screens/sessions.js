@@ -354,6 +354,9 @@ function send(api) {
   play(api, r, [['tool', 'Read', 'src/app.tsx'], ['say', REPLIES[replies++ % REPLIES.length]]], 'done', 1000);
 }
 
+// Other screens that show a session's chat draw its replies the same way.
+D.api.richText = (src) => richText(src);
+
 D.register('sessions', {
   sessionScreen: true,
   tour: 'sessions',

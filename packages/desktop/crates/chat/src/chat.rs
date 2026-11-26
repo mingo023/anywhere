@@ -12,12 +12,13 @@ mod rows;
 mod session;
 mod spawned;
 mod timeline;
+pub mod workflow;
 
 pub use adapter::{Backend, Capabilities, capabilities, for_provider};
 pub use answers::answers;
 pub use commands::{Builtin, Kind, Local, Slash, menu, skips_queue, slash};
 pub use marks::{Code, Marks, code, marks, marks_outside_code, mention_name};
-pub use outgoing::{Action, Delivery, Outgoing, Pending, action, busy, trail_text};
+pub use outgoing::{Action, Delivery, Outgoing, Pending, action, busy};
 pub use rows::{
     Row, Span, at_work, at_work_on, fold_of, folded, in_background, is_work, live_tail, markdown_blocks, narrates, phase_title, reply, reported, row_of, rows,
     running_agent, settled_tail, splice, step_prompt, top_gap, worked,
@@ -104,6 +105,7 @@ pub enum Outcome {
 pub struct Child {
     /// Its agent id, which opens it.
     pub id: String,
+    pub task_id: String,
     pub title: String,
     /// Its provider.
     pub agent: String,
@@ -154,6 +156,7 @@ pub enum ToolKind {
     },
     Question(Vec<Question>),
     Agent(SubAgent),
+    Workflow(workflow::Workflow),
     /// Any other tool; `input` is its JSON input, pretty-printed, and `description` what it is about in words, when known.
     Other {
         input: String,
@@ -170,6 +173,8 @@ pub struct SubAgent {
     pub model: String,
     /// The context it last answered from; 0 until it first replies.
     pub tokens: u64,
+    /// The phase of its workflow it runs in; empty outside one.
+    pub phase: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

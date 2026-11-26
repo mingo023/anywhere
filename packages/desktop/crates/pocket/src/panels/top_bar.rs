@@ -1,7 +1,8 @@
 use super::frame::{BarFrame, Drawing};
-use super::strip::{DragTop, GAP, TabDrag, slots};
+use super::strip::{DragTop, GAP, slots};
 use super::{Panels, PanelsEvent, rect};
 use crate::desktop::chrome::drag_area;
+use crate::slide::Slide;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::time::Instant;
@@ -15,7 +16,7 @@ pub(crate) struct TopBar {
     /// The worktree and tab last scrolled into view, so it is revealed once per switch rather than every frame.
     revealed: Option<(String, usize)>,
     /// The top tab held on the bar.
-    drag: Option<TabDrag>,
+    drag: Option<Slide>,
     pub(super) bounds: Rect,
     shown: usize,
 }
@@ -89,7 +90,7 @@ impl TopBar {
                 window.request_animation_frame();
             }
         }
-        let held = self.drag.as_ref().and_then(TabDrag::held);
+        let held = self.drag.as_ref().and_then(Slide::held);
         let offsets = self.drag.as_ref().map(|d| d.offsets.clone()).unwrap_or_default();
         let tabs: Vec<_> = tabs
             .into_iter()
@@ -200,7 +201,7 @@ impl TopBar {
                 move |_, grab, window, cx| {
                     let pointer = f32::from(window.mouse_position().x);
                     this.update(cx, |this, cx| {
-                        this.drag = Some(TabDrag::new(i, grab.x.into(), pointer));
+                        this.drag = Some(Slide::new(i, grab.x.into(), pointer, GAP));
                         cx.emit(TopEvent::Grabbed);
                     })
                     .ok();

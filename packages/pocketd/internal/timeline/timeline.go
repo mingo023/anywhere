@@ -39,6 +39,8 @@ type Event struct {
 	HostLink *proto.HostLink
 	// Limit marks a result that the account's usage limit ended.
 	Limit bool
+	// Run is the workflow run a Workflow call's tool_background launched.
+	Run string
 	// Detached marks a tool_background no turn waits for: its end takes no turn of the agent's, or may never come.
 	Detached bool
 	// Steer marks a user item the agent took into the turn under way, which goes on with the calls it left open.
@@ -60,8 +62,8 @@ type Timeline struct {
 	detached map[string]bool
 	// tasks maps a background call's task id to its index in items.
 	tasks map[string]int
-	// expected maps a message pocketd is sending the agent to its origin, until its user item shows.
-	expected map[string]string
+	// expected maps a message pocketd is sending the agent to the origins of its copies in flight, oldest first, until their user items show.
+	expected map[string][]string
 	// drafts holds, per kind, the items Claude's stream opened that its transcript hasn't written yet, oldest first.
 	drafts map[string][]int
 	// draft names the streamed block each open draft item grows from.
@@ -311,19 +313,31 @@ func (t *Timeline) Unanswered() bool {
 	return t.last().Kind == "user"
 }
 
-// Expect marks the user item that will say text as pocketd's own, of origin. An empty origin takes the mark back.
+// Expect marks the next user item that will say text as pocketd's own, of origin. An empty origin takes the newest mark back.
 func (t *Timeline) Expect(text, origin string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	text = strings.TrimSpace(text)
 	if origin == "" {
-		delete(t.expected, text)
+		t.unexpect(text, len(t.expected[text])-1)
 		return
 	}
 	if t.expected == nil {
-		t.expected = map[string]string{}
+		t.expected = map[string][]string{}
 	}
-	t.expected[text] = origin
+	t.expected[text] = append(t.expected[text], origin)
+}
+
+func (t *Timeline) unexpect(text string, i int) {
+	marks := t.expected[text]
+	if i < 0 || i >= len(marks) {
+		return
+	}
+	if marks = slices.Delete(marks, i, i+1); len(marks) == 0 {
+		delete(t.expected, text)
+	} else {
+		t.expected[text] = marks
+	}
 }
 
 // Apply returns the new or changed item, or false when nothing visible changed.
@@ -333,8 +347,11 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 	switch e.Kind {
 	case "user":
 		said := strings.TrimSpace(e.Text)
-		origin := t.expected[said]
-		delete(t.expected, said)
+		var origin string
+		if marks := t.expected[said]; len(marks) > 0 {
+			origin = marks[0]
+		}
+		t.unexpect(said, 0)
 		return t.append(proto.Item{Kind: "user", Text: e.Text, Origin: origin}, e.ParentToolUseID, ts), true
 
 	case "user_images":
@@ -626,13 +643,38 @@ func (t *Timeline) Running() []string {
 	return ids
 }
 
-// LastingAgents returns the task ids of the sub-agents running on in the background, oldest first.
+// WorkflowStopped is the output of a workflow's agent that was still running when its workflow ended.
+const WorkflowStopped = "Stopped when its workflow ended"
+
+// EndedWorkflow says whether call is a Workflow call that has ended.
+func (t *Timeline) EndedWorkflow(call string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n := t.call(call)
+	return n >= 0 && t.items[n].Call.Name == "Workflow" && t.items[n].Call.Status != "running"
+}
+
+// RunningUnder returns the tool use ids of the calls still running that call's sub-agent or workflow made.
+func (t *Timeline) RunningUnder(call string) []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var ids []string
+	for id, n := range t.tools {
+		if it := t.items[n]; it.ParentToolUseID == call && it.Call.Status == "running" {
+			ids = append(ids, id)
+		}
+	}
+	slices.SortFunc(ids, func(a, b string) int { return t.tools[a] - t.tools[b] })
+	return ids
+}
+
+// LastingAgents returns the task ids of the sub-agents and workflows running on in the background, oldest first.
 func (t *Timeline) LastingAgents() []string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	var ids []string
 	for id, n := range t.tasks {
-		if c := t.items[n].Call; t.lasting[c.ToolUseID] && c.Detail.Kind == "task" {
+		if c := t.items[n].Call; t.lasting[c.ToolUseID] && (c.Detail.Kind == "task" || c.Name == "Workflow") {
 			ids = append(ids, id)
 		}
 	}

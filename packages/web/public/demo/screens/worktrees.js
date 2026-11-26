@@ -22,6 +22,7 @@ const STEPS = [
 const form = { project: null, target: 'worktree', base: 'main', source: { kind: 'new' }, agent: 'claude', prompt: SAMPLE, search: '', prText: '' };
 let menu = null;
 let make = null;
+const made = [];
 
 const project = (api) => form.project ?? api.sel.p;
 const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').split('-').slice(0, 4).join('-');
@@ -135,6 +136,7 @@ function start(api) {
   const label = src.kind === 'branch' ? src.name : src.kind === 'pr' ? `pr-${src.n}` : `feat/${slug(text) || 'new-session'}`;
   const row = { id: Date.now(), p, label, title: sentence(text), agent: form.agent, chat: true, status: 'working', add: 0, del: 0, log: [['you', text]] };
   p.rows.unshift(row);
+  made.push({ p, row });
   p.open = true;
   api.state.sel = row;
   api.changed();
@@ -153,10 +155,10 @@ function start(api) {
         if (!make || make.row !== row) return;
         make.leaving = true;
         if (live(api)) api.draw();
-        setTimeout(() => { make = null; land(api, row, text); }, 260);
+        setTimeout(() => { if (make?.row !== row) return; make = null; land(api, row, text); }, 260);
       }, 450);
     }
-    setTimeout(() => { make.at++; if (live(api)) api.draw(); next(); }, STEPS[make.at][1]);
+    setTimeout(() => { if (make?.row !== row) return; make.at++; if (live(api)) api.draw(); next(); }, STEPS[make.at][1]);
   };
   next();
 }
@@ -183,9 +185,29 @@ function land(api, row, text) {
 
 // ---- Screen ------------------------------------------------------------------------------------------------
 
+// The sessions it made leave the sidebar when the next screen is chosen, so no other screen shows them.
+function forget(api) {
+  made.forEach(({ p, row }) => { const i = p.rows.indexOf(row); if (i >= 0) p.rows.splice(i, 1); });
+  made.length = 0;
+  api.state.sel = api.PROJECTS[0].rows[0];
+}
+
 D.register('worktrees', {
   tour: 'worktrees',
-  enter() { menu = null; make = null; form.search = ''; form.prText = ''; },
+  enter(api) {
+    menu = null;
+    make = null;
+    form.search = '';
+    form.prText = '';
+    // The landing page's tour types the prompt itself; the harness (#demo=) keeps the sample.
+    form.prompt = document.documentElement.classList.contains('demo-only') ? SAMPLE : '';
+    form.project = null;
+    form.target = 'worktree';
+    form.base = 'main';
+    form.source = { kind: 'new' };
+    form.agent = 'claude';
+    forget(api);
+  },
   render(api) {
     return (make ? progress(api) : page(api)) + api.rail(null, {});
   },
@@ -244,4 +266,22 @@ D.register('worktrees', {
     }
   },
 });
+
+document.addEventListener('desktop:screen', (e) => {
+  if (!made.length || e.detail === 'worktrees' || e.detail === 'sessions') return;
+  forget(D.api);
+  D.api.draw();
+});
+
+AnywhereTour.define('worktrees', [
+  ['wait', 500],
+  ['click', '[data-act="menu"][data-v="branch"]'],
+  ['wait', 500],
+  ['click', '[data-act="base"][data-v="release/2.3"]'],
+  ['wait', 300],
+  ['type', '[data-prompt]', SAMPLE],
+  ['wait', 300],
+  ['click', '[data-act="send"]'],
+  ['wait', 10700],
+]);
 })();

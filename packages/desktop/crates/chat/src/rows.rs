@@ -68,7 +68,7 @@ pub enum Row {
     Live {
         turn: usize,
     },
-    /// "Sending…", while a send is on its way.
+    /// "Thinking…", while a send is on its way.
     Working,
     /// An outgoing message not yet in the transcript.
     Pending(usize),
@@ -120,7 +120,7 @@ impl Row {
     }
 }
 
-/// The transcript's rows, then a row per pending send, "Sending…" while one is on its way, and what the agent is doing while at work.
+/// The transcript's rows, then a row per pending send, "Thinking…" while one is on its way, and what the agent is doing while at work.
 pub fn rows(t: &Transcript, pending: usize, sending: bool) -> Vec<Row> {
     let mut rows = Vec::new();
     rows_from(&mut rows, t, 0, pending, sending, &[]);
@@ -141,7 +141,7 @@ fn reports(turn: &Turn) -> bool {
     let news = turn.blocks.iter().take_while(|b| matches!(b, Block::Notice { .. } | Block::Delivered(_))).any(|b| matches!(b, Block::Delivered(_)));
     let asks = turn.blocks.iter().any(|b| matches!(b, Block::HostLink { .. }) || matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Question(_))));
     let left = turn.blocks.iter().any(|b| match b {
-        Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_)) => true,
+        Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_) | ToolKind::Workflow(_)) => true,
         Block::Tool(c) if matches!(c.kind, ToolKind::Shell { .. }) => {
             ended_at(turn).is_some_and(|end| c.status == ToolStatus::Running || c.duration_ms.is_some_and(|d| c.at + d as i64 > end))
         }
@@ -347,7 +347,9 @@ pub fn in_background(turns: &[Turn]) -> impl Iterator<Item = (usize, usize, &Too
     let over = turns.iter().rposition(|turn| turn.end.is_some()).map_or(0, |last| last + 1);
     turns[..over].iter().enumerate().flat_map(|(t, turn)| {
         turn.blocks.iter().enumerate().filter_map(move |(b, block)| match block {
-            Block::Tool(c) if c.status == ToolStatus::Running && matches!(c.kind, ToolKind::Agent(_) | ToolKind::Shell { .. }) => Some((t, b, c)),
+            Block::Tool(c) if c.status == ToolStatus::Running && matches!(c.kind, ToolKind::Agent(_) | ToolKind::Workflow(_) | ToolKind::Shell { .. }) => {
+                Some((t, b, c))
+            }
             _ => None,
         })
     })
@@ -377,7 +379,7 @@ pub fn reported(t: &Transcript, ix: usize) -> Vec<&ToolCall> {
     ended
         .flat_map(|(own, end)| {
             own.blocks.iter().filter_map(move |b| match b {
-                Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_) | ToolKind::Shell { .. }) && c.status != ToolStatus::Running => {
+                Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_) | ToolKind::Workflow(_) | ToolKind::Shell { .. }) && c.status != ToolStatus::Running => {
                     let done = c.at + c.duration_ms? as i64;
                     (done > end && done > since && done <= at).then_some(c)
                 }
@@ -404,9 +406,9 @@ fn ended_at(turn: &Turn) -> Option<i64> {
     }
 }
 
-/// Whether `b` is a sub-agent still at work.
+/// Whether `b` is a sub-agent or workflow still at work.
 pub fn running_agent(b: &Block) -> bool {
-    matches!(b, Block::Tool(c) if c.status == ToolStatus::Running && matches!(c.kind, ToolKind::Agent(_)))
+    matches!(b, Block::Tool(c) if c.status == ToolStatus::Running && matches!(c.kind, ToolKind::Agent(_) | ToolKind::Workflow(_)))
 }
 
 /// The turns of the reply `turn` closes, or None while a later turn carries it on. A reply is a turn and the steers
@@ -446,11 +448,13 @@ pub(crate) fn working(turn: &Turn) -> bool {
 }
 
 /// 16 over the first row and 14 at each exchange; within one, 6 between parts, 10 between markdown blocks of one
-/// message, and none above a phase, whose rail runs on from the fold, or "Sending…", which brings its own.
+/// message, and none above a phase, whose rail runs on from the fold. "Thinking…" under a send sits where the live line
+/// takes over once the send echoes, below its prompt and the fold.
 pub fn top_gap(prev: Option<&Row>, row: &Row) -> f32 {
     let Some(prev) = prev else { return 16. };
     match (prev, row) {
         (_, Row::Prompt { .. } | Row::Pending(_)) | (Row::Pending(_), Row::Live { .. }) => 14.,
+        (Row::Pending(_), Row::Working) => 12.,
         (_, Row::Phase { .. } | Row::Working) => 0.,
         (Row::Text { turn: a, block: x, .. }, Row::Text { turn: b, block: y, .. }) if (a, x) == (b, y) => 10.,
         (_, Row::Tasks { .. }) => 12.,
@@ -490,6 +494,9 @@ pub fn phase_title(blocks: &[Block], live: bool) -> String {
         0 => {}
         1 => parts.push(format!("{using} a subagent")),
         n => parts.push(format!("{using} {n} subagents")),
+    }
+    if let Some(w) = calls().find(|c| matches!(c.kind, ToolKind::Workflow(_))) {
+        parts.push(if w.status == ToolStatus::Running { "Using a workflow" } else { "Used a workflow" }.to_string());
     }
     match edited[..] {
         [] => {}
@@ -785,8 +792,15 @@ mod tests {
         };
         let rows = rows(&t, 1, true);
         let gaps: Vec<_> = rows.iter().enumerate().map(|(i, r)| top_gap(i.checked_sub(1).map(|p| &rows[p]), r)).collect();
-        // prompt, fold, phase, a, b, compacted, end, prompt, fold, pending, sending, live
-        assert_eq!(gaps, vec![16., 6., 0., 6., 10., 8., 6., 14., 6., 14., 0., 6.]);
+        // prompt, fold, phase, a, b, compacted, end, prompt, fold, pending, thinking, live
+        assert_eq!(gaps, vec![16., 6., 0., 6., 10., 8., 6., 14., 6., 14., 12., 6.]);
+    }
+
+    #[test]
+    fn thinking_under_a_send_sits_where_the_live_line_takes_over_once_it_echoes() {
+        let (prompt, fold) = (Row::Prompt { turn: 0 }, Row::Fold { turn: 0 });
+        let echoed = top_gap(Some(&prompt), &fold) + top_gap(Some(&fold), &Row::Live { turn: 0 });
+        assert_eq!(top_gap(Some(&Row::Pending(0)), &Row::Working), echoed);
     }
 
     #[test]
@@ -911,8 +925,14 @@ mod tests {
         assert_eq!(reported(&t, 1).len(), 1);
         assert_eq!(ids_of(&t)[..2], ["u1", "u1#fold"]);
         assert!(ids_of(&t).contains(&"n1#notice".to_string()));
-        let waited = Transcript { turns: vec![ended(vec![sub(100, 500)]), own] };
+        let waited = Transcript { turns: vec![ended(vec![sub(100, 500)]), own.clone()] };
         assert!(reported(&waited, 1).is_empty(), "the turn waited for it, so it reported in that turn");
+        let workflow = |b: Block| match b {
+            Block::Tool(c) => Block::Tool(ToolCall { kind: ToolKind::Workflow(crate::workflow::Workflow::default()), ..c }),
+            b => b,
+        };
+        let t = Transcript { turns: vec![ended(vec![workflow(sub(100, 10_000))]), own.clone()] };
+        assert_eq!(reported(&t, 1).len(), 1, "a workflow reports as a sub-agent does");
     }
 
     #[test]
@@ -947,7 +967,7 @@ mod tests {
             id: id.into(),
             outcome: Outcome::Done,
             question: String::new(),
-            children: vec![Child { id: "a2".into(), title: "Write the tests".into(), agent: "codex".into() }],
+            children: vec![Child { id: "a2".into(), title: "Write the tests".into(), agent: "codex".into(), task_id: String::new() }],
         })
     }
 
@@ -1157,5 +1177,16 @@ mod tests {
         assert_eq!(step_prompt(&rows, 12, true), Some(20));
         assert_eq!(step_prompt(&rows, 0, true), Some(2), "above every prompt, down goes to the first");
         assert_eq!(step_prompt(&rows, 20, true), None);
+    }
+
+    #[test]
+    fn a_running_workflow_works_on_in_the_background_like_a_sub_agent() {
+        let wf = |status| call(ToolKind::Workflow(crate::workflow::Workflow::default()), status);
+        assert!(running_agent(&wf(ToolStatus::Running)));
+        assert!(!running_agent(&wf(ToolStatus::Ok)));
+        assert_eq!(phase_title(&[wf(ToolStatus::Running)], true), "Using a workflow");
+        assert_eq!(phase_title(&[wf(ToolStatus::Ok)], false), "Used a workflow");
+        let turn = Turn { blocks: vec![wf(ToolStatus::Running)], end: Some(End::Done { duration_ms: 1, usage: None }), ..Turn::default() };
+        assert_eq!(in_background(&[turn]).count(), 1);
     }
 }

@@ -2,6 +2,7 @@ use super::queue::{control, surface};
 use super::send_button::stop_square;
 use super::{ChatBoxEvent, ComposerState};
 use crate::chat::sub_agent::{self, Mark, step};
+use crate::chat::workflow;
 use crate::chat::working::format_elapsed;
 use crate::desktop::chrome::id;
 use crate::util::now_ms;
@@ -9,17 +10,19 @@ use chat::{ToolCall, ToolKind, Transcript};
 use gpui_kit::*;
 use theme::*;
 
-/// A sub-agent's newest tool call; none for a command.
+/// A sub-agent's newest tool call; none for a command or a workflow.
 fn latest(call: &ToolCall) -> Option<&ToolCall> {
     let ToolKind::Agent(a) = &call.kind else { return None };
     sub_agent::latest(a)
 }
 
-/// What a task does now: a sub-agent's newest step, "Starting…" before it took one; none for a command.
+/// What a task does now: a sub-agent's newest step, "Starting…" before it took one, or the phase a workflow is in; none
+/// for a command.
 fn doing(call: &ToolCall) -> Option<String> {
     match (latest(call), &call.kind) {
         (Some(c), _) => Some(step(c)),
         (None, ToolKind::Agent(_)) => Some("Starting…".into()),
+        (None, ToolKind::Workflow(w)) => chat::workflow::phase_line(&w.groups()),
         _ => None,
     }
 }
@@ -32,6 +35,7 @@ fn newest(tasks: &[&ToolCall]) -> Option<String> {
 fn name(call: &ToolCall) -> String {
     match &call.kind {
         ToolKind::Agent(a) => sub_agent::name(a),
+        ToolKind::Workflow(w) => w.label(),
         _ => step(call),
     }
 }
@@ -39,8 +43,8 @@ fn name(call: &ToolCall) -> String {
 /// Whether the tray offers Stop: a chat's own agent stops the sub-agents it left in the background, where a terminal
 /// agent's Esc doesn't reach them. pocketd leaves background commands running, and while a turn runs the composer's Stop
 /// ends it and them, so the tray offers it only for sub-agents outliving their turn. The composer offers Send meanwhile.
-pub(super) fn stops(chat_only: bool, interrupt: bool, busy: bool, tasks: &[&ToolCall]) -> bool {
-    chat_only && interrupt && !busy && tasks.iter().any(|c| matches!(c.kind, ToolKind::Agent(_)))
+pub(crate) fn stops(chat_only: bool, interrupt: bool, busy: bool, tasks: &[&ToolCall]) -> bool {
+    chat_only && interrupt && !busy && tasks.iter().any(|c| matches!(c.kind, ToolKind::Agent(_) | ToolKind::Workflow(_)))
 }
 
 impl ComposerState {
@@ -93,6 +97,7 @@ impl ComposerState {
             tasks.iter().map(|&(turn, block, call)| {
                 let mark = match &call.kind {
                     ToolKind::Agent(a) => sub_agent::mark(call, a),
+                    ToolKind::Workflow(w) => workflow::mark(call, w),
                     _ => Mark::Running,
                 };
                 let agent = agent.to_string();
@@ -169,6 +174,8 @@ mod tests {
         assert!(stops(true, true, false, &[&a, &server]));
         assert!(!stops(false, true, false, &[&a]), "a terminal agent's Esc doesn't reach what it left in the background");
         assert!(!stops(true, false, false, &[&a]));
+        let workflow = call(ToolKind::Workflow(chat::workflow::Workflow::default()), 0);
+        assert!(stops(true, true, false, &[&workflow]), "pocketd stops a workflow as it does a sub-agent");
     }
 
     #[test]

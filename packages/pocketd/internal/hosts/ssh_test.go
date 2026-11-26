@@ -54,6 +54,13 @@ func TestSshNeverPromptsAndKeepsNewHostKeysOutOfTheUsersFile(t *testing.T) {
 	}
 }
 
+func TestTheLinkToAHostIsCompressed(t *testing.T) {
+	got := args(addressHost(22, "", ""), "/k", "", nil, "true")
+	if i := slices.Index(got, "Compression=yes"); i < 1 || got[i-1] != "-o" {
+		t.Errorf("no -o Compression=yes in %v", got)
+	}
+}
+
 func TestAnAddressPassesOnlyThePortUserAndKeyItWasGiven(t *testing.T) {
 	tail := func(h Host) []string {
 		got := args(h, "/k", "", nil, "true")

@@ -351,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn a_send_the_agent_took_drops_the_sending_trailer_before_its_echo_shows() {
+    fn a_send_the_agent_took_keeps_its_trailer_until_its_echo_shows() {
         let backend = for_provider("claude");
         let mut s = Session::default();
         let items = vec![item(1, json!({"kind": "user", "text": "go"})), item(2, json!({"kind": "result", "ok": true}))];
@@ -363,8 +363,8 @@ mod tests {
         s.outgoing.prompt_state("prompt-1", agents::PromptState::Resending);
         assert_eq!(s.update(backend, 1, &items, false, 11), None, "the same row says Sending again");
         s.outgoing.prompt_state("prompt-1", agents::PromptState::Taken);
-        assert_eq!(s.update(backend, 1, &items, false, 12), Some((4..4, 4..5, 0)));
-        assert_eq!(s.ids[3..], ["pending-0"]);
+        assert_eq!(s.update(backend, 1, &items, false, 12), None, "the same row says Thinking");
+        assert_eq!(s.ids[3..], ["pending-0", "working"]);
     }
 
     #[test]
@@ -517,7 +517,8 @@ mod tests {
     }
 
     /// A long session as pocketd streams it: replies grow in place, calls finish later (some after the next prompt,
-    /// some as a new item), sub-agents two deep report into running calls, and now and then an item lands between older ones.
+    /// some as a new item), sub-agents two deep and workflows' agents report into running calls, and now and then an item
+    /// lands between older ones.
     fn generated(count: usize) -> Vec<Value> {
         let mut rng = 0x2545_f491_4f6c_dd1du64;
         let mut roll = move |n: usize| {
@@ -539,9 +540,10 @@ mod tests {
                         ("Bash", json!({"kind": "shell", "command": "make"})),
                         ("Read", json!({"kind": "read", "path": "a.rs"})),
                         ("Task", json!({"kind": "task", "description": "audit"})),
-                    ][roll(3)]
+                        ("Workflow", json!({"kind": "other", "name": "Workflow", "input": {"script": "export const meta = { name: 'w' }"}})),
+                    ][roll(4)]
                     .clone();
-                    if name == "Task" {
+                    if name == "Task" || name == "Workflow" {
                         agents.push(format!("tu{n}"));
                     }
                     json!({"kind": "tool", "call": {"toolUseId": format!("tu{n}"), "name": name, "status": "running", "detail": detail}})

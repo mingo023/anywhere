@@ -547,6 +547,7 @@ fn find_call(t: &Transcript, id: &str) -> Option<(usize, usize)> {
 fn notice_label(calls: &[&chat::ToolCall]) -> String {
     match calls {
         [chat::ToolCall { kind: ToolKind::Agent(a), .. }] => format!("{} is done", sub_agent::name(a)),
+        [chat::ToolCall { kind: ToolKind::Workflow(w), .. }] => format!("{} is done", w.label()),
         [c @ chat::ToolCall { kind: ToolKind::Shell { command, .. }, .. }] => {
             let command = command.lines().next().unwrap_or_default();
             match (c.name.as_str(), c.status) {
@@ -601,7 +602,7 @@ fn prompt_bubble(
         let row = id.to_string();
         (user_bubble::Fold { lines, toggled }, cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_expanded(&row, cx)))
     });
-    let bubble = user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), view.flashing(id), here, toggle);
+    let bubble = user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), view.flashing(id), here, toggle, window, cx);
     let under = under.unwrap_or_else(|| {
         let key = format!("prompt:{id}");
         user_bubble::actions(id, view.copied(&key), copy(key, text.to_string(), cx), Some(at))
@@ -648,7 +649,16 @@ impl View {
         let sticky = self.sticky(window, cx);
         let cover = sticky.as_ref().map_or(0., |(_, cover)| *cover);
         let timeline = self.timeline(window, cx);
-        div().relative().flex_1().min_h_0().child(sticky::below(cover, rows)).children(sticky.map(|(card, _)| card)).children(timeline).children(pill)
+        // A see-through page has no fill for the breadcrumb to fade the rows into, so nothing paints under it.
+        let clip = if see_through() { inset } else { 0. };
+        div()
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .child(sticky::below(cover.max(clip), rows))
+            .children(sticky.map(|(card, _)| sticky::below(clip, card)))
+            .children(timeline)
+            .children(pill)
     }
 
     /// Opens or closes a fold, phase or sub-agent, and has the list measure again what that shows or hides.
@@ -1115,7 +1125,11 @@ impl View {
                 fold::live(&id, &provider, fold::live_label(who, &model, &live_state(t, chat::folded(t, *turn), ask, s.outgoing.stopping(), now_ms())))
             }
             Row::Working if s.outgoing.compacting() => working::compacting(),
-            Row::Working => working::sending(s.outgoing.trail().unwrap_or(agents::PromptState::Sending)),
+            Row::Working if s.outgoing.trail() == Some(agents::PromptState::Resending) => working::resending(),
+            Row::Working => {
+                let live = if s.outgoing.stopping() { Live::Stopping } else { Live::Thinking };
+                fold::live(&id, &provider, fold::live_label(who, &model, &live))
+            }
             Row::Pending(i) => match s.outgoing.echoed().nth(*i) {
                 Some((_, p)) => {
                     let retry = p.not_delivered().map(|text| {
@@ -1129,15 +1143,11 @@ impl View {
                         if waiting.last() != Some(&p.id) {
                             return div();
                         }
-                        let action = if s.outgoing.sending_now() {
-                            Some(div().child("Sending…").into_any_element())
-                        } else {
-                            send_now.then(|| {
-                                user_bubble::send_now(&id)
-                                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(ViewEvent::Command(Command::SendNow))))
-                                    .into_any_element()
-                            })
-                        };
+                        let action = (send_now && !s.outgoing.sending_now()).then(|| {
+                            user_bubble::send_now(&id)
+                                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(ViewEvent::Command(Command::SendNow))))
+                                .into_any_element()
+                        });
                         user_bubble::waiting(who, waiting.len(), action)
                     });
                     let under = under.or_else(|| s.outgoing.after_turn().any(|c| c.id == p.id).then(|| user_bubble::after_turn(who)));
@@ -1227,6 +1237,8 @@ mod tests {
         let cmd = || ToolKind::Shell { command: "cargo test\n--workspace".into(), description: String::new() };
         assert_eq!(notice_label(&[&call("Bash", cmd(), ToolStatus::Failed)]), "Background command `cargo test` failed");
         assert_eq!(notice_label(&[&call("Bash", cmd(), ToolStatus::Ok)]), "Background command `cargo test` is done");
+        let workflow = ToolKind::Workflow(chat::workflow::Workflow { name: "measure".into(), ..Default::default() });
+        assert_eq!(notice_label(&[&call("Workflow", workflow, ToolStatus::Ok)]), "Workflow measure is done");
         assert_eq!(notice_label(&[&call("Monitor", cmd(), ToolStatus::Ok)]), "Monitor `cargo test` ended");
         let agent = call("Agent", ToolKind::Agent(SubAgent::default()), ToolStatus::Ok);
         assert_eq!(notice_label(&[&agent, &agent]), "2 subagents are done");

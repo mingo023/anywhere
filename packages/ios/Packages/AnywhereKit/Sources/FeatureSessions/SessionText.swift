@@ -71,7 +71,7 @@ enum SessionText {
         case .edit(let path, _): "Wants to edit \(path)"
         case .write(let path, _): "Wants to write \(path)"
         case .search(let query, _): "Wants to search \(query)"
-        case .task(let description, _, _): "Wants to start \(description)"
+        case .task(let description, _, _, _): "Wants to start \(description)"
         case .other(let name, let input, _):
             question(input) ?? "Wants to use \(name.isEmpty ? p.toolName : name)"
         case .unknown: "Wants to use \(p.toolName)"

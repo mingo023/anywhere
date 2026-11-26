@@ -150,6 +150,10 @@ func (e *Engine) Dispatch(cmd Command) (Receipt, error) {
 	if cmd.Kind == CmdDelegateStarted && len(d.Delegations) == 1 {
 		e.catchUp(d.Delegations[0].ChildID)
 	}
+	// A turn's end left its task to the queued prompt, which the child refused or which started no turn.
+	if cmd.Kind == CmdQueueUnsent || cmd.Kind == CmdQueueSent && startedNoTurn(cmd) {
+		e.catchUp(cmd.Session)
+	}
 	for _, ev := range d.Events {
 		if ev.Kind == "delegation.settled" || ev.Kind == "delegation.cancelled" {
 			e.pumpOthers(ev.Session)
@@ -358,6 +362,20 @@ func putDelegation(tx *Tx, t Delegation) error {
 	return err
 }
 
+// queuedAfter says whether a session has a prompt queued for a turn after the given one: still pending, or
+// sent by the drain once that turn ended. A prompt sent before it ended steered into it or started it.
+const queuedAfter = `SELECT EXISTS (SELECT 1 FROM queue q WHERE q.session_id = ?1 AND (q.state = 'pending' OR q.state IN ('sending', 'sent') AND EXISTS (
+	SELECT 1 FROM outbox o WHERE o.session_id = ?1 AND o.kind = '` + EffTurnStart + `' AND json_extract(o.payload, '$.key') = q.id
+		AND o.created_at >= (SELECT ended_at FROM turns WHERE id = ?2))))`
+
+func startedNoTurn(cmd Command) bool {
+	var p struct {
+		Turnless bool `json:"turnless"`
+	}
+	json.Unmarshal(cmd.Payload, &p)
+	return p.Turnless
+}
+
 type peek struct {
 	TaskID    string `json:"taskId"`
 	RequestID string `json:"requestId"`
@@ -407,7 +425,7 @@ func (e *Engine) load(tx *Tx, cmd Command) (State, error) {
 			st.Task = &ts[0]
 		}
 	case cmd.Kind == CmdRequestOpen || cmd.Kind == CmdRequestClose:
-		ts, err := loadDelegations(tx, `child_id = ? ORDER BY created_at DESC LIMIT 1`, cmd.Session)
+		ts, err := loadDelegations(tx, `child_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, cmd.Session)
 		if err != nil {
 			return st, err
 		}
@@ -422,6 +440,12 @@ func (e *Engine) load(tx *Tx, cmd Command) (State, error) {
 		if p.Turn != 0 {
 			if err := tx.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM turns WHERE session_id = ?`, st.Task.ChildID).Scan(&st.ChildTurn); err != nil {
 				return st, err
+			}
+			// A host's child refuses or ignores a prompt over there, which nothing here would hear of.
+			if st.Task.Environment == "" {
+				if err := tx.QueryRow(queuedAfter, st.Task.ChildID, p.Turn).Scan(&st.ChildQueued); err != nil {
+					return st, err
+				}
 			}
 		}
 		if cmd.Kind == CmdDelegateCancel {

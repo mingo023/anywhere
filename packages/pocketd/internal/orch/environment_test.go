@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"pocketd/internal/proto"
 )
@@ -274,5 +275,51 @@ func TestALocalChildBackIdleAfterAColdRestartStillFails(t *testing.T) {
 	got := coldRestartedChild(t, "child-1", tagged)
 	if got.Status != TaskFailed || !strings.Contains(got.Error, "restarted") {
 		t.Fatalf("task = %s %q, want failed as restarted", got.Status, got.Error)
+	}
+}
+
+func TestAHostChildPromptedOnItsHostOpensAFollowUpAndATurnOfItsOwnDoesNot(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		if e.Kind == EffLaunch {
+			return map[string]any{"childId": "devbox/c1"}, nil
+		}
+		return nil, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	if _, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "fix it", Environment: "devbox", HostProject: "/srv/app"})); err != nil {
+		t.Fatal(err)
+	}
+	tasks := func() []Delegation {
+		ts, _ := s.Delegations(`child_id = 'devbox/c1' ORDER BY created_at, rowid`)
+		return ts
+	}
+	waitFor(t, func() bool { ts := tasks(); return len(ts) == 1 && ts[0].Status == TaskWorking })
+	k := NewSink(s)
+	defer k.Close()
+	k.OnTurn = e.OnTurn
+	turn := func(items ...proto.Item) {
+		k.Summary(proto.AgentSummary{ID: "devbox/c1", Provider: "codex", Status: "working"})
+		for _, it := range items {
+			k.Item("devbox/c1", 1, it)
+		}
+		k.Summary(proto.AgentSummary{ID: "devbox/c1", Provider: "codex", Status: "done"})
+		k.Flush()
+	}
+	turn(proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Fixed"}, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
+	waitFor(t, func() bool { return tasks()[0].Status == TaskCompleted })
+
+	turn(proto.Item{ID: "i3", Seq: 3, Kind: "user", Text: "Add a test"}, proto.Item{ID: "i4", Seq: 4, Kind: "assistant", Text: "Test added"}, proto.Item{ID: "i5", Seq: 5, Kind: "result", OK: true})
+	waitFor(t, func() bool { ts := tasks(); return len(ts) == 2 && ts[1].Status == TaskCompleted })
+	if ts := tasks(); ts[0].Summary != "Fixed" || ts[1].Summary != "Test added" || ts[1].Brief != "Add a test" {
+		t.Fatalf("tasks %+v", ts)
+	}
+
+	turn(proto.Item{ID: "i6", Seq: 6, Kind: "notice", Text: "Monitor: CI · green"}, proto.Item{ID: "i7", Seq: 7, Kind: "assistant", Text: "CI went green"}, proto.Item{ID: "i8", Seq: 8, Kind: "result", OK: true})
+	time.Sleep(200 * time.Millisecond)
+	if ts := tasks(); len(ts) != 2 || ts[1].Summary != "Test added" {
+		t.Fatalf("a turn of its own changed the tasks: %+v", ts)
 	}
 }

@@ -20,7 +20,8 @@ pub struct Item {
     pub items: Vec<TaskItem>,
     /// A compact's: "manual" or "auto".
     pub trigger: String,
-    /// A delivery's: the sessions, titles and agents pocketd told the chat of, side by side.
+    /// A delivery's: the tasks, sessions, titles and agents pocketd told the chat of, side by side.
+    pub task_ids: Vec<String>,
     pub child_ids: Vec<String>,
     pub titles: Vec<String>,
     pub agents: Vec<String>,
@@ -105,6 +106,8 @@ pub struct Detail {
     pub model: String,
     /// A `task`'s: the context its sub-agent last answered from.
     pub tokens: u64,
+    /// A workflow agent's `task`: the phase of its workflow it runs in.
+    pub phase: String,
     pub name: String,
     pub diff: Option<FileDiff>,
     /// An `other` tool's whole input.

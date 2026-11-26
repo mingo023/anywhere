@@ -402,9 +402,18 @@ type linkedTree struct {
 	worktree.Worktree
 }
 
+// treeProject is the Project whose folders hold path, else the one sharing its repo:
+// a handoff from another Mac puts a worktree under that Mac's name for the project.
+func treeProject(f registry.File, path string) (string, bool) {
+	if p, ok := worktree.Containing(f, path); ok {
+		return p, true
+	}
+	return worktree.Project(f, path)
+}
+
 func findTree(f registry.File, path string) (linkedTree, error) {
 	path = filepath.Clean(path)
-	project, ok := worktree.Containing(f, path)
+	project, ok := treeProject(f, path)
 	if !ok || !filepath.IsAbs(path) {
 		return linkedTree{}, worktree.ErrUnknownWorktree
 	}
@@ -468,7 +477,7 @@ func (c *conn) subagentTrees(f registry.File, path string) ([]linkedTree, []orch
 		if real, err := filepath.EvalSymlinks(cwd); err == nil {
 			cwd = real
 		}
-		project, ok := worktree.Containing(f, cwd)
+		project, ok := treeProject(f, cwd)
 		if !ok {
 			return ""
 		}

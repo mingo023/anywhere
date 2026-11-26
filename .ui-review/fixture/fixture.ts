@@ -50,6 +50,7 @@
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
+// FIXTURE_THINK_MS holds a new session's reply that long after its prompt echoes, as Claude thinks before it answers;
 // FIXTURE_REFUSE_QUEUE=1 refuses every queue edit, cancel, reorder and send-now as pocketd does once the entry went out.
 // FIXTURE_REFUSE_STOP=1 refuses every stop the same way; FIXTURE_STOP_MS delays a stop's interrupted result, as Claude's lags. FIXTURE_CHUNKS sets how many 30ms chunks a reply streams in (default 40).
 // The "agents" and "agents-chat" scenarios' pocketd says all ten agents are installed; any other names none, as one older than the eight new ones.
@@ -1362,7 +1363,7 @@ Bun.serve({
         if (prompt) {
           setTimeout(() => {
             item(ws, id, { id: `u-${Date.now()}`, kind: "user", text: prompt });
-            reply(ws, id);
+            setTimeout(() => reply(ws, id), Number(process.env.FIXTURE_THINK_MS) || 0);
           }, Number(process.env.FIXTURE_ECHO_MS) || 0);
         }
       }

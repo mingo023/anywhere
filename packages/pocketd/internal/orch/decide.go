@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"pocketd/internal/proto"
 )
@@ -21,23 +22,24 @@ type AgentInfo struct {
 
 // State is everything decide reads, loaded by the engine before it runs.
 type State struct {
-	Now       int64
-	Session   *Session
-	Queue     []QueueEntry // the session's entries not sent or cancelled, by order
-	Children  []Delegation // delegations the session started
-	Task      *Delegation  // the delegation the payload names
-	Subtree   []Delegation // Task and every delegation under it, deepest first
-	Parent    *Session     // Task's parent, for a settle
-	Request   *Request
-	Other     *Session // the payload's target session
-	Related   bool     // Other is the session's parent, child, fork or source
-	Running   int      // sessions agents started on this Mac: launching, or running and not yet settled
-	Limits    Limits
-	Self      AgentInfo // the session's own agent
-	Target    AgentInfo // the payload's agent
-	Held      []string  // task ids the session holds
-	Starting  bool      // a turn start the session was sent is still out
-	ChildTurn int64     // the latest turn of Task's child, for a settle that names its turn
+	Now         int64
+	Session     *Session
+	Queue       []QueueEntry // the session's entries not sent or cancelled, by order
+	Children    []Delegation // delegations the session started
+	Task        *Delegation  // the delegation the payload names
+	Subtree     []Delegation // Task and every delegation under it, deepest first
+	Parent      *Session     // Task's parent, for a settle
+	Request     *Request
+	Other       *Session // the payload's target session
+	Related     bool     // Other is the session's parent, child, fork or source
+	Running     int      // sessions agents started on this Mac: launching, or running and not yet settled
+	Limits      Limits
+	Self        AgentInfo // the session's own agent
+	Target      AgentInfo // the payload's agent
+	Held        []string  // task ids the session holds
+	Starting    bool      // a turn start the session was sent is still out
+	ChildTurn   int64     // the latest turn of Task's child, for a settle that names its turn
+	ChildQueued bool      // Task's child has a prompt queued for its next turn
 }
 
 // Decision is what a command does: facts, row writes, effects and the
@@ -110,6 +112,8 @@ type (
 		Stopped        bool   `json:"stopped,omitempty"`
 		// Turn is the child's turn whose end settles the task.
 		Turn int64 `json:"turn,omitempty"`
+		// Brief is the prompt a follow-up opens with.
+		Brief string `json:"brief,omitempty"`
 	}
 	// StartPayload is the user's agent.create from a client, and who asked: Key is the requester.
 	StartPayload struct {
@@ -249,12 +253,12 @@ func decide(st State, cmd Command) (Decision, error) {
 			return Decision{}, err
 		}
 		return delegate(st, cmd, p, &ids)
-	case CmdDelegateStarted, CmdDelegateFailed, CmdDelegateSettle, CmdDelegateReopen, CmdDelegateCancel, CmdDelegateWake, CmdDelegateWaited:
+	case CmdDelegateStarted, CmdDelegateFailed, CmdDelegateSettle, CmdDelegateFollow, CmdDelegateCancel, CmdDelegateWake, CmdDelegateWaited:
 		var p TaskPayload
 		if err := decode(cmd, &p); err != nil {
 			return Decision{}, err
 		}
-		return task(st, cmd, p)
+		return task(st, cmd, p, &ids)
 	case CmdDelegatePump:
 		return pump(st, cmd)
 	case CmdWakeDeliver:
@@ -778,7 +782,7 @@ func firstWords(s string, n int) string {
 	return strings.Join(w, " ")
 }
 
-func task(st State, cmd Command, p TaskPayload) (Decision, error) {
+func task(st State, cmd Command, p TaskPayload, ids *idSeq) (Decision, error) {
 	if st.Task == nil {
 		return Decision{}, refuse(CodeNotFound, "Unknown task "+p.TaskID)
 	}
@@ -810,12 +814,27 @@ func task(st State, cmd Command, p TaskPayload) (Decision, error) {
 			return settle(st, t, TaskFailed, "", cmp.Or(p.Error, "The session couldn't start"), false)
 		}
 		return settle(st, t, p.Status, p.Summary, p.Error, p.Stopped)
-	case CmdDelegateReopen:
+	case CmdDelegateFollow:
 		if !t.Terminal() {
 			return Decision{}, nil
 		}
-		t.Status, t.Summary, t.Error, t.SettledAt, t.Delivery = TaskWorking, "", "", 0, DeliverNone
-		d := Decision{Delegations: []Delegation{t}, Events: []Event{{t.ParentID, "delegation.reopened", t.TaskID}}}
+		f := t
+		f.TaskID, f.Brief, f.Mode, f.Status, f.WorkState, f.Summary, f.Error = ids.next("task"), p.Brief, "async", TaskWorking, "", "", ""
+		f.Delivery, f.PendingQuestion, f.ClientRequestID, f.ParentTurn, f.CreatedAt, f.SettledAt = DeliverNone, "", "", 0, st.Now, 0
+		return Decision{Delegations: []Delegation{f}, Events: []Event{{t.ParentID, "delegation.requested", f.TaskID}}}, nil
+	case CmdDelegateWake:
+		if p.CompletionWake != "settled_only" && p.CompletionWake != "always" {
+			return Decision{}, refuse(CodeInvalid, "completionWake is settled_only or always")
+		}
+		t.CompletionWake = p.CompletionWake
+		return Decision{Delegations: []Delegation{t}}, nil
+	case CmdDelegateWaited:
+		// The parent read the result, so no wake still to go out tells it again.
+		if !t.Terminal() || !slices.Contains([]string{DeliverWaiting, DeliverPending, DeliverQueued}, t.Delivery) {
+			return Decision{}, nil
+		}
+		t.Delivery = DeliverReturned
+		d := Decision{Delegations: []Delegation{t}}
 		for _, e := range st.Queue {
 			if e.State != EntryPending || e.Origin != OriginWake || !slices.Contains(e.Refs, t.TaskID) {
 				continue
@@ -824,23 +843,11 @@ func task(st State, cmd Command, p TaskPayload) (Decision, error) {
 			if len(e.Refs) == 0 {
 				e.State = EntryCancelled
 			} else {
-				e.Text = WakeText(e.Refs)
+				e.Text = WakeText(tasksOf(st.Children, e.Refs))
 			}
 			d.Queue = append(d.Queue, e)
 		}
 		return d, nil
-	case CmdDelegateWake:
-		if p.CompletionWake != "settled_only" && p.CompletionWake != "always" {
-			return Decision{}, refuse(CodeInvalid, "completionWake is settled_only or always")
-		}
-		t.CompletionWake = p.CompletionWake
-		return Decision{Delegations: []Delegation{t}}, nil
-	case CmdDelegateWaited:
-		if t.Terminal() && (t.Delivery == DeliverWaiting || t.Delivery == DeliverPending) {
-			t.Delivery = DeliverReturned
-			return Decision{Delegations: []Delegation{t}}, nil
-		}
-		return Decision{}, nil
 	case CmdDelegateCancel:
 		var d Decision
 		for _, x := range st.Subtree {
@@ -867,9 +874,9 @@ func task(st State, cmd Command, p TaskPayload) (Decision, error) {
 	return Decision{}, nil
 }
 
-// superseded says a turn's end reached the task after the child's next turn began, which settles it instead.
+// superseded says the child has a next turn, begun or queued, which settles the task instead.
 func superseded(st State, p TaskPayload) bool {
-	return p.Turn != 0 && st.ChildTurn != p.Turn
+	return p.Turn != 0 && (st.ChildTurn != p.Turn || st.ChildQueued)
 }
 
 // settle publishes t's result once and decides how the parent hears of it. A
@@ -928,16 +935,54 @@ func pump(st State, cmd Command) (Decision, error) {
 	return d, nil
 }
 
-// WakeText is the message that wakes a parent; it carries no result.
-func WakeText(taskIDs []string) string {
-	if len(taskIDs) == 1 {
-		return fmt.Sprintf("Delegated task %s reached a terminal state. Use task_status with taskIds [%q] to read its result.", taskIDs[0], taskIDs[0])
+// wakeReports bounds the reports a wake carries, shared among its tasks.
+const wakeReports = 16 << 10
+
+// WakeText is the message that wakes a parent, with each task's report.
+func WakeText(tasks []Delegation) string {
+	ids := make([]string, len(tasks))
+	quoted := make([]string, len(tasks))
+	for i, t := range tasks {
+		ids[i], quoted[i] = t.TaskID, strconv.Quote(t.TaskID)
 	}
-	quoted := make([]string, len(taskIDs))
-	for i, id := range taskIDs {
-		quoted[i] = strconv.Quote(id)
+	var b strings.Builder
+	if len(tasks) == 1 {
+		fmt.Fprintf(&b, "Delegated task %s reached a terminal state. Its result follows; task_status with taskIds [%s] reads it again.", ids[0], quoted[0])
+	} else {
+		fmt.Fprintf(&b, "Delegated tasks %s reached a terminal state. Their results follow; task_status with taskIds [%s] reads them again.", strings.Join(ids, ", "), strings.Join(quoted, ", "))
 	}
-	return fmt.Sprintf("Delegated tasks %s reached a terminal state. Use task_status with taskIds [%s] to read their results.", strings.Join(taskIDs, ", "), strings.Join(quoted, ", "))
+	for _, t := range tasks {
+		fmt.Fprintf(&b, "\n\n%s (%q) %s", t.TaskID, t.Title, t.Status)
+		if t.Error != "" {
+			fmt.Fprintf(&b, " (%s)", t.Error)
+		}
+		report := strings.TrimSpace(t.Summary)
+		if report == "" {
+			b.WriteString(", with no report.")
+			continue
+		}
+		b.WriteString(":\n")
+		if limit := wakeReports / len(tasks); len(report) > limit {
+			cut := limit
+			for cut > 0 && !utf8.RuneStart(report[cut]) {
+				cut--
+			}
+			report = report[:cut] + "\n[Cut short; task_status has the whole report.]"
+		}
+		b.WriteString(report)
+	}
+	return b.String()
+}
+
+// tasksOf is the delegations among children that ids name, in the order ids name them.
+func tasksOf(children []Delegation, ids []string) []Delegation {
+	var out []Delegation
+	for _, id := range ids {
+		if i := slices.IndexFunc(children, func(t Delegation) bool { return t.TaskID == id }); i >= 0 {
+			out = append(out, children[i])
+		}
+	}
+	return out
 }
 
 // deliver wakes the parent for every delegation whose wake is due. A wake
@@ -969,7 +1014,7 @@ func deliver(st State, cmd Command, ids *idSeq) (Decision, error) {
 	for _, e := range st.Queue {
 		if e.State == EntryPending && e.Origin == OriginWake {
 			all := append(slices.Clone(e.Refs), taskIDs...)
-			e.Refs, e.Text = all, WakeText(all)
+			e.Refs, e.Text = all, WakeText(tasksOf(st.Children, all))
 			d.Queue = append(d.Queue, e)
 			for _, t := range due {
 				t.Delivery = DeliverQueued
@@ -978,7 +1023,7 @@ func deliver(st State, cmd Command, ids *idSeq) (Decision, error) {
 			return d, nil
 		}
 	}
-	sent, err := send(st, Command{ID: cmd.ID, Kind: CmdMessageSend, Session: st.Session.ID}, SendPayload{Text: WakeText(taskIDs), Origin: OriginWake, Refs: taskIDs}, ids)
+	sent, err := send(st, Command{ID: cmd.ID, Kind: CmdMessageSend, Session: st.Session.ID}, SendPayload{Text: WakeText(due), Origin: OriginWake, Refs: taskIDs}, ids)
 	if err != nil {
 		return Decision{}, err
 	}

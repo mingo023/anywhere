@@ -36,10 +36,24 @@ const clock = (t) => { const s = Math.max(0, Date.now() - t) / 1000 | 0; return 
 
 const lastOf = (r, kind) => [...r.log].reverse().find((l) => l[0] === kind);
 
+// The rows as the demo opens, so each visit starts from them however the last one ended. `epoch` also drops the
+// timers of an earlier visit's answered asks, which would otherwise write into the restored rows.
+const FIRST = D.api.all().map((r) => [r, { status: r.status, worked: r.worked, add: r.add, del: r.del, log: [...r.log] }]);
+let epoch = 0;
+function restore(api) {
+  epoch++;
+  FIRST.forEach(([r, f]) => Object.assign(r, f, { log: [...f.log] }));
+  marks.clear();
+  seen.clear();
+  stamp(api);
+}
+
 // Plays lines into a row's log one by one, as the sessions screen does for an answered ask.
 function play(api, r, lines, end, ms) {
+  const run = epoch;
   r.status = 'working';
   lines.forEach((l, i) => setTimeout(() => {
+    if (run !== epoch) return;
     r.log.push(l);
     if (i === lines.length - 1) { r.status = end; r.worked = `${lines.length * 2}s`; }
     api.changed();
@@ -198,7 +212,7 @@ function openNote(api) {
 
 D.register('inbox', {
   tour: 'inbox',
-  enter() { inbox.open = false; },
+  enter(api) { restore(api); Object.assign(inbox, { filter: 'all', open: false, id: null, idx: 0 }); },
   render: renderInbox,
   mount(root) {
     const sc = root.querySelector('.ibx-body .chat, .ibx-body .term');
@@ -239,6 +253,16 @@ D.register('inbox', {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); openNote(api); }
   },
 });
+
+AnywhereTour.define('inbox', [
+  ['wait', 2000],
+  ['click', '.ibx-detail .allow [data-v="yes"]'],
+  ['wait', 2200],
+  ['click', '.ibx-detail .perm .pbtn.primary'],
+  ['wait', 5000],
+  ['click', '[data-act="seen"]'],
+  ['wait', 2200],
+]);
 
 // The elapsed time on a note that needs you counts up without redrawing the screen.
 setInterval(() => {
@@ -437,7 +461,10 @@ const reload = (api) => { const c = api.$('.act-cols'); if (c) c.innerHTML = col
 D.register('activity', {
   page: 'activity',
   tour: 'inbox',
-  enter() { Object.assign(act, { menu: null, prev: null, enter: false, cols: new Map() }); },
+  enter(api) {
+    restore(api);
+    Object.assign(act, { q: '', project: new Set(), agent: new Set(), menu: null, prev: null, enter: false, cols: new Map(), made: new Map() });
+  },
   render: renderActivity,
   act(a, v, t, api) {
     const i = ['prev', 'allow', 'deny', 'retry', 'dismiss', 'clear', 'pr', 'launch'].includes(a) ? byKey(api, v) : null;
@@ -482,6 +509,16 @@ D.register('activity', {
     }
   },
 });
+
+AnywhereTour.define('activity', [
+  ['wait', 2500],
+  ['click', '.act-ask [data-act="allow"]'],
+  ['wait', 5500],
+  ['click', '.act-card.done'],
+  ['wait', 2500],
+  ['click', '[data-act="close"]'],
+  ['wait', 1800],
+]);
 
 // Statuses move on their own (a working session finishes, an answered ask runs): keep the lists current.
 D.api.onChange(() => stamp(D.api));

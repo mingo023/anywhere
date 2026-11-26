@@ -67,6 +67,8 @@ const runs = [
   mkRun({ id: 'r4', auto: 'a2', status: 'skipped', start: -5 * 1440 + 17 * 60, why: 'Skipped: the Mac was asleep' }),
 ];
 
+const SEEDED = { autos: autos.length, runs: runs.length, waiting: { ...runs.find((r) => r.id === 'r1') } };
+
 let tab = 'automations';
 let sel = 'a1';
 let selRun = 'r1';
@@ -90,6 +92,25 @@ function makeRow(a, run, status, log, ask) {
   p.open = true;
   run.row = row;
   return row;
+}
+
+// Back to the first frame, so the tour can play again: what it made goes, and the run that needed you needs you again.
+function reset() {
+  const drop = (row) => { if (row) row.p.rows = row.p.rows.filter((r) => r !== row); };
+  autos.splice(0, autos.length - SEEDED.autos);
+  runs.splice(0, runs.length - SEEDED.runs).forEach((r) => drop(r.row));
+  const waitingRun = runs.find((r) => r.id === SEEDED.waiting.id);
+  drop(waitingRun.row);
+  delete waitingRun.row;
+  Object.assign(waitingRun, SEEDED.waiting);
+  runSerial = 10;
+  tab = 'automations';
+  sel = 'a1';
+  selRun = 'r1';
+  only = null;
+  editor = null;
+  menu = null;
+  focusField = null;
 }
 
 function ensureRow(run) {
@@ -474,7 +495,7 @@ D.register('automations', {
   render,
   mount,
   act,
-  enter() { focusField = null; menu = null; sync(); },
+  enter() { reset(); sync(); },
   input(e) {
     const f = e.target.dataset.f;
     if (!f || !editor) return;
@@ -503,6 +524,26 @@ function refresh() {
   const th = root.querySelector('.th b');
   if (th) th.textContent = scheduleLabel() ?? 'Schedule';
 }
+
+AnywhereTour.define('automations', [
+  ['wait', 500],
+  ['click', '.ahead [data-act="new"]'],
+  ['wait', 600],
+  ['click', '.tpls [data-act="tpl"][data-v="0"]'],
+  ['wait', 1200],
+  ['click', '.seg [data-act="mode"][data-v="1"]'],
+  ['wait', 700],
+  ['click', '[data-act="save"]'],
+  ['wait', 700],
+  ['click', '.abar [data-act="run"]'],
+  ['wait', 1500],
+  ['click', '.atabs [data-act="tab"][data-v="runs"]'],
+  ['wait', 500],
+  ['click', '.rrow[data-v="r1"]'],
+  ['wait', 900],
+  ['click', '.approval [data-act="allow"]'],
+  ['wait', 4300],
+]);
 
 addEventListener('DOMContentLoaded', () => {
   api().onChange(sync);

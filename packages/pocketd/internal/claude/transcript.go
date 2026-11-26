@@ -345,7 +345,7 @@ func (l line) events() (events []timeline.Event) {
 		if task, _, ok := l.background(); ok {
 			for _, b := range blocks(l.Message.Content) {
 				if b.Type == "tool_result" {
-					events = append(events, timeline.Event{Kind: "tool_background", ToolUseID: b.ToolUseID, TaskID: task})
+					events = append(events, timeline.Event{Kind: "tool_background", ToolUseID: b.ToolUseID, TaskID: task, Run: l.workflowRun()})
 				}
 			}
 			return events
@@ -455,6 +455,7 @@ func (l line) background() (task string, agent, ok bool) {
 		AgentID          string `json:"agentId"`
 		BackgroundTaskID string `json:"backgroundTaskId"`
 		TaskID           string `json:"taskId"`
+		TaskType         string `json:"taskType"`
 		TimeoutMs        *int64 `json:"timeoutMs"`
 	}
 	switch {
@@ -462,11 +463,25 @@ func (l line) background() (task string, agent, ok bool) {
 		return "", false, false
 	case r.IsAsync:
 		return r.AgentID, true, true
+	case r.TaskType == "local_workflow":
+		return r.TaskID, false, r.TaskID != ""
 	// Other tools' results name a task too; only a monitor's has a timeout.
 	case r.TimeoutMs != nil:
 		return r.TaskID, false, r.TaskID != ""
 	}
 	return r.BackgroundTaskID, false, r.BackgroundTaskID != ""
+}
+
+// workflowRun is the run a Workflow call launched, or "".
+func (l line) workflowRun() string {
+	var r struct {
+		TaskType string `json:"taskType"`
+		RunID    string `json:"runId"`
+	}
+	if json.Unmarshal(l.ToolUseResult, &r) != nil || r.TaskType != "local_workflow" {
+		return ""
+	}
+	return r.RunID
 }
 
 // resumed is the agent a SendMessage set going again, or "".

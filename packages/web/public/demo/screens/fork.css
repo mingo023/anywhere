@@ -1,0 +1,38 @@
+/* Fork: the two chats of a fork, the context the new session opens with, and the sidebar row it adds. */
+
+.app .fk-pane .bar .fk-sp { flex: 1; }
+.app .fk-replay { gap: 6px; height: 26px; padding: 0 10px 0 8px; border-radius: 8px; background: var(--f3); color: var(--t2); font-size: 12.5px; animation: rise 300ms cubic-bezier(0.23, 1, 0.32, 1); }
+.app .fk-replay:hover { background: var(--f4); color: var(--t1); }
+.app .fk-replay:active { transform: scale(0.97); }
+
+/* Only what arrives rises; a redraw doesn't replay the rest. */
+.app[data-screen="fork"] .tool, .app[data-screen="fork"] .reply p { animation: none; }
+.app[data-screen="fork"] .fresh, .app[data-screen="fork"] .reply p.fresh { animation: rise 260ms cubic-bezier(0.16, 1, 0.3, 1); }
+.app .reply + .you { margin-top: 22px; }
+.app .you + .reply { margin-top: 12px; }
+
+.app .fk-link { display: inline; color: var(--t1); text-decoration: underline; text-decoration-color: var(--t3); text-underline-offset: 3px; transition: text-decoration-color 160ms, background 160ms; }
+.app .fk-link:hover { text-decoration-color: var(--t1); }
+.app .fk-link.pressed { border-radius: 4px; background: var(--f4); text-decoration-color: var(--t1); }
+
+/* A prompt of more than five lines shows five, then "...", then Show more. */
+.bubble.fk-ctx { max-width: 685px; padding: 9px 16px; font-size: 14.5px; line-height: 22px; }
+.fk-body { overflow: hidden; height: 110px; transition: height 320ms cubic-bezier(0.22, 1, 0.36, 1); }
+.fk-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.fk-dots { height: 22px; overflow: hidden; transition: height 200ms cubic-bezier(0.22, 1, 0.36, 1), opacity 160ms; }
+.fk-ctx.open .fk-dots { height: 0; opacity: 0; }
+.app .fk-more { gap: 5px; margin-top: 8px; color: var(--t2); font-size: 14.5px; line-height: 22px; }
+.app .fk-more:hover { color: var(--t1); }
+.fk-more svg { transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1); }
+.fk-ctx.open .fk-more svg { transform: rotate(180deg); }
+
+.app .row.wt.fk-new { animation: fk-row 420ms cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes fk-row { from { opacity: 0; transform: translateX(-8px); } }
+
+.app .fk-leaving { position: absolute; top: 0; left: 0; bottom: 0; right: 43px; z-index: 5; flex: none; pointer-events: none; background: #0f0f0f; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fk-body, .fk-dots, .fk-more svg { transition: none; }
+  .app .fk-replay, .app .row.wt.fk-new, .app[data-screen="fork"] .fresh, .app[data-screen="fork"] .reply p.fresh { animation: none; }
+}
+.app[data-screen="fork"] .reply code { white-space: nowrap; }

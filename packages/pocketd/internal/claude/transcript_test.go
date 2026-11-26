@@ -856,6 +856,18 @@ func TestAFinishedBackgroundCommandShowsWhatBecameOfItAndTheEndOfItsOutput(t *te
 	}
 }
 
+func TestAWorkflowRunsInTheBackgroundUntilItsNotificationAndNamesItsRun(t *testing.T) {
+	var turns Turns
+	launched := turns.Map([]byte(`{"type":"user","toolUseResult":{"status":"async_launched","taskId":"w1","taskType":"local_workflow","workflowName":"probe","runId":"wf_1"},"message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Workflow launched in background. Task ID: w1"}]}}`))
+	if want := []timeline.Event{{Kind: "tool_background", ToolUseID: "t1", TaskID: "w1", Run: "wf_1"}}; !reflect.DeepEqual(launched, want) {
+		t.Fatalf("launch: got %+v want %+v", launched, want)
+	}
+	ended := turns.Map([]byte(`{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>\n<task-id>w1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Dynamic workflow \"probe\" completed</summary>\n</task-notification>"}}`))
+	if kinds(ended)[0] != "tool_end" || ended[0].ToolUseID != "t1" {
+		t.Fatalf("notification: got %+v", ended)
+	}
+}
+
 func TestAMonitorWatchesInTheBackgroundUntilItsStreamEndsOrItExpires(t *testing.T) {
 	monitor := func(id, task string) []string {
 		return []string{

@@ -71,9 +71,15 @@ type Message struct {
 		Text   string `json:"text"`
 		Origin string `json:"origin"`
 		OK     bool   `json:"ok"`
-		Call   struct {
+		// ParentToolUseID is the call the item sits under: a sub-agent's or a workflow's.
+		ParentToolUseID string `json:"parentToolUseId"`
+		Call            struct {
 			Status string `json:"status"`
 			Output string `json:"output"`
+			Detail struct {
+				Description string `json:"description"`
+				Phase       string `json:"phase"`
+			} `json:"detail"`
 		} `json:"call"`
 		Items []Task `json:"items"`
 	} `json:"item"`

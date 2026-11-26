@@ -18,51 +18,65 @@ import (
 	"pocketd/internal/handoff"
 )
 
-var (
-	mainOnce sync.Once
-	mainErr  error
-	mainSkip string
-	// mainFormat is the handoff format main's pocketd writes and reads up to.
-	mainFormat int
-)
+// jsonEraRev is the last commit whose pocketd kept its state in JSON files, before state/pocketd.db.
+const jsonEraRev = "8a9f4f61cba2a12be6607e73bbc73c329e43ac69"
 
-// mainPocketd builds the pocketd at origin/main once a run, from a detached
-// worktree it removes again, into binDir.
+type pocketdBuild struct {
+	once sync.Once
+	err  error
+	skip string
+	// format is the handoff format this pocketd writes and reads up to.
+	format int
+}
+
+var mainBuild, jsonEraBuild pocketdBuild
+
+// mainPocketd builds the pocketd at origin/main once a run.
 func mainPocketd(t *testing.T) string {
+	return pocketdAt(t, &mainBuild, "main", "+refs/heads/main:refs/remotes/origin/main", "origin/main")
+}
+
+// jsonEraPocketd builds the pocketd at jsonEraRev once a run.
+func jsonEraPocketd(t *testing.T) string {
+	return pocketdAt(t, &jsonEraBuild, "json-era", jsonEraRev, jsonEraRev)
+}
+
+// pocketdAt builds the pocketd at rev, fetched by refspec, from a detached worktree it removes again, into binDir.
+func pocketdAt(t *testing.T, b *pocketdBuild, name, refspec, rev string) string {
 	t.Helper()
-	bin := filepath.Join(binDir, "pocketd-main")
-	mainOnce.Do(func() {
+	bin := filepath.Join(binDir, "pocketd-"+name)
+	b.once.Do(func() {
 		git := func(args ...string) ([]byte, error) { return exec.Command("git", args...).CombinedOutput() }
 		top, err := git("rev-parse", "--show-toplevel")
 		if err != nil {
-			mainErr = fmt.Errorf("git rev-parse: %v: %s", err, top)
+			b.err = fmt.Errorf("git rev-parse: %v: %s", err, top)
 			return
 		}
 		repo := strings.TrimSpace(string(top))
 		// A single-branch checkout, as CI's, gets origin/main only by its full refspec. Offline, the one fetched
 		// last stands in.
-		fetch := []string{"-C", repo, "fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main"}
+		fetch := []string{"-C", repo, "fetch", "-q", "origin", refspec}
 		if shallow, _ := git("-C", repo, "rev-parse", "--is-shallow-repository"); strings.TrimSpace(string(shallow)) == "true" {
 			fetch = append(fetch, "--depth=1")
 		}
 		git(fetch...)
-		if _, err := git("-C", repo, "rev-parse", "--verify", "-q", "origin/main^{commit}"); err != nil {
-			mainSkip = "origin/main isn't here and couldn't be fetched, so there is no main pocketd to upgrade from"
+		if _, err := git("-C", repo, "rev-parse", "--verify", "-q", rev+"^{commit}"); err != nil {
+			b.skip = rev + " isn't here and couldn't be fetched, so there is no pocketd to upgrade from"
 			return
 		}
-		src := filepath.Join(binDir, fmt.Sprintf("pocketd-main-%d", os.Getpid()))
-		if out, err := git("-C", repo, "worktree", "add", "-q", "--detach", src, "origin/main"); err != nil {
-			mainErr = fmt.Errorf("git worktree add: %v: %s", err, out)
+		src := filepath.Join(binDir, fmt.Sprintf("pocketd-%s-%d", name, os.Getpid()))
+		if out, err := git("-C", repo, "worktree", "add", "-q", "--detach", src, rev); err != nil {
+			b.err = fmt.Errorf("git worktree add: %v: %s", err, out)
 			return
 		}
 		defer git("-C", repo, "worktree", "remove", "--force", src)
 		code, err := os.ReadFile(filepath.Join(src, "packages", "pocketd", "internal", "handoff", "handoff.go"))
 		m := regexp.MustCompile(`(?m)^\s*Format\s*=\s*(\d+)`).FindSubmatch(code)
 		if err != nil || m == nil {
-			mainErr = fmt.Errorf("main's handoff format: %v", err)
+			b.err = fmt.Errorf("%s's handoff format: %v", name, err)
 			return
 		}
-		mainFormat, _ = strconv.Atoi(string(m[1]))
+		b.format, _ = strconv.Atoi(string(m[1]))
 		// main's terminal emulator links libghostty from the checkout's untracked third_party.
 		libs, _ := filepath.Glob(filepath.Join(repo, "third_party", "*"))
 		os.MkdirAll(filepath.Join(src, "third_party"), 0o755)
@@ -74,14 +88,14 @@ func mainPocketd(t *testing.T) string {
 		build := exec.Command("go", "build", "-o", bin, "./cmd/pocketd")
 		build.Dir = filepath.Join(src, "packages", "pocketd")
 		if out, err := build.CombinedOutput(); err != nil {
-			mainErr = fmt.Errorf("build main: %v: %s", err, out)
+			b.err = fmt.Errorf("build %s: %v: %s", name, err, out)
 		}
 	})
-	if mainSkip != "" {
-		t.Skip(mainSkip)
+	if b.skip != "" {
+		t.Skip(b.skip)
 	}
-	if mainErr != nil {
-		t.Fatal(mainErr)
+	if b.err != nil {
+		t.Fatal(b.err)
 	}
 	return bin
 }
@@ -168,7 +182,7 @@ func TestAnUpgradeFromMainKeepsEverySessionWhichOutlivesARestartAndMainPutBackOr
 	}
 
 	h.replaceBinary(old)
-	if mainFormat < handoff.Format {
+	if mainBuild.format < handoff.Format {
 		if out, code := h.Pocketd("upgrade"); code == 0 || !strings.Contains(out, fmt.Sprintf("format %d", handoff.Format)) {
 			t.Fatalf("upgrade to main exited %d: %s", code, out)
 		}

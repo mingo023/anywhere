@@ -2,6 +2,7 @@ package orch
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
@@ -9,14 +10,14 @@ import (
 	"pocketd/internal/proto"
 )
 
-// OnTurn reacts to a session's turn starting or ending: a child that settles
-// finalizes its delegation, and a session that goes idle sends what waits for it.
+// OnTurn reacts to a session's turn starting or ending: a child prompted after it settled opens a follow-up, a child
+// that settles finalizes its delegation, and a session that goes idle sends what waits for it.
 func (e *Engine) OnTurn(c TurnChange) {
 	busy := func(s string) bool { return s == "working" || s == "needsYou" }
 	if busy(c.To) {
 		// A compaction the user starts from idle isn't a turn of the task.
 		if c.From != "" && !busy(c.From) && !c.Summary.Compacting {
-			e.reopenChild(c.Session)
+			e.followUp(c.Session, c.Turn)
 		}
 		return
 	}
@@ -61,12 +62,33 @@ func (e *Engine) dropChildren(parent string) {
 	}
 }
 
-func (e *Engine) reopenChild(child string) {
-	ts, err := e.store.Delegations(`child_id = ? ORDER BY created_at DESC LIMIT 1`, child)
+// prompted is the text of the prompt pocketd sent a session that started the turn that began; a turn the agent starts
+// on its own, as on a background task's notice, has none. A wake counts: it is how a child hears that its own children
+// finished, and its turn may give the report it held back for them. A prompt sent to an idle agent waits, running, for
+// its turn and then says it started one; pocketd may send it before the sink records the turn before as ended. Without
+// that word, as from a host, only a prompt sent after that end and not turnless counts.
+const prompted = `SELECT json_extract(payload, '$.text') FROM outbox WHERE session_id = ?1 AND kind = '` + EffTurnStart + `'
+	AND json_extract(payload, '$.origin') IN ('` + OriginUser + `', '` + OriginWake + `')
+	AND created_at <= (SELECT started_at FROM turns WHERE id = ?2)
+	AND CASE
+		WHEN state = 'running' THEN 1
+		WHEN state != 'done' THEN 0
+		WHEN json_extract(result, '$.started') THEN created_at > COALESCE((SELECT MAX(started_at) FROM turns WHERE session_id = ?1 AND id < ?2), 0)
+		ELSE COALESCE(json_extract(result, '$.turnless'), 0) = 0
+			AND created_at >= COALESCE((SELECT MAX(ended_at) FROM turns WHERE session_id = ?1 AND id < ?2), 0)
+	END
+	ORDER BY id DESC LIMIT 1`
+
+func (e *Engine) followUp(child string, turn int64) {
+	var brief string
+	if e.store.db.QueryRow(prompted, child, turn).Scan(&brief) != nil {
+		return
+	}
+	ts, err := e.store.Delegations(`child_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, child)
 	if err != nil || len(ts) == 0 || !ts[0].Terminal() {
 		return
 	}
-	e.dispatch(NewCommand("", CmdDelegateReopen, ts[0].ParentID, TaskPayload{TaskID: ts[0].TaskID}))
+	e.dispatch(NewCommand(fmt.Sprintf("follow_%s_%d", child, turn), CmdDelegateFollow, ts[0].ParentID, TaskPayload{TaskID: ts[0].TaskID, Brief: brief}))
 }
 
 func (e *Engine) settleChild(c TurnChange) {
@@ -74,7 +96,11 @@ func (e *Engine) settleChild(c TurnChange) {
 		return
 	}
 	ts, err := e.store.Delegations(`child_id = ? AND status IN ('starting', 'working') ORDER BY created_at DESC LIMIT 1`, c.Session)
-	if err != nil || len(ts) == 0 {
+	if err != nil {
+		return
+	}
+	if len(ts) == 0 {
+		e.followUpThere(c)
 		return
 	}
 	t := ts[0]
@@ -101,6 +127,38 @@ func (e *Engine) settleChild(c TurnChange) {
 		e.awaitTurnEnd(c.Session)
 		p.Summary, p.Turn = e.store.LatestReply(c.Session), c.Turn
 		e.dispatch(NewCommand("", CmdDelegateSettle, t.ParentID, p))
+	}()
+}
+
+// promptedThere is the text of a prompt or wake in the timeline of a session's turn: a host takes a prompt sent to it
+// straight, so none from here marks the start of its child's turn.
+const promptedThere = `SELECT text FROM items WHERE session_id = ?1 AND kind = 'user' AND parent_tool = ''
+	AND COALESCE(json_extract(body, '$.origin'), '') IN ('', '` + OriginWake + `')
+	AND seq > COALESCE((SELECT seq FROM items WHERE session_id = ?1 AND kind = 'result' AND parent_tool = '' ORDER BY seq
+		LIMIT 1 OFFSET (SELECT results_before FROM turns WHERE id = ?2) - 1), 0)
+	ORDER BY seq LIMIT 1`
+
+// followUpThere opens a follow-up for a host's settled child whose turn, now ended, a prompt on the host started, and
+// settles it with that turn.
+func (e *Engine) followUpThere(c TurnChange) {
+	if c.To == "closed" || c.Turn == 0 {
+		return
+	}
+	ts, err := e.store.Delegations(`child_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, c.Session)
+	if err != nil || len(ts) == 0 || !ts[0].Terminal() || ts[0].Environment == "" {
+		return
+	}
+	e.running.Add(1)
+	go func() {
+		defer e.running.Done()
+		e.awaitTurnEnd(c.Session)
+		var brief string
+		if e.store.db.QueryRow(promptedThere, c.Session, c.Turn).Scan(&brief) != nil {
+			return
+		}
+		if _, err := e.Dispatch(NewCommand(fmt.Sprintf("follow_%s_%d", c.Session, c.Turn), CmdDelegateFollow, ts[0].ParentID, TaskPayload{TaskID: ts[0].TaskID, Brief: brief})); err == nil {
+			e.settleChild(c)
+		}
 	}()
 }
 
@@ -241,7 +299,7 @@ func (s *Store) Lineage(id string) agent.Lineage {
 		return agent.Lineage{}
 	}
 	l := agent.Lineage{Parent: x.ParentID, Relationship: x.Relationship, CreatedBy: x.CreatedBy, Title: x.Title}
-	if ts, err := s.Delegations(`child_id = ? ORDER BY created_at DESC LIMIT 1`, id); err == nil && len(ts) == 1 {
+	if ts, err := s.Delegations(`child_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, id); err == nil && len(ts) == 1 {
 		l.Delegation = &proto.DelegationRef{TaskID: ts[0].TaskID, Status: ts[0].Status, WorkState: ts[0].WorkState}
 	}
 	return l
