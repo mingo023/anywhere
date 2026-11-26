@@ -29,7 +29,8 @@ pub(super) const ROWS: &[Setting] = &[
     Setting::path("clone-folder", "Locations", "Clone folder", |s| s.clone_root(&home()), |s, p| s.worktree.clone_root = p)
         .hint("Where Add project › Clone puts new repositories"),
     Setting::custom("projects", "Projects", "Projects", |d, _, cx| d.project_list(cx))
-        .hint("Open one to edit its icon, accounts, agents and setup script, or remove it"),
+        .hint("Open one to edit its icon, accounts, agents and setup script, or remove it")
+        .bare(),
     Setting::switch("delete-branch", "Deleting a worktree", "Also delete its branch", |s| s.worktree.delete_branch, |s, on| s.worktree.delete_branch = on)
         .hint("Local branch only. Remote branches are never deleted"),
     Setting::choice(
@@ -226,76 +227,108 @@ impl Settings {
         self.side.machines.iter().find(|m| m.host == *host)
     }
 
+    /// One card on one machine; with several, a card per machine under its header, each ending in what it can do.
     pub(super) fn project_list(&mut self, cx: &mut Context<Self>) -> Div {
         let entries: Vec<Entry> = self.side.projects.iter().map(|c| Entry { name: &c.name, path: &c.path, host: c.host.as_deref() }).collect();
         let query = self.projects.filter.read(cx).value().to_string();
         let lines = lines(&entries, &self.side.machines, &self.projects.folded, &query);
-        let filter = (self.side.projects.len() > FILTER_ABOVE).then(|| filter_field(&self.projects.filter));
-        let mut shown: Vec<AnyElement> = Vec::new();
-        let mut reachable = true;
-        for line in &lines {
-            match line {
-                Line::Header { host, open, total } => {
-                    let machine = self.machine(host);
-                    reachable = machine.is_none_or(|m| m.state.reachable());
-                    shown.push(self.group_header(host, machine, *open, *total, cx).into_any_element());
-                }
-                Line::Project { card } => shown.push(self.project_row(*card, reachable, cx).into_any_element()),
+        let filter = (self.side.projects.len() > FILTER_ABOVE).then(|| super::card(vec![filter_field(&self.projects.filter)]));
+        let empty = || div().px(px(14.)).py(px(12.)).text_size(px(12.5)).text_color(TEXT_3).child("No project matches");
+        let list = div().flex().flex_col().gap(px(14.)).children(filter);
+        if !lines.iter().any(|l| matches!(l, Line::Header { .. })) {
+            let mut rows: Vec<Div> =
+                lines.iter().filter_map(|l| if let Line::Project { card } = l { Some(div().child(self.project_row(*card, true, cx))) } else { None }).collect();
+            if rows.is_empty() {
+                rows.push(empty());
             }
+            rows.push(self.project_foot(cx));
+            return list.child(super::card(rows));
         }
-        let empty = lines.is_empty().then(|| div().px(px(14.)).py(px(12.)).text_size(px(12.5)).text_color(TEXT_3).child("No project matches"));
-        div().flex().flex_col().children(filter).children(shown).children(empty).child(self.project_foot(cx))
+        let mut blocks: Vec<Div> = Vec::new();
+        let mut i = 0;
+        while let Some(Line::Header { host, open, total }) = lines.get(i) {
+            i += 1;
+            let machine = self.machine(host);
+            let state = machine.map_or(MachineState::Offline, |m| m.state);
+            let mut block = div().flex().flex_col().gap(px(6.)).child(self.group_header(host, machine, *open, *total, cx));
+            let mut rows = Vec::new();
+            while let Some(Line::Project { card }) = lines.get(i) {
+                rows.push(div().child(self.project_row(*card, state.reachable(), cx)));
+                i += 1;
+            }
+            if *open {
+                rows.extend(self.machine_foot(host, machine, cx));
+                block = block.child(super::card(rows));
+            }
+            blocks.push(block);
+        }
+        if blocks.is_empty() {
+            return list.child(super::card(vec![empty()]));
+        }
+        list.children(blocks)
     }
 
-    fn group_header(&self, host: &Option<String>, machine: Option<&Machine>, open: bool, total: usize, cx: &mut Context<Self>) -> Div {
+    fn group_header(&self, host: &Option<String>, machine: Option<&Machine>, open: bool, total: usize, cx: &mut Context<Self>) -> Stateful<Div> {
         let key = host.clone().unwrap_or_default();
         let (name, glyph, colour, state) = match machine {
             Some(m) => (m.name.clone(), m.glyph, m.colour, m.state),
             None => (key.clone(), "server", None, MachineState::Offline),
         };
         let fold = host.clone();
-        let head = div()
+        div()
             .id(SharedString::from(format!("projects-fold-{key}")))
-            .flex_1()
-            .min_w_0()
-            .h(px(28.))
+            .h(px(24.))
+            .ml(px(2.))
             .flex()
             .items_center()
             .gap(px(8.))
             .cursor_pointer()
             .tab_index(0)
             .child(icon(if open { "chevron-down" } else { "chevron-right" }, 11., TEXT_3))
-            .child(tile(glyph, colour, 20.))
-            .child(div().truncate().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(name))
+            .child(tile(glyph, colour, 18.))
+            .child(div().truncate().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_2).child(name))
             .child(pill(state.label(), state))
             .child(div().text_size(px(12.)).text_color(TEXT_3).child(total.to_string()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.projects.toggle(fold.clone());
                 cx.notify();
-            }));
-        let button = match (host, state) {
-            (_, MachineState::Local | MachineState::Connected) => {
+            }))
+    }
+
+    /// The last row of a machine's card: add a project there, or reconnect it.
+    fn machine_foot(&self, host: &Option<String>, machine: Option<&Machine>, cx: &mut Context<Self>) -> Option<Div> {
+        let key = host.clone().unwrap_or_default();
+        let name = machine.map_or_else(|| key.clone(), |m| m.name.clone());
+        let state = machine.map_or(MachineState::Offline, |m| m.state);
+        let row = div().px(px(14.)).py(px(8.)).flex().items_center().gap(px(12.)).bg(FILL_1);
+        match foot(host.as_deref(), state)? {
+            Foot::Add => {
                 let target = host.clone();
-                Some(
-                    action(SharedString::from(format!("projects-add-{key}")), "")
-                        .h(px(24.))
-                        .gap(px(5.))
-                        .child(icon("plus", 11., TEXT_2))
-                        .child("Add")
-                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(add_event(target.clone())))),
-                )
+                let add = action(SharedString::from(format!("projects-add-{key}")), "")
+                    .pl(px(4.))
+                    .gap(px(6.))
+                    .child(icon("plus", 13., TEXT_2))
+                    .child(if host.is_some() { format!("Add project on {name}\u{2026}") } else { "Add project\u{2026}".to_string() })
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(add_event(target.clone()))));
+                let clone = host.is_none().then(|| {
+                    ui::link("settings-clone-project", "Clone\u{2026}").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::CloneProject)))
+                });
+                Some(row.child(add).children(clone))
             }
-            (Some(id), MachineState::Offline) => {
-                let id = id.clone();
-                Some(
-                    action(SharedString::from(format!("projects-reconnect-{key}")), "Reconnect")
-                        .h(px(24.))
-                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::Retry(id.clone()))))),
-                )
+            Foot::Reconnect(id) => {
+                let id = id.to_string();
+                let reconnect = action(SharedString::from(format!("projects-reconnect-{key}")), "Reconnect")
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::Retry(id.clone())))));
+                let note = div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(px(12.))
+                    .text_color(TEXT_3)
+                    .child(format!("Can\u{2019}t reach {name}. Its projects open once it reconnects."));
+                Some(row.child(note).child(reconnect))
             }
-            _ => None,
-        };
-        div().pl(px(10.)).pr(px(14.)).flex().items_center().gap(px(8.)).bg(FILL_1).border_t(px(0.5)).border_color(SEPARATOR).child(head).children(button)
+            Foot::Waiting => Some(row.child(div().text_size(px(12.)).text_color(TEXT_3).child(format!("Connecting to {name}\u{2026}")))),
+        }
     }
 
     fn project_row(&self, i: usize, reachable: bool, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -341,8 +374,6 @@ impl Settings {
             .flex()
             .items_center()
             .gap(px(12.))
-            .border_t(px(0.5))
-            .border_color(SEPARATOR)
             .cursor_pointer()
             .hover(|d| d.bg(FILL_1))
             .when(!reachable, |d| d.opacity(0.55))
@@ -392,10 +423,25 @@ impl Settings {
             .items_center()
             .gap(px(12.))
             .bg(FILL_1)
-            .border_t(px(0.5))
-            .border_color(SEPARATOR)
             .child(div().relative().child(add).children(menu.map(|m| ui::dropdown(30., m))))
             .child(clone)
+    }
+}
+
+/// What a machine's card ends with.
+#[derive(Debug, PartialEq)]
+enum Foot<'a> {
+    Add,
+    Reconnect(&'a str),
+    Waiting,
+}
+
+fn foot(host: Option<&str>, state: MachineState) -> Option<Foot<'_>> {
+    match (host, state) {
+        (_, MachineState::Local | MachineState::Connected) => Some(Foot::Add),
+        (Some(id), MachineState::Offline) => Some(Foot::Reconnect(id)),
+        (_, MachineState::Connecting) => Some(Foot::Waiting),
+        (None, MachineState::Offline) => None,
     }
 }
 
@@ -414,7 +460,7 @@ fn offline_note(host: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, Line, MachineState, add_targets, lines, machine_state, placeholder, worktree_count};
+    use super::{Entry, Foot, Line, MachineState, add_targets, foot, lines, machine_state, placeholder, worktree_count};
     use crate::settings::side::Machine;
     use agents::hosts::{Failure, Link};
     use std::collections::HashSet;
@@ -544,5 +590,13 @@ mod tests {
     #[test]
     fn only_this_mac_and_connected_hosts_take_a_new_project() {
         assert_eq!(add_targets(&machines()), [0, 1]);
+    }
+
+    #[test]
+    fn a_machine_s_card_ends_in_add_while_reachable_and_reconnect_while_offline() {
+        assert_eq!(foot(None, MachineState::Local), Some(Foot::Add));
+        assert_eq!(foot(Some("devbox"), MachineState::Connected), Some(Foot::Add));
+        assert_eq!(foot(Some("devbox"), MachineState::Offline), Some(Foot::Reconnect("devbox")));
+        assert_eq!(foot(Some("devbox"), MachineState::Connecting), Some(Foot::Waiting));
     }
 }

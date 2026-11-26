@@ -604,6 +604,9 @@ impl Settings {
             field.sync(&stored, window, cx);
         }
         self.every.sync(i64::from(store.automations.every), window, cx);
+        self.launch.sync(&store, window, cx);
+        self.host.time_field.sync(&store.automations.time, window, cx);
+        self.host.port_field.sync(&host::port_field(store.phone.port), window, cx);
     }
 
     /// The focus a row's control takes, made the first time it's asked for.
@@ -784,13 +787,17 @@ fn sub_title(label: &'static str) -> Div {
 }
 
 fn group(title: &str, rows: Vec<Div>) -> Div {
+    titled(title, card(rows))
+}
+
+fn titled(title: &str, body: Div) -> Div {
     div()
         .flex()
         .flex_col()
         .child(
             div().mb(px(7.)).ml(px(2.)).text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_2).child(title.to_string()),
         )
-        .child(card(rows))
+        .child(body)
 }
 
 fn card(rows: Vec<Div>) -> Div {
@@ -1179,10 +1186,11 @@ impl Settings {
     fn setting_group(&mut self, section: Section, title: &'static str, cx: &mut Context<Self>) -> Option<Div> {
         let open = self.advanced_open(section);
         let shown: Vec<&'static Setting> = section.rows().iter().filter(|r| r.group == title && r.allowed(&self.store) && (open || !r.advanced)).collect();
+        let bare = shown.iter().all(|r| r.bare);
         let rows: Vec<Div> = shown.into_iter().map(|r| self.setting_row(r, cx)).collect();
         let related = related::of(section, title);
         (!rows.is_empty()).then(|| {
-            let card = group(title, rows);
+            let card = if bare { titled(title, div().flex().flex_col().children(rows)) } else { group(title, rows) };
             match related {
                 Some(r) => card.child(self.related_line(r, cx)),
                 None => card,

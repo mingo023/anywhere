@@ -92,6 +92,8 @@ pub(crate) struct Setting {
     pub resets: Option<Resets>,
     /// Why the row can't apply in this store; its control is off while it says so.
     pub off: Option<fn(&Store) -> Option<Off>>,
+    /// Draws its own cards, so its group isn't wrapped in one.
+    pub bare: bool,
 }
 
 impl Setting {
@@ -110,6 +112,7 @@ impl Setting {
             effect: None,
             resets: None,
             off: None,
+            bare: false,
         }
     }
 
@@ -172,6 +175,11 @@ impl Setting {
 
     pub const fn advanced(mut self) -> Self {
         self.advanced = true;
+        self
+    }
+
+    pub const fn bare(mut self) -> Self {
+        self.bare = true;
         self
     }
 
