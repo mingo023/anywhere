@@ -170,7 +170,7 @@ fn take(held: &mut Vec<u8>, marks: bool) -> Vec<Event> {
 #[cfg(unix)]
 fn shell(script: &str) -> Command {
     use std::os::unix::process::CommandExt;
-    let mut c = Command::new(std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()));
+    let mut c = Command::new(daemon::login_shell());
     // The user's login shell sets the PATH their terminal has, and bash reads the script, as the agent wrote it for one; the
     // script goes by env so no shell's quoting touches it. Its own process group lets a stop end what it started too.
     c.arg("-lc").arg("exec bash -c \"$POCKET_SCRIPT\"").env("POCKET_SCRIPT", script).process_group(0);

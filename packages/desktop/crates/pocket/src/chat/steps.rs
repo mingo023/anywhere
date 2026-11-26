@@ -4,14 +4,15 @@
 /// runs only its prompted lines, and a block with a `<placeholder>` left to fill in stays copy-only.
 pub(crate) fn runnable(lang: &str, code: &str) -> Option<Vec<String>> {
     let transcript = matches!(lang, "console" | "shell-session");
-    let shell = transcript || matches!(lang, "sh" | "bash" | "zsh" | "shell");
+    let shell = transcript || matches!(lang, "sh" | "bash" | "shell");
     let steps = steps(code);
     let runs = shell && !steps.is_empty() && (!transcript || prompted(code)) && !steps.iter().any(|s| placeholder(s));
     runs.then_some(steps)
 }
 
+/// Whether the block is a transcript of prompted commands; a `$ ` line in a heredoc is the file's text, not a prompt.
 fn prompted(code: &str) -> bool {
-    code.lines().any(|l| l.trim_start().starts_with("$ "))
+    !code.contains("<<") && code.lines().any(|l| l.trim_start().starts_with("$ "))
 }
 
 fn placeholder(step: &str) -> bool {
@@ -54,9 +55,14 @@ pub(crate) fn steps(code: &str) -> Vec<String> {
             (true, None) if prompted => continue,
             (true, None) => line,
         };
+        let pipes_on = line.ends_with('|') || line.ends_with("&&");
         match line.strip_suffix('\\') {
             Some(head) => {
                 held.push_str(head.trim_end());
+                held.push(' ');
+            }
+            None if pipes_on => {
+                held.push_str(line);
                 held.push(' ');
             }
             None => {
@@ -78,7 +84,7 @@ pub(crate) fn steps(code: &str) -> Vec<String> {
 
 /// Whether `step` deletes, overwrites or reaches past the project in a way worth a second press.
 pub(crate) fn risky(step: &str) -> bool {
-    let words: Vec<&str> = step.split_whitespace().collect();
+    let words: Vec<&str> = step.split(|c: char| c.is_whitespace() || ";&|()".contains(c)).filter(|w| !w.is_empty()).collect();
     let has = |w: &str| words.contains(&w);
     let flags = |short: char| words.iter().any(|w| w.starts_with('-') && !w.starts_with("--") && w.contains(short));
     let rm_recursive = has("rm") && (flags('r') || flags('R') || has("--recursive"));
@@ -118,6 +124,22 @@ mod tests {
     }
 
     #[test]
+    fn a_line_ending_in_a_pipe_or_and_or_carries_on() {
+        assert_eq!(steps("printf 'a\\n' |\n  cat\nfalse ||\n  echo ok\n"), ["printf 'a\\n' | cat", "false || echo ok"]);
+    }
+
+    #[test]
+    fn a_heredoc_with_prompt_like_lines_runs_as_written() {
+        let code = "cat <<'EOF'\n$ echo hello\nEOF";
+        assert_eq!(steps(code), [code]);
+    }
+
+    #[test]
+    fn zsh_blocks_stay_copy_only_as_steps_run_in_bash() {
+        assert_eq!(runnable("zsh", "print -r -- hello"), None);
+    }
+
+    #[test]
     fn a_continuation_at_the_end_still_makes_a_step() {
         assert_eq!(steps("echo a \\"), ["echo a"]);
     }
@@ -136,6 +158,7 @@ mod tests {
             "chmod -R 777 .",
             "git checkout -- .",
             "git checkout .",
+            "git reset --hard; git status",
             "git restore src",
             "git branch -D old",
             "git stash drop",

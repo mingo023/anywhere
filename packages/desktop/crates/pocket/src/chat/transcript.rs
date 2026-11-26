@@ -1021,7 +1021,8 @@ impl View {
                         }
                         let doc = view.docs.code(&id, lang, &code, cx);
                         let code_view = markdown::code_block(&doc, colours);
-                        let steps = view.side.runs_in.as_ref().and_then(|_| super::steps::runnable(lang, &code));
+                        // Runs only once the fence closes: a block still streaming can be a cut-off command.
+                        let steps = view.side.runs_in.as_ref().filter(|_| markdown::closed(text)).and_then(|_| super::steps::runnable(lang, &code));
                         let block = match steps {
                             Some(steps) => {
                                 let now = Instant::now();
