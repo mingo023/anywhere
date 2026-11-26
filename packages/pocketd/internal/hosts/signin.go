@@ -101,7 +101,7 @@ func (m *Manager) passwordSignIn(ctx context.Context, h Host, askpass, password 
 		// ssh's own wording, so classify calls it timed_out.
 		return "Operation timed out", -1
 	}
-	if cmd.ProcessState == nil {
+	if err != nil && cmd.ProcessState == nil {
 		return stderr.String(), -1
 	}
 	return stderr.String(), cmd.ProcessState.ExitCode()
