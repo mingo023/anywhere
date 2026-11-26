@@ -19,3 +19,16 @@ func TestAntigravityHasNoConfigDir(t *testing.T) {
 		t.Fatalf("claude's is %q", dir)
 	}
 }
+
+func TestHomeStandsForASessionWithNoProjectButAnotherFolderIsRefused(t *testing.T) {
+	l := launcher(t, `["/p"]`)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	l.d.Accounts = &accounts.Store{Root: filepath.Join(home, "accounts"), Home: home}
+	if dir, err := l.ConfigDir("claude", "", home); err != nil || dir != filepath.Join(home, ".claude") {
+		t.Fatalf("home: %q, %v", dir, err)
+	}
+	if _, err := l.ConfigDir("claude", "", "/etc"); err == nil {
+		t.Fatal("/etc was taken")
+	}
+}

@@ -54,17 +54,18 @@ func (l *Launcher) Accounts(ctx context.Context, m ops.Msg) ops.Msg {
 
 // ConfigDir is where provider keeps the config of the account a new session
 // in project would run on, account being the one it names; "" for a provider
-// pocketd keeps no accounts of.
+// pocketd keeps no accounts of. The user's home stands for a session with no
+// project yet, whose new folder holds no skills of its own.
 func (l *Launcher) ConfigDir(provider, account, project string) (string, error) {
 	f := l.reg.Load()
-	if !slices.Contains(f.Projects, project) {
+	home, _ := os.UserHomeDir()
+	if (home == "" || project != home) && !slices.Contains(f.Projects, project) {
 		return "", errors.New("This project isn't on your Mac anymore")
 	}
 	if !accounts.Managed(provider) {
 		return "", nil
 	}
 	if l.d.Accounts == nil {
-		home, _ := os.UserHomeDir()
 		return filepath.Join(home, "."+provider), nil
 	}
 	id, err := l.d.Accounts.Resolve(provider, l.pick(provider, account, f.Repos[project].Accounts[provider]))

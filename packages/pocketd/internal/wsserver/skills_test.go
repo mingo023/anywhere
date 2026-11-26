@@ -58,3 +58,22 @@ func TestSkillsListRefusesAFolderThatIsntAProject(t *testing.T) {
 		t.Fatalf("%v", m)
 	}
 }
+
+func TestSkillsListSendsTheAccountsSkillsForHomeBeforeASessionHasAProject(t *testing.T) {
+	home, opt := withSkills(t, t.TempDir())
+	t.Setenv("HOME", home)
+	skill := filepath.Join(home, ".claude", "skills", "ship", "SKILL.md")
+	os.MkdirAll(filepath.Dir(skill), 0o755)
+	os.WriteFile(skill, []byte("---\ndescription: Ship it\n---\n"), 0o644)
+	_, _, p := setup(t, opt)
+	p.hello()
+	p.send(`{"type":"skills.list","id":"s1","provider":"claude","project":` + q(home) + `}`)
+	if m := p.recv(); m["type"] != "skills.list" {
+		t.Fatalf("refused: %v", m)
+	}
+	m := p.recv()
+	want := []any{map[string]any{"name": "ship", "description": "Ship it"}}
+	if m["project"] != home || !reflect.DeepEqual(m["commands"], want) {
+		t.Fatalf("found: %v", m)
+	}
+}

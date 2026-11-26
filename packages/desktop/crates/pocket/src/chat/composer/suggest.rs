@@ -314,11 +314,23 @@ pub(crate) struct Target {
     provider: String,
     account: String,
     cwd: String,
+    /// Whether `@` lists `cwd`'s files.
+    lists_files: bool,
 }
 
 /// What a new session's commands go by: its provider, account and project.
 pub(crate) fn launch_key(provider: &str, account: &str, cwd: &str) -> String {
     format!("{provider}\0{account}\0{cwd}")
+}
+
+/// The folder a new session's list reads from, and whether `@` lists its files: its project, or `home` while it starts
+/// in a folder made on send, which holds no skills or files of its own.
+fn launch_place(project: Option<&str>, no_project: bool, home: impl FnOnce() -> Option<String>) -> Option<(String, bool)> {
+    match project {
+        Some(project) => Some((project.into(), true)),
+        None if no_project => home().map(|home| (home, false)),
+        None => None,
+    }
 }
 
 impl Desktop {
@@ -350,15 +362,13 @@ impl Desktop {
                 provider: a.provider.clone(),
                 account: a.account.clone(),
                 cwd: a.cwd.clone(),
+                lists_files: true,
             }),
             Prompt::Launch => {
+                let form = self.new_form.read(cx);
+                let (cwd, lists_files) = launch_place(form.project(), form.no_project(), || self.host_agents.home_key(self.space().host()))?;
                 let pick = self.new_form_pick(cx);
-                self.new_form.read(cx).project().map(|cwd| Target {
-                    key: launch_key(&pick.provider, &pick.account, cwd),
-                    provider: pick.provider,
-                    account: pick.account,
-                    cwd: cwd.into(),
-                })
+                Some(Target { key: launch_key(&pick.provider, &pick.account, &cwd), provider: pick.provider, account: pick.account, cwd, lists_files })
             }
         }
     }
@@ -381,7 +391,7 @@ impl Desktop {
             if self.with_suggest(p, cx, |s| s.asks_servers(&t.key, &text, cursor)) {
                 self.outbox.mcp(&t.key);
             }
-        } else if self.with_suggest(p, cx, |s| s.loads_files(&t.cwd, &text, cursor)) {
+        } else if t.lists_files && self.with_suggest(p, cx, |s| s.loads_files(&t.cwd, &text, cursor)) {
             self.load_files(p, &t.cwd, cx);
         }
         self.suggest(p, cx);
@@ -421,6 +431,9 @@ impl Desktop {
                 let servers = s.servers.get(&t.key).cloned().flatten().map(|r| r.map(|all| chat::mcp::picker(&all, query)));
                 let pickable = listed(&servers).iter().take_while(|x| chat::mcp::usable(x) || chat::mcp::action(&t.provider, x).is_some()).count();
                 return Some(Rows::Servers { at, query: query.into(), servers, pickable });
+            }
+            if !t.lists_files {
+                return None;
             }
             let root = format!("{}/", hosts::split(&t.cwd).1.trim_end_matches('/'));
             let views = (p == Prompt::Chat).then(|| self.chats.views.get(&t.key)).flatten();
@@ -758,12 +771,21 @@ fn list_view(
 
 #[cfg(test)]
 mod tests {
-    use super::{Prompt, SHOWN, Suggest, ended_command, launch_key, named, rank, replaced, starts_draft, typed_pill, window, word};
+    use super::{Prompt, SHOWN, Suggest, ended_command, launch_key, launch_place, named, rank, replaced, starts_draft, typed_pill, window, word};
     use agents::{McpAction, McpServer, McpStatus};
     use std::collections::HashSet;
 
     fn owned(paths: &[&str]) -> Vec<String> {
         paths.iter().map(|p| (*p).to_string()).collect()
+    }
+
+    #[test]
+    fn a_new_session_with_no_project_yet_lists_from_home_without_files_and_waits_on_a_host_not_heard_from() {
+        let home = || Some("/Users/me".to_string());
+        assert_eq!(launch_place(None, true, home), Some(("/Users/me".into(), false)));
+        assert_eq!(launch_place(None, true, || None), None);
+        assert_eq!(launch_place(Some("/p"), true, home), Some(("/p".into(), true)));
+        assert_eq!(launch_place(None, false, home), None);
     }
 
     #[test]

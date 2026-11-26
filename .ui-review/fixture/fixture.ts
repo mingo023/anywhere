@@ -1335,6 +1335,10 @@ Bun.serve({
         ];
         ws.send(JSON.stringify({ type: "agent.commands", id: f.id, agentId: f.agentId, commands }));
       }
+      if (f.type === "skills.list") {
+        const commands = [{ name: "ship", description: "Commit the changes and open a PR" }];
+        ws.send(JSON.stringify({ type: "skills.list", id: f.id, provider: f.provider, account: f.account, project: f.project, commands }));
+      }
       if (f.type === "agent.mcp") {
         const servers = [
           { name: "fff", status: "connected", scope: "user" },
