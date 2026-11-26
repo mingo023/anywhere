@@ -25,14 +25,15 @@ fn placeholder(step: &str) -> bool {
     })
 }
 
-/// A loop, condition, function, heredoc or quote spans lines, so its block can't be split into a step per line.
+/// A loop, condition, function, heredoc, array, `$(` or quote spans lines, so its block can't be split into a step per line.
 fn compound(code: &str) -> bool {
-    code.lines().map(str::trim).any(|l| {
+    code.lines().map(str::trim).filter(|l| !l.starts_with('#')).any(|l| {
         let first = l.trim_start_matches("$ ").split_whitespace().next().unwrap_or("");
         let open = |q: char| l.chars().filter(|&c| c == q).count() - l.matches(&format!("\\{q}")).count();
         matches!(first, "for" | "while" | "until" | "if" | "case" | "select" | "function")
             || l.contains("<<")
             || l.ends_with('{')
+            || l.ends_with('(')
             || open('"') % 2 == 1
             || open('\'') % 2 == 1
     })
@@ -129,6 +130,11 @@ mod tests {
     }
 
     #[test]
+    fn a_quote_in_a_comment_keeps_a_step_per_line() {
+        assert_eq!(steps("# Don't skip setup\nfalse\necho after"), ["false", "echo after"]);
+    }
+
+    #[test]
     fn a_heredoc_with_prompt_like_lines_runs_as_written() {
         let code = "cat <<'EOF'\n$ echo hello\nEOF";
         assert_eq!(steps(code), [code]);
@@ -204,5 +210,8 @@ mod tests {
         assert_eq!(steps(code), [code]);
         let code = "git commit -m \"title\n\nbody\"";
         assert_eq!(steps(code), [code]);
+        for code in ["args=(\n  --help\n)", "value=$(\n  printf hello\n)"] {
+            assert_eq!(steps(code), [code]);
+        }
     }
 }

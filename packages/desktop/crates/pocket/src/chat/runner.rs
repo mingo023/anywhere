@@ -125,11 +125,8 @@ fn stream(mut out: Box<dyn Read + Send>, tx: &UnboundedSender<Event>, step: Opti
     let mut held = Vec::new();
     while let Ok(n @ 1..) = out.read(&mut buf) {
         held.extend_from_slice(&buf[..n]);
-        for event in take(&mut held, step.is_some()) {
-            if let (Event::Step(n), Some((at, of))) = (&event, step) {
-                if *n >= of {
-                    continue;
-                }
+        for event in take(&mut held, step.map_or(0, |(_, of)| of)) {
+            if let (Event::Step(n), Some((at, _))) = (&event, step) {
                 at.store(*n, Ordering::Relaxed);
             }
             if tx.unbounded_send(event).is_err() {
@@ -142,11 +139,12 @@ fn stream(mut out: Box<dyn Read + Send>, tx: &UnboundedSender<Event>, step: Opti
     }
 }
 
-/// The events in what a shell printed so far, leaving in `held` a character or step mark cut off by the end of a read.
-fn take(held: &mut Vec<u8>, marks: bool) -> Vec<Event> {
+/// The events in what a shell printed so far, leaving in `held` a character or step mark cut off by the end of a read. Marks
+/// are read only when there are `steps`, and one that names no step is output a step printed.
+fn take(held: &mut Vec<u8>, steps: usize) -> Vec<Event> {
     let mut events = Vec::new();
     loop {
-        let mark = marks.then(|| held.iter().position(|&b| b == MARK)).flatten();
+        let mark = (steps > 0).then(|| held.iter().position(|&b| b == MARK)).flatten();
         let text = &held[..mark.unwrap_or(held.len())];
         let whole = match (std::str::from_utf8(text), mark) {
             (Err(e), None) if e.error_len().is_none() => e.valid_up_to(),
@@ -160,9 +158,11 @@ fn take(held: &mut Vec<u8>, marks: bool) -> Vec<Event> {
             held.drain(..whole);
             return events;
         };
-        if let Some(n) = std::str::from_utf8(&held[m + 1..nl]).ok().and_then(|n| n.parse().ok()) {
-            events.push(Event::Step(n));
-        }
+        let n = std::str::from_utf8(&held[m + 1..nl]).ok().and_then(|n| n.parse().ok()).filter(|&n| n < steps);
+        events.push(match n {
+            Some(n) => Event::Step(n),
+            None => Event::Output(String::from_utf8_lossy(&held[m..=nl]).into_owned()),
+        });
         held.drain(..=nl);
     }
 }
@@ -314,22 +314,29 @@ mod tests {
     fn a_step_printing_a_mark_past_the_last_step_is_only_output() {
         let e = events(&["printf '\\03699\\n'"]);
         assert!(!e.contains(&Event::Step(99)));
+        assert!(output(&e).contains("\x1e99"));
         assert_eq!(e.last(), Some(&Event::Done(Exit::Passed)));
     }
 
     #[test]
     fn a_character_cut_by_a_read_waits_for_its_other_half() {
         let mut held = "é".as_bytes()[..1].to_vec();
-        assert_eq!(take(&mut held, false), []);
+        assert_eq!(take(&mut held, 0), []);
         held.extend_from_slice(&"é".as_bytes()[1..]);
-        assert_eq!(take(&mut held, false), [Event::Output("é".into())]);
+        assert_eq!(take(&mut held, 0), [Event::Output("é".into())]);
     }
 
     #[test]
     fn a_step_mark_is_read_out_of_the_output_even_when_cut() {
         let mut held = b"a\n\x1e1".to_vec();
-        assert_eq!(take(&mut held, true), [Event::Output("a\n".into())]);
+        assert_eq!(take(&mut held, 20), [Event::Output("a\n".into())]);
         held.extend_from_slice(b"2\nb");
-        assert_eq!(take(&mut held, true), [Event::Step(12), Event::Output("b".into())]);
+        assert_eq!(take(&mut held, 20), [Event::Step(12), Event::Output("b".into())]);
+    }
+
+    #[test]
+    fn a_separator_that_names_no_step_stays_in_the_output() {
+        let mut held = b"\x1ehello\n\x1e7\n".to_vec();
+        assert_eq!(take(&mut held, 3), [Event::Output("\x1ehello\n".into()), Event::Output("\x1e7\n".into())]);
     }
 }
