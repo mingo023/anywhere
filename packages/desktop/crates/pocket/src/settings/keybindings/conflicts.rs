@@ -175,8 +175,14 @@ fn built_in(b: &KeyBinding) -> Option<(Kind, &'static str, Option<&'static str>)
     format.into_iter().find(|(is, _)| *is).map(|(_, label)| (Kind::Prompt, label, Some("Text fields")))
 }
 
-/// Every key held where this page can see it, with `c`'s shortcuts in place.
+/// Every key held where this page can see it, with `c`'s shortcuts in place, in keymap order.
 pub(crate) fn pool(rows: &[Shortcut], c: &Custom) -> Vec<Held> {
+    pool_for(rows, c, None)
+}
+
+/// `pool`, where a text-field key counts as already beaten only by a row other than `editing`: the key being recorded
+/// for it isn't bound yet.
+fn pool_for(rows: &[Shortcut], c: &Custom, editing: Option<usize>) -> Vec<Held> {
     let mut out = Vec::new();
     for (i, b) in c.keymap().iter().enumerate() {
         let at = i as i64;
@@ -196,13 +202,11 @@ pub(crate) fn pool(rows: &[Shortcut], c: &Custom) -> Vec<Held> {
         }
     }
     if cfg!(target_os = "macos") {
-        let ours: Vec<String> = out.iter().filter(|h| h.place.is_none()).map(|h| h.key.clone()).collect();
-        for (key, label, place) in BASE {
-            let key = canon(key);
-            if !ours.contains(&key) {
-                out.push(Held { row: None, key, label: (*label).into(), place: Some(place), kind: Kind::Base, at: -1 });
-            }
-        }
+        let ours: Vec<String> = out.iter().filter(|h| h.place.is_none() && (editing.is_none() || h.row != editing)).map(|h| h.key.clone()).collect();
+        let base = BASE.iter().map(|(key, label, place)| (canon(key), label, place)).filter(|(key, _, _)| !ours.contains(key));
+        let base: Vec<Held> =
+            base.map(|(key, label, place)| Held { row: None, key, label: (*label).into(), place: Some(place), kind: Kind::Base, at: -1 }).collect();
+        out.splice(0..0, base);
     }
     for b in keys::bindings() {
         let key = key_of(&b);
@@ -259,7 +263,7 @@ pub(crate) fn conflicts(rows: &[Shortcut], c: &Custom, row: usize, slot: Slot, k
     }
     let mut edited = c.clone();
     put(&mut edited, me, slot, key);
-    let pool = pool(rows, &edited);
+    let pool = pool_for(rows, &edited, Some(row));
     let Some(mine) = pool.iter().find(|h| h.row == Some(row) && h.key == key).map(|h| h.at) else { return notes };
     for b in pool.iter().filter(|b| b.key == key && b.row != Some(row) && overlap(place, b.place)) {
         let (l, win) = (&b.label, mine > b.at);
@@ -560,9 +564,11 @@ mod tests {
     #[test]
     fn the_terminal_keeps_its_keys_for_the_program() {
         let c = Custom::default();
-        let (level, text) = first(&c, "New worktree", Slot::Spot, "cmd-enter");
-        assert_eq!(level, Level::Shared);
-        assert!(text.starts_with("In a terminal,") && text.contains("still goes to the program"), "{text}");
+        let all = notes(&c, "New worktree", Slot::Spot, "cmd-enter");
+        assert!(
+            all.iter().any(|(level, text)| *level == Level::Shared && text.starts_with("In a terminal,") && text.contains("still goes to the program")),
+            "{all:?}"
+        );
         let mut edited = c.clone();
         put(&mut edited, &SHORTCUTS[at("New worktree")], Slot::Spot, &k("cmd-enter"));
         assert!(dispatch(&edited, "cmd-enter", &["Root", keys::CONTEXT]).is_empty());

@@ -261,12 +261,13 @@ pub fn keymap(keys: &BTreeMap<String, String>, added: &[(String, String)]) -> Ve
         .collect();
     let unbound = unbound();
     for (id, k) in added {
-        let copies: Vec<(Box<dyn Action>, Option<Rc<KeyBindingContextPredicate>>)> =
-            match builtin.iter().zip(&spots).filter(|(_, s)| *s == id).collect::<Vec<_>>() {
-                found if !found.is_empty() => found.into_iter().map(|(b, _)| (b.action().boxed_clone(), b.predicate())).collect(),
-                _ => unbound.iter().filter(|a| action_id(a.as_ref()) == *id).map(|a| (a.boxed_clone(), None)).collect(),
-            };
-        out.extend(copies.into_iter().filter_map(|(action, predicate)| KeyBinding::load_for_os(k, action, predicate, keys::OS).ok()));
+        let bind = |action: Box<dyn Action>, predicate| KeyBinding::load_for_os(k, action, predicate, keys::OS).ok();
+        let copies: Vec<KeyBinding> =
+            builtin.iter().zip(&spots).filter(|(_, s)| *s == id).filter_map(|(b, _)| bind(b.action().boxed_clone(), b.predicate())).collect();
+        if copies.is_empty() {
+            out.extend(unbound.iter().filter(|a| action_id(a.as_ref()) == *id).filter_map(|a| bind(a.boxed_clone(), None)));
+        }
+        out.extend(copies);
     }
     if !cfg!(target_os = "macos") {
         out.extend(terminal_aliases(&out));

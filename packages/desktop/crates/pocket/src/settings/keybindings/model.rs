@@ -297,7 +297,7 @@ pub(crate) fn remove(c: &mut Custom, row: &Shortcut, slot: Slot) {
         Slot::Spot => {
             c.keys.insert(row.id.clone(), String::new());
         }
-        Slot::Added(_) => {
+        Slot::Added(n) => {
             let at = c.added.iter().enumerate().filter(|(_, (id, _))| *id == row.id).nth(n).map(|(i, _)| i);
             if let Some(i) = at {
                 c.added.remove(i);
