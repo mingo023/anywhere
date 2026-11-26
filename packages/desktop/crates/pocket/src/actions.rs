@@ -1,4 +1,4 @@
-use crate::desktop::pages::OpenAutomations;
+use crate::desktop::pages::{OpenActivity, OpenAutomations, OpenBoard};
 use crate::explorer::menu::{self, Arrow, Item};
 use crate::{browser, inbox, settings};
 use gpui_kit::*;
@@ -210,24 +210,64 @@ pub fn bindings() -> Vec<KeyBinding> {
     out
 }
 
-/// What the Keyboard page and `Store.keys` call `b`: its action, and the context it's bound in.
-pub fn binding_id(b: &KeyBinding) -> String {
-    match b.predicate() {
-        Some(p) => format!("{} in {p}", b.action().name()),
-        None => b.action().name().to_string(),
+/// An action as the Keyboard page tells it apart: its name, then its argument for one of a set ("desktop::JumpTo(3)").
+pub fn action_id(a: &dyn Action) -> String {
+    let any = a.as_any();
+    let arg = any
+        .downcast_ref::<JumpTo>()
+        .map(|a| a.0.to_string())
+        .or_else(|| any.downcast_ref::<JumpToTab>().map(|a| a.0.to_string()))
+        .or_else(|| any.downcast_ref::<SwitchSpace>().map(|a| a.0.to_string()))
+        .or_else(|| any.downcast_ref::<FocusPane>().map(|a| format!("{:?}", a.0)));
+    match arg {
+        Some(arg) => format!("{}({arg})", a.name()),
+        None => a.name().to_string(),
     }
 }
 
-/// `bindings`, with each one `custom` names on new keys, or gone when they're empty.
-pub fn keymap(custom: &BTreeMap<String, String>) -> Vec<KeyBinding> {
-    let mut out: Vec<KeyBinding> = bindings()
-        .into_iter()
-        .filter_map(|b| match custom.get(&binding_id(&b)) {
-            None => Some(b),
-            Some(keys) if keys.is_empty() => None,
-            Some(keys) => Some(KeyBinding::load_for_os(keys, b.action().boxed_clone(), b.predicate(), keys::OS).unwrap_or(b)),
+/// What the Keyboard page and `Store.keys` call `b`: its action, and the context it's bound in.
+pub fn binding_id(b: &KeyBinding) -> String {
+    match b.predicate() {
+        Some(p) => format!("{} in {p}", action_id(b.action())),
+        None => action_id(b.action()),
+    }
+}
+
+/// Each binding's spot, the id `Store.keys` and `Store.added` file it under: the id of the action's first binding, so a
+/// copy of it in another context (Focus pane inside a field, Up a level inside a Settings field) follows it.
+pub fn spots(bindings: &[KeyBinding]) -> Vec<String> {
+    let mut first: BTreeMap<String, String> = BTreeMap::new();
+    bindings.iter().map(|b| first.entry(action_id(b.action())).or_insert_with(|| binding_id(b)).clone()).collect()
+}
+
+/// Actions a shortcut can go to that ship without one, so the Keyboard page lists them to be given one.
+pub fn unbound() -> Vec<Box<dyn Action>> {
+    vec![Box::new(OpenActivity), Box::new(OpenBoard)]
+}
+
+/// `bindings`, with each spot `keys` names on its new keys, or gone when they're empty; then the keys in `added`, in the
+/// order they were added. Those go after every built-in binding, so a changed key keeps its built-in spot's precedence.
+pub fn keymap(keys: &BTreeMap<String, String>, added: &[(String, String)]) -> Vec<KeyBinding> {
+    let builtin = bindings();
+    let spots = spots(&builtin);
+    let mut out: Vec<KeyBinding> = builtin
+        .iter()
+        .zip(&spots)
+        .filter_map(|(b, spot)| match keys.get(spot) {
+            None => Some(b.clone()),
+            Some(k) if k.is_empty() => None,
+            Some(k) => Some(KeyBinding::load_for_os(k, b.action().boxed_clone(), b.predicate(), keys::OS).unwrap_or_else(|_| b.clone())),
         })
         .collect();
+    let unbound = unbound();
+    for (id, k) in added {
+        let copies: Vec<(Box<dyn Action>, Option<Rc<KeyBindingContextPredicate>>)> =
+            match builtin.iter().zip(&spots).filter(|(_, s)| *s == id).collect::<Vec<_>>() {
+                found if !found.is_empty() => found.into_iter().map(|(b, _)| (b.action().boxed_clone(), b.predicate())).collect(),
+                _ => unbound.iter().filter(|a| action_id(a.as_ref()) == *id).map(|a| (a.boxed_clone(), None)).collect(),
+            };
+        out.extend(copies.into_iter().filter_map(|(action, predicate)| KeyBinding::load_for_os(k, action, predicate, keys::OS).ok()));
+    }
     if !cfg!(target_os = "macos") {
         out.extend(terminal_aliases(&out));
     }
@@ -254,8 +294,8 @@ fn terminal_aliases(bindings: &[KeyBinding]) -> Vec<KeyBinding> {
         .collect()
 }
 
-/// Swaps this app's bindings for `keymap(custom)` in place, keeping the ones gpui-base and the terminal bound.
-pub fn rebind(custom: &BTreeMap<String, String>, cx: &mut App) {
+/// Swaps this app's bindings for `keymap(keys, added)` in place, keeping the ones gpui-base and the terminal bound.
+pub fn rebind(keys: &BTreeMap<String, String>, added: &[(String, String)], cx: &mut App) {
     let ours = |b: &KeyBinding| b.action().name().starts_with("desktop::");
     let all: Vec<KeyBinding> = cx.key_bindings().borrow().bindings().cloned().collect();
     // Later bindings win ties, so ours go back where they were: after gpui-base's, before the terminal's.
@@ -263,13 +303,13 @@ pub fn rebind(custom: &BTreeMap<String, String>, cx: &mut App) {
     let (before, after): (Vec<_>, Vec<_>) = (all[..at].to_vec(), all[at..].iter().filter(|b| !ours(b)).cloned().collect());
     cx.clear_key_bindings();
     cx.bind_keys(before);
-    cx.bind_keys(keymap(custom));
+    cx.bind_keys(keymap(keys, added));
     cx.bind_keys(after);
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{CopySelection, NewTab, SplitDown, SplitRight, binding_id, bindings, keymap, native, off_mac, terminal_aliases};
+    use super::{CopySelection, NewTab, SplitDown, SplitRight, binding_id, bindings, keymap, native, off_mac, spots, terminal_aliases};
     use crate::inbox;
     use gpui_kit::{KeyBinding, KeyBindingContextPredicate, KeyContext, Keymap, Keystroke, actions};
     use std::collections::BTreeMap;
@@ -279,7 +319,7 @@ mod tests {
     #[test]
     fn no_two_bindings_share_a_keystroke_and_context() {
         let mut seen = HashSet::new();
-        for b in keymap(&BTreeMap::new()).into_iter().chain(keys::bindings()) {
+        for b in keymap(&BTreeMap::new(), &[]).into_iter().chain(keys::bindings()) {
             let keys: Vec<String> = b.keystrokes().iter().map(|k| k.unparse(keys::OS)).collect();
             let context = b.predicate().map(|p| p.to_string());
             assert!(seen.insert((keys.clone(), context.clone())), "{keys:?} in {context:?} is bound twice");
@@ -384,11 +424,60 @@ mod tests {
     fn a_changed_shortcut_moves_to_its_new_keys_and_an_emptied_one_is_gone() {
         let custom =
             BTreeMap::from([("desktop::OpenPalette".to_string(), "cmd-shift-p".to_string()), ("desktop::Reload in Browser".to_string(), String::new())]);
-        let keys = |id: &str| keymap(&custom).iter().filter(|b| binding_id(b) == id).map(|b| b.keystrokes()[0].inner().unparse(keys::OS)).collect::<Vec<_>>();
+        let keys =
+            |id: &str| keymap(&custom, &[]).iter().filter(|b| binding_id(b) == id).map(|b| b.keystrokes()[0].inner().unparse(keys::OS)).collect::<Vec<_>>();
         let unparsed = |k: &str| Keystroke::parse_with_os(k, keys::OS).unwrap().unparse(keys::OS);
         assert_eq!(keys("desktop::OpenPalette"), [unparsed("cmd-shift-p")]);
         assert!(keys("desktop::Reload in Browser").is_empty());
         assert_eq!(keys("desktop::GoToFile"), [unparsed(&native("cmd-p", None))]);
+    }
+
+    #[test]
+    fn a_binding_of_a_set_is_told_apart_by_its_argument() {
+        let ids: Vec<String> = bindings().iter().map(binding_id).collect();
+        for id in ["desktop::JumpTo(3)", "desktop::JumpToTab(9)", "desktop::SwitchSpace(1)", "desktop::FocusPane(Left)", "desktop::FocusPane(Top) in Input"] {
+            assert!(ids.iter().any(|i| i == id), "{id}");
+        }
+        assert!(ids.iter().any(|i| i == "desktop::Reload in Browser") && ids.iter().any(|i| i == "desktop::OpenPalette"));
+    }
+
+    #[test]
+    fn a_copy_of_an_action_in_another_context_shares_its_first_bindings_spot() {
+        let all = bindings();
+        let spot = |id: &str| all.iter().zip(spots(&all)).find(|(b, _)| binding_id(b) == id).map(|(_, s)| s).unwrap();
+        assert_eq!(spot("desktop::FocusPane(Top) in Input"), "desktop::FocusPane(Top)");
+        assert_eq!(spot("desktop::SettingsUp in Settings > Input"), "desktop::SettingsUp in Settings");
+        assert_eq!(spot("desktop::Back in Browser"), "desktop::Back in Browser");
+    }
+
+    fn on(keymap: &[KeyBinding], id: &str) -> Vec<(usize, String)> {
+        keymap.iter().enumerate().filter(|(_, b)| binding_id(b) == id).map(|(i, b)| (i, b.keystrokes()[0].inner().unparse(keys::OS))).collect()
+    }
+
+    #[test]
+    fn a_changed_set_member_moves_its_copies_in_other_contexts_too() {
+        let custom = BTreeMap::from([("desktop::FocusPane(Top)".to_string(), "ctrl-alt-up".to_string())]);
+        let map = keymap(&custom, &[]);
+        let unparsed = Keystroke::parse_with_os("ctrl-alt-up", keys::OS).unwrap().unparse(keys::OS);
+        assert_eq!(on(&map, "desktop::FocusPane(Top) in Input").iter().map(|(_, k)| k.clone()).collect::<Vec<_>>(), [unparsed]);
+    }
+
+    #[test]
+    fn an_added_key_goes_after_every_built_in_binding_in_the_order_added() {
+        let added = [("desktop::OpenActivity".to_string(), "cmd-shift-y".to_string()), ("desktop::OpenPalette".to_string(), "cmd-alt-p".to_string())];
+        let map = keymap(&BTreeMap::new(), &added);
+        let builtin = bindings().len();
+        let activity = on(&map, "desktop::OpenActivity");
+        let palette = on(&map, "desktop::OpenPalette");
+        assert_eq!(activity.len(), 1);
+        assert!(activity[0].0 >= builtin && palette.last().unwrap().0 > activity[0].0);
+        assert_eq!(palette[0].0, 0, "the built-in key keeps its spot");
+    }
+
+    #[test]
+    fn an_added_key_for_an_unknown_action_is_skipped() {
+        let added = [("desktop::Gone".to_string(), "cmd-shift-y".to_string())];
+        assert_eq!(keymap(&BTreeMap::new(), &added).len(), keymap(&BTreeMap::new(), &[]).len());
     }
 
     #[test]
