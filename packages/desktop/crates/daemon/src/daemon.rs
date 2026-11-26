@@ -511,12 +511,9 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub struct Daemon {
-    writer: Arc<Mutex<Option<Link>>>,
-}
-
-struct Link {
-    stream: UnixStream,
-    terminals: Option<String>,
+    writer: Arc<Mutex<Option<UnixStream>>>,
+    /// The last `terminals` line on the current connection. Apart from `writer`, which a stuck send holds for seconds, so the reader never waits on it.
+    terminals: Arc<Mutex<Option<String>>>,
 }
 
 impl Daemon {
@@ -532,8 +529,10 @@ impl Daemon {
 
     fn spawn_with(endpoint: Endpoint, write_timeout: Duration) -> (Self, UnboundedReceiver<Msg>) {
         let writer = Arc::new(Mutex::new(None));
+        let terminals: Arc<Mutex<Option<String>>> = Arc::default();
         let (tx, rx) = unbounded();
         let shared = writer.clone();
+        let held = terminals.clone();
         std::thread::spawn(move || {
             let link = |ev: &str| tx.unbounded_send(Msg { ev: ev.into(), ..Default::default() }).is_ok();
             let mut wait = RETRY_MIN;
@@ -543,7 +542,8 @@ impl Daemon {
                     s.set_write_timeout(Some(write_timeout)).map_err(|e| e.to_string())?;
                     Ok((BufReader::new(s.try_clone().map_err(|e| e.to_string())?), s))
                 }) {
-                    *shared.lock().expect("poisoned") = Some(Link { stream, terminals: None });
+                    *held.lock().expect("poisoned") = None;
+                    *shared.lock().expect("poisoned") = Some(stream);
                     down = false;
                     if !link("up") {
                         return;
@@ -552,8 +552,7 @@ impl Daemon {
                     for line in reader.lines().map_while(Result::ok) {
                         let Ok(mut msg) = serde_json::from_str::<Msg>(&line) else { continue };
                         if msg.ev == "terminals" {
-                            let mut link = shared.lock().expect("poisoned");
-                            let Some(settled) = link.as_mut().and_then(|l| settle_terminals(&mut l.terminals, line, msg)) else { continue };
+                            let Some(settled) = settle_terminals(&mut held.lock().expect("poisoned"), line, msg) else { continue };
                             msg = settled;
                         }
                         if tx.unbounded_send(msg).is_err() {
@@ -578,21 +577,22 @@ impl Daemon {
                 wait = (wait * 2).min(Duration::from_secs(2));
             }
         });
-        (Self { writer }, rx)
+        (Self { writer, terminals }, rx)
     }
 
     /// Whether the message reached pocketd's socket; false while it is down.
     pub fn send(&self, mut msg: Value) -> bool {
-        let mut writer = self.writer.lock().expect("poisoned");
-        let Some(link) = writer.as_mut() else { return false };
-        if link.terminals.is_some() && msg == json!({"op": "list"}) {
+        // A list sent as cached on a connection that came up since holds nothing there, so pocketd answers it whole.
+        if msg == json!({"op": "list"}) && self.terminals.lock().expect("poisoned").is_some() {
             msg["cached"] = true.into();
         }
-        if writeln!(link.stream, "{msg}").is_ok() {
+        let mut writer = self.writer.lock().expect("poisoned");
+        let Some(stream) = writer.as_mut() else { return false };
+        if writeln!(stream, "{msg}").is_ok() {
             return true;
         }
         // A write that timed out may have left half a line, so the link is no good; shutting it ends the reader, which reports "down".
-        let _ = link.stream.shutdown(std::net::Shutdown::Both);
+        let _ = stream.shutdown(std::net::Shutdown::Both);
         *writer = None;
         false
     }
@@ -879,6 +879,30 @@ mod tests {
         assert_eq!(sent.recv_timeout(Duration::from_secs(2)), Ok(false));
         assert_eq!(next(&mut rx), "down");
         assert!(!d.send(json!({"op": "list"})));
+    }
+
+    #[test]
+    fn a_terminals_reply_reaches_the_app_while_a_send_is_stuck() {
+        let path = sock("stuck-list");
+        let ln = UnixListener::bind(&path).unwrap();
+        let (d, mut rx) = Daemon::spawn_with(Endpoint::local(&path), Duration::from_secs(2));
+        assert_eq!(next(&mut rx), "up");
+        let (peer, _) = ln.accept().unwrap();
+        let (tx, sent) = std::sync::mpsc::channel();
+        let sender = d.clone();
+        std::thread::spawn(move || tx.send(sender.input("t1", &vec![b'x'; 8 << 20])));
+        std::thread::sleep(Duration::from_millis(200));
+        write!(&peer, "{{\"ev\":\"terminals\"}}\n{{\"ev\":\"spawned\",\"id\":\"s2\"}}\n").unwrap();
+        let (got_tx, got) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for _ in 0..2 {
+                let _ = got_tx.send(next(&mut rx));
+            }
+        });
+        assert_eq!(got.recv_timeout(Duration::from_secs(1)).as_deref(), Ok("terminals"));
+        assert_eq!(got.recv_timeout(Duration::from_secs(1)).as_deref(), Ok("spawned"));
+        assert!(sent.try_recv().is_err(), "the send finished before the replies arrived, so it never blocked");
+        drop(peer);
     }
 
     fn read_line(peer: &UnixStream) -> Value {
