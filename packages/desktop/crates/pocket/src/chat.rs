@@ -5,6 +5,8 @@ pub(crate) mod composer;
 mod diff;
 pub(super) mod drafts;
 mod end_row;
+mod find;
+mod find_bar;
 mod fold;
 mod host_link;
 mod jump;
@@ -45,6 +47,9 @@ use std::path::PathBuf;
 use std::time::Instant;
 use theme::*;
 use workspace::Tab;
+
+/// The key context of a chat, whose ⌘F finds in it.
+pub(crate) const CONTEXT: &str = "Chat";
 
 /// Whether an agent's terminal shows its chat: one started from the New session page does, and one without its TUI has nothing else to show.
 pub(crate) fn can_chat(started_for_chat: bool, summary: Option<&Summary>) -> bool {
@@ -89,6 +94,7 @@ pub(crate) struct ChatState {
     pub(crate) diagrams: Entity<Diagrams>,
     /// The queued entry each agent's composer text was taken from, which its next send replaces.
     pub(crate) editing: HashMap<String, String>,
+    pub(crate) find: find_bar::FindBar,
 }
 
 impl ChatState {
@@ -107,6 +113,8 @@ impl ChatState {
         subs.push(cx.subscribe_in(&select, window, |this, _, ev: &selection::SelectEvent, window, cx| this.on_select_event(ev, window, cx)));
         subs.push(cx.observe(&select, |_, _, cx| cx.notify()));
         let diagrams = cx.new(|_| Diagrams::standalone(MD_CODE_BG));
+        let (find, find_subs) = find_bar::FindBar::new(window, cx);
+        subs.extend(find_subs);
         (
             Self {
                 input,
@@ -122,6 +130,7 @@ impl ChatState {
                 dock,
                 diagrams,
                 editing: HashMap::new(),
+                find,
             },
             subs,
         )
@@ -206,6 +215,7 @@ impl Desktop {
         let panel = agent.as_ref().and_then(|agent| self.delegated_panel(agent, window, cx));
         let pushed = agent.as_ref().and_then(|agent| self.delegated_pushed(agent, window, cx));
         let dock = agent.as_ref().and_then(|agent| self.chat_dock(agent, cx));
+        let find = agent.as_ref().and_then(|agent| self.chat_find_bar(agent, cx));
         let files = agent.and_then(|agent| self.chat_files_menu(&agent, cx));
         let drop = self.chat_drop_zone(terminal, cx);
         let shown = div().relative().size_full().flex().flex_col().child(transcript).children(crumb).children(panel);
@@ -213,11 +223,11 @@ impl Desktop {
             Some((from, frame)) => (shown.left(px(frame.arriving.0)).opacity(frame.arriving.1), self.chat_left(&from, frame.leaving, window, cx)),
             None => (shown, None),
         };
-        let stage = div().relative().flex_1().min_h_0().children(left).child(shown);
+        let stage = div().relative().flex_1().min_h_0().children(left).child(shown).children(find);
         let backdrop = self.store.appearance.background.clone().map(|path| crate::field::backdrop(path, crate::field::CHAT_TINT));
         let column =
             div().relative().flex_1().min_w_0().min_h_0().flex().flex_col().children(backdrop).child(stage).child(composer).children(files).children(drop);
-        div().relative().flex_1().min_h_0().flex().border_t(px(0.5)).border_color(SEPARATOR).child(column).children(dock)
+        div().key_context(CONTEXT).relative().flex_1().min_h_0().flex().border_t(px(0.5)).border_color(SEPARATOR).child(column).children(dock)
     }
 
     fn chat_transcript(&mut self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<Entity<transcript::View>> {

@@ -826,6 +826,7 @@ impl Render for Desktop {
                     || this.inbox(cx).update(cx, |i, cx| i.cancel_reply(cx))
                     || this.close_menus(cx)
                     || this.chat_escape_dock(cx)
+                    || this.chat_close_find(window, cx)
                     || this.delegated_escape(window, cx)
                 {
                     cx.notify();
@@ -850,6 +851,7 @@ impl Render for Desktop {
                 .on_action(cx.listener(|this, _: &crate::actions::StartSession, window, cx| this.new_session(None, false, window, cx)))
                 .on_action(cx.listener(|this, _: &crate::actions::PrevPrompt, _, cx| this.chat_step_prompt(false, cx)))
                 .on_action(cx.listener(|this, _: &crate::actions::NextPrompt, _, cx| this.chat_step_prompt(true, cx)))
+                .on_action(cx.listener(|this, _: &crate::actions::FindInChat, window, cx| this.chat_find(window, cx)))
                 .on_action(cx.listener(Self::go_to_file))
                 .on_action(cx.listener(Self::new_worktree))
                 .on_action(cx.listener(Self::project_settings))
