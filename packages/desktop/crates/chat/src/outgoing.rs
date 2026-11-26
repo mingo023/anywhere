@@ -201,6 +201,9 @@ impl Outgoing {
             claimed.push(prompt.id.clone());
             false
         });
+        // Once the opening command echoed, its transcript says whether the agent is at work.
+        let pending = self.sends.iter().any(|s| s.delivery == Delivery::Sending && command(&s.text));
+        self.command = self.command.filter(|ran| !ran.opening || pending);
         // A command that never echoes goes once it reads as done.
         if self.command.is_none() {
             self.sends.retain(|s| !(s.delivery == Delivery::Sending && command(&s.text)));

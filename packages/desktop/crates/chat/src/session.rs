@@ -750,4 +750,15 @@ mod tests {
         s.update(backend, 2, &[], false, 2_000);
         assert!(s.outgoing.list().is_empty());
     }
+
+    #[test]
+    fn a_new_sessions_opening_command_stops_reading_as_work_once_its_turn_ends() {
+        let backend = for_provider("claude");
+        let mut s = Session::default();
+        s.outgoing.opening("/brainless fix it".into(), 0);
+        s.update(backend, 1, &[], false, 10);
+        let items = vec![item(1_000, json!({"kind": "user", "text": "/brainless fix it"})), item(1_500, json!({"kind": "result", "ok": true}))];
+        s.update(backend, 2, &items, false, 2_000);
+        assert!(!crate::busy(&s.transcript, &s.outgoing, false), "status never showed the turn, but the transcript did");
+    }
 }
