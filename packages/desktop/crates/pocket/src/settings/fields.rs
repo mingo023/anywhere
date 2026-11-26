@@ -92,7 +92,6 @@ impl TextField {
     }
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "the Pages slice types automation intervals in it"))]
 /// A unit a number can be typed in, and how many of the stored unit it holds: minutes in an hour is 60.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Unit {
@@ -115,7 +114,6 @@ impl Bounds {
     }
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "the Pages slice types automation intervals in it"))]
 /// `text` typed in `unit`, as the stored number rounded to the step; out of bounds or not a number is an error naming the range.
 pub(crate) fn parse_amount(text: &str, unit: Unit, bounds: Bounds, units: &[Unit]) -> Result<i64, String> {
     let range = || format!("Between {} and {}", spoken(bounds.min, units), spoken(bounds.max, units));
@@ -129,13 +127,11 @@ pub(crate) fn typed_step(text: &str, current: i64, bounds: Bounds) -> i64 {
     text.trim().parse::<f64>().map_or(current, |n| bounds.round(n).clamp(bounds.min, bounds.max))
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "the Pages slice types automation intervals in it"))]
 /// The largest unit `value` is a whole number of, so 120 minutes shows as 2 h.
 pub(crate) fn best_unit(value: i64, units: &[Unit]) -> usize {
     units.iter().enumerate().rev().find(|(_, u)| u.factor > 0 && value % u.factor == 0).map_or(0, |(i, _)| i)
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "the Pages slice types automation intervals in it"))]
 /// `value` written in `unit`, with up to two decimals and no trailing zeros.
 pub(crate) fn amount(value: i64, unit: Unit) -> String {
     let n = value as f64 / unit.factor.max(1) as f64;
@@ -143,7 +139,6 @@ pub(crate) fn amount(value: i64, unit: Unit) -> String {
     text.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "the Pages slice types automation intervals in it"))]
 /// `value` in its best unit, as an error or the reset sheet says it: "7 days", "5 min".
 pub(crate) fn spoken(value: i64, units: &[Unit]) -> String {
     match units.get(best_unit(value, units)) {
@@ -152,7 +147,6 @@ pub(crate) fn spoken(value: i64, units: &[Unit]) -> String {
     }
 }
 
-#[expect(dead_code, reason = "the Pages slice types automation intervals in it")]
 /// A typed number with a unit segment: an automation's interval in min, h or days. The caller owns it and its input's subscription.
 pub(crate) struct NumberField {
     pub field: TextField,
@@ -161,7 +155,6 @@ pub(crate) struct NumberField {
     pub bounds: Bounds,
 }
 
-#[expect(dead_code, reason = "the Pages slice types automation intervals in it")]
 impl NumberField {
     pub(crate) fn new(value: i64, units: &'static [Unit], bounds: Bounds, window: &mut Window, cx: &mut App) -> Self {
         let unit = best_unit(value, units);
@@ -188,10 +181,12 @@ impl NumberField {
         self.field.input.update(cx, |f, cx| f.set_value(text, window, cx));
     }
 
-    /// Follows the store in the chosen unit; see `TextField::sync`.
+    /// Follows the store, in the unit that fits its value, unless typed in or holding an invalid draft; see `Draft::follows`.
     pub(crate) fn sync(&mut self, stored: i64, window: &mut Window, cx: &mut App) {
-        let text = amount(stored, self.units[self.unit]);
-        self.field.sync(&text, window, cx);
+        let focused = self.field.input.read(cx).focus_handle(cx).is_focused(window);
+        if self.field.draft.follows(&amount(stored, self.units[self.unit]), focused) {
+            self.set_unit(best_unit(stored, self.units), stored, window, cx);
+        }
     }
 
     /// The field and its unit segment; `pick` gets the unit chosen.

@@ -1,16 +1,18 @@
 use super::catalog::{Look, Setting};
+use super::deferred::with_window;
+use super::fields::{Bounds, NumberField, Unit, spoken};
 use super::{Settings, SettingsEvent, action, card, field_box, row};
 use crate::automations::logic::{stamp, up_next};
 use crate::desktop::Desktop;
 use crate::util::now_ms;
 use agents::automations::Automation;
 use chrono::Local;
-use gpui_kit::component::input::Input;
+use gpui_kit::component::input::{Input, InputEvent};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::time::{Duration, Instant};
-use store::LaunchPick;
 use store::prefs::automations::ACCESSES;
+use store::{LaunchPick, Store};
 use theme::*;
 
 const DEFAULTS: &str = "Defaults for new automations";
@@ -22,6 +24,24 @@ const CATCH_UP: u32 = 12;
 const STARTING: Duration = Duration::from_secs(20);
 /// Monday first, as 0-is-Sunday days.
 const WEEK: [(u8, &str); 7] = [(1, "M"), (2, "T"), (3, "W"), (4, "T"), (5, "F"), (6, "S"), (0, "S")];
+
+const UNITS: &[Unit] = &[Unit { label: "min", factor: 1 }, Unit { label: "h", factor: 60 }, Unit { label: "days", factor: 1440 }];
+const BOUNDS: Bounds = Bounds { min: 5, max: 10_080, step: 5 };
+
+const EVERY: Setting = Setting::custom("automation-every", DEFAULTS, "Repeat interval", |d, s, cx| d.every_row(s, cx))
+    .resets(|s| spoken(s.automations.every.into(), UNITS), |s, d| s.automations.every = d.automations.every)
+    .hint("For automations that repeat through the day");
+
+/// The repeat interval typed with its unit, and the subscription that commits it.
+pub(super) fn every_field(store: &Store, window: &mut Window, cx: &mut Context<Settings>) -> (NumberField, Subscription) {
+    let field = NumberField::new(store.automations.every.into(), UNITS, BOUNDS, window, cx);
+    let sub = cx.subscribe_in(&field.field.input, window, |this, _, ev: &InputEvent, window, cx| {
+        if matches!(ev, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+            this.commit_every(window, cx);
+        }
+    });
+    (field, sub)
+}
 
 pub(super) const ROWS: &[Setting] = &[
     Setting::choice(
@@ -41,16 +61,7 @@ pub(super) const ROWS: &[Setting] = &[
             |s, d| (s.automations.time, s.automations.days) = (d.automations.time.clone(), d.automations.days.clone()),
         )
         .hint("For automations that run at a time of day"),
-    Setting::stepper(
-        "automation-every",
-        DEFAULTS,
-        "Repeat interval",
-        (5, 10080, 5),
-        " min",
-        |s| s.automations.every as i32,
-        |s, n| s.automations.every = n as u32,
-    )
-    .hint("For automations that repeat through the day"),
+    EVERY,
     Setting::choice(
         "automation-access",
         DEFAULTS,
@@ -134,6 +145,47 @@ fn off_line(missed: usize, catch_up: bool) -> String {
 }
 
 impl Settings {
+    /// Saves the typed interval and shows it as stored: rounded to the step, as the same number in its unit.
+    fn commit_every(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let stored = i64::from(self.store.automations.every);
+        let saved = self.every.commit(stored, cx);
+        if let Some(n) = saved {
+            self.set(&EVERY, cx, move |s| s.automations.every = n as u32);
+            self.tick_saved(cx);
+        }
+        if self.every.field.draft.error.is_none() {
+            let unit = self.every.unit;
+            self.every.set_unit(unit, saved.unwrap_or(stored), window, cx);
+        }
+        cx.notify();
+    }
+
+    /// The unit segment only changes how the stored interval is written, so nothing is saved.
+    fn set_every_unit(&mut self, unit: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.every.set_unit(unit, self.store.automations.every.into(), window, cx);
+        cx.notify();
+    }
+
+    fn every_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
+        let pick = |_: &mut Settings, unit: usize, cx: &mut Context<Settings>| with_window(cx, move |s, window, cx| s.set_every_unit(unit, window, cx));
+        if let Some(error) = self.every.field.draft.error.clone() {
+            super::DECOR.with_borrow_mut(|d| {
+                if let Some(d) = d {
+                    d.hint = Some(div().text_size(px(11.5)).text_color(FAILED_TEXT).child(error).into_any_element());
+                }
+            });
+        }
+        if self.every.field.just_saved(Instant::now()) {
+            super::DECOR.with_borrow_mut(|d| {
+                if let Some(d) = d {
+                    let saved = div().flex().items_center().gap(px(3.)).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(SUCCESS);
+                    d.tags.push(saved.child(icon("check", 11., SUCCESS)).child("Saved").into_any_element());
+                }
+            });
+        }
+        row(setting.label, setting.hint, self.every.view("automation-every", pick, cx))
+    }
+
     fn start_service(&mut self, cx: &mut Context<Self>) {
         self.starting = Some(Instant::now());
         cx.emit(SettingsEvent::RestartService);
@@ -249,6 +301,17 @@ mod tests {
         assert_eq!((get(&store), store.automations.access.as_str()), (0, "ask"));
         store.automations.access = "full".into();
         assert_eq!(get(&store), 1);
+    }
+
+    #[test]
+    fn the_repeat_interval_is_named_in_its_largest_unit_and_resets_to_an_hour() {
+        let mut store = Store::default();
+        store.automations.every = 2880;
+        assert_eq!(row("automation-every").value(&store).as_deref(), Some("2 days"));
+        store.automations.every = 90;
+        assert_eq!(row("automation-every").value(&store).as_deref(), Some("90 min"));
+        row("automation-every").reset_to_default(&mut store);
+        assert_eq!((store.automations.every, row("automation-every").value(&store).as_deref()), (60, Some("1 h")));
     }
 
     #[test]
