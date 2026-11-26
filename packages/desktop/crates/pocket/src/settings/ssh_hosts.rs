@@ -1,4 +1,7 @@
 use super::catalog::Setting;
+use super::dropdown;
+use super::fields::{filter_field, filter_matches};
+use super::projects::FILTER_ABOVE;
 use super::host::{service_line, uptime};
 use super::side::HostRow;
 use super::{HostsAct, Settings, SettingsEvent, field_box, row};
@@ -19,6 +22,67 @@ pub(super) const ROWS: &[Setting] = &[
     Setting::custom("hosts", "Hosts", "Hosts", |d, _, cx| d.host_rows(cx)),
     Setting::custom("add-host", "Hosts", "Add a host", |d, s, cx| d.add_host_row(s, cx)).hint("A Mac, Linux or Windows machine you can reach over SSH"),
 ];
+
+/// The menu that holds a host's actions.
+pub(super) const HOST_MENU: &str = "host-actions";
+
+/// What a host's row can do, most relevant first: the first is the row's button, all of them are in its menu.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum HostAction {
+    Update,
+    Open,
+    UsePassword,
+    Install,
+    Reconnect,
+}
+
+impl HostAction {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Update => "Update\u{2026}",
+            Self::Open => "Open",
+            Self::UsePassword => "Use password",
+            Self::Install => "Install",
+            Self::Reconnect => "Reconnect",
+        }
+    }
+}
+
+/// What decides a host's actions.
+pub(super) struct Facts<'a> {
+    pub link: Option<&'a Link>,
+    /// An install or update's steps are showing.
+    pub installing: bool,
+    pub needs_update: bool,
+    /// The password form is open for this host.
+    pub typing_password: bool,
+    pub signing_in: bool,
+}
+
+/// The actions a host offers now, most relevant first; Remove is always in the menu and isn't listed.
+pub(super) fn actions(f: &Facts) -> Vec<HostAction> {
+    let not_running = matches!(f.link, Some(Link::Retrying(Failure::NotRunning) | Link::Failed(Failure::NotRunning)));
+    // A reconnect while a password sign-in runs would spend sshd's penalty budget twice.
+    let reconnect = f.link.is_some_and(|l| !matches!(l, Link::Connecting)) && !f.signing_in;
+    [
+        (f.needs_update && !f.installing, HostAction::Update),
+        (matches!(f.link, Some(Link::Online { .. })), HostAction::Open),
+        (f.link == Some(&Link::Failed(Failure::Auth)) && !f.typing_password, HostAction::UsePassword),
+        (not_running && !f.installing, HostAction::Install),
+        (reconnect, HostAction::Reconnect),
+    ]
+    .into_iter()
+    .filter_map(|(on, a)| on.then_some(a))
+    .collect()
+}
+
+/// The host an action is for.
+#[derive(Clone)]
+pub(super) struct Target {
+    id: String,
+    name: String,
+    windows: bool,
+}
 
 /// What a host's row says while an older pocketd, which doesn't link hosts, runs here.
 const UPDATE_SERVICE: &str = "Update Anywhere\u{2019}s background service to manage hosts";
@@ -114,59 +178,82 @@ impl Settings {
                 .map(|(i, name)| host_row(i + 1, tile("server", None, 28.), name.clone(), UPDATE_SERVICE.into(), TEXT_4));
             return div().flex().flex_col().child(here).children(saved.collect::<Vec<_>>());
         }
-        let remotes = self.side.hosts.rows.iter().enumerate().map(|(i, HostRow { host: h, link, shown, glyph, colour, install, notice })| {
+        let query = self.projects.hosts_filter.read(cx).value().to_string();
+        let filtering = self.side.hosts.rows.len() + 1 > FILTER_ABOVE;
+        let query = if filtering { query } else { String::new() };
+        let show_here = filter_matches(&query, &["This Mac"]);
+        let remotes = self.side.hosts.rows.iter().enumerate().filter(|(_, r)| filter_matches(&query, &[r.shown.as_str(), r.host.address().as_str()])).enumerate().map(|(n, (i, HostRow { host: h, link, shown, glyph, colour, install, notice }))| {
             let link = link.as_ref();
-            let space = Space::Host(h.id.clone());
-            let shown = shown.clone();
-            let open = matches!(link, Some(Link::Online { .. })).then(|| {
-                let space = space.clone();
-                super::action(("host-open", i), "Open")
-                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::Open(space.clone())))))
-            });
             let list = install.as_ref();
-            let line = notice.clone().unwrap_or_else(|| host_line(h, &shown, link));
-            let not_running = matches!(link, Some(Link::Retrying(Failure::NotRunning) | Link::Failed(Failure::NotRunning)));
-            let install = (not_running && list.is_none()).then(|| {
-                let id = h.id.clone();
-                super::action(("host-install", i), "Install")
-                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::Install { id: id.clone(), update: false }))))
-            });
-            let update =
-                (list.is_none() && needs_update(link, channel::version())).then(|| {
-                    let (id, name, windows) = (h.id.clone(), shown.clone(), h.windows);
-                    super::action(("host-update", i), "Update").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                        cx.emit(SettingsEvent::Ask(Confirm::UpdateHost { id: id.clone(), name: name.clone(), windows }))
-                    }))
-                });
+            let line = notice.clone().unwrap_or_else(|| host_line(h, shown, link));
             let password_form = self.side.hosts.password.as_ref();
             let typing = password_form.is_some_and(|p| p.host.as_ref() == Some(&h.id));
-            // A reconnect while a password sign-in runs would spend sshd's penalty budget twice.
-            let reconnect = link.filter(|l| !matches!(l, Link::Connecting) && !(typing && password_form.is_some_and(|p| p.signing_in))).map(|_| {
-                let id = h.id.clone();
-                super::action(("host-reconnect", i), "Reconnect")
-                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::Retry(id.clone())))))
+            let facts = Facts {
+                link,
+                installing: list.is_some(),
+                needs_update: needs_update(link, channel::version()),
+                typing_password: typing,
+                signing_in: typing && password_form.is_some_and(|p| p.signing_in),
+            };
+            let todo = actions(&facts);
+            let target = Target { id: h.id.clone(), name: shown.clone(), windows: h.windows };
+            let button = todo.first().map(|a| {
+                let (a, target) = (*a, target.clone());
+                super::action(("host-action", i), a.label()).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.run_host_action(a, &target, cx)))
             });
-            let password = (link == Some(&Link::Failed(Failure::Auth)) && !typing).then(|| {
-                let id = h.id.clone();
-                super::action(("host-password", i), "Use password")
-                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::OpenPassword(id.clone())))))
-            });
+            let more = self.host_menu(i, &h.id, &todo, &target, cx);
             let shown_name = shown.clone();
-            let (id, name) = (h.id.clone(), shown.clone());
-            let remove = ui::button(("host-remove", i), ui::Variant::Danger, None, "Remove")
-                .h(px(26.))
-                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Ask(Confirm::RemoveHost { id: id.clone(), name: name.clone() }))));
-            let row = host_row(i + 1, tile(glyph, *colour, 28.), shown, line, link_color(link))
-                .children(password)
-                .children(install)
-                .children(update)
-                .children(reconnect)
-                .children(open)
-                .child(remove);
+            let row = host_row(n + usize::from(show_here), tile(glyph, *colour, 28.), shown.clone(), line, link_color(link)).children(button).child(more);
             let panel = list.cloned().map(|list| self.checklist_panel(i, &h.id, &shown_name, &list, cx));
             div().flex().flex_col().child(row).when(typing, |d| d.child(self.password_form(&h.name, cx))).children(panel)
         });
-        div().flex().flex_col().child(here).children(remotes.collect::<Vec<_>>())
+        let filter = filtering.then(|| filter_field(&self.projects.hosts_filter));
+        let here = show_here.then_some(here);
+        div().flex().flex_col().children(filter).children(here).children(remotes.collect::<Vec<_>>())
+    }
+
+    fn run_host_action(&mut self, action: HostAction, t: &Target, cx: &mut Context<Self>) {
+        self.menu = None;
+        let id = t.id.clone();
+        cx.emit(match action {
+            HostAction::Update => SettingsEvent::Ask(Confirm::UpdateHost { id, name: t.name.clone(), windows: t.windows }),
+            HostAction::Open => SettingsEvent::Hosts(HostsAct::Open(Space::Host(id))),
+            HostAction::UsePassword => SettingsEvent::Hosts(HostsAct::OpenPassword(id)),
+            HostAction::Install => SettingsEvent::Hosts(HostsAct::Install { id, update: false }),
+            HostAction::Reconnect => SettingsEvent::Hosts(HostsAct::Retry(id)),
+        });
+        cx.notify();
+    }
+
+    /// The ⋯ button, and under it the host's every action, then Remove.
+    fn host_menu(&self, i: usize, id: &str, todo: &[HostAction], t: &Target, cx: &mut Context<Self>) -> Div {
+        let open = self.menu == Some(HOST_MENU) && self.projects.host_menu.as_deref() == Some(id);
+        let owner = id.to_string();
+        let button = ui::icon_button_sized(("host-more", i), "more", 26., TEXT_3).tab_index(0);
+        let button = dropdown::trigger_with(button, open, move |this| (this.menu, this.projects.host_menu) = (Some(HOST_MENU), Some(owner.clone())), cx);
+        let menu = open.then(|| {
+            let items = todo.iter().enumerate().map(|(n, a)| {
+                let (a, t) = (*a, t.clone());
+                dropdown::pick_row(("host-action-item", i * 8 + n), false)
+                    .child(a.label())
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.run_host_action(a, &t, cx)))
+            });
+            let remove = {
+                let (id, name) = (t.id.clone(), t.name.clone());
+                dropdown::pick_row(("host-remove", i), false).text_color(FAILED_TEXT).child("Remove\u{2026}").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.menu = None;
+                    cx.emit(SettingsEvent::Ask(Confirm::RemoveHost { id: id.clone(), name: name.clone() }));
+                    cx.notify();
+                }))
+            };
+            let sep = (!todo.is_empty()).then(|| div().h(px(0.5)).my(px(4.)).mx(px(4.)).bg(SEPARATOR));
+            let items: Vec<_> = items.collect();
+            ui::menu_in(
+                SharedString::from(format!("host-menu-in-{i}")),
+                dropdown::shuts(ui::pop(div()), HOST_MENU, cx).min_w(px(160.)).p(px(4.)).flex().flex_col().children(items).children(sep).child(remove),
+            )
+        });
+        div().relative().flex_none().child(button).children(menu.map(|m| ui::dropdown_right(30., m)))
     }
 
     /// The install's steps under the host's row, with Retry once it failed and Done once pocketd runs.
@@ -376,7 +463,7 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
-    use super::{Failure, Host, Link, checklist_title, failure_message, host_line, link_line};
+    use super::{Facts, Failure, Host, HostAction, Link, actions, checklist_title, failure_message, host_line, link_line};
     use agents::hosts::Progress;
     use hosts::Target;
     use hosts::checklist::Checklist;
@@ -413,5 +500,49 @@ mod tests {
         assert_eq!(host_line(&alias, "GPU box", None), "devbox \u{b7} Not connected");
         let ip = host("10.0.4.12", Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "dev".into(), key_file: None });
         assert_eq!(host_line(&ip, "10.0.4.12", None), "dev@10.0.4.12:2222 \u{b7} Not connected");
+    }
+
+    fn online() -> Link {
+        Link::Online { version: "1.4.2".into(), uptime: 5 }
+    }
+
+    fn facts(link: Option<&Link>) -> Facts<'_> {
+        Facts { link, installing: false, needs_update: false, typing_password: false, signing_in: false }
+    }
+
+    #[test]
+    fn a_connected_host_opens_first_and_can_reconnect() {
+        assert_eq!(actions(&facts(Some(&online()))), [HostAction::Open, HostAction::Reconnect]);
+    }
+
+    #[test]
+    fn an_outdated_host_offers_the_update_before_open() {
+        assert_eq!(actions(&Facts { needs_update: true, ..facts(Some(&online())) }), [HostAction::Update, HostAction::Open, HostAction::Reconnect]);
+    }
+
+    #[test]
+    fn a_host_that_refused_the_keys_offers_the_password_first() {
+        let failed = Link::Failed(Failure::Auth);
+        assert_eq!(actions(&facts(Some(&failed))), [HostAction::UsePassword, HostAction::Reconnect]);
+        assert_eq!(actions(&Facts { typing_password: true, ..facts(Some(&failed)) }), [HostAction::Reconnect]);
+        assert_eq!(actions(&Facts { typing_password: true, signing_in: true, ..facts(Some(&failed)) }), []);
+    }
+
+    #[test]
+    fn a_host_without_pocketd_offers_the_install_first_until_its_steps_show() {
+        let stopped = Link::Retrying(Failure::NotRunning);
+        assert_eq!(actions(&facts(Some(&stopped))), [HostAction::Install, HostAction::Reconnect]);
+        assert_eq!(actions(&Facts { installing: true, ..facts(Some(&stopped)) }), [HostAction::Reconnect]);
+    }
+
+    #[test]
+    fn a_host_still_connecting_or_never_linked_offers_nothing_but_remove() {
+        assert_eq!(actions(&facts(Some(&Link::Connecting))), []);
+        assert_eq!(actions(&facts(None)), []);
+    }
+
+    #[test]
+    fn an_update_in_progress_hides_the_update() {
+        assert_eq!(actions(&Facts { needs_update: true, installing: true, ..facts(Some(&online())) }), [HostAction::Open, HostAction::Reconnect]);
     }
 }
