@@ -1845,3 +1845,263 @@ func TestASessionStaysImportableUntilItsImportWritesAnItem(t *testing.T) {
 		t.Fatal("a session whose import wrote its items would be imported again")
 	}
 }
+
+func TestAChildWhoseTurnEndsWithAPromptQueuedSettlesOnceAfterThatPrompt(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		if e.Kind == EffLaunch {
+			return map[string]any{"childId": "child-1"}, nil
+		}
+		return nil, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	r, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "fix the redirect", Title: "Fix redirect"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	get := func() Delegation {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return ts[0]
+	}
+	waitFor(t, func() bool { return get().Status == TaskWorking })
+	k := NewSink(s)
+	defer k.Close()
+	k.OnTurn = e.OnTurn
+	deliveries := func() int { return strings.Count(strings.Join(f.kinds(), " "), EffDelivery+"@p") }
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Item("child-1", 1, proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Waiting on the e2e run"})
+	k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
+	k.Flush()
+	if _, err := e.Dispatch(NewCommand("q1", CmdMessageSend, "child-1", SendPayload{Text: "Commit it as a new commit", Mode: "queue"})); err != nil {
+		t.Fatal(err)
+	}
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { return strings.Contains(strings.Join(f.kinds(), " "), EffTurnStart+"@child-1") })
+
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Item("child-1", 1, proto.Item{ID: "i3", Seq: 3, Kind: "user", Text: "Commit it as a new commit"})
+	k.Item("child-1", 1, proto.Item{ID: "i4", Seq: 4, Kind: "assistant", Text: "Committed as 2ed0c22f"})
+	k.Item("child-1", 1, proto.Item{ID: "i5", Seq: 5, Kind: "result", OK: true})
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { return get().Summary == "Committed as 2ed0c22f" })
+	time.Sleep(100 * time.Millisecond)
+	if n := deliveries(); n != 1 {
+		t.Fatalf("the parent was woken %d times, want once", n)
+	}
+}
+
+// settlesOnTheTurnThatEnded ends a child's turn with a prompt queued, which the child's turn start
+// answers with startQueued, and waits for the task to settle on that turn's reply.
+func settlesOnTheTurnThatEnded(t *testing.T, startQueued func() (map[string]any, error)) {
+	t.Helper()
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		switch {
+		case e.Kind == EffLaunch:
+			return map[string]any{"childId": "child-1"}, nil
+		case e.Kind == EffTurnStart && e.Lane == "child-1":
+			return startQueued()
+		}
+		return nil, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	r, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "fix the redirect", Title: "Fix redirect"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	get := func() Delegation {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return ts[0]
+	}
+	waitFor(t, func() bool { return get().Status == TaskWorking })
+	k := NewSink(s)
+	defer k.Close()
+	k.OnTurn = e.OnTurn
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Item("child-1", 1, proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Redirect fixed"})
+	k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
+	k.Flush()
+	if _, err := e.Dispatch(NewCommand("q1", CmdMessageSend, "child-1", SendPayload{Text: "/goal pause", Mode: "queue"})); err != nil {
+		t.Fatal(err)
+	}
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { return get().Status == TaskCompleted })
+	if g := get(); g.Summary != "Redirect fixed" {
+		t.Fatalf("summary %q", g.Summary)
+	}
+}
+
+func TestAChildThatRefusesItsQueuedPromptSettlesItsTaskOnTheTurnThatEnded(t *testing.T) {
+	settlesOnTheTurnThatEnded(t, func() (map[string]any, error) { return nil, errors.New("the agent is gone") })
+}
+
+func TestAChildWhoseQueuedPromptStartsNoTurnSettlesItsTaskOnTheTurnThatEnded(t *testing.T) {
+	settlesOnTheTurnThatEnded(t, func() (map[string]any, error) { return map[string]any{"turnless": true}, nil })
+}
+
+func TestAQueuedTurnThatEndsBeforeItsPromptIsAcknowledgedSettlesTheTask(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	ack := make(chan struct{})
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		switch {
+		case e.Kind == EffLaunch:
+			return map[string]any{"childId": "child-1"}, nil
+		case e.Kind == EffTurnStart && e.Lane == "child-1":
+			<-ack
+		}
+		return nil, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	r, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "fix the redirect", Title: "Fix redirect"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	get := func() Delegation {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return ts[0]
+	}
+	waitFor(t, func() bool { return get().Status == TaskWorking })
+	k := NewSink(s)
+	defer k.Close()
+	defer close(ack)
+	k.OnTurn = e.OnTurn
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Item("child-1", 1, proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Redirect fixed"})
+	k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
+	k.Flush()
+	if _, err := e.Dispatch(NewCommand("q1", CmdMessageSend, "child-1", SendPayload{Text: "Add a test", Mode: "queue"})); err != nil {
+		t.Fatal(err)
+	}
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { return strings.Contains(strings.Join(f.kinds(), " "), EffTurnStart+"@child-1") })
+	time.Sleep(10 * time.Millisecond)
+
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Item("child-1", 1, proto.Item{ID: "i3", Seq: 3, Kind: "user", Text: "Add a test"})
+	k.Item("child-1", 1, proto.Item{ID: "i4", Seq: 4, Kind: "assistant", Text: "Test added"})
+	k.Item("child-1", 1, proto.Item{ID: "i5", Seq: 5, Kind: "result", OK: true})
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { return get().Status == TaskCompleted })
+	if g := get(); g.Summary != "Test added" {
+		t.Fatalf("summary %q", g.Summary)
+	}
+}
+
+func TestAPromptSentMidTurnThatStartsNoTurnLeavesTheTurnsSettleAlone(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		switch {
+		case e.Kind == EffLaunch:
+			return map[string]any{"childId": "child-1"}, nil
+		case e.Kind == EffTurnStart && e.Lane == "child-1":
+			return map[string]any{"turnless": true}, nil
+		}
+		return nil, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	r, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "fix the redirect", Title: "Fix redirect"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	get := func() Delegation {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return ts[0]
+	}
+	waitFor(t, func() bool { return get().Status == TaskWorking })
+	k := NewSink(s)
+	defer k.Close()
+	k.OnTurn = e.OnTurn
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Flush()
+	if _, err := e.Dispatch(NewCommand("q1", CmdMessageSend, "child-1", SendPayload{Text: "/goal pause", Mode: "queue"})); err != nil {
+		t.Fatal(err)
+	}
+	q, _ := loadQueue(s.db, "child-1", true)
+	if len(q) != 1 {
+		t.Fatalf("queue %+v", q)
+	}
+	if _, err := e.Dispatch(NewCommand("n1", CmdQueueSendNow, "child-1", EntryPayload{EntryID: q[0].ID})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { q, _ := loadQueue(s.db, "child-1", true); return len(q) == 0 })
+	k.Item("child-1", 1, proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Redirect fixed"})
+	k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { return get().Status == TaskCompleted })
+	if g := get(); g.Summary != "Redirect fixed" {
+		t.Fatalf("summary %q", g.Summary)
+	}
+}
+
+func TestAPromptSteeredMidTurnLeavesTheTurnsSettleAlone(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		switch {
+		case e.Kind == EffLaunch:
+			return map[string]any{"childId": "child-1"}, nil
+		case e.Kind == EffTurnStart && e.Lane == "child-1":
+			return nil, nil
+		}
+		return nil, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	r, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "fix the redirect", Title: "Fix redirect"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	get := func() Delegation {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return ts[0]
+	}
+	waitFor(t, func() bool { return get().Status == TaskWorking })
+	k := NewSink(s)
+	defer k.Close()
+	k.OnTurn = e.OnTurn
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Flush()
+	if _, err := e.Dispatch(NewCommand("q1", CmdMessageSend, "child-1", SendPayload{Text: "Also check the tests", Mode: "queue"})); err != nil {
+		t.Fatal(err)
+	}
+	q, _ := loadQueue(s.db, "child-1", true)
+	if len(q) != 1 {
+		t.Fatalf("queue %+v", q)
+	}
+	if _, err := e.Dispatch(NewCommand("n1", CmdQueueSendNow, "child-1", EntryPayload{EntryID: q[0].ID})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { q, _ := loadQueue(s.db, "child-1", true); return len(q) == 0 })
+	k.Item("child-1", 1, proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Redirect fixed"})
+	k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { return get().Status == TaskCompleted })
+	if g := get(); g.Summary != "Redirect fixed" {
+		t.Fatalf("summary %q", g.Summary)
+	}
+}
