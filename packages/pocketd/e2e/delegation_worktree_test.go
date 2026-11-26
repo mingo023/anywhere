@@ -124,6 +124,29 @@ func TestDeletingTheParentsWorktreeFromThePhoneTakesTheOneItsSubagentWorkedIn(t 
 	}
 }
 
+func TestAWorktreeHandedOffUnderAnotherMacsProjectNameIsDeletedFromTheDesktop(t *testing.T) {
+	h := Start(t, launchReady(""))
+	tree := filepath.Join(h.Home, ".anywhere", "worktrees", "coding-pocket", "feat")
+	gitOut(t, h.Repo, "worktree", "add", "-q", "-b", "feat", tree)
+	if err := os.WriteFile(filepath.Join(gitOut(t, tree, "rev-parse", "--absolute-git-dir"), "anywhere"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	desktop := h.Owner(proto.CapWorkspace, proto.CapWorktrees)
+	for _, m := range []map[string]any{
+		{"type": "worktree.inspect", "id": "wi", "path": tree},
+		{"type": "worktree.delete", "id": "wd", "path": tree},
+	} {
+		desktop.Send(m)
+		if got := desktop.WaitFor("the answer", func(r Message) bool { return r.ID == m["id"] }); got.Type == "error" {
+			t.Fatalf("%s: %s", m["type"], got.Raw)
+		}
+	}
+	if _, err := os.Stat(tree); !os.IsNotExist(err) {
+		t.Fatalf("%s stayed: %v", tree, err)
+	}
+}
+
 func TestAWorktreesSubagentWorktreesAreListedForADesktopOnceItsSessionsClosed(t *testing.T) {
 	h := Start(t, launchReady(""))
 	phone := h.Owner()

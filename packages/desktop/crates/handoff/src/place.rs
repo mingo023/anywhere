@@ -1,6 +1,7 @@
 //! Placing a packed worktree on the host: send its bundle, make a worktree on its branch, and lay the uncommitted
 //! changes back on it as changes, not commits.
 
+use crate::checks::basename;
 use crate::pack::Pack;
 use crate::{Host, run};
 
@@ -13,7 +14,6 @@ pub fn send(host: &dyn Host, pack: &Pack, id: &str) -> Result<String, String> {
     Ok(path)
 }
 
-/// The folder the worktree goes in on the host: the first free name in Anywhere's worktrees folder for `repo`.
 fn free_path(host: &dyn Host, root: &str, name: &str) -> Result<String, String> {
     for n in 1..100 {
         let path = if n == 1 { format!("{root}/{name}") } else { format!("{root}/{name}-{n}") };
@@ -37,7 +37,7 @@ pub struct Placed {
 
 /// Makes the worktree on the host from the bundle at `bundle`, in `project`, named `name` like this Mac's. A host
 /// missing commits the bundle builds on fetches origin once and tries again. A failure takes back what it added.
-pub fn worktree(host: &dyn Host, project: &str, repo: &str, name: &str, bundle: &str, pack: &Pack) -> Result<Placed, String> {
+pub fn worktree(host: &dyn Host, project: &str, name: &str, bundle: &str, pack: &Pack) -> Result<Placed, String> {
     if run(host, project, &["git", "bundle", "verify", "-q", bundle]).is_err() {
         _ = run(host, project, &["git", "fetch", "-q", "origin"]);
         run(host, project, &["git", "bundle", "verify", "-q", bundle]).map_err(|e| format!("The host is missing commits this code builds on: {e}"))?;
@@ -46,7 +46,7 @@ pub fn worktree(host: &dyn Host, project: &str, repo: &str, name: &str, bundle: 
     let made_branch = run(host, project, &["git", "rev-parse", "-q", "--verify", &head]).is_err();
     let mut placed = Placed { path: String::new(), project: project.into(), branch: pack.branch.clone(), made_branch };
     let made = run(host, project, &["git", "fetch", "-q", bundle, &format!("{head}:{head}"), &format!("+{}:{}", pack.carry, pack.carry)])
-        .and_then(|_| add(host, repo, name, pack, &mut placed));
+        .and_then(|_| add(host, name, pack, &mut placed));
     _ = run(host, project, &["git", "update-ref", "-d", &pack.carry]);
     _ = host.remove(bundle);
     match made {
@@ -59,9 +59,9 @@ pub fn worktree(host: &dyn Host, project: &str, repo: &str, name: &str, bundle: 
 }
 
 /// Adds the worktree, noting its path in `placed` as soon as it exists, and returns its real path.
-fn add(host: &dyn Host, repo: &str, name: &str, pack: &Pack, placed: &mut Placed) -> Result<String, String> {
+fn add(host: &dyn Host, name: &str, pack: &Pack, placed: &mut Placed) -> Result<String, String> {
     let home = host.home().map_err(|e| e.to_string())?;
-    let root = format!("{home}/.anywhere/worktrees/{repo}");
+    let root = format!("{home}/.anywhere/worktrees/{}", basename(&placed.project));
     host.mkdir(&root).map_err(|e| e.to_string())?;
     let path = free_path(host, &root, name)?;
     run(host, &placed.project, &["git", "worktree", "add", "-q", &path, &pack.branch])?;
@@ -103,7 +103,7 @@ mod tests {
         let host = Folder { home: home.clone() };
         let bundle = send(&host, &p, "h1").unwrap();
         let project = format!("{home}/code/app");
-        let placed = worktree(&host, &project, "app", "feat", &bundle, &p).unwrap();
+        let placed = worktree(&host, &project, "feat", &bundle, &p).unwrap();
         let path = placed.path.clone();
         assert_eq!(path, format!("{home}/.anywhere/worktrees/app/feat"));
         assert!(placed.made_branch);
@@ -125,7 +125,7 @@ mod tests {
         let p = pack(&mac, "t1").unwrap();
         let host = Folder { home: home.clone() };
         let bundle = send(&host, &p, "t1").unwrap();
-        let path = worktree(&host, &format!("{home}/code/app"), "app", "feat", &bundle, &p).unwrap().path;
+        let path = worktree(&host, &format!("{home}/code/app"), "feat", &bundle, &p).unwrap().path;
         assert!(path.ends_with("/feat-2"), "{path}");
     }
 
@@ -145,7 +145,7 @@ mod tests {
         let p = pack(&mac, "b1").unwrap();
         let host = Folder { home: home.clone() };
         let bundle = send(&host, &p, "b1").unwrap();
-        let path = worktree(&host, &format!("{home}/code/app"), "app", "late", &bundle, &p).unwrap().path;
+        let path = worktree(&host, &format!("{home}/code/app"), "late", &bundle, &p).unwrap().path;
         assert!(Path::new(&path).join("m.txt").exists());
         drop(root);
     }
@@ -157,7 +157,7 @@ mod tests {
         let host = Folder { home: home.clone() };
         let bundle = send(&host, &p, "u1").unwrap();
         let project = format!("{home}/code/app");
-        let placed = worktree(&host, &project, "app", "feat", &bundle, &p).unwrap();
+        let placed = worktree(&host, &project, "feat", &bundle, &p).unwrap();
         undo(&host, &placed);
         assert!(!Path::new(&placed.path).exists());
         assert_eq!(git(Path::new(&project), &["branch", "--list", "feat"]), "");
@@ -171,7 +171,7 @@ mod tests {
         let bundle = send(&host, &p, "f1").unwrap();
         std::fs::write(format!("{home}/.anywhere/worktrees"), "a file where the folder goes").unwrap();
         let project = format!("{home}/code/app");
-        assert!(worktree(&host, &project, "app", "feat", &bundle, &p).is_err());
+        assert!(worktree(&host, &project, "feat", &bundle, &p).is_err());
         assert_eq!(git(Path::new(&project), &["branch", "--list", "feat"]), "");
     }
 }

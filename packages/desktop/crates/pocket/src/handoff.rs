@@ -629,7 +629,7 @@ impl Desktop {
                 let given = self.tree_of(&source.cwd, cx).and_then(|t| self.agents.given_name(&t).map(String::from));
                 let task = cx.background_executor().spawn({
                     let client = client.clone();
-                    async move { handoff::place::worktree(&*client, &project, &source.repo, &name, &bundle, &pack) }
+                    async move { handoff::place::worktree(&*client, &project, &name, &bundle, &pack) }
                 });
                 cx.spawn(async move |this, cx| {
                     let placed = task.await;
