@@ -36,7 +36,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 312] = [
+const STEPS: [(&str, Step); 317] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -803,6 +803,18 @@ const STEPS: [(&str, Step); 312] = [
     ("account-menu", |d, _, _| {
         d.accounts.menu = Some(crate::accounts::Key { host: None, provider: "claude".into(), id: "work".into() });
     }),
+    ("account-code", |d, window, cx| {
+        if let Some(s) = d.accounts.signins.first() {
+            s.code.update(cx, |c, cx| c.set_value("a8Kq2-Lm9x", window, cx));
+        }
+    }),
+    ("account-flash", |d, _, _| {
+        let key = crate::accounts::Key { host: None, provider: "claude".into(), id: "work".into() };
+        d.accounts.flash.ring(key, std::time::Instant::now());
+    }),
+    ("agents-menu", |d, _, cx| d.settings.update(cx, |s, cx| s.set_menu(Some("claude-menu"), cx))),
+    ("agents-unfold", |d, _, cx| d.settings.update(cx, |s, cx| s.unfold_providers(cx))),
+    ("settings-codex-page", |d, window, cx| d.settings.update(cx, |s, cx| s.open_provider(1, window, cx))),
     ("accounts-auto", |d, _, _| _ = d.accounts.auto_switch.insert(None, true)),
     ("account-usage", |d, _, cx| {
         d.chats.composer.update(cx, |c, cx| c.open_menu(Menu::Usage { back: false }, cx));

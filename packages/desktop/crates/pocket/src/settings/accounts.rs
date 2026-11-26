@@ -1,7 +1,7 @@
 use super::catalog::Setting;
 use super::side::{MachineSide, SignInSide};
 use super::{AccountsAct, Settings, SettingsEvent, action, field_box, group, row};
-use crate::accounts::{self, BUILT_IN, Key, Tone};
+use crate::accounts::{self, BUILT_IN, FLASH_FOR, Key, Tone};
 use crate::desktop::chrome::Confirm;
 use crate::util::now_ms;
 use chrono::Local;
@@ -71,6 +71,32 @@ fn adds_accounts(provider: &str) -> bool {
     agents::providers::get(provider).is_some_and(|b| b.adds_accounts)
 }
 
+/// Why an account can't be removed, which its menu says: the built-in login stays, and an account with sessions running on it
+/// stays until they close.
+fn remove_blocked(a: &Account) -> Option<String> {
+    match a.running {
+        _ if a.id == BUILT_IN => Some("The built-in login stays. Sign out instead.".into()),
+        0 => None,
+        1 => Some("Close its session first.".into()),
+        n => Some(format!("Close its {n} sessions first.")),
+    }
+}
+
+/// Whether "Use for new agents" applies: a signed-in account that new agents don't already start on.
+fn can_use_for_new(a: &Account) -> bool {
+    a.signed_in && !a.default
+}
+
+/// Whether the code field shows its Enter button: once it holds something to send.
+fn enter_visible(code: &str) -> bool {
+    !code.trim().is_empty()
+}
+
+/// How the flash fades: held for a third of its time, then out.
+fn flash_fade(t: f32) -> f32 {
+    if t < 0.35 { 1. } else { 1. - (t - 0.35) / 0.65 }
+}
+
 fn menu_row(id: impl Into<ElementId>, icon: &str, label: &str, enabled: bool) -> Stateful<Div> {
     ui::menu_row(id, icon, label, None).when(!enabled, |d| d.opacity(0.45).cursor_default())
 }
@@ -137,11 +163,14 @@ impl Settings {
             let key = Key { host: host.clone(), provider: provider.into(), id: String::new() };
             let signing = m.signins.iter().find(|s| s.provider == provider);
             let add = adds_accounts(provider).then(|| {
-                action(SharedString::from(format!("account-add-{}-{provider}", host.as_deref().unwrap_or_default())), "Add account")
-                    .when(signing.is_some(), |d| d.opacity(0.45).cursor_default())
-                    .when(signing.is_none(), |d| {
-                        d.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::SignIn(key.clone())))))
-                    })
+                let id = SharedString::from(format!("account-add-{}-{provider}", host.as_deref().unwrap_or_default()));
+                match signing {
+                    Some(_) => action(id, div().flex().items_center().gap(px(6.)).child(spinner("account-add-spin", 12., TEXT_3)).child("Signing in\u{2026}"))
+                        .opacity(0.45)
+                        .cursor_default(),
+                    None => action(id, "Add account")
+                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::SignIn(key.clone()))))),
+                }
             });
             rows.push(
                 div()
@@ -175,6 +204,7 @@ impl Settings {
     fn account_row(&self, m: &MachineSide, a: &Account, shared: bool, now: i64, cx: &mut Context<Self>) -> Div {
         let host = &m.host;
         let key = Key::of(host, a);
+        let key_of_row = key.clone();
         let id = SharedString::from(format!("account-{}-{}-{}", host.as_deref().unwrap_or_default(), a.provider, a.id));
         let name = accounts::name(a).to_string();
         let renaming = self.side.accounts.rename.as_ref().filter(|(k, _)| *k == key).map(|(_, input)| input.clone());
@@ -218,7 +248,12 @@ impl Settings {
                 }))
             },
         );
-        div().px(px(14.)).py(px(10.)).flex().items_center().gap(px(16.)).child(radio).child(who).child(side).child(more)
+        let row = div().px(px(14.)).py(px(10.)).flex().items_center().gap(px(16.)).child(radio).child(who).child(side).child(more);
+        if self.side.accounts.flash.as_ref() != Some(&key_of_row) {
+            return row;
+        }
+        let tint = |t: f32| Hsla::from(WAITING_BG).opacity(flash_fade(t));
+        div().child(row.with_animation(SharedString::from(format!("{id}-flash")), Animation::new(FLASH_FOR), move |d, t| d.bg(tint(t))))
     }
 
     /// A sign-in still running in its terminal, or the reason it failed.
@@ -281,7 +316,32 @@ impl Settings {
         });
         // Codex signs in with a code typed into the browser, so only Claude can be handed one back.
         let paste = agents::providers::get(&provider).is_some_and(|b| b.pastes_code).then(|| {
-            field_box().w(px(230.)).child(div().flex_1().min_w_0().child(Input::new(&code_input).appearance(false).p_0().font_family(MONO).text_size(px(12.))))
+            let enter = enter_visible(code_input.read(cx).value().as_ref()).then(|| {
+                let (host, provider) = (host.clone(), provider.clone());
+                div()
+                    .id(id("send"))
+                    .h(px(20.))
+                    .px(px(7.))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(4.))
+                    .rounded(px(5.))
+                    .bg(TEXT)
+                    .cursor_pointer()
+                    .tab_index(0)
+                    .text_size(px(11.5))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(PAGE)
+                    .whitespace_nowrap()
+                    .child("\u{21a9} Enter")
+                    .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new("Send the code (\u{21a9})").build(window, cx))
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        cx.emit(SettingsEvent::Accounts(AccountsAct::SendCode { host: host.clone(), provider: provider.clone() }))
+                    }))
+            });
+            let field = div().flex_1().min_w_0().child(Input::new(&code_input).appearance(false).p_0().font_family(MONO).text_size(px(12.)));
+            field_box().w(px(260.)).pr(px(3.)).child(field).children(enter.map(super::focus_ring))
         });
         let cancel = {
             let (host, provider) = (host.clone(), provider.clone());
@@ -332,6 +392,14 @@ impl Settings {
 }
 
 fn account_menu(id: &SharedString, key: Key, a: &Account, name: String, cx: &mut Context<Settings>) -> impl IntoElement + use<> {
+    let can_use = can_use_for_new(a);
+    let use_for_new = menu_row(SharedString::from(format!("{id}-use")), "check", "Use for new agents", can_use).when(can_use, |d| {
+        let key = key.clone();
+        d.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+            cx.emit(SettingsEvent::Accounts(AccountsAct::Menu(None)));
+            cx.emit(SettingsEvent::Accounts(AccountsAct::Op { host: key.host.clone(), msg: key.op("accounts.default") }));
+        }))
+    });
     let rename = (a.id != BUILT_IN).then(|| {
         let (key, name) = (key.clone(), name.clone());
         ui::menu_row(SharedString::from(format!("{id}-rename")), "pencil", "Rename", None).on_click(
@@ -349,12 +417,7 @@ fn account_menu(id: &SharedString, key: Key, a: &Account, name: String, cx: &mut
         ui::menu_row(SharedString::from(format!("{id}-sign-in-menu")), "arrow-right", "Sign in\u{2026}", None)
             .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::SignIn(key.clone())))))
     };
-    let why = match a.running {
-        _ if a.id == BUILT_IN => Some("The built-in login stays. Sign out instead.".to_string()),
-        0 => None,
-        1 => Some("Close its session first.".into()),
-        n => Some(format!("Close its {n} sessions first.")),
-    };
+    let why = remove_blocked(a);
     let remove = match why {
         Some(_) => menu_row(SharedString::from(format!("{id}-remove")), "trash", "Remove\u{2026}", false),
         None => ui::danger_row(SharedString::from(format!("{id}-remove")), "trash", "Remove\u{2026}").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
@@ -363,7 +426,7 @@ fn account_menu(id: &SharedString, key: Key, a: &Account, name: String, cx: &mut
         })),
     };
     let why = why.map(|w| div().px(px(10.)).pb(px(6.)).max_w(px(220.)).text_size(px(11.5)).line_height(px(15.)).text_color(TEXT_4).child(w));
-    let rows = div().children(rename).when(a.id != BUILT_IN, |d| d.child(ui::menu_divider())).child(sign).child(remove).children(why);
+    let rows = div().child(use_for_new).children(rename).child(ui::menu_divider()).child(sign).child(remove).children(why);
     let menu = ui::pop(div())
         .min_w(px(220.))
         .p(px(4.))
@@ -372,4 +435,48 @@ fn account_menu(id: &SharedString, key: Key, a: &Account, name: String, cx: &mut
         .occlude()
         .on_mouse_down_out(cx.listener(|_, _: &MouseDownEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::Menu(None)))));
     ui::menu_in(SharedString::from(format!("{id}-menu-in")), menu.child(rows))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{can_use_for_new, enter_visible, flash_fade, remove_blocked};
+    use crate::accounts::BUILT_IN;
+    use daemon::Account;
+
+    fn account(id: &str) -> Account {
+        Account { id: id.into(), provider: "claude".into(), signed_in: true, ..Default::default() }
+    }
+
+    #[test]
+    fn the_built_in_login_cannot_be_removed_and_the_menu_says_to_sign_out() {
+        assert_eq!(remove_blocked(&account(BUILT_IN)).as_deref(), Some("The built-in login stays. Sign out instead."));
+        assert_eq!(remove_blocked(&Account { running: 2, ..account(BUILT_IN) }).as_deref(), Some("The built-in login stays. Sign out instead."));
+    }
+
+    #[test]
+    fn an_account_with_sessions_cannot_be_removed_until_they_close() {
+        assert_eq!(remove_blocked(&Account { running: 1, ..account("work") }).as_deref(), Some("Close its session first."));
+        assert_eq!(remove_blocked(&Account { running: 3, ..account("work") }).as_deref(), Some("Close its 3 sessions first."));
+        assert_eq!(remove_blocked(&account("work")), None);
+    }
+
+    #[test]
+    fn only_a_signed_in_account_new_agents_do_not_already_use_can_be_picked() {
+        assert!(can_use_for_new(&account("work")));
+        assert!(!can_use_for_new(&Account { default: true, ..account("work") }));
+        assert!(!can_use_for_new(&Account { signed_in: false, ..account("work") }));
+    }
+
+    #[test]
+    fn the_enter_button_shows_once_the_code_field_has_text_and_hides_when_cleared() {
+        assert!(!enter_visible(""));
+        assert!(!enter_visible("  \n"));
+        assert!(enter_visible("a8Kq2-Lm9x"));
+    }
+
+    #[test]
+    fn the_flash_holds_then_fades_out() {
+        assert_eq!((flash_fade(0.), flash_fade(0.35), flash_fade(1.)), (1., 1., 0.));
+        assert!(flash_fade(0.6) < 1. && flash_fade(0.6) > 0.);
+    }
 }

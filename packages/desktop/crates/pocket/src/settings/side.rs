@@ -134,6 +134,8 @@ pub(crate) struct AccountsSide {
     pub(crate) menu: Option<Key>,
     pub(crate) rename: Option<(Key, Entity<InputState>)>,
     pub(crate) machines: Vec<MachineSide>,
+    /// The account a finished sign-in just made, rung for a moment.
+    pub(crate) flash: Option<Key>,
 }
 
 pub(crate) struct MachineSide {
@@ -292,6 +294,7 @@ impl Desktop {
             menu: accounts.menu.clone(),
             rename: accounts.rename.as_ref().map(|r| (r.key.clone(), r.input.clone())),
             machines,
+            flash: accounts.flash.on(std::time::Instant::now()).cloned(),
         }
     }
 

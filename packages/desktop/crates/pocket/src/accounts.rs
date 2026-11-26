@@ -9,7 +9,7 @@ use gpui_kit::*;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Display;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Each provider's own login: `~/.claude` or `~/.codex`.
 pub(crate) const BUILT_IN: &str = "builtin";
@@ -63,6 +63,50 @@ pub(crate) struct Accounts {
     pub(crate) menu: Option<Key>,
     pub(crate) rename: Option<Rename>,
     pub(crate) signins: Vec<SignIn>,
+    pub(crate) flash: Flash,
+}
+
+/// How long a finished sign-in's account stays ringed in Settings, and how long one waits for its row to show.
+pub(crate) const FLASH_FOR: Duration = Duration::from_millis(1600);
+const FLASH_WAIT: Duration = Duration::from_secs(30);
+
+/// The account a sign-in just finished on: it waits for pocketd's list to show it signed in, then flashes for `FLASH_FOR`.
+#[derive(Default)]
+pub(crate) struct Flash {
+    waiting: Option<(Key, Instant)>,
+    shown: Option<(Key, Instant)>,
+}
+
+impl Flash {
+    pub(crate) fn expect(&mut self, key: Key, now: Instant) {
+        self.waiting = Some((key, now));
+    }
+
+    /// Starts the flash once `list`, the answer for `host`, has the awaited account signed in.
+    fn seen(&mut self, host: &Host, list: &[Account], now: Instant) {
+        let Some((key, since)) = self.waiting.as_ref() else { return };
+        let landed = &key.host == host && list.iter().any(|a| a.provider == key.provider && a.id == key.id && a.signed_in && !a.pending);
+        if now.duration_since(*since) > FLASH_WAIT {
+            self.waiting = None;
+        } else if landed && let Some((key, _)) = self.waiting.take() {
+            self.ring(key, now);
+        }
+    }
+
+    pub(crate) fn ring(&mut self, key: Key, now: Instant) {
+        self.shown = Some((key, now));
+    }
+
+    /// The account to ring now.
+    pub(crate) fn on(&self, now: Instant) -> Option<&Key> {
+        self.shown.as_ref().filter(|(_, at)| now.duration_since(*at) < FLASH_FOR).map(|(key, _)| key)
+    }
+}
+
+/// The account a sign-in that ended leaves to flash: the one it added, or the one it signed in again; none for one cancelled.
+fn flash_target(key: &Key, added: &str, cancelled: bool) -> Option<Key> {
+    let id = if added.is_empty() { key.id.as_str() } else { added };
+    (!cancelled && !id.is_empty()).then(|| Key { id: id.into(), ..key.clone() })
 }
 
 /// A sign-in running in a terminal on its machine, shown under its provider's accounts rather than in a tab.
@@ -93,6 +137,7 @@ impl Accounts {
 
     /// Shows a machine's accounts as its pocketd answered with them.
     fn take(&mut self, host: &Host, m: Msg) {
+        self.flash.seen(host, &m.accounts, Instant::now());
         self.lists.insert(host.clone(), m.accounts);
         match m.auto_switch {
             Some(on) => _ = self.auto_switch.insert(host.clone(), on),
@@ -479,10 +524,11 @@ impl Desktop {
     pub(crate) fn new_sign_in(&mut self, key: Key, window: &mut Window, cx: &mut Context<Self>) -> SignIn {
         let code = cx.new(|cx| InputState::new(window, cx).placeholder("Code from the page, if any"));
         let (host, provider) = (key.host.clone(), key.provider.clone());
-        let sub = cx.subscribe_in(&code, window, move |this, _, ev: &InputEvent, window, cx| {
-            if let InputEvent::PressEnter { .. } = ev {
-                this.send_sign_in_code(&host, &provider, window, cx);
-            }
+        let sub = cx.subscribe_in(&code, window, move |this, _, ev: &InputEvent, window, cx| match ev {
+            InputEvent::PressEnter { .. } => this.send_sign_in_code(&host, &provider, window, cx),
+            // Settings shows the Enter button only while the field has text.
+            InputEvent::Change => this.settings.update(cx, |_, cx| cx.notify()),
+            _ => {}
         });
         SignIn { key, terminal: None, added: String::new(), cancelled: false, code, output_open: false, _sub: sub }
     }
@@ -566,6 +612,9 @@ impl Desktop {
         let Some(at) = self.accounts.signins.iter().position(|s| s.terminal.as_deref() == Some(terminal)) else { return };
         let s = self.accounts.signins.remove(at);
         self.terminals.update(cx, |t, _| t.close(terminal));
+        if let Some(key) = flash_target(&s.key, &s.added, s.cancelled) {
+            self.accounts.flash.expect(key, Instant::now());
+        }
         let host = s.key.host.clone();
         let dismiss = (s.cancelled && !s.added.is_empty()).then(|| Key { id: s.added.clone(), ..s.key.clone() }.op("accounts.remove"));
         // pocketd reads the sign-in only after it has told us the terminal exited.
@@ -584,14 +633,15 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::{
-        Accounts, BUILT_IN, Tone, alias, back_at, checked, choices, default_of, device_code, in_use, meter, name, on_page, peak, project_picks, screen_lines,
-        session_label, shared, sign_in_link, subline, tags, tone, until,
+        Accounts, BUILT_IN, FLASH_FOR, Flash, Key, Tone, alias, back_at, checked, choices, default_of, device_code, flash_target, in_use, meter, name, on_page,
+        peak, project_picks, screen_lines, session_label, shared, sign_in_link, subline, tags, tone, until,
     };
     use chrono::Utc;
     use daemon::Account;
     use daemon::{Usage, Window};
     use serde_json::json;
     use std::collections::BTreeMap;
+    use std::time::Instant;
 
     const NOW: i64 = 1_760_000_000_000;
 
@@ -843,5 +893,41 @@ mod tests {
         assert_eq!(checked(false, 0, NOW), "Usage not checked yet");
         assert_eq!(checked(false, NOW - 30_000, NOW), "Usage checked just now");
         assert_eq!(checked(false, NOW - 5 * 60_000, NOW), "Usage checked 5 min ago");
+    }
+
+    fn key(id: &str) -> Key {
+        Key { host: None, provider: "claude".into(), id: id.into() }
+    }
+
+    #[test]
+    fn a_sign_in_that_ended_flashes_the_account_it_added_or_signed_in_again() {
+        assert_eq!(flash_target(&key(""), "work", false), Some(key("work")), "an added account");
+        assert_eq!(flash_target(&key("old"), "", false), Some(key("old")), "a sign-in again");
+        assert_eq!(flash_target(&key(""), "work", true), None, "cancelled");
+        assert_eq!(flash_target(&key(""), "", false), None, "pocketd never named the account");
+    }
+
+    #[test]
+    fn the_flash_starts_when_the_list_has_the_account_signed_in_and_ends_on_time() {
+        let (t0, mut flash) = (Instant::now(), Flash::default());
+        let pending = Account { pending: true, signed_in: false, ..account("claude", "work") };
+        flash.expect(key("work"), t0);
+        flash.seen(&None, &[pending], t0);
+        assert_eq!(flash.on(t0), None, "still signing in");
+        flash.seen(&Some("box".into()), &[account("claude", "work")], t0);
+        assert_eq!(flash.on(t0), None, "another machine's list");
+        flash.seen(&None, &[account("claude", "work")], t0 + std::time::Duration::from_secs(1));
+        let at = t0 + std::time::Duration::from_secs(1);
+        assert_eq!(flash.on(at), Some(&key("work")));
+        assert_eq!(flash.on(at + FLASH_FOR), None);
+    }
+
+    #[test]
+    fn a_sign_in_that_never_lands_stops_waiting() {
+        let (t0, mut flash) = (Instant::now(), Flash::default());
+        flash.expect(key("work"), t0);
+        flash.seen(&None, &[], t0 + std::time::Duration::from_secs(31));
+        flash.seen(&None, &[account("claude", "work")], t0 + std::time::Duration::from_secs(32));
+        assert_eq!(flash.on(t0 + std::time::Duration::from_secs(32)), None);
     }
 }
