@@ -45,7 +45,8 @@ impl Host {
             })
         };
         let subs = vec![commits(&time, |this, _, cx| this.commit_time(cx)), commits(&port, Settings::commit_port)];
-        let (time_field, port_field) = (TextField::new(time.clone(), store.automations.time.clone()), TextField::new(port.clone(), port_field(store.phone.port)));
+        let (time_field, port_field) =
+            (TextField::new(time.clone(), store.automations.time.clone()), TextField::new(port.clone(), port_field(store.phone.port)));
         (Self { status: None, devices: None, cli: false, time, port, time_field, port_field, renaming: None }, subs)
     }
 }

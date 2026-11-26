@@ -106,7 +106,8 @@ pub(super) enum Line {
 /// The lines to draw. With projects on one machine there are no headers; with several, each machine that holds a match gets
 /// one, with all its projects counted. A folded group opens while a filter has a match in it.
 pub(super) fn lines(entries: &[Entry], machines: &[Machine], folded: &HashSet<Option<String>>, query: &str) -> Vec<Line> {
-    let name_of = |host: Option<&str>| machines.iter().find(|m| m.host.as_deref() == host).map_or_else(|| host.unwrap_or_default().to_string(), |m| m.name.clone());
+    let name_of =
+        |host: Option<&str>| machines.iter().find(|m| m.host.as_deref() == host).map_or_else(|| host.unwrap_or_default().to_string(), |m| m.name.clone());
     let matches = |e: &Entry| filter_matches(query, &[e.name, e.path, name_of(e.host).as_str()]);
     let mut hosts: Vec<Option<&str>> = machines.iter().map(|m| m.host.as_deref()).collect();
     for e in entries {
@@ -369,15 +370,13 @@ impl Settings {
             let options = targets.iter().map(|&n| {
                 let m = &self.side.machines[n];
                 let host = m.host.clone();
-                dropdown::pick_row(("add-project-on", n), false)
-                    .gap(px(8.))
-                    .child(tile(m.glyph, m.colour, 18.))
-                    .child(div().child(m.name.clone()))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                dropdown::pick_row(("add-project-on", n), false).gap(px(8.)).child(tile(m.glyph, m.colour, 18.)).child(div().child(m.name.clone())).on_click(
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.menu = None;
                         cx.emit(add_event(host.clone()));
                         cx.notify();
-                    }))
+                    }),
+                )
             });
             let options: Vec<_> = options.collect();
             ui::menu_in("add-project-menu-in", dropdown::shuts(ui::pop(div()), ADD_MENU, cx).min_w(px(180.)).p(px(4.)).flex().flex_col().children(options))
@@ -492,7 +491,12 @@ mod tests {
 
     #[test]
     fn a_filter_matches_a_projects_name_path_and_host_name() {
-        let only = |query| lines(&fleet(), &machines(), &HashSet::new(), query).into_iter().filter_map(|l| if let Line::Project { card } = l { Some(card) } else { None }).collect::<Vec<_>>();
+        let only = |query| {
+            lines(&fleet(), &machines(), &HashSet::new(), query)
+                .into_iter()
+                .filter_map(|l| if let Line::Project { card } = l { Some(card) } else { None })
+                .collect::<Vec<_>>()
+        };
         assert_eq!(only("docs"), [3]);
         assert_eq!(only("/srv"), [1, 4]);
         assert_eq!(only("mac-mini"), [2]);
@@ -523,7 +527,13 @@ mod tests {
     fn a_link_is_connected_connecting_or_offline() {
         let online = Link::Online { version: "1.4.2".into(), uptime: 5 };
         assert_eq!(
-            [machine_state(Some(&online)), machine_state(Some(&Link::Connecting)), machine_state(Some(&Link::Retrying(Failure::Dropped))), machine_state(Some(&Link::Failed(Failure::Auth))), machine_state(None)],
+            [
+                machine_state(Some(&online)),
+                machine_state(Some(&Link::Connecting)),
+                machine_state(Some(&Link::Retrying(Failure::Dropped))),
+                machine_state(Some(&Link::Failed(Failure::Auth))),
+                machine_state(None)
+            ],
             [MachineState::Connected, MachineState::Connecting, MachineState::Offline, MachineState::Offline, MachineState::Offline]
         );
     }

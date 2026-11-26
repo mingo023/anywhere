@@ -1,8 +1,8 @@
 use super::catalog::Setting;
 use super::dropdown;
 use super::fields::{filter_field, filter_matches};
-use super::projects::FILTER_ABOVE;
 use super::host::{service_line, uptime};
+use super::projects::FILTER_ABOVE;
 use super::side::HostRow;
 use super::{HostsAct, Settings, SettingsEvent, field_box, row};
 use crate::desktop::chrome::Confirm;
@@ -182,31 +182,36 @@ impl Settings {
         let filtering = self.side.hosts.rows.len() + 1 > FILTER_ABOVE;
         let query = if filtering { query } else { String::new() };
         let show_here = filter_matches(&query, &["This Mac"]);
-        let remotes = self.side.hosts.rows.iter().enumerate().filter(|(_, r)| filter_matches(&query, &[r.shown.as_str(), r.host.address().as_str()])).enumerate().map(|(n, (i, HostRow { host: h, link, shown, glyph, colour, install, notice }))| {
-            let link = link.as_ref();
-            let list = install.as_ref();
-            let line = notice.clone().unwrap_or_else(|| host_line(h, shown, link));
-            let password_form = self.side.hosts.password.as_ref();
-            let typing = password_form.is_some_and(|p| p.host.as_ref() == Some(&h.id));
-            let facts = Facts {
-                link,
-                installing: list.is_some(),
-                needs_update: needs_update(link, channel::version()),
-                typing_password: typing,
-                signing_in: typing && password_form.is_some_and(|p| p.signing_in),
-            };
-            let todo = actions(&facts);
-            let target = Target { id: h.id.clone(), name: shown.clone(), windows: h.windows };
-            let button = todo.first().map(|a| {
-                let (a, target) = (*a, target.clone());
-                super::action(("host-action", i), a.label()).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.run_host_action(a, &target, cx)))
-            });
-            let more = self.host_menu(i, &h.id, &todo, &target, cx);
-            let shown_name = shown.clone();
-            let row = host_row(n + usize::from(show_here), tile(glyph, *colour, 28.), shown.clone(), line, link_color(link)).children(button).child(more);
-            let panel = list.cloned().map(|list| self.checklist_panel(i, &h.id, &shown_name, &list, cx));
-            div().flex().flex_col().child(row).when(typing, |d| d.child(self.password_form(&h.name, cx))).children(panel)
-        });
+        let remotes =
+            self.side.hosts.rows.iter().enumerate().filter(|(_, r)| filter_matches(&query, &[r.shown.as_str(), r.host.address().as_str()])).enumerate().map(
+                |(n, (i, HostRow { host: h, link, shown, glyph, colour, install, notice }))| {
+                    let link = link.as_ref();
+                    let list = install.as_ref();
+                    let line = notice.clone().unwrap_or_else(|| host_line(h, shown, link));
+                    let password_form = self.side.hosts.password.as_ref();
+                    let typing = password_form.is_some_and(|p| p.host.as_ref() == Some(&h.id));
+                    let facts = Facts {
+                        link,
+                        installing: list.is_some(),
+                        needs_update: needs_update(link, channel::version()),
+                        typing_password: typing,
+                        signing_in: typing && password_form.is_some_and(|p| p.signing_in),
+                    };
+                    let todo = actions(&facts);
+                    let target = Target { id: h.id.clone(), name: shown.clone(), windows: h.windows };
+                    let button = todo.first().map(|a| {
+                        let (a, target) = (*a, target.clone());
+                        super::action(("host-action", i), a.label())
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.run_host_action(a, &target, cx)))
+                    });
+                    let more = self.host_menu(i, &h.id, &todo, &target, cx);
+                    let shown_name = shown.clone();
+                    let row =
+                        host_row(n + usize::from(show_here), tile(glyph, *colour, 28.), shown.clone(), line, link_color(link)).children(button).child(more);
+                    let panel = list.cloned().map(|list| self.checklist_panel(i, &h.id, &shown_name, &list, cx));
+                    div().flex().flex_col().child(row).when(typing, |d| d.child(self.password_form(&h.name, cx))).children(panel)
+                },
+            );
         let filter = filtering.then(|| filter_field(&self.projects.hosts_filter));
         let here = show_here.then_some(here);
         div().flex().flex_col().children(filter).children(here).children(remotes.collect::<Vec<_>>())
@@ -240,11 +245,13 @@ impl Settings {
             });
             let remove = {
                 let (id, name) = (t.id.clone(), t.name.clone());
-                dropdown::pick_row(("host-remove", i), false).text_color(FAILED_TEXT).child("Remove\u{2026}").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.menu = None;
-                    cx.emit(SettingsEvent::Ask(Confirm::RemoveHost { id: id.clone(), name: name.clone() }));
-                    cx.notify();
-                }))
+                dropdown::pick_row(("host-remove", i), false).text_color(FAILED_TEXT).child("Remove\u{2026}").on_click(cx.listener(
+                    move |this, _: &ClickEvent, _, cx| {
+                        this.menu = None;
+                        cx.emit(SettingsEvent::Ask(Confirm::RemoveHost { id: id.clone(), name: name.clone() }));
+                        cx.notify();
+                    },
+                ))
             };
             let sep = (!todo.is_empty()).then(|| div().h(px(0.5)).my(px(4.)).mx(px(4.)).bg(SEPARATOR));
             let items: Vec<_> = items.collect();

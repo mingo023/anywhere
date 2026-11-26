@@ -1018,10 +1018,12 @@ const STEPS: [(&str, Step); 316] = [
     }),
     ("code-font-menu", |d, _, cx| d.settings.update(cx, |s, cx| s.set_menu(Some("code-font"), cx))),
     ("settings-menu", |d, _, cx| d.settings.update(cx, |s, cx| s.set_menu(Some("close-window"), cx))),
-    ("settings-projects-fold", |d, _, cx| d.settings.update(cx, |s, cx| {
-        s.projects.toggle(None);
-        cx.notify();
-    })),
+    ("settings-projects-fold", |d, _, cx| {
+        d.settings.update(cx, |s, cx| {
+            s.projects.toggle(None);
+            cx.notify();
+        })
+    }),
     ("settings-projects-filter", |d, window, cx| {
         d.settings.update(cx, |s, cx| s.projects.filter.update(cx, |f, cx| f.set_value("ios", window, cx)));
     }),
