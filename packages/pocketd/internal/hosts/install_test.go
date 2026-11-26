@@ -87,7 +87,7 @@ func TestAnArchiveOnThisMacWinsOverTheRelease(t *testing.T) {
 	if got, err := source(Platform{"linux", "arm64"}, "1.2.0", dist); err != nil || got != (Source{Archive: archive}) {
 		t.Errorf("%+v %v", got, err)
 	}
-	release := Source{Version: "1.2.0", URL: "https://github.com/mingo023/anywhere/releases/download/v1.2.0"}
+	release := Source{Version: "1.2.0", URL: "https://github.com/mingo023/zoes/releases/download/v1.2.0"}
 	if got, err := source(Platform{"darwin", "arm64"}, "1.2.0", dist); err != nil || got != release {
 		t.Errorf("%+v %v", got, err)
 	}
