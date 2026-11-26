@@ -3,10 +3,11 @@ use super::shimmer::shimmer;
 use super::sub_agent::{self, Mark, Picks};
 use super::working::format_elapsed;
 use crate::util::now_ms;
-use chat::workflow::{Group, Stage, Workflow, phase_line, waits_on};
+use chat::workflow::{Group, Stage, Workflow, current, dense, folded, phase_line, waits_on};
 use chat::{ToolCall, ToolStatus};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::collections::HashSet;
 use std::rc::Rc;
 use theme::*;
 
@@ -103,59 +104,103 @@ fn stage_mark(key: &str, stage: Stage) -> AnyElement {
     }
 }
 
-/// The phases as a strip of bars, each lit by how far it got.
-fn strip(groups: &[Group]) -> Div {
-    div().flex().gap(px(4.)).children(groups.iter().map(|g| {
-        let (bar, text) = match g.stage() {
-            Stage::Done => (TEXT_4, TEXT_3),
+/// Folds or unfolds one of a workflow's phases in the dock.
+pub(crate) type OnFlip = Rc<dyn Fn(usize, &mut Window, &mut App)>;
+
+/// The phases as a strip of bars, each lit by how far it got. Too many to label each get one line naming the phase
+/// it's in. A click on a bar unfolds its phase and scrolls to it.
+fn strip(key: &str, call: &ToolCall, groups: &[Group], seek: &OnFlip) -> Div {
+    let dense = dense(groups);
+    let bars = div().flex().gap(px(if dense { 3. } else { 6. })).children(groups.iter().enumerate().map(|(at, g)| {
+        let (fill, text) = match g.stage() {
+            Stage::Done => (TEXT_5, TEXT_3),
             Stage::Active => (TEXT_2, TEXT),
             Stage::Pending => (FILL_4, TEXT_4),
         };
+        let done = g.agents.iter().filter(|(c, _)| c.status != ToolStatus::Running).count();
+        let lit = if g.agents.is_empty() { 0. } else { (done as f32 / g.agents.len() as f32).max(0.04) };
+        let seek = seek.clone();
         div()
+            .id(SharedString::from(format!("{key}-bar-{at}")))
             .flex_1()
             .min_w_0()
             .flex()
             .flex_col()
-            .gap(px(5.))
-            .child(div().h(px(3.)).rounded_full().bg(bar))
-            .child(div().truncate().text_size(px(11.)).text_color(text).child(g.title.to_string()))
-    }))
+            .gap(px(6.))
+            .cursor_pointer()
+            .on_click(move |_, window, cx| seek(at, window, cx))
+            .child(div().h(px(3.)).rounded_full().overflow_hidden().bg(FILL_4).child(div().h_full().w(relative(lit)).bg(fill)))
+            .when(!dense, |d| {
+                d.child(
+                    div()
+                        .truncate()
+                        .text_size(px(11.5))
+                        .text_color(text)
+                        .when(g.stage() == Stage::Active, |d| d.font_weight(FontWeight::MEDIUM))
+                        .child(g.title.to_string()),
+                )
+            })
+    }));
+    let now = dense.then(|| {
+        let line = div().mt(px(8.)).flex().gap(px(4.)).truncate().text_size(px(11.5)).text_color(TEXT_3);
+        if call.status != ToolStatus::Running && groups.iter().all(|g| g.stage() == Stage::Done) {
+            return line.child(format!("All {} phases done", groups.len()));
+        }
+        let at = current(groups).unwrap_or(0);
+        let stopped = if call.status == ToolStatus::Running { "" } else { " · stopped" };
+        line.child(div().flex_none().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(title(groups, at))).child(format!(
+            "· phase {} of {}{stopped}",
+            at + 1,
+            groups.len()
+        ))
+    });
+    div().flex_none().px(px(16.)).py(px(12.)).border_b(px(0.5)).border_color(SEPARATOR).child(bars).children(now)
+}
+
+fn title(groups: &[Group], at: usize) -> String {
+    if groups[at].title.is_empty() { format!("Phase {}", at + 1) } else { groups[at].title.to_string() }
 }
 
 fn agent_row(key: &str, call: &ToolCall, agent: &chat::SubAgent, now: i64, on_agent: &OnAgent) -> Stateful<Div> {
     let m = sub_agent::mark(call, agent);
     let doing = match m {
         Mark::Running => sub_agent::latest(agent).map(sub_agent::step),
-        Mark::Starting => None,
-        Mark::Done | Mark::Failed => sub_agent::report(call, agent).as_deref().and_then(sub_agent::first_line),
+        Mark::Failed => sub_agent::report(call, agent).as_deref().and_then(sub_agent::first_line),
+        Mark::Starting | Mark::Done => None,
     };
     let meta = match (agent.tokens, agent_detail::took(call, now)) {
         (0, ran) => ran.unwrap_or_default(),
         (t, ran) => [Some(thousands(t)), ran].into_iter().flatten().collect::<Vec<_>>().join(" · "),
     };
     let head = div()
+        .h(px(18.))
         .flex()
         .items_center()
         .gap(px(8.))
         .child(sub_agent::glyph(&format!("{key}-{}", call.id), m))
         .child(div().flex_1().min_w_0().truncate().text_color(if m == Mark::Failed { FAILED_TEXT } else { TEXT_BODY }).child(sub_agent::name(agent)))
-        .child(div().flex_none().text_size(px(12.)).text_color(TEXT_4).child(meta));
+        .child(div().flex_none().text_size(px(11.5)).text_color(TEXT_4).child(meta));
     let line = doing.map(|d| {
-        let mono = m == Mark::Running;
-        div().pl(px(22.)).truncate().text_size(px(12.)).text_color(TEXT_3).when(mono, |d| d.font_family(code_font())).child(d)
+        div()
+            .pt(px(2.))
+            .pl(px(22.))
+            .truncate()
+            .font_family(code_font())
+            .text_size(px(11.))
+            .line_height(px(16.))
+            .text_color(if m == Mark::Failed { FAILED_TEXT } else { TEXT_3 })
+            .child(d)
     });
     let (on_agent, id) = (on_agent.clone(), call.id.clone());
     div()
         .id(SharedString::from(format!("{key}-agent-{}", call.id)))
-        .mx(px(-8.))
-        .px(px(8.))
+        .pl(px(31.))
+        .pr(px(8.))
         .py(px(5.))
         .flex()
         .flex_col()
-        .gap(px(2.))
         .rounded(px(7.))
         .text_size(px(13.))
-        .line_height(px(19.))
         .cursor_pointer()
         .hover(|s| s.bg(FILL_2))
         .active(|s| s.bg(FILL_3))
@@ -164,68 +209,113 @@ fn agent_row(key: &str, call: &ToolCall, agent: &chat::SubAgent, now: i64, on_ag
         .children(line)
 }
 
-/// The dock's view of a workflow: a head with `actions`, how it stands, its phases as a strip, then each phase with
-/// the agents it started. A click on an agent goes to `on_agent`.
-pub(crate) fn inspector(key: &str, call: &ToolCall, w: &Workflow, now: i64, actions: Vec<AnyElement>, on_agent: OnAgent) -> Div {
+/// What the dock needs to show a workflow.
+pub(crate) struct Inspect<'a> {
+    pub key: &'a str,
+    pub call: &'a ToolCall,
+    pub w: &'a Workflow,
+    pub now: i64,
+    /// Phases a click folded or unfolded from how `folded` has them.
+    pub flipped: &'a HashSet<usize>,
+    pub scroll: &'a ScrollHandle,
+}
+
+/// The dock's view of a workflow: a head with `actions`, how it stands and its phases as a strip, then each phase with
+/// the agents it started. A click on an agent goes to `on_agent`, on a finished phase to `on_flip`.
+pub(crate) fn inspector(i: Inspect, actions: Vec<AnyElement>, on_agent: OnAgent, on_flip: OnFlip) -> Div {
+    let Inspect { key, call, w, now, flipped, scroll } = i;
     let m = mark(call, w);
     let groups = w.groups();
     let name = if w.name.is_empty() { "Workflow" } else { w.name.as_str() };
     let head = div()
-        .flex_none()
         .flex()
         .items_start()
         .gap(px(10.))
         .pt(px(12.))
-        .pb(px(12.))
         .pl(px(16.))
         .pr(px(10.))
-        .border_b(px(0.5))
-        .border_color(SEPARATOR)
         .child(div().mt(px(3.)).child(sub_agent::glyph(&format!("{key}-{}", call.id), m)))
         .child(
             div()
                 .flex_1()
                 .min_w_0()
                 .child(div().truncate().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(name.to_string()))
-                .child(div().mt(px(2.)).text_size(px(12.5)).text_color(TEXT_3).child(summary(call, w, now))),
+                .child(div().mt(px(2.)).text_size(px(12.)).text_color(TEXT_3).child(summary(call, w, now))),
         )
         .child(div().flex_none().flex().items_center().gap(px(2.)).children(actions));
+    let fold: Vec<bool> = (0..groups.len()).map(|at| folded(&groups, at, flipped)).collect();
+    let seek: OnFlip = {
+        let (fold, on_flip, scroll) = (fold.clone(), on_flip.clone(), scroll.clone());
+        Rc::new(move |at, window, cx| {
+            if fold[at] {
+                on_flip(at, window, cx);
+            }
+            scroll.scroll_to_top_of_item(at);
+        })
+    };
+    let first_pending = groups.iter().position(|g| g.stage() == Stage::Pending);
     let phases = groups.iter().enumerate().map(|(at, g)| {
         let s = g.stage();
         let done = g.agents.iter().filter(|(c, _)| c.status != ToolStatus::Running).count();
-        let title = div()
+        let on_flip = on_flip.clone();
+        let header = div()
+            .id(SharedString::from(format!("{key}-phase-{at}")))
+            .h(px(30.))
+            .mt(px(6.))
+            .px(px(8.))
             .flex()
             .items_center()
-            .gap(px(8.))
+            .gap(px(9.))
             .child(stage_mark(&format!("{key}-phase-{at}"), s))
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_size(px(12.5))
+                    .font_weight(if s == Stage::Pending { FontWeight::MEDIUM } else { FontWeight::SEMIBOLD })
                     .text_color(if s == Stage::Pending { TEXT_3 } else { TEXT })
-                    .child(if g.title.is_empty() { format!("Phase {}", at + 1) } else { g.title.to_string() }),
+                    .child(title(&groups, at)),
             )
-            .when(!g.agents.is_empty(), |d| d.child(div().flex_none().text_size(px(12.)).text_color(TEXT_4).child(format!("{done}/{}", g.agents.len()))));
-        let detail = (!g.detail.is_empty())
-            .then(|| div().pl(px(22.)).whitespace_normal().text_size(px(12.5)).line_height(px(18.)).text_color(TEXT_3).child(g.detail.to_string()));
-        let waiting = (s == Stage::Pending).then(|| div().pl(px(22.)).text_size(px(12.5)).text_color(TEXT_4).child(waits_on(&groups, at)));
-        let agents = g.agents.iter().map(|(c, a)| agent_row(key, c, a, now, &on_agent));
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(4.))
-            .text_size(px(13.))
-            .line_height(px(19.))
-            .child(title)
-            .children(detail)
-            .children(waiting)
-            .child(div().mt(px(2.)).flex().flex_col().children(agents))
+            .when(!g.agents.is_empty(), |d| d.child(div().flex_none().text_size(px(11.5)).text_color(TEXT_4).child(format!("{done}/{}", g.agents.len()))))
+            .when(s == Stage::Done, |d| {
+                d.cursor_pointer().on_click(move |_, window, cx| on_flip(at, window, cx)).child(icon(
+                    if fold[at] { "chevron-right" } else { "chevron-down" },
+                    12.,
+                    TEXT_4,
+                ))
+            });
+        let open = !fold[at];
+        let detail = (open && !g.detail.is_empty()).then(|| {
+            div()
+                .pl(px(31.))
+                .pr(px(8.))
+                .pb(px(4.))
+                .mt(px(-4.))
+                .whitespace_normal()
+                .text_size(px(11.5))
+                .line_height(px(16.))
+                .text_color(TEXT_4)
+                .child(g.detail.to_string())
+        });
+        let waiting =
+            (first_pending == Some(at)).then(|| div().ml(px(31.)).mr(px(8.)).mb(px(4.)).text_size(px(11.5)).text_color(TEXT_4).child(waits_on(&groups, at)));
+        let agents = open.then(|| g.agents.iter().map(|(c, a)| agent_row(key, c, a, now, &on_agent))).into_iter().flatten();
+        div().flex().flex_col().child(header).children(detail).children(agents).children(waiting)
     });
-    let content = div().flex().flex_col().gap(px(18.)).child(strip(&groups)).children(phases);
-    let body = div().id(SharedString::from(format!("{key}-body"))).flex_1().min_h_0().overflow_y_scroll().pt(px(14.)).pb(px(20.)).px(px(16.)).child(content);
-    div().size_full().flex().flex_col().child(head).child(body)
+    let body = div()
+        .id(SharedString::from(format!("{key}-body")))
+        .flex_1()
+        .min_h_0()
+        .overflow_y_scroll()
+        .track_scroll(scroll)
+        .pt(px(4.))
+        .pb(px(10.))
+        .px(px(8.))
+        .flex()
+        .flex_col()
+        .children(phases);
+    div().size_full().flex().flex_col().child(head).child(strip(key, call, &groups, &seek)).child(body)
 }
 
 #[cfg(test)]

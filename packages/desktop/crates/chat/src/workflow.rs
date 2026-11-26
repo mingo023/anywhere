@@ -2,6 +2,7 @@
 
 use crate::{Block, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript};
 use serde_json::Value;
+use std::collections::HashSet;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Workflow {
@@ -55,6 +56,16 @@ pub fn phase_line(groups: &[Group]) -> Option<String> {
     let at = current(groups)?;
     let title = groups[at].title;
     Some(if title.is_empty() { format!("Phase {}/{}", at + 1, groups.len()) } else { format!("Phase {}/{} · {title}", at + 1, groups.len()) })
+}
+
+/// Whether there are too many phases to label each in the strip; then finished phases also start folded.
+pub fn dense(groups: &[Group]) -> bool {
+    groups.len() > 4
+}
+
+/// Whether phase `at` shows only its title: a finished one, folded by default when `dense`, unless `flipped` holds it.
+pub fn folded(groups: &[Group], at: usize, flipped: &HashSet<usize>) -> bool {
+    groups[at].stage() == Stage::Done && dense(groups) != flipped.contains(&at)
 }
 
 /// What phase `at`, which no agent has started in, waits on.
@@ -303,6 +314,19 @@ const r = await agent('x', { phase: 'Instrument', name: 'not this' })"#;
         let w = workflow(&["Plan", "Build", "Judge"], &[("Plan", ToolStatus::Ok), ("Build", ToolStatus::Failed)]);
         assert_eq!(current(&w.groups()), Some(1));
         assert_eq!(current(&workflow(&["Plan"], &[]).groups()), None, "nothing started yet");
+    }
+
+    #[test]
+    fn finished_phases_start_folded_past_four_phases_and_a_flip_turns_one_either_way() {
+        let few = workflow(&["A", "B", "C"], &[("A", ToolStatus::Ok), ("B", ToolStatus::Running)]);
+        let (groups, none) = (few.groups(), HashSet::new());
+        assert!(!dense(&groups));
+        assert_eq!((folded(&groups, 0, &none), folded(&groups, 0, &HashSet::from([0]))), (false, true));
+        let many = workflow(&["A", "B", "C", "D", "E"], &[("A", ToolStatus::Ok), ("B", ToolStatus::Running)]);
+        let groups = many.groups();
+        assert!(dense(&groups));
+        assert_eq!((folded(&groups, 0, &none), folded(&groups, 0, &HashSet::from([0]))), (true, false));
+        assert!(!folded(&groups, 1, &none) && !folded(&groups, 2, &none), "only a finished phase folds");
     }
 
     #[test]

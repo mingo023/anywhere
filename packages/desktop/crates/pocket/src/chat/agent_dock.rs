@@ -9,6 +9,7 @@ use crate::glide::Glide;
 use crate::util::now_ms;
 use chat::{Block, Command, ToolCall, ToolKind, ToolStatus, Transcript};
 use gpui_kit::*;
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
@@ -43,6 +44,8 @@ pub(crate) struct Pick {
     shown: Option<Shown>,
     /// The agent of the workflow shown that the dock shows in its place.
     inner: Option<String>,
+    /// The shown workflow's phases a click folded or unfolded.
+    flipped: HashSet<usize>,
     all_steps: bool,
     brief_open: bool,
 }
@@ -65,6 +68,7 @@ impl Pick {
         self.open = Some(Shown { agent: agent.into(), call: call.into() });
         self.shown = self.open.clone();
         self.inner = None;
+        self.flipped.clear();
         self.all_steps = false;
         self.brief_open = false;
     }
@@ -78,6 +82,12 @@ impl Pick {
 
     fn close(&mut self) {
         self.open = None;
+    }
+
+    fn flip(&mut self, phase: usize) {
+        if !self.flipped.remove(&phase) {
+            self.flipped.insert(phase);
+        }
     }
 
     /// Goes from a workflow's agent back to the workflow; false when no agent of one shows.
@@ -118,6 +128,7 @@ fn escape_closes(dock_in: Option<&str>, session: Option<&str>, map_open: bool, a
 
 pub(crate) struct AgentDock {
     pub(crate) pick: Pick,
+    phases: ScrollHandle,
     glide: Glide,
     focus: FocusHandle,
 }
@@ -137,7 +148,7 @@ impl EventEmitter<DockEvent> for AgentDock {}
 
 impl AgentDock {
     pub(crate) fn new(cx: &mut App) -> Self {
-        Self { pick: Pick::default(), glide: Glide::from(0.), focus: cx.focus_handle() }
+        Self { pick: Pick::default(), phases: ScrollHandle::new(), glide: Glide::from(0.), focus: cx.focus_handle() }
     }
 
     /// Whether it holds the keys; it takes only the arrows, so typing still goes to the chat.
@@ -160,6 +171,7 @@ impl AgentDock {
 
     pub(crate) fn toggle(&mut self, agent: &str, call: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.pick.toggle(agent, call);
+        self.phases = ScrollHandle::new();
         if self.pick.open.is_some() {
             self.focus.focus(window, cx);
         } else {
@@ -228,7 +240,15 @@ impl AgentDock {
                         cx.notify();
                     })
                 });
-                workflow::inspector(&key, call, w, now_ms(), stop.into_iter().chain([close]).collect(), on_agent)
+                let this = cx.weak_entity();
+                let on_flip: workflow::OnFlip = Rc::new(move |at, _, cx| {
+                    _ = this.update(cx, |d, cx| {
+                        d.pick.flip(at);
+                        cx.notify();
+                    })
+                });
+                let inspect = workflow::Inspect { key: &key, call, w, now: now_ms(), flipped: &self.pick.flipped, scroll: &self.phases };
+                workflow::inspector(inspect, stop.into_iter().chain([close]).collect(), on_agent, on_flip)
             }
             (None, _) => return None,
             (Some((call, sub)), _) => {
