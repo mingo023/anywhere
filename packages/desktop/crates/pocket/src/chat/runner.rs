@@ -223,7 +223,28 @@ mod tests {
     fn events(steps: &[&str]) -> Vec<Event> {
         let (tx, rx) = mpsc::channel(64);
         let _stop = start(steps.iter().map(|s| s.to_string()).collect(), std::env::temp_dir(), tx);
-        futures::executor::block_on(rx.collect())
+        until_done(rx)
+    }
+
+    /// Whether a process running `command` is still there a moment after the run ended.
+    fn still_running(command: &str) -> bool {
+        std::thread::sleep(Duration::from_millis(200));
+        Command::new("pgrep").args(["-f", command]).output().is_ok_and(|o| o.status.success())
+    }
+
+    /// Up to the run's end: a process left in the background, the login shell's own included, can keep the channel open.
+    fn until_done(mut rx: mpsc::Receiver<Event>) -> Vec<Event> {
+        futures::executor::block_on(async {
+            let mut events = Vec::new();
+            while let Some(e) = rx.next().await {
+                let done = matches!(e, Event::Done(_));
+                events.push(e);
+                if done {
+                    break;
+                }
+            }
+            events
+        })
     }
 
     fn output(events: &[Event]) -> String {
@@ -252,7 +273,7 @@ mod tests {
         let stop = start(vec!["sleep 30".into()], std::env::temp_dir(), tx);
         std::thread::sleep(Duration::from_millis(200));
         stop.stop();
-        let e: Vec<Event> = futures::executor::block_on(rx.collect());
+        let e = until_done(rx);
         assert_eq!(e.last(), Some(&Event::Done(Exit::Stopped)));
     }
 
@@ -278,13 +299,14 @@ mod tests {
     #[test]
     fn stopping_kills_a_step_that_ignores_being_asked() {
         let (tx, rx) = mpsc::channel(64);
-        let stop = start(vec!["trap '' TERM; sleep 30".into()], std::env::temp_dir(), tx);
+        let stop = start(vec!["trap '' TERM; sleep 31.1".into()], std::env::temp_dir(), tx);
         std::thread::sleep(Duration::from_millis(300));
         let asked = std::time::Instant::now();
         stop.stop();
-        let e: Vec<Event> = futures::executor::block_on(rx.collect());
+        let e = until_done(rx);
         assert_eq!(e.last(), Some(&Event::Done(Exit::Stopped)));
         assert!(asked.elapsed() < Duration::from_secs(5));
+        assert!(!still_running("sleep 31.1"), "sleep 31.1 outlived the stop");
     }
 
     #[test]
@@ -307,13 +329,14 @@ mod tests {
     #[test]
     fn stopping_kills_what_ignores_being_asked_after_the_shell_is_gone() {
         let (tx, rx) = mpsc::channel(64);
-        let stop = start(vec!["(trap '' TERM; exec sleep 30) & wait".into()], std::env::temp_dir(), tx);
+        let stop = start(vec!["(trap '' TERM; exec sleep 31.2) & wait".into()], std::env::temp_dir(), tx);
         std::thread::sleep(Duration::from_millis(300));
         let asked = std::time::Instant::now();
         stop.stop();
-        let e: Vec<Event> = futures::executor::block_on(rx.collect());
+        let e = until_done(rx);
         assert_eq!(e.last(), Some(&Event::Done(Exit::Stopped)));
         assert!(asked.elapsed() < Duration::from_secs(5));
+        assert!(!still_running("sleep 31.2"), "sleep 31.2 outlived the stop");
     }
 
     #[test]
