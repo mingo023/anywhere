@@ -41,13 +41,13 @@ public enum ToolDetail: Codable, Hashable, Sendable {
     case write(path: String, diff: FileDiff?)
     case search(query: String, path: String?)
     /// A sub-agent: `tokens` is the context it last answered from.
-    case task(description: String, model: String?, tokens: Int?)
+    case task(description: String, model: String?, tokens: Int?, phase: String?)
     /// `description` says what the call is about in words: the task a TaskStop or TaskOutput acts on.
     case other(name: String, input: JSONValue, description: String?)
     case unknown(kind: String)
 
     enum Keys: String, CodingKey {
-        case kind, command, description, path, diff, query, model, tokens, name, input
+        case kind, command, description, path, diff, query, model, tokens, phase, name, input
     }
 
     public init(from decoder: any Decoder) throws {
@@ -68,7 +68,8 @@ public enum ToolDetail: Codable, Hashable, Sendable {
             self = .task(
                 description: try c.decode(String.self, forKey: .description),
                 model: try c.decodeIfPresent(String.self, forKey: .model),
-                tokens: try c.decodeIfPresent(Int.self, forKey: .tokens))
+                tokens: try c.decodeIfPresent(Int.self, forKey: .tokens),
+                phase: try c.decodeIfPresent(String.self, forKey: .phase))
         case "other":
             self = .other(
                 name: try c.decode(String.self, forKey: .name),
@@ -94,10 +95,11 @@ public enum ToolDetail: Codable, Hashable, Sendable {
         case .search(let query, let path):
             try c.encode(query, forKey: .query)
             try c.encodeIfPresent(path, forKey: .path)
-        case .task(let description, let model, let tokens):
+        case .task(let description, let model, let tokens, let phase):
             try c.encode(description, forKey: .description)
             try c.encodeIfPresent(model, forKey: .model)
             try c.encodeIfPresent(tokens, forKey: .tokens)
+            try c.encodeIfPresent(phase, forKey: .phase)
         case .other(let name, let input, let description):
             try c.encode(name, forKey: .name)
             try c.encode(input, forKey: .input)

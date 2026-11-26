@@ -245,7 +245,7 @@ func kind(_ name: String, _ d: ToolDetail) -> ToolKind {
     case .write(let path, let diff): return .write(path: path, diff: diff)
     case .search(let query, let path?) where !path.isEmpty: return .search(query: "\(query) in \(path)")
     case .search(let query, _): return .search(query: query)
-    case .task(let description, let model, let tokens): return .agent(SubAgent(description: description, model: model ?? "", tokens: tokens ?? 0))
+    case .task(let description, let model, let tokens, _): return .agent(SubAgent(description: description, model: model ?? "", tokens: tokens ?? 0))
     default: break
     }
     let input: JSONValue

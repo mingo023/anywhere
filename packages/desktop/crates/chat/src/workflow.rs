@@ -178,7 +178,7 @@ fn enclosed(s: &str, open: char, close: char) -> Option<&str> {
         let next = chars.peek().map(|&(_, n)| n);
         match (comment, quote, c) {
             (Some("\n"), _, '\n') => comment = None,
-            (Some(_), _, '*') if next == Some('/') => {
+            (Some("*/"), _, '*') if next == Some('/') => {
                 chars.next();
                 comment = None;
             }
@@ -232,7 +232,7 @@ const r = await agent('x', { phase: 'Instrument', name: 'not this' })"#;
         assert_eq!(titles(&w), [("Instrument", "Add timings, {braces} and 'quotes' too"), ("Judge", "")]);
         let w = Workflow::from_input(&json!({ "script": "export const meta = { description: 'Pick a name: short', name: 'x' }" }));
         assert_eq!(w.name, "x", "a key inside an earlier value isn't the key");
-        let script = "export const meta = {\n  // don't { trip\n  name: 'y', /* it's } */ phases: [{ title: 'A' }],\n}";
+        let script = "export const meta = {\n  // skips **/*.rs, don't { trip\n  name: 'y', /* it's } */ phases: [{ title: 'A' }],\n}";
         let w = Workflow::from_input(&json!({ "script": script }));
         assert_eq!((w.name.as_str(), titles(&w)), ("y", vec![("A", "")]), "comments hold no strings or brackets");
     }
