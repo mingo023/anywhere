@@ -1116,7 +1116,10 @@ impl View {
             }
             Row::Working if s.outgoing.compacting() => working::compacting(),
             Row::Working if s.outgoing.trail() == Some(agents::PromptState::Resending) => working::resending(),
-            Row::Working => fold::live(&id, &provider, fold::live_label(who, &model, &Live::Thinking)),
+            Row::Working => {
+                let live = if s.outgoing.stopping() { Live::Stopping } else { Live::Thinking };
+                fold::live(&id, &provider, fold::live_label(who, &model, &live))
+            }
             Row::Pending(i) => match s.outgoing.echoed().nth(*i) {
                 Some((_, p)) => {
                     let retry = p.not_delivered().map(|text| {

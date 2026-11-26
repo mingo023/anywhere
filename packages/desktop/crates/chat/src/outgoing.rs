@@ -305,9 +305,10 @@ impl Outgoing {
         }
     }
 
-    /// Where the sends still on their way are, `Resending` first. None once the agent was seen at work.
+    /// Where the sends still on their way are, `Resending` first. Once the agent was seen at work, only a send the link
+    /// holds back.
     pub fn trail(&self) -> Option<PromptState> {
-        let states = || self.sends.iter().filter(|s| s.delivery == Delivery::Sending && !s.worked).map(|s| s.state);
+        let states = || self.sends.iter().filter(|s| s.delivery == Delivery::Sending && (!s.worked || s.state == PromptState::Resending)).map(|s| s.state);
         states().find(|s| *s == PromptState::Resending).or_else(|| states().next())
     }
 
@@ -1268,6 +1269,8 @@ mod tests {
         assert_eq!(o.trail(), None, "the agent's own live line says it works");
         o.settle(&Transcript { turns: vec![turn("u1", 0, "other", true)] }, false, 20);
         assert_eq!(o.trail(), None, "nor does it come back once that turn ends");
+        o.prompt_state("prompt-1", PromptState::Resending);
+        assert_eq!(o.trail(), Some(PromptState::Resending), "the link holding it back still says so");
     }
 
     #[test]
