@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ import (
 func fakePocketd(t *testing.T, script func(read func() map[string]any, send func(any)), agents ...proto.AgentSummary) string {
 	t.Helper()
 	// t.TempDir is past a unix socket path's limit on macOS.
-	dir, err := os.MkdirTemp("/tmp", "hc")
+	dir, err := os.MkdirTemp(socketBase(), "hc")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,4 +123,13 @@ func TestAClientGivesEachCallItsOwnReplyAndEverythingElseToItsReader(t *testing.
 	if len(heard) != 2 || heard[0] != "agent.list" || heard[1] != "agent.update" {
 		t.Fatalf("the reader heard %v", heard)
 	}
+}
+
+// socketBase is a folder short enough for a unix socket path: macOS caps it at 104 bytes, past t.TempDir, and Windows
+// has no /tmp.
+func socketBase() string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+	return "/tmp"
 }

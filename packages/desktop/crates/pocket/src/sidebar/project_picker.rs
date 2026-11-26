@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     fn a_row_names_the_folder_its_project_sits_in() {
-        let home = std::env::var("HOME").unwrap();
+        let home = crate::modals::form::home();
         assert_eq!(parent(&format!("{home}/work/app")), "~/work");
         assert_eq!(parent("/srv/app"), "/srv");
     }

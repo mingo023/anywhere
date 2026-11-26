@@ -155,8 +155,9 @@ func TestHistoryAnAccountAlreadyHasJoinsTheUsersAndTheFolderBecomesALink(t *test
 		t.Fatal(err)
 	}
 
-	if st, err := os.Lstat(own); err != nil || st.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("projects is not a link: %v %v", st, err)
+	// Readlink rather than ModeSymlink: on Windows the link may be a junction.
+	if _, err := os.Readlink(own); err != nil {
+		t.Fatalf("projects is not a link: %v", err)
 	}
 	for _, f := range []string{"mine.jsonl", "theirs.jsonl"} {
 		if _, err := os.Stat(filepath.Join(builtIn, "projects", "p", f)); err != nil {

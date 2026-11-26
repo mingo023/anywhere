@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strings"
 	"time"
 
 	"golang.org/x/term"
@@ -16,8 +18,17 @@ import (
 
 const usage = "usage: pocketd serve [--home dir] | run <cmd> [args...] | attach <id> | hook | pipe <cmd> [args...] | pair [--host h:p | --json [--name n]] | owner list|revoke <id> | devices [--json | rename <id> <name> | revoke <id>] | status [--json] | upgrade | stats [--since 7d] [--json] | daemon install | daemon uninstall [--force] | service install|uninstall|status [--json] [--label <name>] | --version | version --json | worktree list|create|remove | config set phone.maxAccess <ask|edits|auto> | config set restore.resumeAgents <true|false> | config set listen <auto|loopback> | config set ownerListen <off|ip:port> | config set port <1024-65535> | config set phone.terminals <on|off> | config set push.relay <url> | push status [--json] | skill install"
 
+// command is the name argv0 runs as, without the .exe Windows adds.
+func command(argv0 string) string {
+	name := filepath.Base(argv0)
+	if runtime.GOOS == "windows" {
+		name = strings.TrimSuffix(strings.ToLower(name), ".exe")
+	}
+	return name
+}
+
 func main() {
-	if filepath.Base(os.Args[0]) == "anywhere" {
+	if command(os.Args[0]) == "anywhere" {
 		os.Exit(anywhereMain(os.Args[1:], os.Stdout, os.Stderr))
 	}
 	if len(os.Args) < 2 {

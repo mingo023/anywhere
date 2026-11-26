@@ -38,7 +38,7 @@ func (s *Store) Share(provider, id string) error {
 		if _, err := os.Lstat(filepath.Join(dst, name)); err == nil {
 			continue
 		}
-		errs = append(errs, os.Symlink(filepath.Join(src, name), filepath.Join(dst, name)))
+		errs = append(errs, link(filepath.Join(src, name), filepath.Join(dst, name)))
 	}
 	errs = append(errs, l.shareMore(s, id))
 	return errors.Join(errs...)

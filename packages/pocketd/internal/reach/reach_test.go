@@ -31,6 +31,16 @@ func TestTailnetAddrsComeOnlyFromTailscaleInterfaces(t *testing.T) {
 	}
 }
 
+func TestTheCGNATAddressOnWindowsTailscaleAdapterIsATailnetAddress(t *testing.T) {
+	got := TailnetAddrs([]Iface{
+		{"Ethernet", addrs("100.70.0.1")},
+		{"Tailscale", addrs("100.77.122.82", "fd7a:115c:a1e0::2")},
+	})
+	if want := addrs("100.77.122.82", "fd7a:115c:a1e0::2"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
 type fakeNet struct {
 	mu     sync.Mutex
 	ifaces []Iface

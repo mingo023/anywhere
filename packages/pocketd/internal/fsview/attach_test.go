@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"pocketd/internal/proto"
@@ -30,7 +31,7 @@ func TestAnUploadLandsOwnerOnlyUnderAttachmentsAsItsIdAndType(t *testing.T) {
 	got, _ := os.ReadFile(path)
 	fi, _ := os.Stat(path)
 	di, _ := os.Stat(dir)
-	if !bytes.Equal(got, png) || fi.Mode().Perm() != 0o600 || di.Mode().Perm() != 0o700 {
+	if !bytes.Equal(got, png) || runtime.GOOS != "windows" && (fi.Mode().Perm() != 0o600 || di.Mode().Perm() != 0o700) {
 		t.Fatalf("%q %v %v", got, fi.Mode(), di.Mode())
 	}
 	if parts, _ := filepath.Glob(filepath.Join(dir, "*.part")); len(parts) != 0 {
@@ -62,6 +63,7 @@ func TestOnlyTheImageTypesAChatTakesMayBeAttached(t *testing.T) {
 
 func TestAFileThatIsntTheImageItsNameSaysIsRefused(t *testing.T) {
 	u, _ := StartUpload(t.TempDir(), "u", "a.png")
+	defer u.Abort()
 	if err := u.Put(0, []byte("#!/bin/sh\nrm -rf ~\n")); codeOf(err) != proto.CodeAttachInvalid {
 		t.Fatal(err)
 	}
@@ -69,6 +71,7 @@ func TestAFileThatIsntTheImageItsNameSaysIsRefused(t *testing.T) {
 
 func TestChunksMustComeInOrder(t *testing.T) {
 	u, _ := StartUpload(t.TempDir(), "u", "a.png")
+	defer u.Abort()
 	if err := u.Put(1, png); codeOf(err) != proto.CodeAttachInvalid {
 		t.Fatal(err)
 	}
@@ -80,6 +83,7 @@ func TestChunksMustComeInOrder(t *testing.T) {
 
 func TestAnUploadOver20MBIsRefused(t *testing.T) {
 	u, _ := StartUpload(t.TempDir(), "u", "a.png")
+	defer u.Abort()
 	chunk := append(append([]byte{}, png...), make([]byte, proto.AttachChunk-len(png))...)
 	if err := u.Put(0, chunk); err != nil {
 		t.Fatal(err)

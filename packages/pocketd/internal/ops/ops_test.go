@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"pocketd/internal/owners"
 	"pocketd/internal/peer"
 	"pocketd/internal/terminal"
 )
@@ -17,7 +19,7 @@ import (
 func serve(t *testing.T, srv *Server) string {
 	t.Helper()
 	// Unix socket paths are capped at 104 bytes on macOS; t.TempDir() is too long.
-	dir, err := os.MkdirTemp("/tmp", "ops")
+	dir, err := os.MkdirTemp(socketBase(), "ops")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +45,37 @@ func dial(t *testing.T, path string) *Conn {
 
 func start(t *testing.T, srv *Server) *Conn {
 	t.Helper()
-	return dial(t, serve(t, srv))
+	token := ownerToken(t, srv)
+	return dialOwner(t, serve(t, srv), token)
+}
+
+// ownerToken is the token an owner's conn to srv sends on Windows, where a pid proves no owner and the desktop
+// authenticates the same way. It is "" elsewhere.
+func ownerToken(t *testing.T, srv *Server) string {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	store := &owners.Store{Path: owners.Path(t.TempDir())}
+	_, token, err := store.Mint("pc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Owners = store
+	return token
+}
+
+func dialOwner(t *testing.T, path, token string) *Conn {
+	t.Helper()
+	c := dial(t, path)
+	if token == "" {
+		return c
+	}
+	c.Send(Msg{Op: "auth", Token: token})
+	if m, err := c.Recv(); err != nil || m.Ev != "ok" {
+		t.Fatalf("auth: %+v %v", m, err)
+	}
+	return c
 }
 
 func recv(t *testing.T, c *Conn, ev string) Msg {
@@ -138,9 +170,10 @@ func TestAClosingTerminalThatEndsBeforeASecondCloseIsNotAnError(t *testing.T) {
 
 func TestHookBlocksUntilAnswered(t *testing.T) {
 	answer := make(chan []byte)
-	c := start(t, &Server{Terminals: terminal.NewManager(), Hook: func(_ context.Context, who peer.Principal, m Msg) ([]byte, error) {
+	// Unauthenticated: an owner token replaces the pid on Windows, and a hook needs only Observe.
+	c := dial(t, serve(t, &Server{Terminals: terminal.NewManager(), Hook: func(_ context.Context, who peer.Principal, m Msg) ([]byte, error) {
 		return fmt.Appendf(<-answer, "%s/%d/%s", m.ID, who.Pid, m.Data), nil
-	}})
+	}}))
 	c.Send(Msg{Op: "hook", ID: "t1", Data: []byte("x")})
 	c.Send(Msg{Op: "list"})
 	if m, _ := c.Recv(); m.Ev != "terminals" {
@@ -197,6 +230,9 @@ func TestUnknownOpIsAnError(t *testing.T) {
 }
 
 func TestSocketIsPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no mode bits; the socket is private by its folder's ACL")
+	}
 	st, err := os.Stat(serve(t, &Server{Terminals: terminal.NewManager()}))
 	if err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("%v %v", st.Mode(), err)
@@ -222,18 +258,23 @@ func TestARemovedSocketIsListenedOnAgain(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	if runtime.GOOS == "windows" {
+		return
+	}
 	if st, err := os.Stat(path); err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("%v %v", st, err)
 	}
 }
 
 func TestSnapshotPrecedesLiveOutput(t *testing.T) {
-	path := serve(t, &Server{Terminals: terminal.NewManager()})
-	c := dial(t, path)
+	srv := &Server{Terminals: terminal.NewManager()}
+	token := ownerToken(t, srv)
+	path := serve(t, srv)
+	c := dialOwner(t, path, token)
 	c.Send(Msg{Op: "spawn", Cmd: "yes", Cols: 20, Rows: 5})
 	id := recv(t, c, "spawned").ID
 	for range 200 {
-		a := dial(t, path)
+		a := dialOwner(t, path, token)
 		a.Send(Msg{Op: "attach", ID: id})
 		if m, err := a.Recv(); err != nil || m.Ev != "snapshot" {
 			t.Fatalf("first event %q, want snapshot (%v)", m.Ev, err)
@@ -311,4 +352,13 @@ shell env  interactive 490ms
 	if got := st.Text(); got != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}
+}
+
+// socketBase is a folder short enough for a unix socket path: macOS caps it at 104 bytes, past t.TempDir, and Windows
+// has no /tmp.
+func socketBase() string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+	return "/tmp"
 }

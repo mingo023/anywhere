@@ -294,6 +294,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn the_icon_name_is_read_from_the_bundles_plist() {
         assert_eq!(
             icon_name(Path::new("/Applications/Zed.app")).args,

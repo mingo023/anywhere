@@ -40,17 +40,17 @@ func TestAPhoneListsReadsAndSearchesATree(t *testing.T) {
 	_, _, p := local(t, peer.FromDevice(devices.Device{ID: "d1", Scopes: devices.PhoneScopes}), files)
 	helloWith(p, proto.CapFiles)
 
-	p.send(`{"type":"fs.list","id":"l","tree":"` + root + `","dir":""}`)
+	p.send(`{"type":"fs.list","id":"l","tree":` + q(root) + `,"dir":""}`)
 	m := p.recv()
 	entries, _ := m["entries"].([]any)
 	if m["type"] != "fs.list" || m["id"] != "l" || m["tree"] != root || len(entries) != 1 || entries[0].(map[string]any)["git"] != "?" {
 		t.Fatalf("%v", m)
 	}
-	p.send(`{"type":"fs.read","id":"r","tree":"` + root + `","path":"src/a.rs"}`)
+	p.send(`{"type":"fs.read","id":"r","tree":` + q(root) + `,"path":"src/a.rs"}`)
 	if m := p.recv(); m["type"] != "fs.read" || m["id"] != "r" || m["kind"] != "text" || m["text"] != "fn a() {}\n" || m["language"] != "rust" {
 		t.Fatalf("%v", m)
 	}
-	p.send(`{"type":"fs.search","id":"s","tree":"` + root + `","query":"ars"}`)
+	p.send(`{"type":"fs.search","id":"s","tree":` + q(root) + `,"query":"ars"}`)
 	if m := p.recv(); m["type"] != "fs.search" || m["id"] != "s" || len(m["paths"].([]any)) != 1 {
 		t.Fatalf("%v", m)
 	}
@@ -61,10 +61,10 @@ func TestAPhoneCantReachOutsideARegisteredTree(t *testing.T) {
 	_, _, p := local(t, peer.OwnerOf(1), files)
 	helloWith(p, proto.CapFiles)
 	for raw, code := range map[string]string{
-		`{"type":"fs.list","id":"1","tree":"/etc","dir":""}`:                           proto.CodeNotATree,
-		`{"type":"fs.list","id":"2","tree":"` + root + `","dir":".."}`:                 proto.CodeOutsideTree,
-		`{"type":"fs.read","id":"3","tree":"` + root + `","path":"../desktop.json"}`:   proto.CodeOutsideTree,
-		`{"type":"fs.search","id":"4","tree":"` + filepath.Dir(root) + `","query":""}`: proto.CodeNotATree,
+		`{"type":"fs.list","id":"1","tree":"/etc","dir":""}`:                            proto.CodeNotATree,
+		`{"type":"fs.list","id":"2","tree":` + q(root) + `,"dir":".."}`:                 proto.CodeOutsideTree,
+		`{"type":"fs.read","id":"3","tree":` + q(root) + `,"path":"../desktop.json"}`:   proto.CodeOutsideTree,
+		`{"type":"fs.search","id":"4","tree":` + q(filepath.Dir(root)) + `,"query":""}`: proto.CodeNotATree,
 	} {
 		p.send(raw)
 		if m := p.recv(); m["type"] != "error" || m["code"] != code {

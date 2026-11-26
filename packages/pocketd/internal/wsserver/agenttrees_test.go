@@ -123,7 +123,11 @@ func TestASessionClosingInAWorktreeAPersonMadeLeavesItAlone(t *testing.T) {
 func TestAnAgentsWorktreeGoesAfterItsProjectsTeardownRuns(t *testing.T) {
 	var b bench
 	local(t, aPhone, withWorkspace(t, &b))
-	if err := b.s.Registry.SetRepo(b.project, registry.Repo{Teardown: `touch "$ANYWHERE_ROOT_PATH/torn-$ANYWHERE_WORKSPACE_NAME"`}); err != nil {
+	script := `touch "$ANYWHERE_ROOT_PATH/torn-$ANYWHERE_WORKSPACE_NAME"`
+	if runtime.GOOS == "windows" {
+		script = `New-Item -ItemType File "$env:ANYWHERE_ROOT_PATH/torn-$env:ANYWHERE_WORKSPACE_NAME"`
+	}
+	if err := b.s.Registry.SetRepo(b.project, registry.Repo{Teardown: script}); err != nil {
 		t.Fatal(err)
 	}
 	tree := agentTree(t, &b, "child")
@@ -139,19 +143,24 @@ func TestAnAgentsWorktreeGoesAfterItsProjectsTeardownRuns(t *testing.T) {
 func TestAFailedTeardownDeletesNothingUntilTheDeleteSkipsIt(t *testing.T) {
 	var b bench
 	_, _, p := local(t, aPhone, withWorkspace(t, &b))
-	if err := b.s.Registry.SetRepo(b.project, registry.Repo{Teardown: "echo containers still up; exit 4"}); err != nil {
+	script := "echo containers still up; exit 4"
+	if runtime.GOOS == "windows" {
+		// PowerShell's echo prints each argument on a line of its own.
+		script = "echo 'containers still up'; exit 4"
+	}
+	if err := b.s.Registry.SetRepo(b.project, registry.Repo{Teardown: script}); err != nil {
 		t.Fatal(err)
 	}
 	tree := agentTree(t, &b, "calm-otter")
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree + `"}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(tree) + `}`)
 	if m := p.reply("wd"); m["code"] != proto.CodeTeardownFailed || m["path"] != tree || m["detail"] != "containers still up" {
 		t.Fatalf("%v", m)
 	}
 	if gone(t, tree) {
 		t.Fatal("the folder went though its teardown failed")
 	}
-	p.send(`{"type":"worktree.delete","id":"wf","path":"` + tree + `","teardown":false}`)
+	p.send(`{"type":"worktree.delete","id":"wf","path":` + q(tree) + `,"teardown":false}`)
 	if m := p.reply("wf"); m["type"] != "ack" {
 		t.Fatalf("%v", m)
 	}
@@ -162,8 +171,15 @@ func TestAFailedTeardownDeletesNothingUntilTheDeleteSkipsIt(t *testing.T) {
 
 func TestADeleteToTheTrashMovesTheFolderThere(t *testing.T) {
 	var b bench
-	_, _, p := local(t, aPhone, withWorkspace(t, &b))
 	home := t.TempDir()
+	trash := filepath.Join(home, ".Trash")
+	switch runtime.GOOS {
+	case "linux":
+		trash = filepath.Join(home, ".local", "share", "Trash", "files")
+	case "windows":
+		trash = filepath.Join(home, "trash")
+	}
+	_, _, p := local(t, aPhone, withWorkspace(t, &b), func(s *Server) { s.Workspace.TrashDir = trash })
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	c, err := worktree.Add(b.s.Registry.Load(), b.project, "calm-otter", "")
@@ -172,13 +188,9 @@ func TestADeleteToTheTrashMovesTheFolderThere(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(c.Path, "keep.txt"), []byte("mine"), 0o644)
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + c.Path + `","trash":true,"teardownSecs":5}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(c.Path) + `,"trash":true,"teardownSecs":5}`)
 	if m := p.reply("wd"); m["type"] != "ack" {
 		t.Fatalf("%v", m)
-	}
-	trash := filepath.Join(home, ".Trash")
-	if runtime.GOOS == "linux" {
-		trash = filepath.Join(home, ".local", "share", "Trash", "files")
 	}
 	if raw, err := os.ReadFile(filepath.Join(trash, "calm-otter", "keep.txt")); err != nil || string(raw) != "mine" || !gone(t, c.Path) {
 		t.Fatalf("the folder isn't in the Trash: %v", err)
@@ -197,7 +209,7 @@ func TestInspectFailsRatherThanCallATreeGitCantReadClean(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(gitOut(t, c.Path, "rev-parse", "--absolute-git-dir"), "index"), []byte("garbage"), 0o644)
 	helloWith(p, proto.CapWorkspace, proto.CapWorktrees)
-	p.send(`{"type":"worktree.inspect","id":"wi","path":"` + c.Path + `"}`)
+	p.send(`{"type":"worktree.inspect","id":"wi","path":` + q(c.Path) + `}`)
 	if m := p.reply("wi"); m["type"] != "error" {
 		t.Fatalf("%v", m)
 	}
@@ -224,12 +236,12 @@ func TestInspectSaysWhatADeleteWouldCloseAndLoseForTheWorktreeAndItsSubagents(t 
 	gitOut(t, tree("detached"), "commit", "-q", "--allow-empty", "-m", "detached's")
 	b.terms.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: tree("parent")})
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.inspect","id":"wi","path":"` + tree("parent") + `"}`)
+	p.send(`{"type":"worktree.inspect","id":"wi","path":` + q(tree("parent")) + `}`)
 	if m := p.reply("wi"); m["type"] != "error" || m["message"] != "Malformed message" {
 		t.Fatalf("without worktrees.v1: %v", m)
 	}
 	helloWith(p, proto.CapWorkspace, proto.CapWorktrees)
-	p.send(`{"type":"worktree.inspect","id":"wi2","path":"` + tree("parent") + `"}`)
+	p.send(`{"type":"worktree.inspect","id":"wi2","path":` + q(tree("parent")) + `}`)
 	m := p.reply("wi2")
 	trees, _ := m["trees"].([]any)
 	if len(trees) != 3 || m["lost"] != 2.0 || m["lostAnyway"] != 1.0 {
@@ -260,7 +272,7 @@ func TestAFailedTeardownLeavesTheSubagentsWorktreesToo(t *testing.T) {
 	os.MkdirAll(filepath.Join(tree("parent"), filepath.Dir(worktree.ConfigFile)), 0o755)
 	os.WriteFile(filepath.Join(tree("parent"), worktree.ConfigFile), []byte(`{"teardown":["exit 4"]}`), 0o644)
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree("parent") + `","deleteBranch":true,"force":true}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(tree("parent")) + `,"deleteBranch":true,"force":true}`)
 	if m := p.reply("wd"); m["code"] != proto.CodeTeardownFailed {
 		t.Fatalf("%v", m)
 	}
@@ -277,9 +289,13 @@ func TestAPhonesDeleteRunsOnlyTheTeardownTheProjectsOwnCheckoutNames(t *testing.
 		t.Fatal(err)
 	}
 	os.MkdirAll(filepath.Join(c.Path, filepath.Dir(worktree.ConfigFile)), 0o755)
-	os.WriteFile(filepath.Join(c.Path, worktree.ConfigFile), []byte(`{"teardown":["touch `+filepath.Join(b.root, "ran")+`"]}`), 0o644)
+	script := "touch " + filepath.Join(b.root, "ran")
+	if runtime.GOOS == "windows" {
+		script = "New-Item -ItemType File '" + filepath.Join(b.root, "ran") + "'"
+	}
+	os.WriteFile(filepath.Join(c.Path, worktree.ConfigFile), []byte(`{"teardown":[`+q(script)+`]}`), 0o644)
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + c.Path + `","deleteBranch":true,"force":true}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(c.Path) + `,"deleteBranch":true,"force":true}`)
 	if m := p.reply("wd"); m["type"] != "ack" {
 		t.Fatalf("%v", m)
 	}
@@ -297,7 +313,7 @@ func TestADeleteKeepsABranchTheWorktreeSwitchedToAfterTheUserConfirmed(t *testin
 	}
 	gitOut(t, c.Path, "switch", "-c", "since")
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + c.Path + `","deleteBranch":true,"force":true,"branch":"` + c.Branch + `"}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(c.Path) + `,"deleteBranch":true,"force":true,"branch":"` + c.Branch + `"}`)
 	if m := p.reply("wd"); m["type"] != "ack" {
 		t.Fatalf("%v", m)
 	}
@@ -317,7 +333,8 @@ func TestAClosedAgentsWorktreeGoesOnceTheLastShellInItCloses(t *testing.T) {
 	}
 	shell.Close()
 	deadline := time.Now().Add(5 * time.Second)
-	for !gone(t, tree) {
+	// The branch goes after the folder; waiting for it keeps git out of the repo the test's cleanup removes.
+	for !gone(t, tree) || gitOut(t, b.project, "branch", "--list", "shelled") != "" {
 		if time.Now().After(deadline) {
 			t.Fatal("the worktree stayed once its last shell closed")
 		}

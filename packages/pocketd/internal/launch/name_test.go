@@ -240,7 +240,7 @@ func TestNamingAtItsAccountsLimitMovesToAnotherSignedInAccount(t *testing.T) {
 	l, a, j := placed(t)
 	work := twoAccounts(t, l)
 	dirs := refusing(l, "")
-	j.exe = "/bin/claude"
+	j.exe = claudeAt
 	name(l, a, j)
 	if a.Summary().Title != "Fix login" || current(t, j.tree) != "fix-login" || !slices.Equal(*dirs, []string{"", work}) {
 		t.Fatalf("%+v %q", a.Summary(), *dirs)
@@ -249,7 +249,7 @@ func TestNamingAtItsAccountsLimitMovesToAnotherSignedInAccount(t *testing.T) {
 	l, a, j = placed(t)
 	work = twoAccounts(t, l)
 	dirs = refusing(l, work+"/")
-	j.exe = "/bin/claude"
+	j.exe = claudeAt
 	j.env = []string{"HOME=/h", "CLAUDE_CONFIG_DIR=" + work + "/"}
 	name(l, a, j)
 	if a.Summary().Title != "Fix login" || !slices.Equal(*dirs, []string{work + "/", ""}) {
@@ -268,7 +268,7 @@ func TestNamingMovedToAManagedAccountDropsTheLoginThatWouldOverrideIt(t *testing
 		}
 		return naming.Result{Title: "Fix login"}, nil
 	}
-	j.exe, j.env = "/bin/claude", []string{"HOME=/h", "CLAUDE_CODE_OAUTH_TOKEN=t"}
+	j.exe, j.env = claudeAt, []string{"HOME=/h", "CLAUDE_CODE_OAUTH_TOKEN=t"}
 	name(l, a, j)
 	if len(envs) != 2 || slices.Contains(envs[1], "CLAUDE_CODE_OAUTH_TOKEN=t") || !slices.Contains(envs[1], "HOME=/h") {
 		t.Fatalf("%q", envs)
@@ -278,7 +278,7 @@ func TestNamingMovedToAManagedAccountDropsTheLoginThatWouldOverrideIt(t *testing
 func TestNamingFailsWhenEveryAccountIsAtItsLimitOrSwitchingIsOff(t *testing.T) {
 	for _, auto := range []bool{true, false} {
 		l, a, j := placed(t)
-		j.exe = "/bin/claude"
+		j.exe = claudeAt
 		work := twoAccounts(t, l)
 		limited := []string{""}
 		if auto {
@@ -308,3 +308,6 @@ func TestNamingThroughAShellFunctionStaysOnItsAccount(t *testing.T) {
 		t.Fatalf("%+v %q", a.Summary(), *dirs)
 	}
 }
+
+// claudeAt is an absolute path to claude: "/bin/claude" isn't one on Windows, which needs a drive.
+var claudeAt = filepath.Join(filepath.VolumeName(os.TempDir())+string(filepath.Separator), "bin", "claude")

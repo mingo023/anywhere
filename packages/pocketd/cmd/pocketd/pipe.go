@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -27,7 +28,7 @@ func pipeCmd(sock string, argv []string) (int, error) {
 	if argv, _, _ = state.Cut(argv); len(argv) == 0 {
 		return 0, errors.New("pipe needs a command to run")
 	}
-	if !strings.ContainsRune(argv[0], os.PathSeparator) {
+	if onPath(argv[0]) {
 		argv = launch.InShell(shellenv.LoginShell(), argv)
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
@@ -64,6 +65,9 @@ func pipeCmd(sock string, argv []string) (int, error) {
 	}
 	return 0, err
 }
+
+// onPath: on Windows a path may be written with either slash.
+func onPath(name string) bool { return !strings.Contains(filepath.ToSlash(name), "/") }
 
 // agentDefaults is the env a chat agent gets unless the user sets it.
 // CLAUDE_CODE_MCP_STARTUP_WAIT_MS caps, in ms, how long claude -p given

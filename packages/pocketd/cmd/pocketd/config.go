@@ -50,7 +50,7 @@ func hookExit(sock, phase, status string) error {
 }
 
 func configSet(sock, home, key, value string, out io.Writer) error {
-	c, err := ops.Dial(sock)
+	c, err := dial(sock)
 	if err != nil {
 		if err := configSetStopped(home, key, value); err != nil {
 			return err

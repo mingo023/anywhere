@@ -28,3 +28,13 @@ func TestPowerShellIsKnownByNameFromEitherOSPath(t *testing.T) {
 		}
 	}
 }
+
+func TestPSCommandInWindowsPowerShellEscapesTheQuotesItWouldStrip(t *testing.T) {
+	shell := `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`
+	if got, want := PSCommandIn(shell, []string{"sh", "-c", `echo "a\" b\\"`}), `& 'sh' '-c' 'echo \"a\\\" b\\\\\"'`; got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+	if got, want := PSCommandIn(`C:\Program Files\PowerShell\7\pwsh.exe`, []string{"sh", "-c", `echo "a"`}), `& 'sh' '-c' 'echo "a"'`; got != want {
+		t.Errorf("pwsh passes quotes itself: got %s, want %s", got, want)
+	}
+}

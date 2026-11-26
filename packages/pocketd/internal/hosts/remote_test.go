@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -280,7 +281,7 @@ func TestAReconnectedLinkReadsOnlyTheItemsPastThoseMirroredBefore(t *testing.T) 
 			send(proto.NewAgentTimeline(m["id"].(string), "a1", 1, page, len(page) < len(match), 1234))
 		}
 	}, proto.AgentSummary{ID: "a1", Status: "done"})
-	home, err := os.MkdirTemp("/tmp", "hm")
+	home, err := os.MkdirTemp(socketBase(), "hm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,6 +295,9 @@ func TestAReconnectedLinkReadsOnlyTheItemsPastThoseMirroredBefore(t *testing.T) 
 	}
 	os.MkdirAll(filepath.Join(home, "hosts"), 0o700)
 	if err := os.Symlink(socket, m.paths.Socket("devbox")); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("making a symlink needs a privilege here: %v", err)
+		}
 		t.Fatal(err)
 	}
 	mirror := &stored{sessions: map[string]proto.AgentSummary{"devbox/a1": {ID: "devbox/a1", Status: "working"}}, fed: make(chan string, 8)}

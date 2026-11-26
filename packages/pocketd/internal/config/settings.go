@@ -128,7 +128,7 @@ func ValidCommand(cmd string) error {
 	if cmd == "" || commandName.MatchString(cmd) || filepath.IsAbs(cmd) && len(cmd) <= 1024 && !strings.ContainsFunc(cmd, unicode.IsControl) {
 		return nil
 	}
-	return errors.New("the command is a name on your PATH or a full path starting with /")
+	return errors.New("the command is a name on your PATH or a full path")
 }
 
 // command is <provider>.command, or "" when unset or not valid.

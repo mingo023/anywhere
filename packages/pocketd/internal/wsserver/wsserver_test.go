@@ -889,6 +889,7 @@ func TestSeenAndAnswerAreRecorded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { log.Close() })
 	var b *broker.Broker
 	reg, _, p := setup(t, func(s *Server) { s.Events, b = log, s.Broker })
 	p.hello()

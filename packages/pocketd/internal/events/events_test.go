@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -82,6 +83,9 @@ func TestLogRotatesAtTenMiB(t *testing.T) {
 }
 
 func TestEventsFileIs0600(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix mode bits")
+	}
 	home := t.TempDir()
 	l, err := Open(home)
 	if err != nil {

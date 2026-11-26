@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +39,9 @@ func TestTheProjectCheckoutsConfigStandsInWhenTheTreesNamesNoTeardown(t *testing
 }
 
 func TestTheConfigsTeardownWinsOverTheTeardownScriptAndTheTreesScriptOverTheProjects(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a teardown script never runs on Windows, where sessions run PowerShell")
+	}
 	project, tree := t.TempDir(), t.TempDir()
 	writeIn(t, project, TeardownScript, "exit 0")
 	if got := Teardown("", project, tree); got != "bash '"+filepath.Join(project, TeardownScript)+"'" {
@@ -62,6 +66,9 @@ func TestARepoWithoutConfigOrScriptHasNoTeardown(t *testing.T) {
 }
 
 func TestTheTeardownIsToldTheProjectAndTheTree(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no /bin/sh on Windows")
+	}
 	project, tree := t.TempDir(), t.TempDir()
 	if err := RunTeardown("/bin/sh", `echo "$ANYWHERE_ROOT_PATH $ANYWHERE_WORKSPACE_PATH $ANYWHERE_WORKSPACE_NAME" > seen`, project, tree, os.Environ(), 10*time.Second); err != nil {
 		t.Fatal(err)
@@ -73,6 +80,9 @@ func TestTheTeardownIsToldTheProjectAndTheTree(t *testing.T) {
 }
 
 func TestAFailedTeardownSaysTheEndOfItsOutputAndOneThatHangsFailsAtItsLimit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no /bin/sh on Windows")
+	}
 	tree := t.TempDir()
 	var failed TeardownFailed
 	if err := RunTeardown("/bin/sh", "echo going down; exit 3", tree, tree, os.Environ(), 10*time.Second); !errors.As(err, &failed) || failed.Tail != "going down" {

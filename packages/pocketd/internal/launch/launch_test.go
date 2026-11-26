@@ -1,9 +1,11 @@
 package launch
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -89,10 +91,41 @@ func quiet(step, note string) {}
 func onPath(t *testing.T, names ...string) {
 	dir := t.TempDir()
 	for _, n := range names {
-		os.WriteFile(filepath.Join(dir, n), []byte("#!/bin/sh\necho 'Usage: acp, --mode rpc'\n"), 0o755)
+		program(t, filepath.Join(dir, n), "echo 'Usage: acp, --mode rpc'", "@echo Usage: acp, --mode rpc")
 	}
-	t.Setenv("PATH", dir+":/usr/bin:/bin")
+	path := dir + ":/usr/bin:/bin"
+	if runtime.GOOS == "windows" {
+		// git for the repos tests make, and nothing that may hold a real agent.
+		git, _ := exec.LookPath("git")
+		path = strings.Join([]string{dir, filepath.Dir(git), filepath.Join(os.Getenv("SystemRoot"), "System32")}, string(os.PathListSeparator))
+	}
+	t.Setenv("PATH", path)
 	t.Setenv("SHELL", "/bin/sh")
+}
+
+// program makes path run the sh script, or on Windows the batch file bat as path.cmd, and is the path it made.
+func program(t *testing.T, path, sh, bat string) string {
+	t.Helper()
+	body := "#!/bin/sh\n" + sh + "\n"
+	if runtime.GOOS == "windows" {
+		path, body = path+".cmd", bat+"\r\n"
+	}
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func sleeper() (string, []string) {
+	if runtime.GOOS == "windows" {
+		return shellenv.LoginShell(), []string{"-NoProfile", "-Command", "Start-Sleep 30"}
+	}
+	return "/bin/sh", []string{"-c", "sleep 30"}
+}
+
+func projectList(projects ...string) string {
+	raw, _ := json.Marshal(projects)
+	return string(raw)
 }
 
 // shellsWith is each shell on this Mac with a function cc that echoes its args, and a PATH holding a file cc.
@@ -165,8 +198,7 @@ func TestAProviderStartsFromTheCommandConfigSetNamed(t *testing.T) {
 	onPath(t, "claude")
 	l := launcher(t, `[]`)
 	dir := t.TempDir()
-	custom, plain := filepath.Join(dir, "claude-dev"), filepath.Join(dir, "notes")
-	os.WriteFile(custom, []byte("#!/bin/sh\n"), 0o755)
+	custom, plain := program(t, filepath.Join(dir, "claude-dev"), "", ""), filepath.Join(dir, "notes")
 	os.WriteFile(plain, []byte("x"), 0o644)
 	if err := l.CheckCommand(plain); err == nil {
 		t.Fatal("a file that isn't executable was accepted")
@@ -184,7 +216,7 @@ func TestAProviderStartsFromTheCommandConfigSetNamed(t *testing.T) {
 func TestCreateRefusesAnUnknownProjectOrAMissingProvider(t *testing.T) {
 	onPath(t)
 	project := t.TempDir()
-	l := launcher(t, `["`+project+`"]`)
+	l := launcher(t, projectList(project))
 	owner := Who{Owner: true, Key: "owner"}
 	s := spec("claude", "ask", false)
 	if r := l.Create(owner, "r1", s, quiet, nil); r.Err == nil || r.Err.Code != "unknown_project" {
@@ -203,7 +235,7 @@ func TestAnUntrustedClaudeFolderIsRefusedForThePhone(t *testing.T) {
 	project, _ := filepath.EvalSymlinks(t.TempDir())
 	git(t, project, "init", "-q", "-b", "main")
 	git(t, project, "commit", "-q", "--allow-empty", "-m", "init")
-	l := launcher(t, `["`+project+`"]`)
+	l := launcher(t, projectList(project))
 	s := spec("claude", "ask", false)
 	s.Project, s.Checkout.Worktree = project, project
 	r := l.Create(Who{Key: "device:d1"}, "r1", s, quiet, func(Creating) { t.Fatal("creating") })
@@ -224,7 +256,8 @@ func TestAnAgentExitFailsItsRestore(t *testing.T) {
 	d := &daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(h), Broker: broker.New(h), Home: t.TempDir(), Exe: "/bin/true",
 		Registry: registryFrom(t, t.TempDir())}
 	reasons := make(chan string, 1)
-	d.Resume = func(state.Terminal) (string, []string, string) { return "/bin/sh", []string{"-c", "sleep 30"}, "" }
+	sleep, args := sleeper()
+	d.Resume = func(state.Terminal) (string, []string, string) { return sleep, args, "" }
 	d.OnRestore = func(_ string, _ bool, _ int64, _, reason string) { reasons <- reason }
 	d.Restore(state.File{Version: state.Version, Terminals: []state.Terminal{{TerminalID: "t-1", LaunchDir: t.TempDir(), Cols: 80, Rows: 24,
 		Provider: "claude", ConversationID: "c1", Launch: &state.Launch{Access: "ask"}, AgentID: "a-1"}}}, "/bin/sh")
@@ -248,7 +281,7 @@ func TestACreateWhoseAgentNeverShowsUpFailsAtItsDeadline(t *testing.T) {
 	project, _ := filepath.EvalSymlinks(t.TempDir())
 	git(t, project, "init", "-q", "-b", "main")
 	git(t, project, "commit", "-q", "--allow-empty", "-m", "init")
-	l := launcher(t, `["`+project+`"]`)
+	l := launcher(t, projectList(project))
 	l.d = &daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}
 	owner := Who{Owner: true, Key: "owner"}
 	s := spec("claude", "ask", false)
@@ -270,6 +303,9 @@ func TestACreateWhoseAgentNeverShowsUpFailsAtItsDeadline(t *testing.T) {
 }
 
 func TestACreateWhoseTerminalDiesSaysWhatItShowed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the agent is a /bin/sh script that kills its shell")
+	}
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\necho 'claude: the config is corrupt'\nsleep 0.2\nkill -9 $PPID\nsleep 5\n"), 0o755)
 	t.Setenv("PATH", dir+":/usr/bin:/bin")
@@ -277,7 +313,7 @@ func TestACreateWhoseTerminalDiesSaysWhatItShowed(t *testing.T) {
 	project, _ := filepath.EvalSymlinks(t.TempDir())
 	git(t, project, "init", "-q", "-b", "main")
 	git(t, project, "commit", "-q", "--allow-empty", "-m", "init")
-	l := launcher(t, `["`+project+`"]`)
+	l := launcher(t, projectList(project))
 	l.d = &daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}
 	s := spec("claude", "ask", false)
 	s.Project, s.Checkout.Worktree = project, project
@@ -295,7 +331,7 @@ func TestACreateIsStartingUntilItEndsAndOnlyItsFirstWatcherHearsIt(t *testing.T)
 	project, _ := filepath.EvalSymlinks(t.TempDir())
 	git(t, project, "init", "-q", "-b", "main")
 	git(t, project, "commit", "-q", "--allow-empty", "-m", "init")
-	l := launcher(t, `["`+project+`"]`)
+	l := launcher(t, projectList(project))
 	l.d = &daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}
 	t.Cleanup(func() { l.d.Terminals.CloseAll(0) })
 	s := spec("claude", "ask", false)
@@ -337,7 +373,7 @@ func TestACreateInALocalRunsInTheProjectAndCarriesTheLocal(t *testing.T) {
 	t.Setenv("SHELL", "/bin/sh")
 	project, _ := filepath.EvalSymlinks(t.TempDir())
 	git(t, project, "init", "-q", "-b", "main")
-	l := launcher(t, `["`+project+`"]`)
+	l := launcher(t, projectList(project))
 	l.d = &daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}
 	t.Cleanup(func() { l.d.Terminals.CloseAll(0) })
 	l.Locals = openLocals(t, l)
@@ -377,7 +413,8 @@ func newWorktree(t *testing.T, setup string) (*Launcher, proto.LaunchSpec) {
 	git(t, project, "init", "-q", "-b", "main")
 	git(t, project, "commit", "-q", "--allow-empty", "-m", "init")
 	path := filepath.Join(root, "desktop.json")
-	os.WriteFile(path, []byte(`{"projects":["`+project+`"],"repos":{"`+project+`":{"name":"wt","setup":"`+setup+`"}},"worktree":{"root":"`+root+`"}}`), 0o600)
+	q := func(s string) string { raw, _ := json.Marshal(s); return string(raw) }
+	os.WriteFile(path, []byte(`{"projects":[`+q(project)+`],"repos":{`+q(project)+`:{"name":"wt","setup":`+q(setup)+`}},"worktree":{"root":`+q(root)+`}}`), 0o600)
 	l := New(&daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}, registryFrom(t, filepath.Dir(path)), configtest.Settings(t), nil)
 	s := spec("claude", "ask", false)
 	s.Project, s.Checkout = project, proto.Checkout{New: &proto.NewWorktree{Name: "calm-otter"}}
@@ -451,6 +488,9 @@ func TestANewWorktreeReportsEachStepAsItStarts(t *testing.T) {
 }
 
 func TestASessionsTerminalNamesItsProjectAndWorktreeForTheSetup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the setup is POSIX shell")
+	}
 	defer func(w time.Duration) { createWait = w }(createWait)
 	createWait = 500 * time.Millisecond
 	l, s := newWorktree(t, "env | grep -E '^ANYWHERE_(ROOT|WORKSPACE)_' | sort > ../env")
@@ -469,6 +509,9 @@ func TestASessionsTerminalNamesItsProjectAndWorktreeForTheSetup(t *testing.T) {
 }
 
 func TestATerminalThatCantStartFailsTheStepAfterTheWorktree(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows terminals run PowerShell whatever $SHELL says")
+	}
 	l, s := newWorktree(t, "")
 	claude, _ := exec.LookPath("claude")
 	l.set.Set("claude.command", claude)
@@ -538,7 +581,7 @@ func TestASessionsShellThatIsntInstalledFallsBackToTheLoginShell(t *testing.T) {
 	if got := shellOf([]string{"SHELL=/no/such/fish"}); got != shellenv.LoginShell() {
 		t.Fatal(got)
 	}
-	if got := shellOf([]string{"SHELL=/bin/sh"}); got != "/bin/sh" {
+	if got := shellOf([]string{"SHELL=/bin/sh"}); runtime.GOOS != "windows" && got != "/bin/sh" {
 		t.Fatal(got)
 	}
 }

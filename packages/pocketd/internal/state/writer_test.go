@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strconv"
 	"sync/atomic"
@@ -30,9 +31,12 @@ func running(t *testing.T, path string, n *atomic.Int64) *Writer {
 	return w
 }
 
+// saved reads the file without Load, which moves a file it can't read to .bad: on Windows a read can land
+// while the writer's rename replaces the file, and the writer never writes an unchanged snapshot again.
 func saved(path string) string {
-	f, _ := Load(path)
-	if len(f.Terminals) == 0 {
+	raw, _ := os.ReadFile(path)
+	var f File
+	if json.Unmarshal(raw, &f) != nil || len(f.Terminals) == 0 {
 		return ""
 	}
 	return f.Terminals[0].TerminalID

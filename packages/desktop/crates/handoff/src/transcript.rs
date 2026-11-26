@@ -57,7 +57,7 @@ pub fn find(provider: &str, id: &str, home: &Path) -> Option<Transcript> {
             ok
         });
         if let Some(file) = hit {
-            let rel = file.strip_prefix(&root).ok()?.to_str()?.to_string();
+            let rel = file.strip_prefix(&root).ok()?.iter().map(|c| c.to_str()).collect::<Option<Vec<_>>>()?.join("/");
             return Some(Transcript { provider: provider.into(), id: id.into(), file, rel });
         }
     }
@@ -181,6 +181,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "the stand-in host runs Git Bash, whose paths are MSYS's, not a unix host's")]
     fn a_codex_conversation_lands_under_the_hosts_codex_home_with_its_folder_moved() {
         let mac = scratch("carry-mac");
         let dir = mac.join(".codex/sessions/2026/11/21");

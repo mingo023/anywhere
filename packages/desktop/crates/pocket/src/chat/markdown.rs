@@ -196,7 +196,7 @@ pub(super) fn target(link: &str, cwd: &str, home: &str) -> Target {
     let path = crate::util::untilde_in(path, home);
     match hosts::split(cwd) {
         (Some(host), _) if path.starts_with('/') || hosts::on_windows(&path) => Target::File(hosts::place(host, &path)),
-        _ => Target::File(std::path::Path::new(cwd).join(path).to_string_lossy().into_owned()),
+        _ => Target::File(crate::util::join(cwd, &path)),
     }
 }
 

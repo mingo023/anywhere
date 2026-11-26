@@ -149,7 +149,7 @@ func (l *Launcher) signOut(provider, id string) {
 func inAccount(shell string, argv, account []string) []string {
 	pre := preamble(shell, account)
 	if shellenv.PowerShell(shell) {
-		return []string{shell, "-NoLogo", "-Command", pre + shellenv.PSCommand(argv)}
+		return []string{shell, "-NoLogo", "-Command", pre + shellenv.PSCommandIn(shell, argv)}
 	}
 	if filepath.Base(shell) == "fish" {
 		return append([]string{shell, "-c", pre + "$argv"}, argv...)

@@ -87,7 +87,7 @@ func TestAThrottledHostNeverRetriesBeforeItsPenaltyEnds(t *testing.T) {
 func watching(t *testing.T, answers func(n int32) bool) (s *supervisor, socket string, asked *atomic.Int32) {
 	t.Helper()
 	// t.TempDir is past a unix socket path's limit on macOS.
-	dir, err := os.MkdirTemp("/tmp", "hl")
+	dir, err := os.MkdirTemp(socketBase(), "hl")
 	if err != nil {
 		t.Fatal(err)
 	}

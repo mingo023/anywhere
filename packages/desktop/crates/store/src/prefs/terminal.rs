@@ -94,7 +94,9 @@ impl Terminal {
             return (path.to_string(), self.shell_args.split_whitespace().map(str::to_string).collect());
         }
         // PowerShell has no login mode, and reads `-l` as an ambiguous parameter.
-        (login.to_string(), vec![if cfg!(windows) { "-NoLogo" } else { "-l" }.into()])
+        let name = login.rsplit(['/', '\\']).next().unwrap_or(login).to_ascii_lowercase();
+        let powershell = ["pwsh", "pwsh.exe", "powershell", "powershell.exe"].contains(&name.as_str());
+        (login.to_string(), vec![if powershell { "-NoLogo" } else { "-l" }.into()])
     }
 
     /// The custom shell a terminal that `shell_command` sent to `program` didn't open.
@@ -262,6 +264,14 @@ mod tests {
         assert_eq!(t.shell_command("/bin/zsh", |_| false), ("/bin/zsh".into(), vec!["-l".into()]));
         t.shell = Shell::Login;
         assert_eq!(t.shell_command("/bin/zsh", |_| true).0, "/bin/zsh");
+    }
+
+    #[test]
+    fn powershell_opens_without_its_logo_as_it_has_no_login_mode() {
+        let t = Terminal::default();
+        let windows = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
+        assert_eq!(t.shell_command(windows, |_| true), (windows.into(), vec!["-NoLogo".into()]));
+        assert_eq!(t.shell_command("/usr/local/bin/pwsh", |_| true).1, ["-NoLogo"]);
     }
 
     #[test]

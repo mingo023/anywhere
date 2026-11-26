@@ -58,6 +58,9 @@ func linked(t *testing.T, legacy, home string) {
 }
 
 func TestADevHomeMovesWholeAndLeavesALinkBehind(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("pocketd keeps its legacy home on Windows")
+	}
 	user := t.TempDir()
 	legacy, home := filepath.Join(user, ".coding-pocket-dev"), filepath.Join(user, ".anywhere", "dev")
 	write(t, legacy, "config.json={}", "state/board.json=[]")

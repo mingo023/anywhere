@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ func fakePocketd(t *testing.T) string {
 }
 
 func TestAFailedDryRunLeavesTheTerminalsRunningAndFlagsTheHost(t *testing.T) {
+	skipHandoffOnWindows(t)
 	d := &daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New())}
 	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: "sh", Args: []string{"-c", `read x; echo "got:$x"; sleep 5`}, Cols: 40, Rows: 5})
 	if err != nil {
@@ -60,6 +62,7 @@ func TestAFailedDryRunLeavesTheTerminalsRunningAndFlagsTheHost(t *testing.T) {
 }
 
 func TestAnUpgradeWaitsForALaunchInFlight(t *testing.T) {
+	skipHandoffOnWindows(t)
 	u := &upgrader{exe: fakePocketd(t), starting: func() bool { return true }}
 	if err := u.run(); !errors.Is(err, errBusy) {
 		t.Fatalf("err = %v", err)
@@ -73,6 +76,7 @@ func TestABinaryThatIsntPocketdHasNoVersion(t *testing.T) {
 }
 
 func TestTheChecksANewBinaryRunsBesideTheOldPocketdLeaveTheStateAlone(t *testing.T) {
+	skipHandoffOnWindows(t)
 	home := t.TempDir()
 	t.Setenv("POCKET_HOME", home)
 	path := handoff.Path(home)
@@ -85,5 +89,12 @@ func TestTheChecksANewBinaryRunsBesideTheOldPocketdLeaveTheStateAlone(t *testing
 	versionString()
 	if _, err := os.Stat(filepath.Join(home, "state", "pocketd.db")); !os.IsNotExist(err) {
 		t.Fatalf("pocketd.db: %v", err)
+	}
+}
+
+func skipHandoffOnWindows(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows can't hand terminals to a new pocketd, so upgrade refuses there by design")
 	}
 }

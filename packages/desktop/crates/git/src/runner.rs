@@ -79,6 +79,8 @@ impl Runner {
 
     pub fn place(&self, path: &str) -> String {
         match self {
+            // Git for Windows prints `C:/x`, where the rest of Windows writes `C:\x`.
+            Runner::Local if cfg!(windows) => path.replace('/', "\\"),
             Runner::Local => path.to_string(),
             Runner::Remote(host) => host.place(path),
         }

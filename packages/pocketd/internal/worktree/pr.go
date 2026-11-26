@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -148,7 +149,8 @@ func (o *Open) remoteFor(prURL string) (string, error) {
 	}
 	for _, r := range remotes {
 		at, _ := o.git("remote", "get-url", r)
-		at = strings.TrimSuffix(strings.TrimSuffix(strings.ToLower(at), "/"), ".git")
+		// A remote that is a folder on Windows is spelled with backslashes.
+		at = strings.TrimSuffix(strings.TrimSuffix(strings.ToLower(filepath.ToSlash(at)), "/"), ".git")
 		if want := strings.ToLower(repo); strings.HasSuffix(at, "/"+want) || strings.HasSuffix(at, ":"+want) {
 			return r, nil
 		}

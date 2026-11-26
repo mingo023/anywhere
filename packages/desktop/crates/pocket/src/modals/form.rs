@@ -8,7 +8,7 @@ pub(crate) fn default_base<'a>(branches: impl Iterator<Item = &'a str> + Clone, 
 }
 
 pub(crate) fn home() -> String {
-    std::env::var("HOME").unwrap_or_default()
+    std::env::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 pub(crate) fn typed_or(input: &Entity<InputState>, fallback: impl FnOnce() -> String, cx: &App) -> String {

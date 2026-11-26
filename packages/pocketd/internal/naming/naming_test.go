@@ -3,7 +3,9 @@ package naming
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -71,8 +73,20 @@ func TestTheNamingRunNeverSeesAPIKeysOrPocketdHooks(t *testing.T) {
 	}
 }
 
+// sh is a POSIX shell to stand in for an agent CLI; Windows has one only if Git for Windows put it on PATH.
+func sh(t *testing.T) string {
+	if runtime.GOOS != "windows" {
+		return "/bin/sh"
+	}
+	path, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh on PATH")
+	}
+	return path
+}
+
 func TestGenerateParsesWhatTheCommandPrints(t *testing.T) {
-	n, err := Generate(context.Background(), []string{"/bin/sh", "-c", `echo '{"title":"Say hi","branchName":"say-hi","vague":true}'`}, nil)
+	n, err := Generate(context.Background(), []string{sh(t), "-c", `echo '{"title":"Say hi","branchName":"say-hi","vague":true}'`}, nil)
 	if err != nil || n != (Result{Title: "Say hi", Branch: "say-hi", Vague: true}) {
 		t.Fatalf("%+v %v", n, err)
 	}
@@ -83,7 +97,7 @@ func TestGenerateGivesUpAtTheTimeout(t *testing.T) {
 	Timeout = 100 * time.Millisecond
 	t.Cleanup(func() { Timeout = old })
 	start := time.Now()
-	if _, err := Generate(context.Background(), []string{"/bin/sh", "-c", "sleep 5"}, nil); err == nil || time.Since(start) > 2*time.Second {
+	if _, err := Generate(context.Background(), []string{sh(t), "-c", "sleep 5"}, nil); err == nil || time.Since(start) > 2*time.Second {
 		t.Fatalf("%v after %v", err, time.Since(start))
 	}
 }
@@ -98,7 +112,7 @@ func TestGenerateTellsALimitFromOtherFailures(t *testing.T) {
 		{`echo "Not logged in · Please run /login"; exit 1`, false},
 		{`echo "You've hit your weekly limit"`, false},
 	} {
-		_, err := Generate(context.Background(), []string{"/bin/sh", "-c", c.script}, nil)
+		_, err := Generate(context.Background(), []string{sh(t), "-c", c.script}, nil)
 		if err == nil || errors.Is(err, ErrLimit) != c.limit {
 			t.Errorf("%s: %v", c.script, err)
 		}

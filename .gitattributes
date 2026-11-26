@@ -1,0 +1,2 @@
+# Shell scripts, golden files and embedded sources must stay LF on Windows checkouts (core.autocrlf=true).
+* text=auto eol=lf

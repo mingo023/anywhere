@@ -53,7 +53,7 @@ func TestTakenNamesAreBranchesRemoteBranchesAndFolders(t *testing.T) {
 
 func TestWorktreesGoUnderTheRootElseUnderAnywhereInHome(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	for _, c := range []struct {
 		repo registry.Repo
 		want string
@@ -67,14 +67,14 @@ func TestWorktreesGoUnderTheRootElseUnderAnywhereInHome(t *testing.T) {
 	}
 	rooted := registered("/w/pocket", registry.Repo{Name: "Pocket"})
 	rooted.Worktree.Root = "/wt"
-	if got := Dir(rooted, "/w/pocket"); got != "/wt/Pocket" {
+	if got := Dir(rooted, "/w/pocket"); got != filepath.Join("/wt", "Pocket") {
 		t.Errorf("under the root: got %s", got)
 	}
 }
 
 func TestTheDeepestRegisteredFolderContainsADir(t *testing.T) {
 	f := registry.File{Projects: []string{"/w", "/w/pocket"}, Worktree: registry.Worktree{Root: "/wt"}}
-	t.Setenv("HOME", "/home/me")
+	setHome(t, "/home/me")
 	for dir, want := range map[string]string{"/w/pocket/src": "/w/pocket", "/w/other": "/w", "/wt/pocket/calm-otter": "/w/pocket", "/home/me/.worktrees/pocket/calm-otter": "/w/pocket"} {
 		if got, ok := Containing(f, dir); !ok || got != want {
 			t.Errorf("%s: got %q", dir, got)
@@ -102,10 +102,10 @@ func TestCreateBranchesFromMainIntoItsWorktreesFolder(t *testing.T) {
 
 func TestCreateTakesAnExplicitBaseAndDefaultsUnderAnywhereInHome(t *testing.T) {
 	home, _ := filepath.EvalSymlinks(t.TempDir())
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	p := repo(t)
 	c, err := Create(registered(p, registry.Repo{}), p, "calm-otter", "main")
-	if want := filepath.Join(os.Getenv("HOME"), ".anywhere", "worktrees", "pocket", "calm-otter"); err != nil || c.Path != want || c.Base != "main" {
+	if want := filepath.Join(home, ".anywhere", "worktrees", "pocket", "calm-otter"); err != nil || c.Path != want || c.Base != "main" {
 		t.Fatalf("%+v, %v", c, err)
 	}
 }
@@ -114,7 +114,7 @@ func TestAWorktreesFolderBehindASymlinkGivesThePathListReports(t *testing.T) {
 	p := repo(t)
 	link := filepath.Join(t.TempDir(), "wt")
 	if err := os.Symlink(t.TempDir(), link); err != nil {
-		t.Fatal(err)
+		t.Skip(err)
 	}
 	c, err := Create(worktreesIn(p, link), p, "calm-otter", "")
 	ws, _ := List(p)
@@ -128,7 +128,7 @@ func TestARootBehindASymlinkContainsTheRealPathsGitReports(t *testing.T) {
 	real, _ := filepath.EvalSymlinks(t.TempDir())
 	link := filepath.Join(t.TempDir(), "root")
 	if err := os.Symlink(real, link); err != nil {
-		t.Fatal(err)
+		t.Skip(err)
 	}
 	f := registered(p, registry.Repo{Name: "Pocket"})
 	f.Worktree.Root = link
@@ -337,4 +337,10 @@ func TestABranchAlreadyGoneLeavesTheOthersLostCommitsCounted(t *testing.T) {
 	if got := LostCommits(p, "gone", "work"); got != 1 {
 		t.Fatalf("LostCommits = %d, want 1", got)
 	}
+}
+
+// os.UserHomeDir reads USERPROFILE on Windows.
+func setHome(t *testing.T, dir string) {
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
 }

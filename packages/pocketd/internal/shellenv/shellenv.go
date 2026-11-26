@@ -14,7 +14,7 @@ import (
 // IsExecutable says whether path is absolute and names a file someone may execute.
 func IsExecutable(path string) bool {
 	st, err := os.Stat(path)
-	return filepath.IsAbs(path) && err == nil && !st.IsDir() && st.Mode()&0o111 != 0
+	return filepath.IsAbs(path) && err == nil && !st.IsDir() && runnable(path, st)
 }
 
 type Result struct {

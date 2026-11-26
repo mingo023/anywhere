@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -45,10 +46,14 @@ func TestAKeepAwakeChangeWakesTheKeeperAndARefusedOneDoesNot(t *testing.T) {
 func TestAProviderCommandThatIsntOnTheMacIsRefused(t *testing.T) {
 	settings := configtest.Settings(t)
 	set := configSetter(launch.New(&daemon.Daemon{}, nil, settings, nil), settings, func() {})
-	if err := set("claude.command", "/nowhere/claude"); err == nil || !strings.Contains(err.Error(), "isn't an executable") || settings.AgentCommand("claude") != "claude" {
+	missing, real := "/nowhere/claude", "/bin/sh"
+	if runtime.GOOS == "windows" {
+		missing, real = `C:\nowhere\claude.exe`, os.Args[0]
+	}
+	if err := set("claude.command", missing); err == nil || !strings.Contains(err.Error(), "isn't an executable") || settings.AgentCommand("claude") != "claude" {
 		t.Fatalf("err %v, command %q", err, settings.AgentCommand("claude"))
 	}
-	if err := set("claude.command", "/bin/sh"); err != nil || settings.AgentCommand("claude") != "/bin/sh" {
+	if err := set("claude.command", real); err != nil || settings.AgentCommand("claude") != real {
 		t.Fatalf("err %v", err)
 	}
 }

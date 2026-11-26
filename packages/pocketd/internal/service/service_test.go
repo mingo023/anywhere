@@ -16,7 +16,7 @@ func TestPlistRunsServeWithTheHomeAndLogsUnderIt(t *testing.T) {
 		"<string>dev.mingo.anywhere.host.pocketd</string>",
 		"<string>/Users/me/.coding-pocket/runtime/1.2.0/pocketd</string>\n\t\t<string>serve</string>",
 		"<key>POCKET_HOME</key>\n\t\t<string>/Users/me/.coding-pocket</string>",
-		"<string>/Users/me/.coding-pocket/logs/launchd.log</string>",
+		"<string>" + filepath.FromSlash("/Users/me/.coding-pocket/logs/launchd.log") + "</string>",
 		"<key>SuccessfulExit</key>\n\t\t<false/>",
 	} {
 		if !strings.Contains(got, want) {

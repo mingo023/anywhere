@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +19,11 @@ func TestRunGivesTheExitCodeAndBothOutputs(t *testing.T) {
 
 func TestRunRunsInCwd(t *testing.T) {
 	dir, _ := filepath.EvalSymlinks(t.TempDir())
-	_, out, _, err := Run(context.Background(), os.Environ(), dir, []string{"pwd"}, nil, 0)
+	argv := []string{"pwd"}
+	if runtime.GOOS == "windows" {
+		argv = []string{"cmd", "/c", "cd"}
+	}
+	_, out, _, err := Run(context.Background(), os.Environ(), dir, argv, nil, 0)
 	if err != nil || strings.TrimSpace(string(out)) != dir {
 		t.Fatalf("%q %v", out, err)
 	}
@@ -26,17 +31,29 @@ func TestRunRunsInCwd(t *testing.T) {
 
 func TestRunFindsTheProgramOnTheGivenPath(t *testing.T) {
 	bin := t.TempDir()
-	os.WriteFile(filepath.Join(bin, "hello"), []byte("#!/bin/sh\necho from-path\n"), 0o755)
-	env := append(os.Environ(), "PATH="+bin+":/usr/bin:/bin")
+	name, script, want := "hello", "#!/bin/sh\necho from-path\n", "from-path\n"
+	if runtime.GOOS == "windows" {
+		name, script, want = "hello.cmd", "@echo from-path\r\n", "from-path\r\n"
+	}
+	os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755)
+	env := append(os.Environ(), "PATH="+pathList(bin, "/usr/bin", "/bin"))
 	_, out, _, err := Run(context.Background(), env, bin, []string{"hello"}, nil, 0)
-	if err != nil || string(out) != "from-path\n" {
+	if err != nil || string(out) != want {
 		t.Fatalf("%q %v", out, err)
 	}
 }
 
+// pathList is a PATH of dirs, then on Windows, where /usr/bin isn't absolute, the PATH the test runs with.
+func pathList(dirs ...string) string {
+	if runtime.GOOS == "windows" {
+		dirs = append(dirs, os.Getenv("PATH"))
+	}
+	return strings.Join(dirs, string(os.PathListSeparator))
+}
+
 func TestRunSkipsARelativePathEntryThatOnlyResolvesFromPocketdsOwnDir(t *testing.T) {
 	t.Chdir("/")
-	env := append(os.Environ(), "PATH=.git/safe/../../bin:/usr/bin:/bin")
+	env := append(os.Environ(), "PATH="+pathList(".git/safe/../../bin", "/usr/bin", "/bin"))
 	_, out, _, err := Run(context.Background(), env, t.TempDir(), []string{"sh", "-c", "echo ok"}, nil, 0)
 	if err != nil || string(out) != "ok\n" {
 		t.Fatalf("%q %v", out, err)

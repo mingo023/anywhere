@@ -17,6 +17,9 @@ import (
 
 var at = time.UnixMilli(1_000_000)
 
+// abs is the unix path p made absolute on this OS, which on Windows takes a drive.
+func abs(p string) string { return filepath.Join(filepath.VolumeName(os.TempDir()), p) }
+
 // newDB is a database whose registry lists the projects /repo and /other.
 func newDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -25,7 +28,7 @@ func newDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.Insert(tx, registry.State{Projects: []proto.RegistryProject{{ID: "p1", Path: "/repo"}, {ID: "p2", Path: "/other"}}}); err != nil {
+	if err := registry.Insert(tx, registry.State{Projects: []proto.RegistryProject{{ID: "p1", Path: abs("/repo")}, {ID: "p2", Path: abs("/other")}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -50,7 +53,7 @@ func open(t *testing.T, db *sql.DB) *Store {
 func openNew(t *testing.T) *Store { return open(t, newDB(t)) }
 
 func draft(title string) proto.Ticket {
-	return proto.Ticket{Title: title, Prompt: "do " + title, Provider: "claude", Folder: "/repo"}
+	return proto.Ticket{Title: title, Prompt: "do " + title, Provider: "claude", Folder: abs("/repo")}
 }
 
 func saved(t *testing.T, s *Store, title string, start bool) proto.Ticket {
@@ -226,14 +229,14 @@ func TestATicketChangesProjectOnlyBeforeItStarts(t *testing.T) {
 	s := openNew(t)
 	a := saved(t, s, "a", false)
 	edit := draft("a")
-	edit.ID, edit.Folder = a.ID, "/other"
-	if got, err := s.Save(edit, false, at); err != nil || got.Folder != "/other" {
+	edit.ID, edit.Folder = a.ID, abs("/other")
+	if got, err := s.Save(edit, false, at); err != nil || got.Folder != abs("/other") {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 	b := saved(t, s, "b", true)
 	s.Claim(at)
 	late := draft("b")
-	late.ID, late.Folder = b.ID, "/other"
+	late.ID, late.Folder = b.ID, abs("/other")
 	if _, err := s.Save(late, false, at); err != ErrStarted {
 		t.Fatalf("got %v", err)
 	}
@@ -371,14 +374,14 @@ func TestEveryFieldOfEveryTicketSurvivesARestart(t *testing.T) {
 	db := newDB(t)
 	s := open(t, db)
 	a := saved(t, s, "a", true)
-	b, err := s.Save(proto.Ticket{Title: "b", Prompt: "do b", Provider: "claude", Folder: "/other", Base: "main", Priority: 2, Labels: []string{"Bug", "Docs"}}, false, at)
+	b, err := s.Save(proto.Ticket{Title: "b", Prompt: "do b", Provider: "claude", Folder: abs("/other"), Base: "main", Priority: 2, Labels: []string{"Bug", "Docs"}}, false, at)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := saved(t, s, "c", false)
 	s.Claim(at)
 	s.Update(a.ID, func(x *proto.Ticket) {
-		x.AgentID, x.TerminalID, x.Worktree, x.Status, x.Why = "ag", "tm", "/repo/wt", proto.TicketWorking, "because"
+		x.AgentID, x.TerminalID, x.Worktree, x.Status, x.Why = "ag", "tm", abs("/repo/wt"), proto.TicketWorking, "because"
 	})
 	s.Close(a.ID, proto.ClosedByUser, at.Add(time.Minute))
 	s.Delete(c.ID)
@@ -460,7 +463,7 @@ func TestATicketInNoProjectIsRefusedAndSavesNothing(t *testing.T) {
 	if _, err := s.Save(ok, false, at); !errors.Is(err, registry.ErrUnknownProject) {
 		t.Fatalf("moving a ticket: %v", err)
 	}
-	if tickets, _ := open(t, db).Snapshot(); len(tickets) != 1 || tickets[0].Folder != "/repo" {
+	if tickets, _ := open(t, db).Snapshot(); len(tickets) != 1 || tickets[0].Folder != abs("/repo") {
 		t.Fatalf("got %+v", tickets)
 	}
 }
@@ -478,12 +481,12 @@ func TestRemovingAProjectDropsItsTicketsAndWakesWhoWatchesTheBoard(t *testing.T)
 	reg.OnRemove(func(string) { s.Reload() })
 	saved(t, s, "a", false)
 	other := draft("b")
-	other.Folder = "/other"
+	other.Folder = abs("/other")
 	if _, err := s.Save(other, false, at); err != nil {
 		t.Fatal(err)
 	}
 	changed := s.Changed()
-	if err := reg.RemoveProject("/repo"); err != nil {
+	if err := reg.RemoveProject(abs("/repo")); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -536,7 +539,7 @@ func TestSavingTicketsWhileTheRegistryIsWrittenDoesNotDeadlock(t *testing.T) {
 	go func() {
 		defer close(done)
 		for i := range 200 {
-			reg.Track("/repo/wt", i%2 == 0)
+			reg.Track(abs("/repo/wt"), i%2 == 0)
 		}
 	}()
 	for range 200 {

@@ -3,6 +3,7 @@ package logfile
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -48,7 +49,7 @@ func TestReopenedFileAppendsAndIsPrivate(t *testing.T) {
 	if got := read(t, path); got != "one\ntwo\n" {
 		t.Fatalf("%q", got)
 	}
-	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
+	if st, _ := os.Stat(path); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Fatalf("mode %v", st.Mode())
 	}
 }

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -8,8 +9,10 @@ import (
 )
 
 func TestALoginSpawnRunsTheLoginShellInHome(t *testing.T) {
-	for cwd, want := range map[string]string{"": "/home/me", "~": "/home/me", "~/app": "/home/me/app", "app": "/home/me/app", "/srv/x": "/srv/x"} {
-		s := loginSpec(terminal.Spec{Cwd: cwd, Env: []string{"A=1"}}, "/bin/bash", "/home/me", nil)
+	root := t.TempDir()
+	home, srv := filepath.Join(root, "home", "me"), filepath.Join(root, "srv", "x")
+	for cwd, want := range map[string]string{"": home, "~": home, "~/app": filepath.Join(home, "app"), "app": filepath.Join(home, "app"), srv: srv} {
+		s := loginSpec(terminal.Spec{Cwd: cwd, Env: []string{"A=1"}}, "/bin/bash", home, nil)
 		if s.Cmd != "/bin/bash" || !slices.Equal(s.Args, []string{"-l"}) || s.Cwd != want || s.Env != nil {
 			t.Fatalf("cwd %q: %+v", cwd, s)
 		}

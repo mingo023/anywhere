@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -36,19 +37,19 @@ func TestAnUnknownVerbIsAUsageError(t *testing.T) {
 }
 
 var twoProjects = []proto.Project{
-	{Path: "/code/api", Name: "api", Worktrees: []proto.Worktree{{Name: "api", Path: "/code/api", IsMain: true}, {Name: "calm-otter", Path: "/wt/calm-otter"}}},
-	{Path: "/code/web", Name: "web", Worktrees: []proto.Worktree{{Name: "web", Path: "/code/web", IsMain: true}}},
+	{Path: filepath.FromSlash("/code/api"), Name: "api", Worktrees: []proto.Worktree{{Name: "api", Path: filepath.FromSlash("/code/api"), IsMain: true}, {Name: "calm-otter", Path: filepath.FromSlash("/wt/calm-otter")}}},
+	{Path: filepath.FromSlash("/code/web"), Name: "web", Worktrees: []proto.Worktree{{Name: "web", Path: filepath.FromSlash("/code/web"), IsMain: true}}},
 }
 
 func TestLaunchSpecFindsTheProjectHoldingTheFolderAndItsMainWorktree(t *testing.T) {
-	spec, err := launchSpec(twoProjects, "/wt/calm-otter/src", newSession{provider: "claude", access: "settings"})
-	if err != nil || spec.Project != "/code/api" || spec.Checkout.Worktree != "/code/api" {
+	spec, err := launchSpec(twoProjects, filepath.FromSlash("/wt/calm-otter/src"), newSession{provider: "claude", access: "settings"})
+	if err != nil || spec.Project != filepath.FromSlash("/code/api") || spec.Checkout.Worktree != filepath.FromSlash("/code/api") {
 		t.Fatalf("spec = %+v, err = %v", spec, err)
 	}
 }
 
 func TestASessionRunsAsAnyAgentPocketdDrivesAChatOf(t *testing.T) {
-	if spec, err := launchSpec(twoProjects, "/code/web", newSession{provider: "hermes", access: "settings"}); err != nil || spec.Provider != "hermes" || !spec.Chat {
+	if spec, err := launchSpec(twoProjects, filepath.FromSlash("/code/web"), newSession{provider: "hermes", access: "settings"}); err != nil || spec.Provider != "hermes" || !spec.Chat {
 		t.Fatalf("spec = %+v, err = %v", spec, err)
 	}
 	if !strings.Contains(anywhereUsage(), "|hermes|") {
@@ -58,41 +59,41 @@ func TestASessionRunsAsAnyAgentPocketdDrivesAChatOf(t *testing.T) {
 
 func TestLaunchSpecTakesAProjectByNameAndAWorktreeByName(t *testing.T) {
 	spec, err := launchSpec(twoProjects, "/elsewhere", newSession{project: "api", worktree: "calm-otter"})
-	if err != nil || spec.Checkout.Worktree != "/wt/calm-otter" {
+	if err != nil || spec.Checkout.Worktree != filepath.FromSlash("/wt/calm-otter") {
 		t.Fatalf("spec = %+v, err = %v", spec, err)
 	}
 }
 
 func TestLaunchSpecAsksForANewWorktreeByName(t *testing.T) {
-	spec, err := launchSpec(twoProjects, "/code/web", newSession{newWorktree: freshWorktree{wanted: true, name: "calm-otter"}})
-	if err != nil || spec.Project != "/code/web" || spec.Checkout.New == nil || spec.Checkout.New.Name != "calm-otter" || spec.Checkout.New.AutoName || spec.Checkout.Worktree != "" {
+	spec, err := launchSpec(twoProjects, filepath.FromSlash("/code/web"), newSession{newWorktree: freshWorktree{wanted: true, name: "calm-otter"}})
+	if err != nil || spec.Project != filepath.FromSlash("/code/web") || spec.Checkout.New == nil || spec.Checkout.New.Name != "calm-otter" || spec.Checkout.New.AutoName || spec.Checkout.Worktree != "" {
 		t.Fatalf("spec = %+v, err = %v", spec, err)
 	}
 }
 
 func TestLaunchSpecHasPocketdNameAnUnnamedNewWorktreeFromThePrompt(t *testing.T) {
-	spec, err := launchSpec(twoProjects, "/code/web", newSession{newWorktree: freshWorktree{wanted: true}, prompt: "fix the login"})
+	spec, err := launchSpec(twoProjects, filepath.FromSlash("/code/web"), newSession{newWorktree: freshWorktree{wanted: true}, prompt: "fix the login"})
 	if n := spec.Checkout.New; err != nil || n == nil || !n.AutoName || !strings.HasPrefix(n.Name, "cli-") {
 		t.Fatalf("spec = %+v, err = %v", spec, err)
 	}
 }
 
 func TestLaunchSpecKeepsTheNameOfAnUnnamedNewWorktreeWithoutAPrompt(t *testing.T) {
-	spec, err := launchSpec(twoProjects, "/code/web", newSession{newWorktree: freshWorktree{wanted: true}})
+	spec, err := launchSpec(twoProjects, filepath.FromSlash("/code/web"), newSession{newWorktree: freshWorktree{wanted: true}})
 	if n := spec.Checkout.New; err != nil || n == nil || n.AutoName || !strings.HasPrefix(n.Name, "cli-") {
 		t.Fatalf("spec = %+v, err = %v", spec, err)
 	}
 }
 
 func TestLaunchSpecStartsANewWorktreeFromTheBaseGiven(t *testing.T) {
-	spec, err := launchSpec(twoProjects, "/code/web", newSession{newWorktree: freshWorktree{wanted: true}, base: "dev"})
+	spec, err := launchSpec(twoProjects, filepath.FromSlash("/code/web"), newSession{newWorktree: freshWorktree{wanted: true}, base: "dev"})
 	if err != nil || spec.Checkout.New == nil || spec.Checkout.New.Base != "dev" {
 		t.Fatalf("spec = %+v, err = %v", spec, err)
 	}
 }
 
 func TestLaunchSpecStartsAChat(t *testing.T) {
-	spec, err := launchSpec(twoProjects, "/code/web", newSession{})
+	spec, err := launchSpec(twoProjects, filepath.FromSlash("/code/web"), newSession{})
 	if err != nil || !spec.Chat {
 		t.Fatalf("spec = %+v, err = %v", spec, err)
 	}
@@ -159,34 +160,34 @@ func TestATicketNeedsExactlyOnePrompt(t *testing.T) {
 }
 
 func TestATicketGoesToTheProjectHoldingTheFolder(t *testing.T) {
-	got, err := ticketFor(twoProjects, "/wt/calm-otter/src", newTicket{provider: "codex", base: "dev", prompt: "Fix it"})
-	want := proto.Ticket{Title: "Fix it", Prompt: "Fix it", Provider: "codex", Folder: "/code/api", Base: "dev"}
+	got, err := ticketFor(twoProjects, filepath.FromSlash("/wt/calm-otter/src"), newTicket{provider: "codex", base: "dev", prompt: "Fix it"})
+	want := proto.Ticket{Title: "Fix it", Prompt: "Fix it", Provider: "codex", Folder: filepath.FromSlash("/code/api"), Base: "dev"}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("got = %+v, err = %v", got, err)
 	}
 }
 
 func TestATicketGoesToTheProjectNamed(t *testing.T) {
-	if got, err := ticketFor(twoProjects, "/elsewhere", newTicket{project: "web", provider: "claude", prompt: "Fix it"}); err != nil || got.Folder != "/code/web" {
+	if got, err := ticketFor(twoProjects, "/elsewhere", newTicket{project: "web", provider: "claude", prompt: "Fix it"}); err != nil || got.Folder != filepath.FromSlash("/code/web") {
 		t.Fatalf("got = %+v, err = %v", got, err)
 	}
 }
 
 func TestATicketWithNoTitleIsNamedForThePromptsFirstLine(t *testing.T) {
-	if got, _ := ticketFor(twoProjects, "/code/web", newTicket{provider: "claude", prompt: "\n  Fix the login \n\nIt redirects twice\n"}); got.Title != "Fix the login" || got.Prompt != "Fix the login \n\nIt redirects twice" {
+	if got, _ := ticketFor(twoProjects, filepath.FromSlash("/code/web"), newTicket{provider: "claude", prompt: "\n  Fix the login \n\nIt redirects twice\n"}); got.Title != "Fix the login" || got.Prompt != "Fix the login \n\nIt redirects twice" {
 		t.Fatalf("got = %+v", got)
 	}
 }
 
 func TestALongFirstLineIsCutToATitle(t *testing.T) {
-	got, _ := ticketFor(twoProjects, "/code/web", newTicket{provider: "claude", prompt: strings.Repeat("é", proto.MaxTicketTitle+5)})
+	got, _ := ticketFor(twoProjects, filepath.FromSlash("/code/web"), newTicket{provider: "claude", prompt: strings.Repeat("é", proto.MaxTicketTitle+5)})
 	if n := utf8.RuneCountInString(got.Title); n != proto.MaxTicketTitle {
 		t.Fatalf("title is %d long", n)
 	}
 }
 
 func TestATitleGivenBeatsThePrompt(t *testing.T) {
-	if got, _ := ticketFor(twoProjects, "/code/web", newTicket{provider: "claude", title: "Login", prompt: "Fix it"}); got.Title != "Login" {
+	if got, _ := ticketFor(twoProjects, filepath.FromSlash("/code/web"), newTicket{provider: "claude", title: "Login", prompt: "Fix it"}); got.Title != "Login" {
 		t.Fatalf("got = %+v", got)
 	}
 }
@@ -197,14 +198,14 @@ func TestATicketNeedsAPromptAKnownAgentAndAShortEnoughTitle(t *testing.T) {
 		{provider: "frob", prompt: "Fix it"},
 		{provider: "claude", prompt: "Fix it", title: strings.Repeat("a", proto.MaxTicketTitle+1)},
 	} {
-		if _, err := ticketFor(twoProjects, "/code/web", n); err == nil || !strings.Contains(err.Error(), "a ticket needs") {
+		if _, err := ticketFor(twoProjects, filepath.FromSlash("/code/web"), n); err == nil || !strings.Contains(err.Error(), "a ticket needs") {
 			t.Errorf("%+v: err = %v", n, err)
 		}
 	}
 }
 
 func TestLaunchSpecRefusesAFolderOutsideEveryProject(t *testing.T) {
-	if _, err := launchSpec(twoProjects, "/code/apiary", newSession{}); err == nil || !strings.Contains(err.Error(), "--project") {
+	if _, err := launchSpec(twoProjects, filepath.FromSlash("/code/apiary"), newSession{}); err == nil || !strings.Contains(err.Error(), "--project") {
 		t.Fatalf("err = %v", err)
 	}
 }

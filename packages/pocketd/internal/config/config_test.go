@@ -125,7 +125,8 @@ func release(t *testing.T) {
 func TestADevBuildKeepsOutOfTheInstalledAppsHomeServiceAndPort(t *testing.T) {
 	t.Setenv("POCKET_HOME", "")
 	t.Setenv("HOME", "/h")
-	if Release() || Home() != "/h/.anywhere/dev" || Label() != "dev.mingo.anywhere.dev.pocketd" || DefaultPort() != 4518 {
+	t.Setenv("USERPROFILE", "/h")
+	if Release() || Home() != filepath.FromSlash("/h/.anywhere/dev") || Label() != "dev.mingo.anywhere.dev.pocketd" || DefaultPort() != 4518 {
 		t.Fatal(Home(), Label(), DefaultPort())
 	}
 }
@@ -134,7 +135,8 @@ func TestAReleaseBuildKeepsTheNamesInstalledCopiesUse(t *testing.T) {
 	release(t)
 	t.Setenv("POCKET_HOME", "")
 	t.Setenv("HOME", "/h")
-	if !Release() || Home() != "/h/.anywhere" || Label() != "dev.mingo.anywhere.pocketd" || DefaultPort() != 4517 {
+	t.Setenv("USERPROFILE", "/h")
+	if !Release() || Home() != filepath.FromSlash("/h/.anywhere") || Label() != "dev.mingo.anywhere.pocketd" || DefaultPort() != 4517 {
 		t.Fatal(Home(), Label(), DefaultPort())
 	}
 }
@@ -142,6 +144,7 @@ func TestAReleaseBuildKeepsTheNamesInstalledCopiesUse(t *testing.T) {
 func TestTheLegacyHomeStaysTheHomeUntilItMoves(t *testing.T) {
 	user := t.TempDir()
 	t.Setenv("HOME", user)
+	t.Setenv("USERPROFILE", user)
 	t.Setenv("POCKET_HOME", "")
 	legacy, home := filepath.Join(user, ".coding-pocket-dev"), filepath.Join(user, ".anywhere", "dev")
 	os.Mkdir(legacy, 0o700)
@@ -154,7 +157,9 @@ func TestTheLegacyHomeStaysTheHomeUntilItMoves(t *testing.T) {
 	}
 	os.Remove(legacy)
 	os.MkdirAll(home, 0o700)
-	os.Symlink(home, legacy)
+	if err := os.Symlink(home, legacy); err != nil && runtime.GOOS == "windows" {
+		t.Skip("a symlink needs Developer Mode on Windows, and pocketd keeps its legacy home there")
+	}
 	if Home() != home || DefaultHome() != home {
 		t.Fatal("moved", Home(), DefaultHome())
 	}

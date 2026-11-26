@@ -39,3 +39,14 @@ func Base(environ []string, shell string) []string {
 func Capture(ctx context.Context, shell string, env []string, limit time.Duration) Result {
 	return Result{Env: env, Mode: "base"}
 }
+
+// runnable goes by extension, as Windows has no execute bit: Mode never sets 0o111 there.
+func runnable(path string, _ os.FileInfo) bool {
+	ext := filepath.Ext(path)
+	for _, e := range strings.Split(cmp.Or(os.Getenv("PATHEXT"), ".COM;.EXE;.BAT;.CMD"), ";") {
+		if e != "" && strings.EqualFold(e, ext) {
+			return true
+		}
+	}
+	return false
+}

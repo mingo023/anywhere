@@ -48,17 +48,27 @@ func (l *File) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// rotate closes the file before renaming it: Windows refuses to rename an open file, and the
+// truncating reopen would then wipe the log instead.
 func (l *File) rotate() error {
+	l.f.Close()
 	for n := l.keep; n > 1; n-- {
 		os.Rename(fmt.Sprintf("%s.%d", l.path, n-1), fmt.Sprintf("%s.%d", l.path, n))
 	}
-	os.Rename(l.path, l.path+".1")
-	f, err := os.OpenFile(l.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	flag := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	if os.Rename(l.path, l.path+".1") != nil {
+		flag = os.O_WRONLY | os.O_CREATE | os.O_APPEND
+	}
+	f, err := os.OpenFile(l.path, flag, 0o600)
 	if err != nil {
 		return err
 	}
-	l.f.Close()
-	l.f, l.size = f, 0
+	st, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return err
+	}
+	l.f, l.size = f, st.Size()
 	return nil
 }
 

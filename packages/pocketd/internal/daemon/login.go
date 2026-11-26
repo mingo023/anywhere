@@ -25,7 +25,7 @@ func loginSpec(spec terminal.Spec, shell, home string, argv []string) terminal.S
 		return spec
 	}
 	if shellenv.PowerShell(shell) {
-		spec.Args = append(spec.Args, "-NoExit", "-Command", shellenv.PSCommand(argv))
+		spec.Args = append(spec.Args, "-NoExit", "-Command", shellenv.PSCommandIn(shell, argv))
 		return spec
 	}
 	back := fmt.Sprintf("exec '%s' -l", shell)

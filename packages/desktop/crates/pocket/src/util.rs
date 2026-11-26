@@ -19,18 +19,18 @@ pub fn basename(path: &str) -> String {
 
 /// `basename`, borrowed.
 pub fn folder(path: &str) -> &str {
-    path.trim_end_matches('/').rsplit('/').next().unwrap_or_default()
+    path.trim_end_matches(std::path::is_separator).rsplit(std::path::is_separator).next().unwrap_or_default()
 }
 
 /// "/Users/me/code/app" reads as "~/code/app".
 pub fn tilde(path: &str) -> String {
-    tilde_in(path, &std::env::var("HOME").unwrap_or_default())
+    tilde_in(path, &crate::modals::form::home())
 }
 
 /// `tilde` against `home`, another machine's maybe.
 pub fn tilde_in(path: &str, home: &str) -> String {
     match path.strip_prefix(home) {
-        Some(rest) if !home.is_empty() && (rest.is_empty() || rest.starts_with('/')) => format!("~{rest}"),
+        Some(rest) if !home.is_empty() && (rest.is_empty() || rest.starts_with(std::path::is_separator)) => format!("~{rest}"),
         _ => path.to_string(),
     }
 }
@@ -38,9 +38,18 @@ pub fn tilde_in(path: &str, home: &str) -> String {
 /// "~/code/app" reads as "/Users/me/code/app" with `home` "/Users/me"; the home may be another machine's.
 pub fn untilde_in(path: &str, home: &str) -> String {
     match path.strip_prefix('~') {
-        Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("{home}{rest}"),
+        Some(rest) if rest.is_empty() || rest.starts_with(std::path::is_separator) => format!("{home}{rest}"),
         _ => path.to_string(),
     }
+}
+
+/// `rel` under `base` with the separator `base` is written with: an agent's folder may be on a unix host while this desktop runs Windows.
+pub fn join(base: &str, rel: &str) -> String {
+    if base.is_empty() || Path::new(rel).has_root() {
+        return Path::new(base).join(rel).to_string_lossy().into_owned();
+    }
+    let sep = if base.contains('\\') && !base.contains('/') { '\\' } else { '/' };
+    format!("{}{sep}{rel}", base.trim_end_matches(sep))
 }
 
 /// Two letters for the rail, from the repository's last dash-separated word: "app-android" is AN.
@@ -163,7 +172,7 @@ pub fn drawn_cards(top: usize, viewport: f32, overdraw: f32, min_card: f32, len:
 
 #[cfg(test)]
 mod tests {
-    use super::{ago, ago_long, drawn_cards, first_line, folder, initials, list_dir, mark, tilde, tilde_in, tree_icon, untilde_in};
+    use super::{ago, ago_long, basename, drawn_cards, first_line, folder, initials, list_dir, mark, tilde, tilde_in, tree_icon, untilde_in};
     use store::ProjectIcon;
     use store::prefs::files::Files;
 
@@ -196,7 +205,7 @@ mod tests {
 
     #[test]
     fn tilde_shortens_home_only() {
-        let home = std::env::var("HOME").unwrap();
+        let home = crate::modals::form::home();
         assert_eq!(tilde(&format!("{home}/code/app")), "~/code/app");
         assert_eq!(tilde(&format!("{home}x/app")), format!("{home}x/app"));
     }
@@ -239,6 +248,20 @@ mod tests {
     #[test]
     fn a_folder_is_the_paths_last_part_even_with_a_trailing_slash() {
         assert_eq!((folder("/w/app-login"), folder("/w/app/"), folder("app")), ("app-login", "app", "app"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn a_windows_path_s_folder_is_its_last_component() {
+        assert_eq!((folder(r"C:\w\app-login"), folder(r"C:\w\app\"), basename(r"C:\w\app")), ("app-login", "app", "app".to_string()));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn tilde_shortens_a_windows_home() {
+        assert_eq!(tilde_in(r"C:\Users\me\code\app", r"C:\Users\me"), r"~\code\app");
+        assert_eq!(tilde_in(r"C:\Users\mex\app", r"C:\Users\me"), r"C:\Users\mex\app");
+        assert_eq!(untilde_in(r"~\code\app", r"C:\Users\me"), r"C:\Users\me\code\app");
     }
 
     #[test]

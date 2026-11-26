@@ -9,6 +9,7 @@ import (
 	"log"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -649,7 +650,7 @@ func (l *Launcher) find(provider string, env []string) (string, bool) {
 // isAgent is whether path is p's CLI, by what its --help says. A shell
 // function can't be asked from here.
 func isAgent(p *providers.Spec, path string, env []string) bool {
-	if len(p.Help) == 0 || !strings.Contains(path, "/") {
+	if len(p.Help) == 0 || bare(path) {
 		return true
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), probeWait)
@@ -675,7 +676,11 @@ func (l *Launcher) CheckCommand(cmd string) error {
 // runs it as a function: a fish function cc wins over /usr/bin/cc, as in their terminal.
 func resolve(cmd string, env []string) (string, error) {
 	path := cmd
-	if !strings.Contains(cmd, "/") {
+	if bare(cmd) {
+		if runtime.GOOS == "windows" {
+			// PowerShell has no `command -v`, and PATHEXT finds the .cmd shims npm installs agents as.
+			return terminal.LookPath(cmd, env)
+		}
 		if path = probe(shellOf(env), cmd, env); path == cmd {
 			return cmd, nil
 		}

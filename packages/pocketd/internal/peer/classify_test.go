@@ -3,6 +3,7 @@ package peer
 import (
 	"os"
 	"os/exec"
+	"runtime"
 	"testing"
 )
 
@@ -21,6 +22,9 @@ func TestANearerTerminalRootWins(t *testing.T) {
 }
 
 func TestAProcessOutsideEveryTerminalIsTheOwner(t *testing.T) {
+	if !pidOwns {
+		t.Skip("a pid proves no owner here; MayAuth lets such a peer prove itself with a token")
+	}
 	child := exec.Command("sleep", "5")
 	if err := child.Start(); err != nil {
 		t.Fatal(err)
@@ -45,6 +49,10 @@ func TestADeadPidGetsObserveOnly(t *testing.T) {
 
 func TestAncestorsStartAtTheProcessItself(t *testing.T) {
 	chain, err := Ancestors(os.Getpid())
+	if runtime.GOOS == "windows" && len(chain) >= 2 {
+		// Windows never reparents an orphan, so the walk ends at a parent that exited rather than at init.
+		err = nil
+	}
 	if err != nil || len(chain) < 2 || chain[0].Pid != os.Getpid() || chain[1].Pid != os.Getppid() {
 		t.Fatalf("%+v %v", chain, err)
 	}

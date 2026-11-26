@@ -140,7 +140,7 @@ func dryRun(exe, path string) error {
 // upgradeCmd asks pocketd to exec its binary on disk. Success closes the
 // socket mid-exec, so the answer is the next pocketd's status.
 func upgradeCmd(sock string, out io.Writer) error {
-	c, err := ops.Dial(sock)
+	c, err := dial(sock)
 	if err != nil {
 		return fmt.Errorf("pocketd isn't running: %w", err)
 	}
