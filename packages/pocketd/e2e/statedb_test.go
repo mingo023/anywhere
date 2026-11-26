@@ -58,10 +58,10 @@ func sameFiles(t *testing.T, when string, want, got map[string][32]byte) {
 	}
 }
 
-// The upgrade gate for pocketd.db: the state a pocketd from main kept in its JSON files comes back in the same
+// The upgrade gate for pocketd.db: the state a pocketd from before it kept in its JSON files comes back in the same
 // frames, a project's removal takes its Tickets, Automations and Locals with it, and the files stay as they were.
 func TestAnUpgradeFromMainServesItsStateInTheSameFramesAndRemovingAProjectTakesItsRowsButNoFile(t *testing.T) {
-	old := mainPocketd(t)
+	old := jsonEraPocketd(t)
 	h := Start(t, launchReady(""), func(h *Harness) {
 		h.exe = filepath.Join(h.Home, "bin", "pocketd")
 		copyFile(t, old, h.exe)
