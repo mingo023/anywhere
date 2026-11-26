@@ -36,7 +36,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 317] = [
+const STEPS: [(&str, Step); 328] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -906,6 +906,28 @@ const STEPS: [(&str, Step); 317] = [
         let search = d.settings.read(cx).search.clone();
         search.update(cx, |s, cx| s.set_value("shell", window, cx))
     }),
+    ("settings-search-volume-off", |d, window, cx| {
+        d.store.sounds.all = false;
+        let search = d.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.set_value("volume", window, cx))
+    }),
+    ("settings-search-codex-model", |d, window, cx| {
+        let search = d.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.set_value("codex model", window, cx))
+    }),
+    ("settings-search-palette", |d, window, cx| {
+        let search = d.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.set_value("palette", window, cx))
+    }),
+    ("settings-search-theme", |d, window, cx| {
+        let search = d.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.set_value("dracula", window, cx))
+    }),
+    ("settings-search-scrollback", |d, window, cx| {
+        let search = d.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.set_value("scrollback", window, cx))
+    }),
+    ("settings-search-enter", |d, window, cx| d.settings.update(cx, |s, cx| s.open_first_result(window, cx))),
     ("settings-advanced", |d, _, cx| {
         let id = d.settings.read(cx).section().id();
         d.store.advanced.insert(id.into());

@@ -333,8 +333,10 @@ pub struct Settings {
     back: Return,
     pub fixed_open: bool,
     pub(crate) search: Entity<InputState>,
-    /// The row a search result opened, tinted until the section changes.
+    /// The row a search result opened, tinted for a moment.
     pub(crate) found: Option<&'static str>,
+    /// The page's scroll, and where the row a search result opened sits in it.
+    reach: search::Reach,
     /// Every text row's field, by row id.
     pub(crate) fields: HashMap<&'static str, TextField>,
     /// Every stepper's typed value, by row id.
@@ -426,6 +428,7 @@ impl Settings {
             fixed_open: false,
             search,
             found: None,
+            reach: search::Reach::default(),
             fields,
             numbers,
             every,
@@ -602,7 +605,6 @@ impl Settings {
     }
 
     /// Moves focus to the control of row `id`, as a search result opening it does.
-    #[expect(dead_code, reason = "the Search slice focuses the row a result opens")]
     pub(crate) fn focus_row(&mut self, id: &'static str, window: &mut Window, cx: &mut Context<Self>) {
         match self.fields.get(id).or(self.numbers.get(id)) {
             Some(field) => field.input.update(cx, |f, cx| f.focus(window, cx)),
@@ -1159,6 +1161,11 @@ impl Settings {
             .group(SharedString::from(format!("row-{}", setting.id)))
             .when(changed, |d| d.child(div().absolute().left(px(5.)).top_0().bottom_0().flex().items_center().child(ui::dot(5., TEXT))))
             .when(self.found == Some(setting.id), |d| d.bg(ACCENT_TINT))
+            .when(self.found == Some(setting.id) && self.reach.pending(), |d| {
+                // The row's place is known after this draw, so the page scrolls to it on the next.
+                crate::region::notify_after_draw(cx);
+                d.child(self.reach.measure())
+            })
     }
 
     /// A group's card: its rows the parent allows, Advanced ones only while the page shows them.
@@ -1273,6 +1280,7 @@ impl Settings {
     }
 
     fn settings_page(&mut self, cx: &mut Context<Self>) -> Div {
+        self.reach.settle();
         let section = self.section;
         let words = self.query(cx);
         let searching = !words.is_empty();
@@ -1314,7 +1322,15 @@ impl Settings {
             .flex()
             .flex_col()
             .child(bar)
-            .child(div().id("settings-body").flex_1().min_h_0().overflow_y_scroll().child(div().w_full().flex().justify_center().child(column)))
+            .child(
+                div()
+                    .id("settings-body")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .track_scroll(&self.reach.body)
+                    .child(div().w_full().flex().justify_center().child(column)),
+            )
             .children(changes)
             .children(self.toasts_view(cx))
     }
