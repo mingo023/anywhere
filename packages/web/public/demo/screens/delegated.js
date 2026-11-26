@@ -274,6 +274,16 @@ function playPush(root) {
   node.animate([{ transform: 'none', opacity: 1 }, { transform: `translateX(${-28 * side}px)`, opacity: 0 }], ease).finished.then(() => node.remove(), () => node.remove());
 }
 
+// The tour answers the child's question, so the parent hears back from all three.
+AnywhereTour.define('delegated', [
+  ['wait', 2200],
+  ['click', '.dg-row[data-v="c1"]'],
+  ['wait', 900],
+  ['click', '.dg-ask [data-act="pick"][data-v="Vitest"]'],
+  ['wait', 1400],
+  ['click', '.dg-crumb [data-act="back"]'],
+]);
+
 D.register('delegated', {
   tour: 'delegated',
   enter(api) {

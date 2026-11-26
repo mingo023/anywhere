@@ -19,7 +19,6 @@ const PROPS = [['id', 'ID'], ['priority', 'Priority'], ['labels', 'Labels'], ['p
 const TABS = [['all', 'All tickets'], ['active', 'Active'], ['todo', 'To do']];
 
 const ticket = (o) => ({ prio: 0, labels: [], agent: 'claude', prompt: '', ...o });
-let serial = 10;
 const tickets = [
   ticket({ n: 1, title: 'Virtualize the file tree', project: 'orbit-web', labels: ['Feature'], prio: 3, state: 'todo', prompt: 'The Files panel builds every row, which stalls on big repos. Virtualize it so only the visible rows render.' }),
   ticket({ n: 2, title: 'Retry the upload with backoff', project: 'fox-api', labels: ['Infra'], prio: 2, agent: 'codex', state: 'todo', prompt: 'Retry failed uploads with exponential backoff and jitter, up to five times.' }),
@@ -32,6 +31,8 @@ const tickets = [
   ticket({ n: 9, title: 'Cache invoice queries', project: 'fox-api', prio: 3, agent: 'codex', state: 'live', row: 'perf/invoice-cache' }),
   ticket({ n: 10, title: 'Migrate to React 19', project: 'orbit-web', labels: ['Feature'], state: 'live', row: 'chore/react-19' }),
 ];
+const SEEDED = tickets.length;
+let serial = SEEDED + 1;
 
 let tab = 'all';
 let layout = 'board';
@@ -143,6 +144,22 @@ function create(start) {
   if (!start && tab === 'active') tab = 'all';
   wantFocus = true;
   api().changed();
+}
+
+// Back to the first frame, so the tour can play again: the tickets and sessions it made go, the dock empties.
+function reset() {
+  for (const { row } of tickets.splice(SEEDED)) if (row) row.p.rows = row.p.rows.filter((r) => r !== row);
+  serial = SEEDED + 1;
+  Object.assign(draft, { text: '', project: 'orbit-web', agent: 'claude', priority: 0, labels: [] });
+  Object.values(filters).forEach((f) => f.clear());
+  tucked.clear();
+  tab = 'all';
+  searching = false;
+  query = '';
+  menu = null;
+  page = null;
+  wantFocus = false;
+  colsLeft = 0;
 }
 
 // Rendering
@@ -480,8 +497,23 @@ D.register('board', {
     else if (e.key === 'Escape' && (menu || page != null)) { menu = null; if (!menu) page = page; api().draw(); }
     else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && page != null) { act('start-page'); }
   },
-  enter() { menu = null; page = null; },
+  enter() { reset(); },
 });
+
+AnywhereTour.define('board', [
+  ['wait', 500],
+  ['click', '.col[data-col="queued"] [data-act="tuck"]'],
+  ['wait', 300],
+  ['type', '.compose textarea', 'Add a loading skeleton to the board'],
+  ['wait', 500],
+  ['click', '[data-act="add"]'],
+  ['wait', 700],
+  ['click', '.col[data-col="todo"] [data-act="start"][data-v="11"]'],
+  ['wait', 4300],
+  ['click', '.col[data-col="needs"] [data-act="allow"][data-v="11"]'],
+  ['wait', 4300],
+  ['wait', 1200],
+]);
 
 addEventListener('DOMContentLoaded', () => api().onChange(pump));
 })();
