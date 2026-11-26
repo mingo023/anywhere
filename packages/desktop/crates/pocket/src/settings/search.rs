@@ -1,7 +1,6 @@
 use super::catalog::{Control, Setting};
 use super::{DECOR, Decor, Section, Settings, SettingsEvent, action, card, keybindings, row};
 use crate::palette::runs;
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::cell::Cell;
 use std::ops::Range;
@@ -615,7 +614,6 @@ impl Settings {
             let hint = setting.note.and_then(|note| note(&self.store)).or_else(|| setting.hint.map(String::from));
             decor.hint = hint.map(|h| marked(h, words).into_any_element());
         }
-        let changed = setting.is_changed(&self.store);
         DECOR.with_borrow_mut(|d| *d = Some(decor));
         let body = match setting.control {
             Control::Custom(draw) => draw(self, setting, cx),
@@ -625,12 +623,7 @@ impl Settings {
             }
         };
         DECOR.with_borrow_mut(|d| *d = None);
-        let body = body
-            .relative()
-            .flex_1()
-            .min_w_0()
-            .group(SharedString::from(format!("row-{}", setting.id)))
-            .when(changed, |d| d.child(div().absolute().left(px(5.)).top_0().bottom_0().flex().items_center().child(ui::dot(5., TEXT))));
+        let body = body.relative().flex_1().min_w_0().group(SharedString::from(format!("row-{}", setting.id)));
         let arrow = self.open_arrow(at, section, setting, cx);
         div().child(div().id(SharedString::from(format!("settings-hit-{}-{}", section.id(), setting.id))).flex().items_center().child(body).child(arrow))
     }

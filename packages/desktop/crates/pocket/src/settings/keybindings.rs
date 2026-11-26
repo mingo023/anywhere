@@ -680,9 +680,7 @@ impl Settings {
             }
             out
         };
-        let line = shortcut_row(title, div().flex().flex_wrap().justify_end().items_center().gap(px(6.)).children(reset).children(keys))
-            .relative()
-            .when(changed, |d| d.child(div().absolute().left(px(5.)).top_0().bottom_0().flex().items_center().child(ui::dot(5., TEXT))));
+        let line = shortcut_row(title, div().flex().flex_wrap().justify_end().items_center().gap(px(6.)).children(reset).children(keys)).relative();
         let below = match (rec, &self.keyboard.taking) {
             (Some(rec), _) => Some(match &rec.pending {
                 Some(p) => self.pending_note(p, cx),

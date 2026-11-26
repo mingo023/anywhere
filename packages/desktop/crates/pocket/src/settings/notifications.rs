@@ -115,16 +115,12 @@ impl Settings {
             .gap(px(8.))
             .child(self.toggle_pill(banner, "bell", "Banner", banner_on, banner_free, cx))
             .child(self.toggle_pill(sound, "volume", "Sound", sound_on, sound_free, cx));
-        let changed = banner.is_changed(&self.store) || sound.is_changed(&self.store);
         let found = self.found.is_some_and(|f| f == event.banner || f == event.sound);
         if let Some(failed) = [banner, sound].into_iter().find(|s| self.saves.error(s.id).is_some()) {
             let hint = self.decor(failed, cx).hint;
             DECOR.with_borrow_mut(|d| *d = Some(Decor { hint, ..Decor::default() }));
         }
-        row(banner.label, banner.hint, pills)
-            .relative()
-            .when(changed, |d| d.child(div().absolute().left(px(5.)).top_0().bottom_0().flex().items_center().child(ui::dot(5., TEXT))))
-            .when(found, |d| d.bg(ACCENT_TINT))
+        row(banner.label, banner.hint, pills).relative().when(found, |d| d.bg(ACCENT_TINT))
     }
 
     /// A labelled toggle: filled while on, and taking no press or focus while its master switch is off.

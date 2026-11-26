@@ -1155,7 +1155,6 @@ impl Settings {
 
     fn setting_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
         let decor = self.decor(setting, cx);
-        let changed = setting.is_changed(&self.store);
         DECOR.with_borrow_mut(|d| *d = Some(decor));
         let row = match setting.control {
             Control::Custom(draw) => draw(self, setting, cx),
@@ -1171,15 +1170,14 @@ impl Settings {
         };
         // A custom draw that drew no `row` leaves its decor unused.
         DECOR.with_borrow_mut(|d| *d = None);
-        row.relative()
-            .group(SharedString::from(format!("row-{}", setting.id)))
-            .when(changed, |d| d.child(div().absolute().left(px(5.)).top_0().bottom_0().flex().items_center().child(ui::dot(5., TEXT))))
-            .when(self.found == Some(setting.id), |d| d.bg(ACCENT_TINT))
-            .when(self.found == Some(setting.id) && self.reach.pending(), |d| {
+        row.relative().group(SharedString::from(format!("row-{}", setting.id))).when(self.found == Some(setting.id), |d| d.bg(ACCENT_TINT)).when(
+            self.found == Some(setting.id) && self.reach.pending(),
+            |d| {
                 // The row's place is known after this draw, so the page scrolls to it on the next.
                 crate::region::notify_after_draw(cx);
                 d.child(self.reach.measure())
-            })
+            },
+        )
     }
 
     /// A group's card: its rows the parent allows, Advanced ones only while the page shows them.
