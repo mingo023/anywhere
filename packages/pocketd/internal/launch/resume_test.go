@@ -1,7 +1,6 @@
 package launch
 
 import (
-	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -126,7 +125,7 @@ func TestAMissingBinaryIsNotAccepted(t *testing.T) {
 	if _, _, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), config.DefaultArgs("claude"), "/bin/zsh", "/pd", nil, nil, onPath); reason != "resume_not_accepted" {
 		t.Fatalf("reason = %q", reason)
 	}
-	os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\n"), 0o755)
+	program(t, filepath.Join(dir, "claude"), "", "")
 	cmd, args, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), config.DefaultArgs("claude"), "/bin/zsh", "/pd", nil, nil, onPath)
 	if reason != "" || cmd != "/bin/zsh" || !slices.Contains(args, "--resume") {
 		t.Fatalf("resumeCmd = %q %q %q", cmd, args, reason)

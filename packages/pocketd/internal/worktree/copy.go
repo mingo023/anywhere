@@ -42,7 +42,7 @@ func copySet(project string) []string {
 	}
 	var out []string
 	for _, rel := range set {
-		if rel = filepath.Clean(rel); !slices.Contains(out, rel) {
+		if rel = filepath.ToSlash(filepath.Clean(rel)); !slices.Contains(out, rel) {
 			out = append(out, rel)
 		}
 	}
@@ -51,7 +51,7 @@ func copySet(project string) []string {
 
 func copyFile(project, path, rel string) string {
 	src, dst := filepath.Join(project, rel), filepath.Join(path, rel)
-	if filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, "../") {
+	if !filepath.IsLocal(rel) {
 		return "outside the project"
 	}
 	fi, err := os.Lstat(src)
@@ -101,7 +101,7 @@ func copyFile(project, path, rel string) string {
 func inside(root, dir string) bool {
 	r, err1 := filepath.EvalSymlinks(root)
 	d, err2 := filepath.EvalSymlinks(dir)
-	return err1 == nil && err2 == nil && (d == r || strings.HasPrefix(d, r+"/"))
+	return err1 == nil && err2 == nil && (d == r || strings.HasPrefix(d, r+string(filepath.Separator)))
 }
 
 func existing(dir string) string {

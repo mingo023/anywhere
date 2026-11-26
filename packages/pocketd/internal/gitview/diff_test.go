@@ -232,11 +232,15 @@ func TestLanguagesFollowTheDesktop(t *testing.T) {
 func TestAPathMayNotLeaveItsTree(t *testing.T) {
 	repo := scratch(t)
 	outside := t.TempDir()
-	os.Symlink(outside, filepath.Join(repo, "out"))
+	escapes := []string{"../x", "/etc/passwd", "a/../../x"}
+	// Making a symlink on Windows needs a privilege most accounts lack.
+	if os.Symlink(outside, filepath.Join(repo, "out")) == nil {
+		escapes = append(escapes, "out/secret")
+	}
 	if InTree(repo, "a", "src/new/x.go") != nil {
 		t.Fatal("refused an inside path")
 	}
-	for _, p := range []string{"../x", "/etc/passwd", "out/secret", "a/../../x"} {
+	for _, p := range escapes {
 		if InTree(repo, p) != ErrOutsideTree {
 			t.Errorf("%s allowed", p)
 		}

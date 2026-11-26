@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -361,7 +362,11 @@ func TestTailWaitsForFileAndPartialLines(t *testing.T) {
 	lines := make(chan string, 10)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	path := filepath.Join(dir, `[p] *?\`, "s.jsonl")
+	name := `[p] *?\`
+	if runtime.GOOS == "windows" {
+		name = `[p]` // Windows forbids * ? \ in a name.
+	}
+	path := filepath.Join(dir, name, "s.jsonl")
 	go Tail(ctx, path, func(b []byte) { lines <- string(b) })
 
 	time.Sleep(3 * poll)

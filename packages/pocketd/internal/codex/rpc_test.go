@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +24,12 @@ func (r *recorder) Request(id json.RawMessage, method string, _ json.RawMessage)
 }
 
 func sock(t *testing.T) string {
-	dir, _ := os.MkdirTemp("/tmp", "cx")
+	// /tmp keeps a Mac socket path under its 104-byte limit; Windows has no /tmp.
+	base := "/tmp"
+	if runtime.GOOS == "windows" {
+		base = ""
+	}
+	dir, _ := os.MkdirTemp(base, "cx")
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	return filepath.Join(dir, "s.Sock")
 }

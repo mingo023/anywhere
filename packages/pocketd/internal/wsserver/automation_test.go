@@ -67,16 +67,16 @@ func TestSavingATicketOrAnAutomationInNoProjectAnswersTheUnknownProjectCodeAndSa
 	ticket := `"provider":"claude","title":"t","prompt":"p","folder":`
 	auto := `"provider":"claude","name":"a","prompt":"p","enabled":true,"schedule":{"kind":"interval","everyMin":60},"folder":`
 	for id, raw := range map[string]string{
-		"b1": `{"type":"board.save","id":"b1","ticket":{` + ticket + `"` + elsewhere + `"}}`,
-		"a1": `{"type":"automation.save","id":"a1","automation":{` + auto + `"` + elsewhere + `"}}`,
+		"b1": `{"type":"board.save","id":"b1","ticket":{` + ticket + q(elsewhere) + `}}`,
+		"a1": `{"type":"automation.save","id":"a1","automation":{` + auto + q(elsewhere) + `}}`,
 	} {
 		p.send(raw)
 		if m := p.answer(id); m["type"] != "error" || m["code"] != "unknown_project" {
 			t.Errorf("%s: %v", id, m)
 		}
 	}
-	p.send(`{"type":"board.save","id":"b2","ticket":{` + ticket + `"` + project + `"}}`)
-	p.send(`{"type":"automation.save","id":"a2","automation":{` + auto + `"` + project + `"}}`)
+	p.send(`{"type":"board.save","id":"b2","ticket":{` + ticket + q(project) + `}}`)
+	p.send(`{"type":"automation.save","id":"a2","automation":{` + auto + q(project) + `}}`)
 	for _, id := range []string{"b2", "a2"} {
 		if m := p.answer(id); m["type"] != "ack" {
 			t.Errorf("%s: %v", id, m)

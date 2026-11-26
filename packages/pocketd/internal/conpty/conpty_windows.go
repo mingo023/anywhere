@@ -101,6 +101,9 @@ func create(hpc windows.Handle, argv []string, dir string, env []string) (*windo
 	}
 	si := &windows.StartupInfoEx{ProcThreadAttributeList: attrs.List()}
 	si.Cb = uint32(unsafe.Sizeof(*si))
+	// Without it, a child of a pocketd whose own stdio is redirected (a log file, a test's pipe) writes there
+	// instead of to the pseudoconsole, and never reads what's typed.
+	si.Flags = windows.STARTF_USESTDHANDLES
 	cmdline, err := windows.UTF16PtrFromString(windows.ComposeCommandLine(argv))
 	if err != nil {
 		return nil, err

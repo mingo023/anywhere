@@ -3,6 +3,7 @@ package claude
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -39,6 +40,7 @@ func TestInProjectsAcceptsOnlyTranscriptsUnderProjects(t *testing.T) {
 func TestInProjectsDefaultsToTheHomeClaudeDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	os.MkdirAll(filepath.Join(home, ".claude", "projects", "-w"), 0o700)
 	os.WriteFile(filepath.Join(home, ".claude", "projects", "-w", "s1.jsonl"), nil, 0o600)
 	cfg, _ := projects(t)
@@ -61,9 +63,11 @@ func TestSessionsAreFoundUnderTheResolvedFolderClaudeNamesThem(t *testing.T) {
 	real, _ := filepath.EvalSymlinks(t.TempDir())
 	os.MkdirAll(filepath.Join(real, "my_repo.v2"), 0o700)
 	link := filepath.Join(t.TempDir(), "link")
-	os.Symlink(real, link)
+	if err := os.Symlink(real, link); err != nil && runtime.GOOS == "windows" {
+		t.Skip("a symlink needs Developer Mode on Windows")
+	}
 	dir := filepath.Join(cfg, "projects", strings.Map(func(r rune) rune {
-		if r == '/' || r == '_' || r == '.' {
+		if r == '/' || r == '\\' || r == ':' || r == '_' || r == '.' {
 			return '-'
 		}
 		return r

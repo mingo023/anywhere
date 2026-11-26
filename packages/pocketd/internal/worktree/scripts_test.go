@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -69,6 +70,9 @@ func writeScript(t *testing.T, dir string) string {
 }
 
 func TestARepoWithoutConfigRunsItsSetupScriptTheWorktreesFirst(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a setup script never runs on Windows, where sessions run PowerShell")
+	}
 	p, tree := t.TempDir(), t.TempDir()
 	inProject := writeScript(t, p)
 	if got, want := RepoSetup(p, tree), "bash '"+inProject+"'"; got != want {
@@ -90,6 +94,9 @@ func TestTheConfigsSetupWinsOverTheSetupScript(t *testing.T) {
 }
 
 func TestTheSetupScriptsPathIsQuotedForTheShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a setup script never runs on Windows, where sessions run PowerShell")
+	}
 	p := filepath.Join(t.TempDir(), "it's here")
 	path := writeScript(t, p)
 	got := RepoSetup(p, t.TempDir())

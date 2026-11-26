@@ -25,7 +25,7 @@ func Write(path string, data []byte, perm os.FileMode) error {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Rename(f.Name(), path)
+		err = rename(f.Name(), path)
 	}
 	return err
 }

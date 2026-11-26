@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,9 +17,14 @@ import (
 )
 
 // sockPath is short enough for a unix socket on macOS; t.TempDir() isn't.
+// Windows has no /tmp, and its temp dir is short enough.
 func sockPath(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "pk")
+	root := "/tmp"
+	if runtime.GOOS == "windows" {
+		root = ""
+	}
+	dir, err := os.MkdirTemp(root, "pk")
 	if err != nil {
 		t.Fatal(err)
 	}

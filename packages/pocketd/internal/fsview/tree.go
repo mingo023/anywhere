@@ -57,7 +57,8 @@ func Join(root, rel string) (string, error) {
 	if rel == "" {
 		return root, nil
 	}
-	if filepath.IsAbs(rel) || strings.ContainsRune(rel, 0) {
+	// Not IsAbs: on Windows "/etc/passwd" isn't absolute, and "NUL" or "C:x" aren't paths in the tree.
+	if !filepath.IsLocal(rel) || strings.ContainsRune(rel, 0) {
 		return "", errOutsideTree
 	}
 	for part := range strings.SplitSeq(filepath.ToSlash(rel), "/") {
@@ -90,5 +91,5 @@ func existing(p string) (string, error) {
 }
 
 func within(p, root string) bool {
-	return p == root || strings.HasPrefix(p, strings.TrimSuffix(root, "/")+"/")
+	return p == root || strings.HasPrefix(p, strings.TrimSuffix(root, string(filepath.Separator))+string(filepath.Separator))
 }

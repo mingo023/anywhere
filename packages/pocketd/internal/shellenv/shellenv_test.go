@@ -36,14 +36,6 @@ func TestParseRejectsAMissingEndSentinel(t *testing.T) {
 	}
 }
 
-func TestBaseKeepsTheAccountNotTheLaunchingTerminal(t *testing.T) {
-	got := Base([]string{"HOME=/h", "USER=u", "TMUX=/tmp/t", "PATH=/somewhere", "TERM=tmux-256color", "POCKETD_SOCK=/s"}, "/bin/zsh")
-	want := []string{"HOME=/h", "USER=u", "LANG=en_US.UTF-8", "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "SHELL=/bin/zsh", "TERM=xterm-256color", "COLORTERM=truecolor", "TERM_PROGRAM=ghostty"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("%q", got)
-	}
-}
-
 func home(t *testing.T, files map[string]string) string {
 	t.Helper()
 	dir := t.TempDir()

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -20,11 +21,15 @@ func Trusted(claudeJSON []byte, cwd, canonical, toplevel string) bool {
 	if json.Unmarshal(claudeJSON, &cfg) != nil {
 		return false
 	}
-	if canonical != "" && cfg.Projects[canonical].Accepted {
+	// claude on Windows keys a folder with forward slashes.
+	accepted := func(dir string) bool {
+		return cfg.Projects[dir].Accepted || cfg.Projects[filepath.ToSlash(dir)].Accepted
+	}
+	if canonical != "" && accepted(canonical) {
 		return true
 	}
 	for dir := filepath.Clean(cwd); ; dir = filepath.Dir(dir) {
-		if cfg.Projects[dir].Accepted {
+		if accepted(dir) {
 			return true
 		}
 		if dir == toplevel || dir == filepath.Dir(dir) {
@@ -43,6 +48,9 @@ func trustedAt(env []string, cwd string) bool {
 	if dir == "" {
 		dir = lookup(env, "HOME")
 	}
+	if dir == "" {
+		dir = lookup(env, "USERPROFILE")
+	}
 	raw, _ := os.ReadFile(filepath.Join(dir, ".claude.json"))
 	if real, err := filepath.EvalSymlinks(cwd); err == nil {
 		cwd = real
@@ -59,13 +67,14 @@ func revParse(cwd, flag string) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	return filepath.FromSlash(strings.TrimSpace(string(out)))
 }
 
+// lookup reads key from env, in any case on Windows, whose env names are spelled "Path" as often as "PATH".
 func lookup(env []string, key string) string {
 	v := ""
 	for _, kv := range env {
-		if k, val, ok := strings.Cut(kv, "="); ok && k == key {
+		if k, val, ok := strings.Cut(kv, "="); ok && (k == key || runtime.GOOS == "windows" && strings.EqualFold(k, key)) {
 			v = val
 		}
 	}

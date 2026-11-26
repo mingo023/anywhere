@@ -129,7 +129,7 @@ func project(f registry.File, cwd string) (string, Location, bool) {
 		switch {
 		case isRepo && inRepo && l.Common == at.Common:
 			return p, at, true
-		case !isRepo && (cwd == p || strings.HasPrefix(cwd, p+"/")):
+		case !isRepo && (cwd == p || strings.HasPrefix(cwd, p+string(filepath.Separator))):
 			return p, Location{}, true
 		}
 	}

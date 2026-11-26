@@ -41,7 +41,7 @@ fn candidates(written: &str, cwd: &str, touched: Vec<String>, repo: impl FnOnce(
     if let Some(latest) = naming(written, touched).into_iter().next() {
         return vec![latest];
     }
-    naming(written, repo()).into_iter().map(|p| Path::new(cwd).join(p).to_string_lossy().into_owned()).collect()
+    naming(written, repo()).into_iter().map(|p| crate::util::join(cwd, &p)).collect()
 }
 
 impl Desktop {

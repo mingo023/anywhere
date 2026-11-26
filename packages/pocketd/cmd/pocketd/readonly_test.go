@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -93,8 +94,11 @@ func TestTheReadOnlyCommandsSeeEmptyStateAndMakeNoDatabaseBeforeADaemonRan(t *te
 	if err := pushStatus(home, nil, &status, time.Now()); err != nil || !strings.Contains(status.String(), "No phone is registered") {
 		t.Fatalf("push status %v %s", err, status.String())
 	}
-	if err := ownerPair(home, []string{"--json"}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "pocketd config set ownerListen") {
-		t.Fatalf("owner pair says %v", err)
+	// On Windows ownerListen is on by default, so owner pair mints a token there by design.
+	if runtime.GOOS != "windows" {
+		if err := ownerPair(home, []string{"--json"}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "pocketd config set ownerListen") {
+			t.Fatalf("owner pair says %v", err)
+		}
 	}
 	if _, err := os.Stat(statedb.Path(home)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("a read made %s: %v", statedb.Path(home), err)

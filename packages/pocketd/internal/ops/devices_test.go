@@ -2,6 +2,7 @@ package ops
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,9 @@ func TestTheOwnerListsRenamesAndRevokesDevices(t *testing.T) {
 }
 
 func TestAProcessInsideATerminalCantManageDevices(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs nc -U, which Windows lacks")
+	}
 	srv, _ := withDevices(t)
 	sock := serve(t, srv)
 	c := dial(t, sock)

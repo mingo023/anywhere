@@ -10,7 +10,7 @@ import (
 )
 
 func run(sock, id, cmd string, args []string) (int, error) {
-	c, err := ops.Dial(sock)
+	c, err := dial(sock)
 	if err != nil {
 		return 1, err
 	}

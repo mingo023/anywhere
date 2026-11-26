@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode"
@@ -49,12 +50,18 @@ func ValidResume(argv []string) *Failure {
 		}
 	}
 	switch {
-	case len(argv) == 0 || argv[0] == "" || strings.Contains(argv[0], "/"):
+	case len(argv) == 0 || argv[0] == "" || !bare(argv[0]):
 		return invalidResume("command")
 	case len(argv) > 64 || total > 8<<10:
 		return invalidResume("too long")
 	}
 	return nil
+}
+
+// bare is whether cmd is a name to look up rather than a file's path, which on Windows
+// a backslash or a drive also makes it.
+func bare(cmd string) bool {
+	return !strings.ContainsAny(cmd, "/"+string(filepath.Separator)) && filepath.VolumeName(cmd) == ""
 }
 
 func invalidResume(detail string) *Failure {

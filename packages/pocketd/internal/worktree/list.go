@@ -78,9 +78,9 @@ func marked(tree string) bool {
 func Claim(f registry.File, used []string) {
 	for _, p := range f.Projects {
 		ws, _ := List(p)
-		dir := resolved(Dir(f, p)) + "/"
+		dir := resolved(Dir(f, p)) + string(filepath.Separator)
 		for _, w := range ws {
-			holds := func(u string) bool { return u == w.Path || strings.HasPrefix(u, w.Path+"/") }
+			holds := func(u string) bool { return u == w.Path || strings.HasPrefix(u, w.Path+string(filepath.Separator)) }
 			if !w.Main && !w.Made && strings.HasPrefix(resolved(w.Path), dir) && slices.ContainsFunc(used, holds) {
 				claim(w.Path)
 			}
@@ -128,7 +128,8 @@ func parse(porcelain string) []Worktree {
 		var w Worktree
 		for _, l := range strings.Split(block, "\n") {
 			if p, ok := strings.CutPrefix(l, "worktree "); ok {
-				w.Path, w.Name = p, filepath.Base(p)
+				w.Path = filepath.FromSlash(p)
+				w.Name = filepath.Base(w.Path)
 			} else if b, ok := strings.CutPrefix(l, "branch "); ok {
 				w.Branch = strings.TrimPrefix(b, "refs/heads/")
 			}
@@ -195,7 +196,7 @@ func AgentMade(f registry.File, uses []Use) []string {
 		cwd := resolved(u.Cwd)
 		for _, w := range listed[project] {
 			at := MadeAt(w.Path)
-			theirs := cwd == w.Path || strings.HasPrefix(cwd, w.Path+"/")
+			theirs := cwd == w.Path || strings.HasPrefix(cwd, w.Path+string(filepath.Separator))
 			if theirs && !w.Main && w.Made && at <= u.Started && at >= u.Started-madeFor.Milliseconds() &&
 				!slices.Contains(f.Tracked, w.Path) && !slices.Contains(out, w.Path) {
 				out = append(out, w.Path)

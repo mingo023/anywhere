@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
@@ -23,7 +24,11 @@ func TestStatusReadsRenamesSpacesUnicodeAndBinaries(t *testing.T) {
 	write(t, repo, "sp ace é.txt", "x\ny\n")
 	write(t, repo, "logo.bin", "\x00\x03")
 	write(t, repo, "shot.png", "png")
-	write(t, repo, "dir/tab\tname.md", "t\n")
+	// Windows filenames can't hold a tab.
+	tab := runtime.GOOS != "windows"
+	if tab {
+		write(t, repo, "dir/tab\tname.md", "t\n")
+	}
 	os.Remove(filepath.Join(repo, "a"))
 
 	st, err := service().Status(repo, 0, 0)
@@ -52,10 +57,15 @@ func TestStatusReadsRenamesSpacesUnicodeAndBinaries(t *testing.T) {
 		{"shot.png", "", "?", false, true, 0, 0, false, true},
 		{"sp ace é.txt", "", "M", false, true, 1, 0, true, false},
 	}
+	files := 6
+	if !tab {
+		want = append(want[:1], want[2:]...)
+		files = 5
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got  %+v\nwant %+v", got, want)
 	}
-	if st.Totals != (proto.GitTotals{Files: 6, Added: 2, Removed: 1, Staged: 1, Unstaged: 6}) || st.Branch != "main" || st.Rev == "" {
+	if st.Totals != (proto.GitTotals{Files: files, Added: 2, Removed: 1, Staged: 1, Unstaged: files}) || st.Branch != "main" || st.Rev == "" {
 		t.Fatalf("%+v", st)
 	}
 }

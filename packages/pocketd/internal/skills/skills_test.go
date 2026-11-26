@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -59,10 +60,10 @@ func TestEnabledPluginsInstalledForTheUserOrThisProjectAddTheirSkillsUnderTheirN
 	write(t, filepath.Join(off, "skills", "off", "SKILL.md"), "")
 	write(t, filepath.Join(elsewhere, "skills", "elsewhere", "SKILL.md"), "")
 	write(t, filepath.Join(config, "plugins", "installed_plugins.json"), `{"version":2,"plugins":{
-		"skill-creator@official":[{"scope":"user","installPath":"`+user+`"}],
-		"pr@official":[{"scope":"project","installPath":"`+project+`","projectPath":"`+cwd+`"}],
-		"off@official":[{"scope":"user","installPath":"`+off+`"}],
-		"other@official":[{"scope":"local","installPath":"`+elsewhere+`","projectPath":"`+other+`"}]}}`)
+		"skill-creator@official":[{"scope":"user","installPath":`+js(user)+`}],
+		"pr@official":[{"scope":"project","installPath":`+js(project)+`,"projectPath":`+js(cwd)+`}],
+		"off@official":[{"scope":"user","installPath":`+js(off)+`}],
+		"other@official":[{"scope":"local","installPath":`+js(elsewhere)+`,"projectPath":`+js(other)+`}]}}`)
 	write(t, filepath.Join(config, "settings.json"), `{"enabledPlugins":{"skill-creator@official":true,"off@official":true,"other@official":true}}`)
 	write(t, filepath.Join(cwd, ".claude", "settings.json"), `{"enabledPlugins":{"pr@official":true,"off@official":false}}`)
 	list := Scan("claude", config, t.TempDir(), cwd)
@@ -145,4 +146,10 @@ func TestTheStoreKeepsEachScanApart(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(got, []proto.Command{{Name: "x", Description: "d", ArgumentHint: "h"}}) {
 		t.Fatalf("a = %v, %v", got, err)
 	}
+}
+
+// js is s as a JSON string, so a Windows path's backslashes stay valid JSON.
+func js(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }

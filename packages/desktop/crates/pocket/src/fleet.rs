@@ -531,7 +531,7 @@ impl Desktop {
             f.focus(window, cx);
         });
         cx.spawn(async |this, cx| {
-            let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+            let home = std::env::home_dir().unwrap_or_default();
             let found = cx.background_executor().spawn(async move { hosts::ssh_config::aliases(&home) }).await;
             let _ = this.update(cx, |d, cx| {
                 d.fleet.form.suggestions = found;

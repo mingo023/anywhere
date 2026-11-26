@@ -19,6 +19,7 @@ func TestTheDryRunRefusesAFileItCantRead(t *testing.T) {
 }
 
 func TestTheDryRunAcceptsTheLockItKeepsAcrossExec(t *testing.T) {
+	skipHandoffOnWindows(t)
 	home := t.TempDir()
 	held, err := lock.Acquire(home)
 	if err != nil {

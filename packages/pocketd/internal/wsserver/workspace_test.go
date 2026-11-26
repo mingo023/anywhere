@@ -127,7 +127,7 @@ func TestAWorkspacePhoneGetsTheProjectListAfterHelloThenAPushForEachChange(t *te
 	if m["type"] != "project.list" || m["id"] != nil || !reflect.DeepEqual(treePaths(m), []string{b.project}) {
 		t.Fatalf("%v", m)
 	}
-	p.send(`{"type":"worktree.create","id":"wc","requestId":"r1","project":"` + b.project + `","name":"calm-otter","setup":false}`)
+	p.send(`{"type":"worktree.create","id":"wc","requestId":"r1","project":` + q(b.project) + `,"name":"calm-otter","setup":false}`)
 	created, before := p.untilType("worktree.created")
 	wt := filepath.Join(b.root, "pocket", "calm-otter")
 	if created["id"] != "wc" || created["requestId"] != "r1" || created["path"] != wt || created["branch"] != "calm-otter" {
@@ -165,7 +165,7 @@ func TestAWorktreeCreateSentAgainAfterTheLinkDropsGetsTheFirstWorktreeNotASecond
 	_, _, p := local(t, aPhone, withWorkspace(t, &b))
 	helloWith(p, proto.CapWorkspace)
 	create := func(id, name string) string {
-		return `{"type":"worktree.create","id":"` + id + `","requestId":"r1","project":"` + b.project + `","name":"` + name + `","setup":false}`
+		return `{"type":"worktree.create","id":"` + id + `","requestId":"r1","project":` + q(b.project) + `,"name":"` + name + `","setup":false}`
 	}
 	p.send(create("w1", "calm-otter"))
 	p.ws.CloseNow()
@@ -198,7 +198,7 @@ func TestANewWorktreeRunsTheProjectsSetupInATerminalOfItsOwn(t *testing.T) {
 	os.WriteFile(filepath.Join(b.project, ".anywhere", "config.json"), []byte(`{"setup":["touch set-up"]}`), 0o644)
 	helloWith(p, proto.CapWorkspace)
 	p.recv()
-	p.send(`{"type":"worktree.create","id":"wc","requestId":"r1","project":"` + b.project + `","name":"with-setup"}`)
+	p.send(`{"type":"worktree.create","id":"wc","requestId":"r1","project":` + q(b.project) + `,"name":"with-setup"}`)
 	created, before := p.untilType("worktree.created")
 	if !strings.Contains(stepsOf(before), "setup") {
 		t.Fatalf("no setup step: %v", before)
@@ -235,10 +235,10 @@ func TestANewWorktreeNeedsAFreeNameInAKnownProject(t *testing.T) {
 	helloWith(p, proto.CapWorkspace)
 	p.recv()
 	for raw, code := range map[string]string{
-		`{"type":"worktree.create","id":"x","requestId":"r1","project":"` + b.project + `","name":"main"}`:     "worktree_exists",
-		`{"type":"worktree.create","id":"x","requestId":"r2","project":"` + b.project + `","name":"no good"}`:  "invalid_name",
-		`{"type":"worktree.create","id":"x","requestId":"r3","project":"/elsewhere","name":"calm-otter"}`:      "unknown_project",
-		`{"type":"worktree.create","id":"x","requestId":"r4","project":"` + b.project + `","name":"","pr":12}`: "",
+		`{"type":"worktree.create","id":"x","requestId":"r1","project":` + q(b.project) + `,"name":"main"}`:     "worktree_exists",
+		`{"type":"worktree.create","id":"x","requestId":"r2","project":` + q(b.project) + `,"name":"no good"}`:  "invalid_name",
+		`{"type":"worktree.create","id":"x","requestId":"r3","project":"/elsewhere","name":"calm-otter"}`:       "unknown_project",
+		`{"type":"worktree.create","id":"x","requestId":"r4","project":` + q(b.project) + `,"name":"","pr":12}`: "",
 	} {
 		p.send(raw)
 		m, _ := p.untilType("error")
@@ -259,7 +259,7 @@ func TestDeletingAWorktreeClosesItsTerminalsForgetsItsNameAndMayDeleteItsBranch(
 	in, _ := b.terms.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: filepath.Join(wt)})
 	out, _ := b.terms.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: b.project})
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + wt + `","deleteBranch":true}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(wt) + `,"deleteBranch":true}`)
 	if m, _ := p.untilType("ack"); m["id"] != "wd" {
 		t.Fatalf("%v", m)
 	}
@@ -296,11 +296,11 @@ func TestAWorktreeHandedOffUnderAnotherMacsProjectNameCanBeDeleted(t *testing.T)
 		t.Fatal(err)
 	}
 	helloWith(p, proto.CapWorkspace, proto.CapWorktrees)
-	p.send(`{"type":"worktree.inspect","id":"wi","path":"` + wt + `"}`)
+	p.send(`{"type":"worktree.inspect","id":"wi","path":` + q(wt) + `}`)
 	if m := p.reply("wi"); m["type"] != "worktree.inspect" {
 		t.Fatalf("inspect: %v", m)
 	}
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + wt + `"}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(wt) + `}`)
 	if m := p.reply("wd"); m["type"] != "ack" {
 		t.Fatalf("delete: %v", m)
 	}
@@ -349,14 +349,14 @@ func TestDeletingAWorktreeTakesTheOnesAnywhereMadeForItsSessionsSubagents(t *tes
 	in, _ := b.terms.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: tree("child")})
 	childTerm = in.Info().ID
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree("parent") + `","deleteBranch":true}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(tree("parent")) + `,"deleteBranch":true}`)
 	if m := p.reply("wd"); m["type"] != "error" || m["code"] != proto.CodeUnpushedCommits || m["count"] != 1.0 {
 		t.Fatalf("the child's commit didn't refuse the delete: %v", m)
 	}
 	if _, err := os.Stat(tree("parent")); err != nil {
 		t.Fatalf("the parent's folder went: %v", err)
 	}
-	p.send(`{"type":"worktree.delete","id":"wf","path":"` + tree("parent") + `","deleteBranch":true,"force":true}`)
+	p.send(`{"type":"worktree.delete","id":"wf","path":` + q(tree("parent")) + `,"deleteBranch":true,"force":true}`)
 	if m := p.reply("wf"); m["type"] != "ack" {
 		t.Fatalf("%v", m)
 	}
@@ -423,14 +423,14 @@ func TestAHostThatCannotDeleteASubagentsWorktreeRefusesTheDeleteUnlessForced(t *
 		t.Fatal(err)
 	}
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree + `"}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(tree) + `}`)
 	if m := p.reply("wd"); m["type"] != "error" || m["code"] != proto.CodeUnpushedCommits || m["count"] != 2.0 {
 		t.Fatalf("the host's refusal didn't reach the phone whole: %v", m)
 	}
 	if _, err := os.Stat(tree); err != nil {
 		t.Fatalf("the parent's folder went: %v", err)
 	}
-	p.send(`{"type":"worktree.delete","id":"wf","path":"` + tree + `","force":true}`)
+	p.send(`{"type":"worktree.delete","id":"wf","path":` + q(tree) + `,"force":true}`)
 	if m := p.reply("wf"); m["type"] != "ack" {
 		t.Fatalf("%v", m)
 	}
@@ -482,7 +482,7 @@ func TestAWorktreeWhoseLineageCantBeReadStaysAsWhatWouldNameItsSubagents(t *test
 		t.Fatal("an unread lineage was answered as none")
 	}
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree + `","force":true}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(tree) + `,"force":true}`)
 	if m := p.reply("wd"); m["type"] != "error" {
 		t.Fatalf("deleted with its lineage unread: %v", m)
 	}
@@ -536,7 +536,7 @@ func TestAWorktreeMadeAfterItsSubagentStartedIsSomeoneElsesAndStays(t *testing.T
 	}
 	started = worktree.MadeAt(tree) - 1
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree + `","subagents":["sub"]}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(tree) + `,"subagents":["sub"]}`)
 	if m := p.reply("wd"); m["type"] != "error" || m["code"] != "unknown_worktree" {
 		t.Fatalf("a newer worktree at the path wasn't refused: %v", m)
 	}
@@ -544,11 +544,11 @@ func TestAWorktreeMadeAfterItsSubagentStartedIsSomeoneElsesAndStays(t *testing.T
 		t.Fatalf("the newer worktree went: %v", err)
 	}
 	started++
-	p.send(`{"type":"worktree.delete","id":"wp","path":"` + tree + `","subagents":["pruned"]}`)
+	p.send(`{"type":"worktree.delete","id":"wp","path":` + q(tree) + `,"subagents":["pruned"]}`)
 	if m := p.reply("wp"); m["type"] != "error" || m["code"] != "unknown_worktree" {
 		t.Fatalf("a session the host no longer knows proved it theirs: %v", m)
 	}
-	p.send(`{"type":"worktree.delete","id":"wf","path":"` + tree + `","subagents":["sub"]}`)
+	p.send(`{"type":"worktree.delete","id":"wf","path":` + q(tree) + `,"subagents":["sub"]}`)
 	if m := p.reply("wf"); m["type"] != "ack" {
 		t.Fatalf("%v", m)
 	}
@@ -579,7 +579,7 @@ func TestASubagentsWorktreeSomeoneElseWorksInStaysWhenItsParentsMacDeletesIt(t *
 	ours, _ := b.terms.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: tree})
 	mine = ours.Info().ID
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree + `","subagents":["sub"]}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(tree) + `,"subagents":["sub"]}`)
 	if m := p.reply("wd"); m["type"] != "error" || m["code"] != "worktree_in_use" {
 		t.Fatalf("another's terminal didn't keep it: %v", m)
 	}
@@ -588,7 +588,7 @@ func TestASubagentsWorktreeSomeoneElseWorksInStaysWhenItsParentsMacDeletesIt(t *
 	}
 	theirs.Close()
 	<-theirs.Done()
-	p.send(`{"type":"worktree.delete","id":"wf","path":"` + tree + `","subagents":["sub"]}`)
+	p.send(`{"type":"worktree.delete","id":"wf","path":` + q(tree) + `,"subagents":["sub"]}`)
 	if m := p.reply("wf"); m["type"] != "ack" {
 		t.Fatalf("its subagent's own terminal kept it: %v", m)
 	}
@@ -618,7 +618,7 @@ func TestASubagentsWorktreeWithSomeoneElsesShellStaysWhenItsParentsGoes(t *testi
 	agent, _ := b.terms.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: tree("child")})
 	childTerm = agent.Info().ID
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree("parent") + `"}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(tree("parent")) + `}`)
 	if m := p.reply("wd"); m["type"] != "ack" {
 		t.Fatalf("%v", m)
 	}
@@ -651,11 +651,11 @@ func TestACommitOnlyASubagentsDetachedHeadHoldsRefusesTheDeleteUnlessForced(t *t
 	gitOut(t, tree("child"), "checkout", "-q", "--detach")
 	gitOut(t, tree("child"), "commit", "-q", "--allow-empty", "-m", "on the detached head alone")
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree("parent") + `"}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(tree("parent")) + `}`)
 	if m := p.reply("wd"); m["type"] != "error" || m["code"] != proto.CodeUnpushedCommits || m["count"] != 1.0 {
 		t.Fatalf("the detached commit didn't refuse the delete: %v", m)
 	}
-	p.send(`{"type":"worktree.delete","id":"wf","path":"` + tree("parent") + `","force":true}`)
+	p.send(`{"type":"worktree.delete","id":"wf","path":` + q(tree("parent")) + `,"force":true}`)
 	if m := p.reply("wf"); m["type"] != "ack" {
 		t.Fatalf("%v", m)
 	}
@@ -674,14 +674,14 @@ func TestDeletingABranchWithCommitsNowhereElseIsRefusedUnlessForced(t *testing.T
 	// A branch holding the first commit keeps it; only the second is on lone alone.
 	gitOut(t, b.project, "branch", "keeper", "lone~1")
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + wt + `","deleteBranch":true}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(wt) + `,"deleteBranch":true}`)
 	if m := p.reply("wd"); m["type"] != "error" || m["code"] != proto.CodeUnpushedCommits || m["count"] != 1.0 {
 		t.Fatalf("%v", m)
 	}
 	if _, err := os.Stat(wt); err != nil {
 		t.Fatalf("the folder went: %v", err)
 	}
-	p.send(`{"type":"worktree.delete","id":"wf","path":"` + wt + `","deleteBranch":true,"force":true}`)
+	p.send(`{"type":"worktree.delete","id":"wf","path":` + q(wt) + `,"deleteBranch":true,"force":true}`)
 	if m := p.reply("wf"); m["type"] != "ack" {
 		t.Fatalf("%v", m)
 	}
@@ -696,7 +696,7 @@ func TestADeletedWorktreeKeepsItsBranchUnlessAsked(t *testing.T) {
 	wt := filepath.Join(b.root, "pocket", "keep")
 	gitOut(t, b.project, "worktree", "add", "-q", "-b", "keep", wt)
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + wt + `"}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(wt) + `}`)
 	p.untilType("ack")
 	if gitOut(t, b.project, "branch", "--list", "keep") == "" {
 		t.Fatal("the branch went")
@@ -708,7 +708,7 @@ func TestTheMainWorktreeIsNeverDeletedAndItsTerminalsStayOpen(t *testing.T) {
 	_, _, p := local(t, aPhone, withWorkspace(t, &b))
 	term, _ := b.terms.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: b.project})
 	helloWith(p, proto.CapWorkspace)
-	p.send(`{"type":"worktree.delete","id":"wd","path":"` + b.project + `"}`)
+	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(b.project) + `}`)
 	if m, _ := p.untilType("error"); m["code"] != proto.CodeMainWorktree || m["id"] != "wd" {
 		t.Fatalf("%v", m)
 	}
@@ -736,7 +736,7 @@ func TestBranchesAreListedForATreeOnly(t *testing.T) {
 	if m, _ := p.untilType("error"); m["code"] != proto.CodeNotATree {
 		t.Fatalf("%v", m)
 	}
-	p.send(`{"type":"branch.list","id":"bl","tree":"` + b.project + `"}`)
+	p.send(`{"type":"branch.list","id":"bl","tree":` + q(b.project) + `}`)
 	m, _ := p.untilType("branch.list")
 	if m["id"] != "bl" || m["current"] != "main" || len(m["local"].([]any)) != 2 || !reflect.DeepEqual(m["remote"], []any{}) {
 		t.Fatalf("%v", m)
@@ -779,7 +779,7 @@ func TestAPhoneManagesLocalsWithSpawnOnceItSpeaksWorkspaceV1(t *testing.T) {
 		var b bench
 		_, _, p := local(t, c.who, withWorkspace(t, &b))
 		helloWith(p, c.caps...)
-		p.send(`{"type":"local.create","id":"lc","localId":"l1","project":"` + b.project + `","name":"Review"}`)
+		p.send(`{"type":"local.create","id":"lc","localId":"l1","project":` + q(b.project) + `,"name":"Review"}`)
 		want := "ack"
 		if c.code != "" {
 			want = "error"
@@ -831,7 +831,7 @@ func TestAWorkspacePhoneNamesAWorktreeAndOneWithoutTheCapMayNot(t *testing.T) {
 		var b bench
 		_, _, p := local(t, aPhone, withWorkspace(t, &b))
 		helloWith(p, caps...)
-		p.send(`{"type":"worktree.rename","id":"wr","path":"` + b.project + `","title":"Fix login"}`)
+		p.send(`{"type":"worktree.rename","id":"wr","path":` + q(b.project) + `,"title":"Fix login"}`)
 		want := "error"
 		if len(caps) == 2 {
 			want = "ack"

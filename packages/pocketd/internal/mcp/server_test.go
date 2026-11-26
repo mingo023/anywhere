@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -560,12 +561,13 @@ func (s storeSchedules) Get(id string) (proto.Automation, bool) {
 }
 
 func TestScheduleTaskRefusesAFolderInNoProjectAndSavesOneInAProject(t *testing.T) {
+	repo := filepath.Join(filepath.VolumeName(os.TempDir()), "/repo")
 	db := dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db"))
 	tx, err := db.Begin()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.Insert(tx, registry.State{Projects: []proto.RegistryProject{{ID: "p1", Path: "/repo"}}}); err != nil {
+	if err := registry.Insert(tx, registry.State{Projects: []proto.RegistryProject{{ID: "p1", Path: repo}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -582,7 +584,7 @@ func TestScheduleTaskRefusesAFolderInNoProjectAndSavesOneInAProject(t *testing.T
 	for _, c := range []struct {
 		cwd, tree string
 		refused   bool
-	}{{"/nowhere", "", true}, {"/repo/src", "/repo", false}} {
+	}{{"/nowhere", "", true}, {filepath.Join(repo, "src"), repo, false}} {
 		parent := proto.AgentSummary{ID: "parent", TerminalID: "t", Provider: "claude", Access: "edits", Status: "working", Cwd: c.cwd, Worktree: "repo", Tree: c.tree}
 		k := NewToolkit(&host{parent: parent, sched: storeSchedules{store}})
 		out, _ := k.Call(context.Background(), Grant{Terminal: "t"}, "schedule_task", json.RawMessage(`{"prompt":"nightly tests","schedule":{"kind":"interval","everyMin":60}}`))
@@ -593,7 +595,7 @@ func TestScheduleTaskRefusesAFolderInNoProjectAndSavesOneInAProject(t *testing.T
 			t.Errorf("%s: %v", c.cwd, out)
 		}
 	}
-	if autos, _ := store.Snapshot(); len(autos) != 1 || autos[0].Folder != "/repo" {
+	if autos, _ := store.Snapshot(); len(autos) != 1 || autos[0].Folder != repo {
 		t.Fatalf("saved %+v", autos)
 	}
 }

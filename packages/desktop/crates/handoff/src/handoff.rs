@@ -203,7 +203,8 @@ pub(crate) mod testing {
         let dir = std::env::temp_dir().join(format!("handoff-{name}-{}", std::process::id()));
         _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        dir.canonicalize().unwrap()
+        // On Windows it would come back as `\\?\C:\…`, which git reads as a host name.
+        if cfg!(windows) { dir } else { dir.canonicalize().unwrap() }
     }
 
     pub fn git(dir: &Path, args: &[&str]) -> String {

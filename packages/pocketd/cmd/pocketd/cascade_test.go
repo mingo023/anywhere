@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -67,7 +68,8 @@ func TestRemovingAProjectDeletesItsTicketsAutomationsRunsAndLocalsAndEverySubscr
 
 	select {
 	case raw := <-lists:
-		want := `{"type":"local.list","locals":[{"id":"l-` + filepath.Base(kept) + `","project":"` + kept + `","name":"Local"}]}`
+		keptJSON, _ := json.Marshal(kept)
+		want := `{"type":"local.list","locals":[{"id":"l-` + filepath.Base(kept) + `","project":` + string(keptJSON) + `,"name":"Local"}]}`
 		if string(raw) != want {
 			t.Errorf("got %s\nwant %s", raw, want)
 		}

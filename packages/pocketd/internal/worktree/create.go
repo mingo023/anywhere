@@ -119,7 +119,7 @@ func Containing(f registry.File, dir string) (string, bool) {
 	for _, p := range f.Projects {
 		for _, root := range []string{p, Dir(f, p), filepath.Join(home, ".worktrees", f.Name(p))} {
 			root = resolved(root)
-			if (dir == root || strings.HasPrefix(dir, root+"/")) && len(root) > depth {
+			if (dir == root || strings.HasPrefix(dir, root+string(filepath.Separator))) && len(root) > depth {
 				best, depth = p, len(root)
 			}
 		}

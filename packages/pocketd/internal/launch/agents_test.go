@@ -281,12 +281,11 @@ func TestAnAgentIsFoundByItsOwnCommandOrTheOneConfigNames(t *testing.T) {
 	l := launcher(t, `[]`)
 	env := os.Environ()
 	for provider, want := range map[string]string{"cursor": "cursor-agent", "antigravity": "agy", "pi": "pi"} {
-		if path, ok := l.find(provider, env); !ok || filepath.Base(path) != want {
+		if path, ok := l.find(provider, env); !ok || strings.TrimSuffix(filepath.Base(path), ".cmd") != want {
 			t.Fatalf("%s runs %q", provider, path)
 		}
 	}
-	custom := filepath.Join(t.TempDir(), "cursor-nightly")
-	os.WriteFile(custom, []byte("#!/bin/sh\n"), 0o755)
+	custom := program(t, filepath.Join(t.TempDir(), "cursor-nightly"), "", "")
 	l.set.Set("cursor.command", custom)
 	if path, _ := l.find("cursor", env); path != custom {
 		t.Fatalf("cursor runs %q", path)
@@ -316,7 +315,7 @@ func TestACommandNamedAsAnAgentIsItOnlyWhenItsHelpSaysSo(t *testing.T) {
 	}
 	bin, asked := filepath.SplitList(os.Getenv("PATH"))[0], filepath.Join(t.TempDir(), "asked")
 	for _, name := range []string{"fx", "pi", "omp"} {
-		os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\necho $0 >> "+asked+"\necho 'Usage: "+name+" file.json, --mode tree'\n"), 0o755)
+		program(t, filepath.Join(bin, name), "echo $0 >> "+asked+"\necho 'Usage: "+name+" file.json, --mode tree'", "@echo %0>>"+asked+"\r\n@echo Usage: "+name+" file.json, --mode tree")
 	}
 	l = launcher(t, `[]`)
 	for range 2 {
@@ -342,7 +341,8 @@ func TestACreateOfAnAgentThatNeverAttachesEndsOnceItRuns(t *testing.T) {
 	l := launcher(t, `[]`)
 	l.d = &daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New())}
 	t.Cleanup(func() { l.d.Terminals.CloseAll(0) })
-	term, err := l.d.Terminals.Spawn(terminal.Spec{Cmd: "/bin/sh", Args: []string{"-c", "sleep 30"}})
+	sleep, args := sleeper()
+	term, err := l.d.Terminals.Spawn(terminal.Spec{Cmd: sleep, Args: args})
 	if err != nil {
 		t.Fatal(err)
 	}

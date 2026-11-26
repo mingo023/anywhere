@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strconv"
 	"testing"
@@ -372,7 +373,8 @@ func TestTheListWritesEmptyCollectionsAndAnUnsetLaunchAbsent(t *testing.T) {
 	r := open(t, newDB(t))
 	r.AddProject(paths[0], nil)
 	raw, _ := json.Marshal(r.List())
-	want := `{"type":"registry.list","projects":[{"id":"` + r.Load().Repos[paths[0]].ID + `","path":"` + paths[0] + `","repo":{"name":"","color":0,"setup":"","teardown":"","dev_url":"","icon":null,"gh_account":"","accounts":{},"hidden":[]}}],"tracked":[],"settings":{"git":{"remote":"","commit_all":null,"force_with_lease":false},"access":"","worktree_root":""}}`
+	path, _ := json.Marshal(paths[0])
+	want := `{"type":"registry.list","projects":[{"id":"` + r.Load().Repos[paths[0]].ID + `","path":` + string(path) + `,"repo":{"name":"","color":0,"setup":"","teardown":"","dev_url":"","icon":null,"gh_account":"","accounts":{},"hidden":[]}}],"tracked":[],"settings":{"git":{"remote":"","commit_all":null,"force_with_lease":false},"access":"","worktree_root":""}}`
 	if string(raw) != want {
 		t.Fatalf("got %s", raw)
 	}
@@ -430,6 +432,9 @@ func TestAKeyOfDesktopJSONInAShapeItCantReadLosesOnlyItself(t *testing.T) {
 func TestAStateFileThatCantBeReadIsAnError(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root reads any file")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("mode 0 only marks a file read-only on Windows; it stays readable")
 	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state", "registry.json")

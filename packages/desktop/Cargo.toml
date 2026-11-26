@@ -92,6 +92,7 @@ tree-sitter-vue-next = "0.1.0"
 ttf-parser = "0.25"
 tungstenite = "0.26"
 uds_windows = "1.2"
+which = "8"
 wry = { version = "0.57", default-features = false, features = ["devtools"] }
 zstd = "0.13"
 

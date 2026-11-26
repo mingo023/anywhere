@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"pocketd/internal/agent"
 	"pocketd/internal/hub"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -33,7 +34,8 @@ func TestClaudeGetsItsTokenFromAPrivateFileNotArgv(t *testing.T) {
 		t.Fatalf("flags = %v", flags)
 	}
 	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0o600 {
+	// Windows has no mode bits.
+	if err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("config: %v, mode %v", err, info.Mode())
 	}
 	var cfg struct {

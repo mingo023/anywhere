@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -22,12 +23,19 @@ func TestCopyNeverOverwritesAndTakesOnlyPlainFilesInsideTheProject(t *testing.T)
 	p, dst, outside := t.TempDir(), t.TempDir(), t.TempDir()
 	os.WriteFile(filepath.Join(p, ".env"), []byte("A=1"), 0o600)
 	os.WriteFile(filepath.Join(p, ".env.local"), []byte("B=2"), 0o644)
-	os.Symlink(filepath.Join(p, ".env"), filepath.Join(p, ".env.link"))
+	// Making a symlink on Windows needs a privilege.
+	err := os.Symlink(filepath.Join(p, ".env"), filepath.Join(p, ".env.link"))
+	if err != nil && runtime.GOOS != "windows" {
+		t.Fatal(err)
+	}
+	links := err == nil
 	os.Mkdir(filepath.Join(p, ".env.d"), 0o755)
 	os.MkdirAll(filepath.Join(p, "sub"), 0o755)
 	os.WriteFile(filepath.Join(p, "sub", "deep.txt"), []byte("deep"), 0o644)
 	os.WriteFile(filepath.Join(outside, "secret"), []byte("s"), 0o600)
-	os.Symlink(outside, filepath.Join(p, "linked"))
+	if links {
+		os.Symlink(outside, filepath.Join(p, "linked"))
+	}
 	os.WriteFile(filepath.Join(p, ".worktreeinclude"), []byte("sub/deep.txt\n../x\n/etc/hosts\nlinked/secret\ngone.txt\n"), 0o600)
 	os.WriteFile(filepath.Join(dst, ".env.local"), []byte("mine"), 0o600)
 
@@ -37,13 +45,17 @@ func TestCopyNeverOverwritesAndTakesOnlyPlainFilesInsideTheProject(t *testing.T)
 	}
 	want := []string{".env.d: not a regular file", ".env.link: not a regular file", ".env.local: exists",
 		"../x: outside the project", "/etc/hosts: outside the project", "linked/secret: outside the project", "gone.txt: missing"}
+	if !links {
+		want = []string{".env.d: not a regular file", ".env.local: exists",
+			"../x: outside the project", "/etc/hosts: outside the project", "linked/secret: missing", "gone.txt: missing"}
+	}
 	if !reflect.DeepEqual(skipped, want) {
 		t.Errorf("skipped %q", skipped)
 	}
 	if raw, _ := os.ReadFile(filepath.Join(dst, ".env.local")); string(raw) != "mine" {
 		t.Errorf(".env.local = %q", raw)
 	}
-	if fi, err := os.Stat(filepath.Join(dst, ".env")); err != nil || fi.Mode().Perm() != 0o600 {
+	if fi, err := os.Stat(filepath.Join(dst, ".env")); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf(".env: %v, %v", fi, err)
 	}
 }
@@ -52,7 +64,9 @@ func TestCopyWritesNothingThroughASymlinkedFolderInTheWorktree(t *testing.T) {
 	p, dst, outside := t.TempDir(), t.TempDir(), t.TempDir()
 	os.MkdirAll(filepath.Join(p, "sub", "deeper"), 0o755)
 	os.WriteFile(filepath.Join(p, "sub", "deeper", "deep.txt"), []byte("deep"), 0o644)
-	os.Symlink(outside, filepath.Join(dst, "sub"))
+	if err := os.Symlink(outside, filepath.Join(dst, "sub")); err != nil {
+		symlinkFailed(t, err)
+	}
 	os.WriteFile(filepath.Join(p, ".worktreeinclude"), []byte("sub/deeper/deep.txt\n"), 0o600)
 	copied, skipped := CopyInto(p, dst)
 	entries, _ := os.ReadDir(outside)

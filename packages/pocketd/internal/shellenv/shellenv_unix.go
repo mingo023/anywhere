@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -111,3 +112,5 @@ func run(ctx context.Context, shell string, flags, env []string, limit time.Dura
 	}
 	return got, perr
 }
+
+func runnable(_ string, st os.FileInfo) bool { return st.Mode()&0o111 != 0 }

@@ -58,7 +58,7 @@ func TestAWorktreeInTheProjectsWorktreesFolderIsATree(t *testing.T) {
 
 func TestALinkInsideAProjectCantNameATreeElsewhere(t *testing.T) {
 	f, root, outside := project(t)
-	os.Symlink(outside, filepath.Join(root, "out"))
+	symlink(t, outside, filepath.Join(root, "out"))
 	if _, err := Tree(f, filepath.Join(root, "out")); codeOf(err) != proto.CodeNotATree {
 		t.Fatal(err)
 	}
@@ -80,9 +80,9 @@ func TestAPathMayNotClimbOutOfItsTree(t *testing.T) {
 
 func TestALinkOutOfTheTreeIsOutsideItAndOneWithinIsFollowed(t *testing.T) {
 	_, root, outside := project(t)
-	os.Symlink(filepath.Join(outside, "secret"), filepath.Join(root, "secret"))
-	os.Symlink(outside, filepath.Join(root, "out"))
-	os.Symlink("src/a.rs", filepath.Join(root, "a.rs"))
+	symlink(t, filepath.Join(outside, "secret"), filepath.Join(root, "secret"))
+	symlink(t, outside, filepath.Join(root, "out"))
+	symlink(t, "src/a.rs", filepath.Join(root, "a.rs"))
 	for _, rel := range []string{"secret", "out", "out/secret", "out/missing"} {
 		if _, err := Join(root, rel); codeOf(err) != proto.CodeOutsideTree {
 			t.Errorf("%q: %v", rel, err)
@@ -90,5 +90,13 @@ func TestALinkOutOfTheTreeIsOutsideItAndOneWithinIsFollowed(t *testing.T) {
 	}
 	if got, err := Join(root, "a.rs"); err != nil || got != filepath.Join(root, "src", "a.rs") {
 		t.Fatalf("%q %v", got, err)
+	}
+}
+
+// symlink skips the test where links can't be made, as on Windows without the privilege for them.
+func symlink(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Skip(err)
 	}
 }

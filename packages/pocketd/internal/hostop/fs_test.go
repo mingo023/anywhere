@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -33,7 +34,9 @@ func TestListDescribesEachEntry(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "a.txt"), "hello")
 	os.Mkdir(filepath.Join(dir, "sub"), 0o755)
-	os.Symlink(filepath.Join(dir, "sub"), filepath.Join(dir, "link"))
+	if err := os.Symlink(filepath.Join(dir, "sub"), filepath.Join(dir, "link")); err != nil && runtime.GOOS == "windows" {
+		t.Skipf("making a symlink needs a privilege here: %v", err)
+	}
 	entries, err := List(context.Background(), os.Environ(), dir)
 	if err != nil || len(entries) != 3 {
 		t.Fatalf("%+v %v", entries, err)
@@ -151,6 +154,9 @@ func TestTrashIntoKeepsBothWhenANameIsTaken(t *testing.T) {
 }
 
 func TestTrashXDGWritesTheTrashInfo(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the freedesktop.org trash is only used on Linux, whose paths it escapes")
+	}
 	dir, data := t.TempDir(), t.TempDir()
 	path := filepath.Join(dir, "my file")
 	write(t, path, "x")

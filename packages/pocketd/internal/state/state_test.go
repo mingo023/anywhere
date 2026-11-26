@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -53,11 +54,14 @@ func TestSaveIsAtomicAndPrivate(t *testing.T) {
 	if err := Save(path, sample()); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := os.Stat(filepath.Dir(path)); st.Mode().Perm() != 0o700 {
-		t.Errorf("dir mode = %v", st.Mode().Perm())
-	}
-	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
-		t.Errorf("file mode = %v", st.Mode().Perm())
+	// Windows has no unix mode bits to check.
+	if runtime.GOOS != "windows" {
+		if st, _ := os.Stat(filepath.Dir(path)); st.Mode().Perm() != 0o700 {
+			t.Errorf("dir mode = %v", st.Mode().Perm())
+		}
+		if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
+			t.Errorf("file mode = %v", st.Mode().Perm())
+		}
 	}
 	if entries, _ := os.ReadDir(filepath.Dir(path)); len(entries) != 1 {
 		t.Errorf("dir holds %d entries, want only the file", len(entries))
@@ -108,6 +112,9 @@ func TestAFileWhoseSessionsDifferFromTheStoresIsTakenWhole(t *testing.T) {
 }
 
 func TestACorruptFileThatCantBeSetAsideSaysSo(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a read-only directory mode doesn't stop a rename on Windows")
+	}
 	path := Path(t.TempDir())
 	os.MkdirAll(filepath.Dir(path), 0o700)
 	os.WriteFile(path, []byte("{nope"), 0o600)

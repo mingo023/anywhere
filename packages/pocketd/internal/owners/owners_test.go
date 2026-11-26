@@ -3,6 +3,7 @@ package owners
 import (
 	"context"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -36,7 +37,7 @@ func TestTheFileKeepsOnlyAHashOfTheToken(t *testing.T) {
 	if strings.Contains(string(raw), token) {
 		t.Fatal("token stored in the clear")
 	}
-	if st, _ := os.Stat(s.Path); st.Mode().Perm() != 0o600 {
+	if st, _ := os.Stat(s.Path); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v", st.Mode())
 	}
 	list, _ := s.List()
@@ -80,7 +81,9 @@ func TestWatchReportsARevoke(t *testing.T) {
 	o, _, _ := s.Mint("pc")
 	revoked := make(chan struct{})
 	go s.Watch(context.Background(), o.ID, func() { close(revoked) })
-	s.Revoke(o.ID)
+	if _, err := s.Revoke(o.ID); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case <-revoked:
 	case <-time.After(time.Second):

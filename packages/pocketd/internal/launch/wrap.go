@@ -19,7 +19,7 @@ import (
 // sign the agent in as someone else unset; nil leaves the env alone.
 func Wrap(shell, exe, setup string, argv, account []string) []string {
 	if shellenv.PowerShell(shell) {
-		return wrapPowerShell(exe, setup, argv, preamble(shell, account))
+		return wrapPowerShell(shell, exe, setup, argv, preamble(shell, account))
 	}
 	hook := quote(exe) + " hook exit"
 	if filepath.Base(shell) == "fish" {
@@ -40,7 +40,7 @@ func Wrap(shell, exe, setup string, argv, account []string) []string {
 
 // wrapPowerShell is Wrap for PowerShell, whose -NoExit leaves the shell
 // running after the script. A setup that calls exit goes unreported.
-func wrapPowerShell(exe, setup string, argv []string, preamble string) []string {
+func wrapPowerShell(shell, exe, setup string, argv []string, preamble string) []string {
 	hook := "& " + shellenv.PSQuote(exe) + " hook exit"
 	// $? is false after a native command exits non-zero; a cmdlet sets no code.
 	status := "$s = if ($?) { 0 } elseif ($LASTEXITCODE) { $LASTEXITCODE } else { 1 }; "
@@ -48,7 +48,7 @@ func wrapPowerShell(exe, setup string, argv []string, preamble string) []string 
 	if setup != "" {
 		script = setup + "\n" + status + "if ($s) { " + hook + " setup $s; exit $s }\n" + hook + " setup 0\n"
 	}
-	script += preamble + shellenv.PSCommand(argv) + "; " + status + hook + " agent $s"
+	script += preamble + shellenv.PSCommandIn(shell, argv) + "; " + status + hook + " agent $s"
 	return []string{"-NoLogo", "-NoExit", "-Command", script}
 }
 
@@ -77,7 +77,7 @@ func preamble(shell string, account []string) string {
 // InShell runs argv through shell, so a shell function named argv[0] runs.
 func InShell(shell string, argv []string) []string {
 	if shellenv.PowerShell(shell) {
-		return []string{shell, "-NoLogo", "-Command", shellenv.PSCommand(argv)}
+		return []string{shell, "-NoLogo", "-Command", shellenv.PSCommandIn(shell, argv)}
 	}
 	if filepath.Base(shell) == "fish" {
 		return append([]string{shell, "-c", "$argv"}, argv...)

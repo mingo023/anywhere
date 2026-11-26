@@ -1,5 +1,3 @@
-//go:build unix
-
 package e2e
 
 import (
@@ -14,10 +12,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -36,23 +34,19 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	for _, b := range [][2]string{{"pocketd", "../cmd/pocketd"}, {"fake/claude", "./fakeclaude"}, {"fake/codex", "./fakecodex"}, {"fake/ssh", "./fakessh"}, {"redteam", "./redteam"}} {
-		out, err := exec.Command("go", "build", "-o", filepath.Join(dir, b[0]), b[1]).CombinedOutput()
+	for _, b := range append([][2]string{{"pocketd", "../cmd/pocketd"}, {"fake/claude", "./fakeclaude"}, {"fake/codex", "./fakecodex"}, {"fake/ssh", "./fakessh"}}, platformBins...) {
+		out, err := exec.Command("go", "build", "-o", filepath.Join(dir, b[0]+exeSuffix), b[1]).CombinedOutput()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "build %s: %v\n%s", b[1], err, out)
 			os.Exit(1)
 		}
 	}
-	next := exec.Command("go", "build", "-ldflags", "-X main.version=e2e-next", "-o", filepath.Join(dir, "pocketd-next"), "../cmd/pocketd")
+	next := exec.Command("go", "build", "-ldflags", "-X main.version=e2e-next", "-o", filepath.Join(dir, "pocketd-next"+exeSuffix), "../cmd/pocketd")
 	if out, err := next.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "build pocketd-next: %v\n%s", err, out)
 		os.Exit(1)
 	}
-	if err := os.Symlink(filepath.Join(dir, "pocketd"), filepath.Join(dir, "anywhere")); err != nil {
-		panic(err)
-	}
-	buildFakeACP(filepath.Join(dir, "fake"))
-	buildFakePi(filepath.Join(dir, "fake"))
+	buildPlatformFakes(dir)
 	binDir = dir
 	code := m.Run()
 	os.RemoveAll(dir)
@@ -76,6 +70,9 @@ type Harness struct {
 	cmd       *exec.Cmd
 	exited    chan struct{}
 	exe       string
+
+	// ownerToken is what the harness's own conns prove the owner by where no pid can (Windows).
+	ownerToken string
 }
 
 func (h *Harness) UserHome() string {
@@ -101,8 +98,7 @@ func freePort(t *testing.T) int {
 // claude first on PATH.
 func Start(t *testing.T, opts ...func(*Harness)) *Harness {
 	t.Helper()
-	// Unix socket paths are capped at 104 bytes on macOS; t.TempDir() is too long.
-	home, err := os.MkdirTemp("/tmp", "pk")
+	home, err := os.MkdirTemp(tempRoot, "pk")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,15 +110,17 @@ func Start(t *testing.T, opts ...func(*Harness)) *Harness {
 		Sock:      filepath.Join(home, "pocketd.sock"),
 		ClaudeDir: filepath.Join(home, "claude"),
 		Token:     "test-token",
+		// The owner port is on by default on Windows; a free port keeps it off a real pocketd's.
+		ownerTCP: runtime.GOOS == "windows",
 	}
 	h.Env = append(os.Environ(),
 		"HOME="+home,
 		"POCKET_HOME="+home,
 		"POCKETD_SOCK="+h.Sock,
 		"CLAUDE_CONFIG_DIR="+h.ClaudeDir,
-		"PATH="+filepath.Join(binDir, "fake")+":"+os.Getenv("PATH"),
-		"POCKETD_RESTORE_SHELL=/bin/sh",
+		"PATH="+filepath.Join(binDir, "fake")+string(os.PathListSeparator)+os.Getenv("PATH"),
 	)
+	h.Env = append(h.Env, harnessEnv(home)...)
 	for _, opt := range opts {
 		opt(h)
 	}
@@ -147,13 +145,21 @@ func (h *Harness) up() {
 			h.t.Fatal("pocketd exited")
 		}
 	}
+	if runtime.GOOS == "windows" && h.ownerToken == "" {
+		out, code := h.Pocketd("pair", "--json", "--name", "e2e harness")
+		var tok ownerToken
+		if err := json.Unmarshal([]byte(out), &tok); code != 0 || err != nil || tok.Token == "" {
+			h.t.Fatalf("pair --json exited %d: %s", code, out)
+		}
+		h.ownerToken = tok.Token
+	}
 }
 
-// Shutdown stops pocketd with SIGTERM and ends its Terminals, which
-// otherwise outlive it, as a reboot does.
+// Shutdown stops pocketd as its service manager does and ends its Terminals,
+// which otherwise outlive it, as a reboot does.
 func (h *Harness) Shutdown() {
 	h.t.Helper()
-	if code := h.Stop(syscall.SIGTERM); code != 0 {
+	if code := h.Stop(rebootSignal); code != rebootExit {
 		h.t.Fatalf("pocketd exited %d", code)
 	}
 	holder.EndAll(holder.Dir(h.Home), 2*time.Second)
@@ -281,9 +287,22 @@ func (h *Harness) eventually(what string, ok func() bool) {
 	h.t.Fatalf("timed out waiting for %s", what)
 }
 
+func (h *Harness) dialOps() (*ops.Conn, error) {
+	c, err := ops.Dial(h.Sock)
+	if err != nil || h.ownerToken == "" {
+		return c, err
+	}
+	c.Send(ops.Msg{Op: "auth", Token: h.ownerToken})
+	if m, err := c.Recv(); err != nil || m.Ev != "ok" {
+		c.Close()
+		return nil, fmt.Errorf("auth: %+v %v", m, err)
+	}
+	return c, nil
+}
+
 func (h *Harness) Ops() *ops.Conn {
 	h.t.Helper()
-	c, err := ops.Dial(h.Sock)
+	c, err := h.dialOps()
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -376,7 +395,8 @@ func launchReady(setup string) func(*Harness) {
 		reg, _ := json.Marshal(registry.File{Projects: []string{repo}, Repos: map[string]registry.Repo{repo: {Name: "wt", Setup: setup}}, Worktree: registry.Worktree{Root: h.Home}})
 		os.WriteFile(filepath.Join(h.Home, "desktop.json"), reg, 0o600)
 		os.MkdirAll(h.ClaudeDir, 0o755)
-		os.WriteFile(filepath.Join(h.ClaudeDir, ".claude.json"), []byte(`{"projects":{"`+repo+`":{"hasTrustDialogAccepted":true}}}`), 0o600)
+		key, _ := json.Marshal(repo)
+		os.WriteFile(filepath.Join(h.ClaudeDir, ".claude.json"), []byte(`{"projects":{`+string(key)+`:{"hasTrustDialogAccepted":true}}}`), 0o600)
 	}
 }
 
@@ -399,6 +419,9 @@ func (h *Harness) Owner(caps ...string) *Phone {
 	h.t.Helper()
 	p := h.DialOwner()
 	hello := map[string]any{"type": "hello", "id": "h", "clientId": "e2e-desktop", "protocolVersion": 3}
+	if h.ownerToken != "" {
+		hello["ownerToken"] = h.ownerToken
+	}
 	if caps != nil {
 		hello["caps"] = caps
 	}
@@ -426,36 +449,6 @@ func (h *Harness) Paired(caps ...string) *Phone {
 	return p
 }
 
-// ownBinary serves pocketd from a copy in h.Home, which a test may replace.
-func ownBinary(h *Harness) {
-	h.exe = filepath.Join(h.Home, "bin", "pocketd")
-	copyFile(h.t, filepath.Join(binDir, "pocketd"), h.exe)
-}
-
-// replaceBinary swaps h.exe for src by rename, as Sparkle does. Writing over
-// a running binary gets it killed on macOS.
-func (h *Harness) replaceBinary(src string) {
-	h.t.Helper()
-	copyFile(h.t, src, h.exe+".new")
-	if err := os.Rename(h.exe+".new", h.exe); err != nil {
-		h.t.Fatal(err)
-	}
-}
-
-func copyFile(t *testing.T, src, dst string) {
-	t.Helper()
-	b, err := os.ReadFile(src)
-	if err == nil {
-		err = os.MkdirAll(filepath.Dir(dst), 0o755)
-	}
-	if err == nil {
-		err = os.WriteFile(dst, b, 0o755)
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
 // Upgrade runs `pocketd upgrade` and fails the test unless it succeeds.
 func (h *Harness) Upgrade() {
 	h.t.Helper()
@@ -466,7 +459,7 @@ func (h *Harness) Upgrade() {
 
 // Status is pocketd's status, or the zero Status while it doesn't answer.
 func (h *Harness) Status() ops.Status {
-	c, err := ops.Dial(h.Sock)
+	c, err := h.dialOps()
 	if err != nil {
 		return ops.Status{}
 	}

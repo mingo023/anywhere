@@ -382,7 +382,7 @@ pub fn run_login_env(argv: &[&str], cwd: &str, input: &str, extra: Vec<(String, 
 
 /// `argv` under the login shell `shell`.
 #[cfg(unix)]
-fn login_command(shell: &str, argv: &[&str]) -> Command {
+fn login_command(shell: &str, argv: &[&str], _env: &[(String, String)]) -> Command {
     let fish = Path::new(shell).file_name().is_some_and(|n| n == "fish");
     let mut cmd = Command::new(shell);
     cmd.args(["-l", "-c", if fish { "$argv" } else { "\"$@\"" }]);
@@ -393,10 +393,13 @@ fn login_command(shell: &str, argv: &[&str]) -> Command {
     cmd
 }
 
-/// `argv` itself: on Windows the app's own PATH is the user's.
+/// `argv` itself: on Windows the app's own PATH is the user's. The program is looked up on `env`'s PATH by PATHEXT
+/// first, as `Command` alone only tries `.exe` and npm installs a CLI as a `.cmd`.
 #[cfg(windows)]
-fn login_command(_shell: &str, argv: &[&str]) -> Command {
-    let mut cmd = command(argv[0]);
+fn login_command(_shell: &str, argv: &[&str], env: &[(String, String)]) -> Command {
+    let path = env.iter().rfind(|(k, _)| k.eq_ignore_ascii_case("PATH")).map(|(_, v)| v.as_str());
+    let program = which::which_in(argv[0], path, ".").map_or_else(|_| argv[0].into(), |p| p.into_os_string());
+    let mut cmd = command(program);
     cmd.args(&argv[1..]);
     cmd
 }
@@ -417,7 +420,7 @@ pub fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
 }
 
 fn run_in(shell: &str, env: Vec<(String, String)>, argv: &[&str], cwd: &str, input: &str) -> Result<String, String> {
-    let mut child = login_command(shell, argv)
+    let mut child = login_command(shell, argv, &env)
         .current_dir(cwd)
         .env_clear()
         .envs(env)
@@ -451,7 +454,7 @@ fn run_until(
     answer: impl Fn(&str) -> bool,
     timeout: Duration,
 ) -> Result<String, String> {
-    let mut cmd = login_command(shell, argv);
+    let mut cmd = login_command(shell, argv, &env);
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
     let mut child =
@@ -511,7 +514,7 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub struct Daemon {
-    writer: Arc<Mutex<Option<UnixStream>>>,
+    writer: Arc<Mutex<Option<Writer>>>,
     /// Not under `writer`: a stuck send holds that for seconds, and the reader must not wait on it.
     terminals: Arc<Mutex<Option<String>>>,
 }
@@ -540,8 +543,10 @@ impl Daemon {
             loop {
                 if let Ok((reader, stream)) = endpoint.connect(Duration::from_secs(5)).and_then(|s| {
                     s.set_write_timeout(Some(write_timeout)).map_err(|e| e.to_string())?;
-                    Ok((BufReader::new(s.try_clone().map_err(|e| e.to_string())?), s))
+                    let reader = BufReader::new(s.try_clone().map_err(|e| e.to_string())?);
+                    Ok((reader, Writer::new(s, write_timeout).map_err(|e| e.to_string())?))
                 }) {
+                    let lines = stream.lines(reader);
                     *held.lock().expect("poisoned") = None;
                     *shared.lock().expect("poisoned") = Some(stream);
                     down = false;
@@ -549,7 +554,7 @@ impl Daemon {
                         return;
                     }
                     let up = Instant::now();
-                    for line in reader.lines().map_while(Result::ok) {
+                    for line in lines {
                         let Ok(mut msg) = serde_json::from_str::<Msg>(&line) else { continue };
                         if msg.ev == "terminals" {
                             let Some(settled) = settle_terminals(&mut held.lock().expect("poisoned"), line, msg) else { continue };
@@ -588,17 +593,96 @@ impl Daemon {
         }
         let mut writer = self.writer.lock().expect("poisoned");
         let Some(stream) = writer.as_mut() else { return false };
-        if writeln!(stream, "{msg}").is_ok() {
+        if stream.write_line(&msg.to_string()) {
             return true;
         }
         // A write that timed out may have left half a line, so the link is no good; shutting it ends the reader, which reports "down".
-        let _ = stream.shutdown(std::net::Shutdown::Both);
+        let _ = stream.stream.shutdown(std::net::Shutdown::Both);
         *writer = None;
         false
     }
 
     pub fn input(&self, id: &str, bytes: &[u8]) -> bool {
         self.send(json!({"op": "input", "id": id, "data": STANDARD.encode(bytes)}))
+    }
+}
+
+struct Writer {
+    stream: UnixStream,
+    #[cfg(windows)]
+    queue: std::sync::mpsc::Sender<String>,
+    #[cfg(windows)]
+    written: std::sync::mpsc::Receiver<bool>,
+    #[cfg(windows)]
+    timeout: Duration,
+    #[cfg(windows)]
+    broken: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// Shutting a socket doesn't wake a Windows read, so the reader polls for a send that gave up.
+#[cfg(windows)]
+const READER_POLL: Duration = Duration::from_millis(100);
+
+impl Writer {
+    #[cfg(unix)]
+    fn new(stream: UnixStream, _timeout: Duration) -> std::io::Result<Self> {
+        Ok(Self { stream })
+    }
+
+    /// Windows' AF_UNIX sockets ignore SO_SNDTIMEO, so a write to a peer that stopped reading would block for good:
+    /// writes run on their own thread, and [`Writer::write_line`] stops waiting at the timeout.
+    #[cfg(windows)]
+    fn new(stream: UnixStream, timeout: Duration) -> std::io::Result<Self> {
+        let mut out = stream.try_clone()?;
+        let (queue, queued) = std::sync::mpsc::channel::<String>();
+        let (done, written) = std::sync::mpsc::channel();
+        std::thread::spawn(move || queued.iter().try_for_each(|line| done.send(writeln!(out, "{line}").is_ok())));
+        Ok(Self { stream, queue, written, timeout, broken: Arc::default() })
+    }
+
+    #[cfg(unix)]
+    fn write_line(&mut self, line: &str) -> bool {
+        writeln!(self.stream, "{line}").is_ok()
+    }
+
+    #[cfg(windows)]
+    fn write_line(&mut self, line: &str) -> bool {
+        let written = self.queue.send(line.to_string()).is_ok() && self.written.recv_timeout(self.timeout).unwrap_or(false);
+        if !written {
+            self.broken.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        written
+    }
+
+    #[cfg(unix)]
+    fn lines(&self, reader: BufReader<UnixStream>) -> impl Iterator<Item = String> + use<> {
+        reader.lines().map_while(Result::ok)
+    }
+
+    /// Shutting a Windows socket doesn't wake a read blocked on it, so the reader wakes now and then to see whether a
+    /// send gave up on the link.
+    #[cfg(windows)]
+    fn lines(&self, mut reader: BufReader<UnixStream>) -> impl Iterator<Item = String> + use<> {
+        let broken = self.broken.clone();
+        let polls = reader.get_ref().set_read_timeout(Some(READER_POLL)).is_ok();
+        std::iter::from_fn(move || {
+            let mut line = Vec::new();
+            loop {
+                match reader.read_until(b'\n', &mut line) {
+                    Ok(0) if line.is_empty() => return None,
+                    Ok(_) => break,
+                    Err(e) if polls && matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
+                        if broken.load(std::sync::atomic::Ordering::Relaxed) {
+                            return None;
+                        }
+                    }
+                    Err(_) => return None,
+                }
+            }
+            line.pop_if(|b| *b == b'\n');
+            line.pop_if(|b| *b == b'\r');
+            String::from_utf8(line).ok()
+        })
     }
 }
 
@@ -675,6 +759,18 @@ mod tests {
         assert_eq!(m.items[0].foreground, "npm run dev");
         let m: Msg = serde_json::from_str(r#"{"ev":"foreground","id":"a","text":"cargo test"}"#).unwrap();
         assert_eq!(m.text, "cargo test");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn a_cmd_shim_on_the_path_runs_as_npm_installs_one() {
+        let dir = std::env::temp_dir().join(format!("pocket-shim-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("shimmed.cmd"), "@echo off\r\necho shimmed %*\r\n").unwrap();
+        let path = dir.to_string_lossy().into_owned();
+        let out = run_login_env(&["shimmed", "a b"], &path, "", vec![("PATH".into(), path.clone())]);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(out, Ok("shimmed \"a b\"".to_string()));
     }
 
     #[test]

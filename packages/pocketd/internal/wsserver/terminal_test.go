@@ -151,7 +151,7 @@ func TestAPhoneOpensAShellInATreeAndTypesIntoIt(t *testing.T) {
 	project := t.TempDir()
 	_, _, p := local(t, peer.FromDevice(devices.Device{ID: "d1", Scopes: devices.PhoneScopes}), withTerminals(t, terms, project))
 	helloWith(p, proto.CapTerminal)
-	p.send(`{"type":"terminal.create","id":"c","requestId":"r1","cwd":"` + project + `","cols":50,"rows":20}`)
+	p.send(`{"type":"terminal.create","id":"c","requestId":"r1","cwd":` + q(project) + `,"cols":50,"rows":20}`)
 	var id string
 	var announced bool
 	for id == "" || !announced {
@@ -183,7 +183,7 @@ func TestACreateOutsideEveryProjectIsNotATree(t *testing.T) {
 	_, _, p := local(t, peer.OwnerOf(1), withTerminals(t, terms, t.TempDir()))
 	helloWith(p, proto.CapTerminal)
 	for _, raw := range []string{
-		`{"type":"terminal.create","id":"c","requestId":"r1","cwd":"` + t.TempDir() + `"}`,
+		`{"type":"terminal.create","id":"c","requestId":"r1","cwd":` + q(t.TempDir()) + `}`,
 		`{"type":"terminal.create","id":"c","requestId":"r1"}`,
 		`{"type":"terminal.create","id":"c","requestId":"r1","cwd":"relative"}`,
 	} {

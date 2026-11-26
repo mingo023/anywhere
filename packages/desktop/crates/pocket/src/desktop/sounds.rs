@@ -153,6 +153,10 @@ fn gain(volume: u32) -> String {
 
 /// Plays `sound` with `afplay`, writing a built-in to the temp dir the first time.
 pub(crate) fn play(sound: &Sound, volume: u32, cx: &App) {
+    // `afplay` is macOS's own, and nothing else here plays an mp3.
+    if !cfg!(target_os = "macos") {
+        return;
+    }
     let sound = sound.clone();
     let gain = gain(volume);
     cx.background_executor()

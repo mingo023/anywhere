@@ -26,7 +26,7 @@ func pairCmd(sock string, args []string, tty bool, w, errw io.Writer) (int, erro
 	case len(args) != 0:
 		return 1, errors.New(usage)
 	}
-	c, err := ops.Dial(sock)
+	c, err := dial(sock)
 	if err != nil {
 		return 1, err
 	}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -71,6 +72,11 @@ func TestAWorktreeTheCLICreatesIsListedThenRemoved(t *testing.T) {
 		strings.Join(strings.Fields(lines[0]), " ") != "pocket pocket "+p+" (main)" ||
 		strings.Join(strings.Fields(lines[1]), " ") != "pocket calm-otter "+wt+" on calm-otter" {
 		t.Fatalf("list: %d\n%s", code, out)
+	}
+	if runtime.GOOS == "windows" {
+		// Windows won't delete the working directory. Not t.Chdir: it holds the folder it
+		// leaves open, and the one above restores the old directory anyway.
+		os.Chdir(p)
 	}
 	if code, _, errs := worktreeCLI("remove", wt); code != 0 {
 		t.Fatalf("remove: %d %s", code, errs)

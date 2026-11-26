@@ -4,11 +4,12 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 func TestPIDNamesTheProcessOnTheOtherEnd(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "peer")
+	dir, err := os.MkdirTemp(socketBase(), "peer")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,4 +32,13 @@ func TestPIDNamesTheProcessOnTheOtherEnd(t *testing.T) {
 	if pid, err := PID(c.(*net.UnixConn)); err != nil || pid != os.Getpid() {
 		t.Fatalf("%d %v", pid, err)
 	}
+}
+
+// socketBase is a folder short enough for a unix socket path: macOS caps it at 104 bytes, past t.TempDir, and Windows
+// has no /tmp.
+func socketBase() string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+	return "/tmp"
 }

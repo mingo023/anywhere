@@ -94,6 +94,7 @@ mod tests {
     use std::path::Path;
 
     #[test]
+    #[cfg_attr(windows, ignore = "the stand-in host runs Git Bash, whose paths are MSYS's, not a unix host's")]
     fn the_host_worktree_has_the_branch_and_the_changes_left_uncommitted() {
         let (_root, mac, home) = repos("place", "feat");
         let dir = Path::new(&mac);
@@ -130,6 +131,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "the stand-in host runs Git Bash, whose paths are MSYS's, not a unix host's")]
     fn a_host_behind_origin_fetches_what_the_bundle_builds_on() {
         let (root, mac, home) = repos("behind", "feat");
         let dir = Path::new(&mac);
@@ -151,6 +153,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "the stand-in host runs Git Bash, whose paths are MSYS's, not a unix host's")]
     fn undoing_a_worktree_leaves_the_host_as_it_was() {
         let (_root, mac, home) = repos("undo", "feat");
         let p = pack(&mac, "u1").unwrap();

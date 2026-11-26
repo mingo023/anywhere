@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,7 +11,7 @@ import (
 const trusted = `{"projects":{"/a":{"hasTrustDialogAccepted":true},"/b":{"hasTrustDialogAccepted":false}}}`
 
 func TestTrustWalkStopsAtTheGitToplevel(t *testing.T) {
-	if Trusted([]byte(trusted), "/a/b/c", "", "/a/b") {
+	if Trusted([]byte(trusted), "/a/b/c", "", filepath.FromSlash("/a/b")) {
 		t.Fatal("walked past the toplevel")
 	}
 	if !Trusted([]byte(trusted), "/a/b/c", "", "") {
@@ -52,7 +53,8 @@ func TestALinkedWorktreeOfATrustedRepoIsTrusted(t *testing.T) {
 	if trustedAt(env, wt) {
 		t.Fatal("trusted with no config")
 	}
-	os.WriteFile(filepath.Join(cfg, ".claude.json"), []byte(`{"projects":{"`+repo+`":{"hasTrustDialogAccepted":true}}}`), 0o600)
+	key, _ := json.Marshal(repo)
+	os.WriteFile(filepath.Join(cfg, ".claude.json"), []byte(`{"projects":{`+string(key)+`:{"hasTrustDialogAccepted":true}}}`), 0o600)
 	if !trustedAt(env, wt) {
 		t.Fatal("a Worktree of a trusted repo is untrusted")
 	}
@@ -61,5 +63,13 @@ func TestALinkedWorktreeOfATrustedRepoIsTrusted(t *testing.T) {
 func TestSandboxedIsTrusted(t *testing.T) {
 	if !trustedAt([]string{"CLAUDE_CODE_SANDBOXED=1", "HOME=" + t.TempDir()}, t.TempDir()) {
 		t.Fatal("sandboxed claude trusts every folder")
+	}
+}
+
+func TestAFolderClaudeKeysWithForwardSlashesIsTrusted(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "app")
+	raw := `{"projects":{"` + filepath.ToSlash(dir) + `":{"hasTrustDialogAccepted":true}}}`
+	if !Trusted([]byte(raw), filepath.Join(dir, "src"), "", dir) {
+		t.Fatal("untrusted")
 	}
 }

@@ -1,5 +1,3 @@
-//go:build unix
-
 package e2e
 
 import (
@@ -182,15 +180,6 @@ func streamOf(agentID, kind, text string) func(Message) bool {
 func statusOf(agentID, status string) func(Message) bool {
 	return func(m Message) bool {
 		return m.Type == "agent.update" && m.Agent.ID == agentID && m.Agent.Status == status
-	}
-}
-
-// workedThenDone is agentID's turn ending, counted only once it has started.
-func workedThenDone(agentID string) func(Message) bool {
-	working := false
-	return func(m Message) bool {
-		working = working || statusOf(agentID, "working")(m)
-		return working && statusOf(agentID, "done")(m)
 	}
 }
 

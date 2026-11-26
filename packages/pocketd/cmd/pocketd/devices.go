@@ -45,7 +45,7 @@ func devicesCmd(sock string, args []string, w io.Writer) error {
 }
 
 func call(sock string, req ops.Msg) (ops.Msg, error) {
-	c, err := ops.Dial(sock)
+	c, err := dial(sock)
 	if err != nil {
 		return ops.Msg{}, err
 	}

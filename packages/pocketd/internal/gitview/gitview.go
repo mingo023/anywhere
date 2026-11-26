@@ -136,6 +136,7 @@ func (s *Service) Top(tree string) error {
 		if err != nil {
 			real = tree
 		}
+		top = filepath.FromSlash(top)
 		ok = top == real || top == tree
 		s.mu.Lock()
 		if s.tops == nil {

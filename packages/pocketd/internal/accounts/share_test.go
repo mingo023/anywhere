@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -20,7 +21,16 @@ func readJSON(t *testing.T, path string) map[string]any {
 	return v
 }
 
+func needsFileLinks(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	if runtime.GOOS == "windows" && os.Symlink(filepath.Join(dir, "a"), filepath.Join(dir, "b")) != nil {
+		t.Skip("Windows links a file only in Developer Mode")
+	}
+}
+
 func TestAManagedAccountReadsTheUsersClaudeFolderThroughLinks(t *testing.T) {
+	needsFileLinks(t)
 	s := store(t)
 	builtIn := s.Dir("claude", BuiltIn)
 	os.MkdirAll(filepath.Join(builtIn, "skills"), 0o700)
@@ -155,8 +165,9 @@ func TestHistoryAnAccountAlreadyHasJoinsTheUsersAndTheFolderBecomesALink(t *test
 		t.Fatal(err)
 	}
 
-	if st, err := os.Lstat(own); err != nil || st.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("projects is not a link: %v %v", st, err)
+	// Readlink rather than ModeSymlink: on Windows the link may be a junction.
+	if _, err := os.Readlink(own); err != nil {
+		t.Fatalf("projects is not a link: %v", err)
 	}
 	for _, f := range []string{"mine.jsonl", "theirs.jsonl"} {
 		if _, err := os.Stat(filepath.Join(builtIn, "projects", "p", f)); err != nil {

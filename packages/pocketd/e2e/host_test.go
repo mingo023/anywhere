@@ -1,5 +1,3 @@
-//go:build unix
-
 package e2e
 
 import (
@@ -29,12 +27,17 @@ func TestStatusNamesTheHostAndKeepsItsIDAcrossRestarts(t *testing.T) {
 func TestALoginSpawnRunsArgvInHomeThenTheShell(t *testing.T) {
 	h := Start(t, launchReady(""))
 	c := h.Ops()
-	c.Send(ops.Msg{Op: "spawn", Login: true, Cwd: "~", Argv: []string{"sh", "-c", `echo "cwd=$(pwd -P)"`}, Cols: 100, Rows: 30})
+	home, _ := filepath.EvalSymlinks(h.Home)
+	pwd := "pwd -P"
+	if runtime.GOOS == "windows" {
+		// msys sh prints /c/x; -W prints C:/x.
+		pwd, home = "pwd -W", filepath.ToSlash(home)
+	}
+	c.Send(ops.Msg{Op: "spawn", Login: true, Cwd: "~", Argv: []string{"sh", "-c", `echo "cwd=$(` + pwd + `)"`}, Cols: 100, Rows: 30})
 	m, err := c.Recv()
 	if err != nil || m.Ev != "spawned" {
 		t.Fatalf("%+v %v", m, err)
 	}
-	home, _ := filepath.EvalSymlinks(h.Home)
 	h.WaitScreen(m.ID, "cwd="+home)
 	h.Ops().Send(ops.Msg{Op: "input", ID: m.ID, Data: []byte("echo back\"\"in-shell\r")})
 	h.WaitScreen(m.ID, "backin-shell")
@@ -52,7 +55,7 @@ func TestExecAndFsWorkOnTheHostsFiles(t *testing.T) {
 		}
 		return r
 	}
-	if r := ask(ops.Msg{Op: "exec", Cwd: h.Repo, Argv: []string{"git", "rev-parse", "--show-toplevel"}, TimeoutMs: 10000}); r.Code != 0 || strings.TrimSpace(string(r.Stdout)) != h.Repo {
+	if r := ask(ops.Msg{Op: "exec", Cwd: h.Repo, Argv: []string{"git", "rev-parse", "--show-toplevel"}, TimeoutMs: 10000}); r.Code != 0 || filepath.FromSlash(strings.TrimSpace(string(r.Stdout))) != h.Repo {
 		t.Fatalf("exec: %+v", r)
 	}
 	os.WriteFile(filepath.Join(h.Repo, ".gitignore"), []byte("*.log\n"), 0o644)

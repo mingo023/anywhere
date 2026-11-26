@@ -18,6 +18,9 @@ import (
 	"pocketd/internal/statedb/dbtest"
 )
 
+// abs is the unix path p made absolute on this OS, which on Windows takes a drive.
+func abs(p string) string { return filepath.Join(filepath.VolumeName(os.TempDir()), p) }
+
 // newDB is a database whose registry lists the projects /f and /other.
 func newDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -26,7 +29,7 @@ func newDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.Insert(tx, registry.State{Projects: []proto.RegistryProject{{ID: "p1", Path: "/f"}, {ID: "p2", Path: "/other"}}}); err != nil {
+	if err := registry.Insert(tx, registry.State{Projects: []proto.RegistryProject{{ID: "p1", Path: abs("/f")}, {ID: "p2", Path: abs("/other")}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -50,7 +53,7 @@ func open(t *testing.T, db *sql.DB) *Store {
 
 func openNew(t *testing.T) *Store { return open(t, newDB(t)) }
 
-var morning = proto.Automation{Name: "Morning review", Prompt: "Review new PRs", Provider: "claude", Folder: "/f",
+var morning = proto.Automation{Name: "Morning review", Prompt: "Review new PRs", Provider: "claude", Folder: abs("/f"),
 	Schedule: proto.Schedule{Kind: "days", Days: []int{1, 2, 3, 4, 5}, Time: "09:00"}, Enabled: true}
 
 func saved(t *testing.T, s *Store, now time.Time) proto.Automation {
@@ -489,7 +492,7 @@ func TestEveryAutomationAndRunSurvivesARestartInOrder(t *testing.T) {
 	s.History = func() int { return 2 }
 	first := saved(t, s, at(9, 8, 0))
 	other := morning
-	other.Folder, other.Bound = "/other", "ag1"
+	other.Folder, other.Bound = abs("/other"), "ag1"
 	second, err := s.Save(other, at(9, 8, 0))
 	if err != nil {
 		t.Fatal(err)
@@ -539,7 +542,7 @@ func TestRemovingAProjectDropsItsAutomationsAndRunsAndWakesWhoWatches(t *testing
 	reg.OnRemove(func(string) { s.Reload() })
 	a := saved(t, s, at(9, 8, 0))
 	elsewhere := morning
-	elsewhere.Folder = "/other"
+	elsewhere.Folder = abs("/other")
 	b, err := s.Save(elsewhere, at(9, 8, 0))
 	if err != nil {
 		t.Fatal(err)
@@ -547,7 +550,7 @@ func TestRemovingAProjectDropsItsAutomationsAndRunsAndWakesWhoWatches(t *testing
 	s.Begin(a.ID, at(9, 8, 1))
 	keep, _ := s.Begin(b.ID, at(9, 8, 1))
 	changed := s.Changed()
-	if err := reg.RemoveProject("/f"); err != nil {
+	if err := reg.RemoveProject(abs("/f")); err != nil {
 		t.Fatal(err)
 	}
 	select {

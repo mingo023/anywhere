@@ -16,7 +16,7 @@ import (
 func withSkills(t *testing.T, project string) (home string, opt func(*Server)) {
 	home, dir := t.TempDir(), t.TempDir()
 	path := filepath.Join(dir, "desktop.json")
-	if err := os.WriteFile(path, []byte(`{"projects":["`+project+`"],"repos":{}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"projects":[`+q(project)+`],"repos":{}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	store, err := skills.Open(dir)
@@ -38,7 +38,7 @@ func TestSkillsListSendsTheProjectsSkillsOnItsAccountBeforeAnyAgentRuns(t *testi
 	os.WriteFile(skill, []byte("---\ndescription: Ship it\n---\n"), 0o644)
 	_, _, p := setup(t, opt)
 	p.hello()
-	p.send(`{"type":"skills.list","id":"s1","provider":"claude","project":"` + project + `"}`)
+	p.send(`{"type":"skills.list","id":"s1","provider":"claude","project":` + q(project) + `}`)
 	if m := p.recv(); m["type"] != "skills.list" || !reflect.DeepEqual(m["commands"], []any{}) {
 		t.Fatalf("kept: %v", m)
 	}

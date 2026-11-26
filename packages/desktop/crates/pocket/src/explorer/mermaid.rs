@@ -606,7 +606,8 @@ mod tests {
     fn draws_emoji_in_colour_rather_than_as_placeholder_boxes() {
         let t = tree("flowchart LR\n  A[Done ❌]\n", MD_CODE_BG, true).unwrap();
         let image = rasterize(&t, 2.).unwrap();
-        let red = image.as_bytes(0).unwrap().as_chunks::<4>().0.iter().any(|&[b, g, r, _]| r > 200 && g < 80 && b < 80);
+        // Apple's ❌ is pure red, Windows 11's a pink-red (#fc628c).
+        let red = image.as_bytes(0).unwrap().as_chunks::<4>().0.iter().any(|&[b, g, r, _]| r > 200 && r.saturating_sub(g) > 100 && r.saturating_sub(b) > 80);
         assert!(red);
     }
 

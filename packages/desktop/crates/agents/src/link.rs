@@ -332,7 +332,8 @@ mod tests {
     type Ws = tungstenite::WebSocket<UnixStream>;
 
     fn sock_path(name: &str) -> PathBuf {
-        let sock = PathBuf::from("/tmp").join(format!("pa-{name}-{}.sock", std::process::id()));
+        let dir = if cfg!(windows) { std::env::temp_dir() } else { PathBuf::from("/tmp") };
+        let sock = dir.join(format!("pa-{name}-{}.sock", std::process::id()));
         let _ = std::fs::remove_file(&sock);
         sock
     }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -165,6 +166,14 @@ func TestOnlyUnprivilegedPortsAndKnownListenModesAreAccepted(t *testing.T) {
 	}
 }
 
+// fullPath is unix as a full path on this OS: Windows needs a drive.
+func fullPath(unix string) string {
+	if runtime.GOOS == "windows" {
+		return "C:" + filepath.FromSlash(unix)
+	}
+	return unix
+}
+
 func TestAProviderCommandIsANameOnPathOrAFullPath(t *testing.T) {
 	s := newSettings(t, nil)
 	if s.AgentCommand("claude") != "claude" || s.Values()["codex.command"] != "" {
@@ -175,7 +184,7 @@ func TestAProviderCommandIsANameOnPathOrAFullPath(t *testing.T) {
 			t.Errorf("%q accepted", bad)
 		}
 	}
-	if err := s.Set("claude.command", "/opt/homebrew/bin/claude"); err != nil || s.AgentCommand("claude") != "/opt/homebrew/bin/claude" {
+	if err := s.Set("claude.command", fullPath("/opt/homebrew/bin/claude")); err != nil || s.AgentCommand("claude") != fullPath("/opt/homebrew/bin/claude") {
 		t.Fatalf("err %v, got %q", err, s.AgentCommand("claude"))
 	}
 	if err := s.Set("codex.command", "codex-nightly"); err != nil || s.AgentCommand("codex") != "codex-nightly" {
@@ -193,7 +202,7 @@ func TestAProviderStartsAsItsOwnCommandUnlessConfigNamesAnother(t *testing.T) {
 			t.Errorf("%s: got %q", provider, got)
 		}
 	}
-	if err := s.Set("cursor.command", "/opt/cursor/agent"); err != nil || s.AgentCommand("cursor") != "/opt/cursor/agent" {
+	if err := s.Set("cursor.command", fullPath("/opt/cursor/agent")); err != nil || s.AgentCommand("cursor") != fullPath("/opt/cursor/agent") {
 		t.Fatalf("err %v, got %q", err, s.AgentCommand("cursor"))
 	}
 	if v := s.Values(); v["hermes.resumeArgs"] != "chat --resume" || v["opencode.forkArgs"] != "-s {sessionId} --fork" || v["pi.promptArgs"] != "--" {

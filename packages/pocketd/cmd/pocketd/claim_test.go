@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,13 +25,14 @@ import (
 )
 
 func TestTheFoldersOnRecordAreNamedWorktreesTicketsAndRunsWorktreesAndTerminalsFolders(t *testing.T) {
+	repo := filepath.Join(filepath.VolumeName(os.TempDir()), "/repo")
 	now := time.Now()
 	db := dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db"))
 	tx, err := db.Begin()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.Insert(tx, registry.State{Projects: []proto.RegistryProject{{ID: "p1", Path: "/repo"}}}); err != nil {
+	if err := registry.Insert(tx, registry.State{Projects: []proto.RegistryProject{{ID: "p1", Path: repo}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -54,7 +56,7 @@ func TestTheFoldersOnRecordAreNamedWorktreesTicketsAndRunsWorktreesAndTerminalsF
 	if err != nil {
 		t.Fatal(err)
 	}
-	ticket, err := tickets.Save(proto.Ticket{Title: "Fix", Prompt: "fix", Provider: "claude", Folder: "/repo"}, false, now)
+	ticket, err := tickets.Save(proto.Ticket{Title: "Fix", Prompt: "fix", Provider: "claude", Folder: repo}, false, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +65,7 @@ func TestTheFoldersOnRecordAreNamedWorktreesTicketsAndRunsWorktreesAndTerminalsF
 	if err != nil {
 		t.Fatal(err)
 	}
-	auto, err := autos.Save(proto.Automation{Name: "Review", Prompt: "review", Provider: "claude", Folder: "/repo",
+	auto, err := autos.Save(proto.Automation{Name: "Review", Prompt: "review", Provider: "claude", Folder: repo,
 		Schedule: proto.Schedule{Kind: "days", Days: []int{1}, Time: "09:00"}, Enabled: true}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +117,8 @@ func TestTheWorktreesAgentsMadeBeforeAreClaimedOnceAndCleanedUp(t *testing.T) {
 	subagent, isolated := add("subagent"), add("isolated")
 	started := time.Now().Add(time.Second).UnixMilli()
 	home := t.TempDir()
-	os.WriteFile(filepath.Join(home, "desktop.json"), []byte(`{"subtrees":{"`+subagent+`":{"started":`+strconv.FormatInt(started, 10)+`},"//devbox/x":{"started":1}}}`), 0o600)
+	subagentJSON, _ := json.Marshal(subagent)
+	os.WriteFile(filepath.Join(home, "desktop.json"), []byte(`{"subtrees":{`+string(subagentJSON)+`:{"started":`+strconv.FormatInt(started, 10)+`},"//devbox/x":{"started":1}}}`), 0o600)
 	later := add("later")
 	var reaped []string
 	reap := func(tree string) { reaped = append(reaped, tree) }

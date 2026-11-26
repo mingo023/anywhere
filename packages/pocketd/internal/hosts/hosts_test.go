@@ -2,6 +2,7 @@ package hosts
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -56,6 +57,9 @@ func TestAHostsFilesSitUnderTheAppsHostsFolder(t *testing.T) {
 	paths := Paths{Home: "/h"}
 	got := []string{paths.Socket("dev"), paths.Token("dev"), paths.KnownHosts("dev"), paths.Key("dev")}
 	want := []string{"/h/hosts/dev.sock", "/h/hosts/dev.token", "/h/hosts/dev.known_hosts", "/h/hosts/dev.key"}
+	for i := range want {
+		want[i] = filepath.FromSlash(want[i])
+	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("%v", got)
 	}

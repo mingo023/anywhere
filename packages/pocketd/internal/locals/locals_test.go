@@ -2,6 +2,7 @@ package locals
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -142,7 +143,7 @@ func TestEachChangeSendsEveryLocal(t *testing.T) {
 	l.Rename("a", "")
 	l.Delete("a")
 	for _, want := range []string{
-		`{"type":"local.list","locals":[{"id":"a","project":"` + h.p + `","name":"Local 2"}]}`,
+		`{"type":"local.list","locals":[{"id":"a","project":` + quoted(h.p) + `,"name":"Local 2"}]}`,
 		`{"type":"local.list","locals":[]}`,
 	} {
 		select {
@@ -203,7 +204,7 @@ func TestRemovingAProjectDropsItsLocalsAndTellsSubscribers(t *testing.T) {
 	if err := h.reg.RemoveProject(h.p); err != nil {
 		t.Fatal(err)
 	}
-	want := `{"type":"local.list","locals":[{"id":"b","project":"` + h.q + `","name":"Local 3"}]}`
+	want := `{"type":"local.list","locals":[{"id":"b","project":` + quoted(h.q) + `,"name":"Local 3"}]}`
 	select {
 	case raw := <-msgs:
 		if string(raw) != want {
@@ -215,4 +216,10 @@ func TestRemovingAProjectDropsItsLocalsAndTellsSubscribers(t *testing.T) {
 	if got := h.open(t).List(); len(got) != 1 || got[0].ID != "b" {
 		t.Fatalf("after a restart %v", got)
 	}
+}
+
+// quoted is s as JSON writes it, which escapes a Windows path's backslashes.
+func quoted(s string) string {
+	raw, _ := json.Marshal(s)
+	return string(raw)
 }

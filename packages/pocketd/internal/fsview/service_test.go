@@ -62,6 +62,14 @@ func repo(t *testing.T) (*Service, string) {
 	return &Service{Registry: openRegistry(t, filepath.Dir(desktop)), Env: gitEnv, Attachments: filepath.Join(base, "home", "attachments")}, root
 }
 
+// linked skips a test that needs repo's link where it couldn't be made, as on Windows without the privilege for links.
+func linked(t *testing.T, root string) {
+	t.Helper()
+	if _, err := os.Lstat(filepath.Join(root, "readme")); err != nil {
+		t.Skip(err)
+	}
+}
+
 func names(entries []proto.FsEntry) []string {
 	var out []string
 	for _, e := range entries {
@@ -72,6 +80,7 @@ func names(entries []proto.FsEntry) []string {
 
 func TestAListingPutsFoldersFirstAndCarriesIgnoredFlagsAndGitLetters(t *testing.T) {
 	s, root := repo(t)
+	linked(t, root)
 	entries, err := s.List(context.Background(), root, "")
 	if err != nil {
 		t.Fatal(err)
@@ -115,6 +124,7 @@ func TestAListingOfATreeOutsideAProjectOrAPathOutOfItIsRefused(t *testing.T) {
 
 func TestAReadNamesTheTreeAndPathItWasAskedFor(t *testing.T) {
 	s, root := repo(t)
+	linked(t, root)
 	r, err := s.Read(root, "readme", 0)
 	if err != nil || r.Tree != root || r.Path != "readme" || r.Kind != "text" || *r.Text != "# app\n" {
 		t.Fatalf("%+v %v", r, err)
@@ -123,6 +133,7 @@ func TestAReadNamesTheTreeAndPathItWasAskedFor(t *testing.T) {
 
 func TestSearchFindsTrackedAndUntrackedFilesButNotIgnoredOnes(t *testing.T) {
 	s, root := repo(t)
+	linked(t, root)
 	got, err := s.Search(context.Background(), root, "", 50)
 	if err != nil {
 		t.Fatal(err)

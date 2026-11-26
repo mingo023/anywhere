@@ -1,11 +1,15 @@
 package main
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestInstallRefusesWhatTheServiceCouldNotRun(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("daemon install sets up a launchd agent, a Mac-only path checked with Mac paths")
+	}
 	ok := installCheck{Exe: "/Users/me/bin/pocketd", Temp: []string{"/private/var/folders/x/T", "/private/tmp", "/Users/me/Library/Caches/go-build"}, DefaultHome: "/Users/me/.coding-pocket"}
 	for _, c := range []struct {
 		name string

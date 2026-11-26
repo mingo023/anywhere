@@ -23,6 +23,9 @@ func Open(path string, max int64, keep int) (*File, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
+	if _, err := os.Stat(path + ".rotating"); err == nil {
+		shift(path, keep)
+	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
@@ -48,18 +51,34 @@ func (l *File) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// rotate closes the file before renaming it, as Windows refuses to rename an open file. Where
+// another process holds it open the rename still fails: it then keeps appending, and tries
+// again only after another max bytes, so the older logs aren't shifted on every write.
 func (l *File) rotate() error {
-	for n := l.keep; n > 1; n-- {
-		os.Rename(fmt.Sprintf("%s.%d", l.path, n-1), fmt.Sprintf("%s.%d", l.path, n))
+	l.f.Close()
+	flag := os.O_WRONLY | os.O_CREATE | os.O_APPEND
+	if os.Rename(l.path, l.path+".rotating") == nil {
+		if shift(l.path, l.keep) == nil {
+			flag |= os.O_TRUNC
+		} else {
+			os.Rename(l.path+".rotating", l.path)
+		}
 	}
-	os.Rename(l.path, l.path+".1")
-	f, err := os.OpenFile(l.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	f, err := os.OpenFile(l.path, flag, 0o600)
 	if err != nil {
 		return err
 	}
-	l.f.Close()
 	l.f, l.size = f, 0
 	return nil
+}
+
+// shift moves path.rotating to path.1 after making room. A crash in rotate leaves path.rotating behind, so Open
+// shifts it too.
+func shift(path string, keep int) error {
+	for n := keep; n > 1; n-- {
+		os.Rename(fmt.Sprintf("%s.%d", path, n-1), fmt.Sprintf("%s.%d", path, n))
+	}
+	return os.Rename(path+".rotating", path+".1")
 }
 
 func (l *File) Close() error {

@@ -519,6 +519,7 @@ mod tests {
         std::fs::create_dir_all(&repo).unwrap();
         let run = |args: &[&str]| assert!(Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap().status.success());
         run(&["init", "-q"]);
+        run(&["config", "core.autocrlf", "false"]);
         std::fs::write(repo.join("a"), "a\n").unwrap();
         run(&["add", "."]);
         run(&["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "init"]);
@@ -533,8 +534,20 @@ mod tests {
         for name in ["zeta", "alpha", "mid"] {
             add_worktree(r, dir.join(name).to_str().unwrap(), name, "HEAD").unwrap();
         }
-        let names: Vec<String> = worktrees(&Runner::Local, r).iter().map(|w| w.path.rsplit('/').next().unwrap().to_string()).collect();
+        let names: Vec<String> = worktrees(&Runner::Local, r).iter().map(|w| w.path.rsplit(std::path::is_separator).next().unwrap().to_string()).collect();
         assert_eq!(names, ["repo", "zeta", "alpha", "mid"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn a_worktrees_path_is_keyed_with_the_separators_windows_gives_it() {
+        let dir = scratch_repo("separators");
+        let (repo, side) = (dir.join("repo"), dir.join("side"));
+        let r = repo.to_str().unwrap();
+        add_worktree(r, side.to_str().unwrap(), "side", "HEAD").unwrap();
+        let paths: Vec<String> = worktrees(&Runner::Local, r).into_iter().map(|w| w.path).collect();
+        assert_eq!(paths, [r, side.to_str().unwrap()]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

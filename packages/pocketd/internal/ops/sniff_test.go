@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -52,6 +54,9 @@ func dialWS(t *testing.T, sock string) *websocket.Conn {
 }
 
 func TestAWebsocketUpgradeAndLineJSONShareOneSocket(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a pid proves no owner on Windows, and the owner token travels in the line protocol, not the upgrade")
+	}
 	sock := serve(t, &Server{Terminals: terminal.NewManager(), WS: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		who, ok := peer.From(r.Context())
 		ws, err := websocket.Accept(w, r, nil)
@@ -85,12 +90,14 @@ func TestASilentConnIsClosedAfterThePeekDeadline(t *testing.T) {
 }
 
 func TestAPtyPeerCanListButNotAttachOrTypeIntoAnAsk(t *testing.T) {
-	sock := serve(t, &Server{Terminals: terminal.NewManager(), AskOpen: func(string) bool { return true }})
-	c := dial(t, sock)
+	srv := &Server{Terminals: terminal.NewManager(), AskOpen: func(string) bool { return true }}
+	token := ownerToken(t, srv)
+	sock := serve(t, srv)
+	c := dialOwner(t, sock, token)
 	c.Send(Msg{Op: "spawn", Cmd: "sleep", Args: []string{"30"}})
 	other := recv(t, c, "spawned").ID
 	env := append(os.Environ(), "OPS_PEER="+sock, "OPS_TARGET="+other, "OPS_PEER_OPS=list,attach,screen,input,prompt,spawn,close")
-	c.Send(Msg{Op: "spawn", Cmd: "sh", Args: []string{"-c", os.Args[0] + "; sleep 30"}, Env: env, Cols: 80, Rows: 12})
+	c.Send(Msg{Op: "spawn", Cmd: "sh", Args: []string{"-c", filepath.ToSlash(os.Args[0]) + "; sleep 30"}, Env: env, Cols: 80, Rows: 12})
 	id := recv(t, c, "spawned").ID
 	want := []string{"list:terminals:", "attach:error:scope_denied", "screen:error:scope_denied", "input:error:ask_open", "prompt:error:ask_open", "spawn:error:scope_denied", "close:error:scope_denied"}
 	var screen string

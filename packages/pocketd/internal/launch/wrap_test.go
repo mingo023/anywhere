@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -29,10 +30,7 @@ func runWrapped(t *testing.T, shell, setup string, argv []string) string {
 }
 
 func TestWrapRecordsTheExitBeforeTheShellTakesOver(t *testing.T) {
-	shells := []string{"/bin/sh"}
-	if fish, err := exec.LookPath("fish"); err == nil {
-		shells = append(shells, fish)
-	}
+	shells := posixShells(t)
 	for _, shell := range shells {
 		if got := runWrapped(t, shell, "", []string{"/bin/sh", "-c", "exit 3"}); got != "hook exit agent 3\n" {
 			t.Errorf("%s: got %q", shell, got)
@@ -41,10 +39,7 @@ func TestWrapRecordsTheExitBeforeTheShellTakesOver(t *testing.T) {
 }
 
 func TestAFailedSetupStopsBeforeTheAgent(t *testing.T) {
-	shells := []string{"/bin/sh"}
-	if fish, err := exec.LookPath("fish"); err == nil {
-		shells = append(shells, fish)
-	}
+	shells := posixShells(t)
 	for _, shell := range shells {
 		if got := runWrapped(t, shell, "echo setting up\nfalse", []string{"/bin/sh", "-c", "exit 3"}); got != "hook exit setup 1\n" {
 			t.Errorf("%s: got %q", shell, got)
@@ -53,10 +48,7 @@ func TestAFailedSetupStopsBeforeTheAgent(t *testing.T) {
 }
 
 func TestASetupThatCallsExitIsReportedAsSetup(t *testing.T) {
-	shells := []string{"/bin/sh"}
-	if fish, err := exec.LookPath("fish"); err == nil {
-		shells = append(shells, fish)
-	}
+	shells := posixShells(t)
 	for _, shell := range shells {
 		if got := runWrapped(t, shell, "exit 4", []string{"/bin/sh", "-c", "exit 3"}); got != "hook exit setup 4\n" {
 			t.Errorf("%s: got %q", shell, got)
@@ -65,10 +57,7 @@ func TestASetupThatCallsExitIsReportedAsSetup(t *testing.T) {
 }
 
 func TestAPassingSetupIsReportedThenRunsTheAgent(t *testing.T) {
-	shells := []string{"/bin/sh"}
-	if fish, err := exec.LookPath("fish"); err == nil {
-		shells = append(shells, fish)
-	}
+	shells := posixShells(t)
 	for _, shell := range shells {
 		if got := runWrapped(t, shell, "true", []string{"/bin/sh", "-c", "exit 0"}); got != "hook exit setup 0\nhook exit agent 0\n" {
 			t.Errorf("%s: got %q", shell, got)
@@ -127,4 +116,28 @@ func TestPowerShellSetsTheAccountBeforeTheAgent(t *testing.T) {
 	if !strings.HasPrefix(got, "Remove-Item Env:ANTHROPIC_API_KEY, Env:ANTHROPIC_AUTH_TOKEN, ") || !strings.Contains(got, "\n$env:CODEX_HOME = 'C:\\a'\n& 'codex'") {
 		t.Errorf("%q", got)
 	}
+}
+
+func TestWindowsPowerShellHandsTheAgentAPromptsQuotesIntact(t *testing.T) {
+	shell := `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`
+	argv := []string{"claude", `fix "x"`}
+	if got := Wrap(shell, `C:\p\pocketd.exe`, "", argv, nil)[3]; !strings.HasPrefix(got, `& 'claude' 'fix \"x\"';`) {
+		t.Errorf("wrap: %q", got)
+	}
+	if got := InShell(shell, argv)[3]; got != `& 'claude' 'fix \"x\"'` {
+		t.Errorf("in shell: %q", got)
+	}
+}
+
+// posixShells are /bin/sh and fish when installed. Windows terminals run
+// PowerShell instead, which TestWrapHandsPowerShellTheAgentThenKeepsItOpen covers.
+func posixShells(t *testing.T) []string {
+	if runtime.GOOS == "windows" {
+		t.Skip("no /bin/sh on Windows")
+	}
+	shells := []string{"/bin/sh"}
+	if fish, err := exec.LookPath("fish"); err == nil {
+		shells = append(shells, fish)
+	}
+	return shells
 }
