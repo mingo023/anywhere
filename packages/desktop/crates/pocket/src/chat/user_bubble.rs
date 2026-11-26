@@ -160,12 +160,12 @@ fn paint_pill(span: Bounds<Pixels>, line: Pixels, window: &mut Window, cx: &mut 
 
 /// The lines `text` wraps to in a bubble at most `width * 0.78` wide.
 pub(super) fn lines(text: &str, width: f32, window: &Window) -> usize {
-    wrapped_lines(text, TEXT_SIZE, width * WIDTH - 32., window)
+    wrapped_lines(typed(text), TEXT_SIZE, width * WIDTH - 32., window)
 }
 
 /// The lines a prompt's `text` wraps to at `size` px in `width` px, as a bubble shows it.
 pub(super) fn wrapped_lines(text: &str, size: f32, width: f32, window: &Window) -> usize {
-    text_lines(&shown(split_attachments(typed(text)).text).text, size, width, window)
+    text_lines(&shown(split_attachments(text).text).text, size, width, window)
 }
 
 fn typed(prompt: &str) -> &str {
