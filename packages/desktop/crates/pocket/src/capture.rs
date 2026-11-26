@@ -793,7 +793,8 @@ const STEPS: [(&str, Step); 345] = [
             t.sessions.items.push(crate::terminals::sessions::Session {
                 info: daemon::Info { id: id.clone(), ..Default::default() },
                 term: Some(crate::terminals::sessions::Grid::new(term)),
-                exit: None,
+                // The fake pocketd doesn't list this terminal, and a session list drops what it doesn't name unless it exited.
+                exit: Some(0),
             })
         });
         let mut signin = d.new_sign_in(crate::accounts::Key { host: None, provider: "claude".into(), id: String::new() }, window, cx);
