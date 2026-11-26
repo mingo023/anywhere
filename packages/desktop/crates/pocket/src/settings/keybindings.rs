@@ -434,6 +434,7 @@ impl Settings {
         self.keyboard.taking = None;
         let r = &SHORTCUTS[row];
         let saved = model::save(&self.custom(), r);
+        let had: Vec<(usize, model::Saved)> = from.iter().filter_map(|b| b.row).map(|h| (h, model::save(&self.custom(), &SHORTCUTS[h]))).collect();
         self.edit_keys(cx, move |c| {
             for b in &from {
                 if let Some(holder) = b.row {
@@ -442,12 +443,14 @@ impl Settings {
             }
             model::reset(c, &SHORTCUTS[row]);
         });
+        let now = self.custom();
+        let holders: Vec<_> = had.into_iter().map(|(h, had)| (h, had, model::save(&now, &SHORTCUTS[h]))).collect();
         let undo = Undo::new(move |d, _, cx| {
             let mut c = Custom::of(&d.store);
             if SHORTCUTS[row].changed(&c) {
                 return;
             }
-            match conflicts::restore_keys(&SHORTCUTS, &mut c, row, |c| model::restore(c, &saved)) {
+            match conflicts::undo_take_back(&SHORTCUTS, &mut c, row, &saved, &holders) {
                 Ok(()) => {
                     c.store(&mut d.store);
                     d.changed(Some(&ROWS[0]), cx);

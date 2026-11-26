@@ -340,7 +340,7 @@ pub(crate) fn reset(c: &mut Custom, row: &Shortcut) {
 }
 
 /// What `row` had in `c`, to put back after a reset.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Saved {
     keys: Vec<(String, Option<String>)>,
     added: Vec<(String, String)>,

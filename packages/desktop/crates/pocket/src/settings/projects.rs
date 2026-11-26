@@ -138,6 +138,11 @@ pub(super) fn lines(entries: &[Entry], machines: &[Machine], folded: &HashSet<Op
 }
 
 /// The filter field's hint: how many projects, and on how many machines when there are several.
+/// The filter shows past `FILTER_ABOVE` projects, and stays while it holds a query so that query can be cleared.
+fn shows_filter(projects: usize, query: &str) -> bool {
+    projects > FILTER_ABOVE || !query.is_empty()
+}
+
 pub(super) fn placeholder(projects: usize, machines: usize) -> String {
     if machines > 1 { format!("Filter {projects} projects on {machines} machines") } else { format!("Filter {projects} projects") }
 }
@@ -232,7 +237,7 @@ impl Settings {
         let entries: Vec<Entry> = self.side.projects.iter().map(|c| Entry { name: &c.name, path: &c.path, host: c.host.as_deref() }).collect();
         let query = self.projects.filter.read(cx).value().to_string();
         let lines = lines(&entries, &self.side.machines, &self.projects.folded, &query);
-        let filter = (self.side.projects.len() > FILTER_ABOVE).then(|| super::card(vec![filter_field(&self.projects.filter)]));
+        let filter = shows_filter(self.side.projects.len(), &query).then(|| super::card(vec![filter_field(&self.projects.filter)]));
         let empty = || div().px(px(14.)).py(px(12.)).text_size(px(12.5)).text_color(TEXT_3).child("No project matches");
         let list = div().flex().flex_col().gap(px(14.)).children(filter);
         if !lines.iter().any(|l| matches!(l, Line::Header { .. })) {
@@ -460,7 +465,7 @@ fn offline_note(host: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, Foot, Line, MachineState, add_targets, foot, lines, machine_state, placeholder, worktree_count};
+    use super::{Entry, Foot, Line, MachineState, add_targets, foot, lines, machine_state, placeholder, shows_filter, worktree_count};
     use crate::settings::side::Machine;
     use agents::hosts::{Failure, Link};
     use std::collections::HashSet;
@@ -493,6 +498,11 @@ mod tests {
 
     fn header(host: Option<&str>, open: bool, total: usize) -> Line {
         Line::Header { host: host.map(str::to_string), open, total }
+    }
+
+    #[test]
+    fn the_filter_stays_while_it_holds_a_query_after_projects_drop_below_the_threshold() {
+        assert!(!shows_filter(6, "") && shows_filter(7, "") && shows_filter(6, "api"));
     }
 
     #[test]

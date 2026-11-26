@@ -5,7 +5,7 @@
 //! passes the key on: ⌘B formats only in a prompt with a selection, and is Toggle sidebar everywhere else.
 
 use super::compact;
-use super::model::{Custom, Shortcut, Slot, canon, key_of, put, remove_key};
+use super::model::{self, Custom, Saved, Shortcut, Slot, canon, key_of, put, remove_key};
 use crate::actions::{self, FormatBold, FormatCode, FormatItalic, FormatLink, PageEdit};
 use gpui_kit::{KeyBinding, Keystroke};
 use std::collections::BTreeMap;
@@ -374,6 +374,20 @@ pub(crate) fn restore_keys(rows: &[Shortcut], c: &mut Custom, row: usize, apply:
     Ok(())
 }
 
+/// Undoes a reset of `row` that took keys from `holders` (row, what it had, what it had after): `row` gets `saved` back,
+/// and each holder its own unless it changed since.
+pub(crate) fn undo_take_back(rows: &[Shortcut], c: &mut Custom, row: usize, saved: &Saved, holders: &[(usize, Saved, Saved)]) -> Result<(), String> {
+    restore_keys(rows, c, row, |c| {
+        model::restore(c, saved);
+        for (h, had, after) in holders {
+            if model::save(c, &rows[*h]) == *after {
+                model::reset(c, &rows[*h]);
+                model::restore(c, had);
+            }
+        }
+    })
+}
+
 /// Puts back `key`, removed from row `row`. If a newer key has filled its built-in spot since, that key keeps the spot and
 /// this one comes back as an added key, but only when that changes nothing, since its precedence moves. Returns what to
 /// tell, or why it can't.
@@ -651,6 +665,25 @@ mod tests {
         let before = c.clone();
         let why = undo_remove(&SHORTCUTS, &mut c, palette, &k("cmd-k"), true).unwrap_err();
         assert_eq!((why, c), (format!("{} now belongs to New worktree", compact(&k("cmd-k"))), before));
+    }
+
+    #[test]
+    fn undoing_a_reset_gives_back_the_key_it_took_from_another_action() {
+        let mut c = Custom::default();
+        let (palette, worktree) = (at("Command palette"), at("New worktree"));
+        put(&mut c, &SHORTCUTS[palette], Slot::Spot, &k("cmd-shift-p"));
+        put(&mut c, &SHORTCUTS[worktree], Slot::Spot, &k("cmd-k"));
+        let before = c.clone();
+        let (saved, had) = (model::save(&c, &SHORTCUTS[palette]), model::save(&c, &SHORTCUTS[worktree]));
+        remove_key(&mut c, &SHORTCUTS[worktree], &k("cmd-k"));
+        model::reset(&mut c, &SHORTCUTS[palette]);
+        let holders = [(worktree, had, model::save(&c, &SHORTCUTS[worktree]))];
+        let mut undone = c.clone();
+        undo_take_back(&SHORTCUTS, &mut undone, palette, &saved, &holders).unwrap();
+        assert_eq!(undone, before);
+        put(&mut c, &SHORTCUTS[worktree], Slot::Spot, &k("cmd-alt-shift-y"));
+        undo_take_back(&SHORTCUTS, &mut c, palette, &saved, &holders).unwrap();
+        assert_eq!(SHORTCUTS[worktree].keys(&c), [k("cmd-alt-shift-y")], "a holder changed since keeps its new key");
     }
 
     #[test]
