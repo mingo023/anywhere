@@ -649,7 +649,16 @@ impl View {
         let sticky = self.sticky(window, cx);
         let cover = sticky.as_ref().map_or(0., |(_, cover)| *cover);
         let timeline = self.timeline(window, cx);
-        div().relative().flex_1().min_h_0().child(sticky::below(cover, rows)).children(sticky.map(|(card, _)| card)).children(timeline).children(pill)
+        // A see-through page has no fill for the breadcrumb to fade the rows into, so nothing paints under it.
+        let clip = if see_through() { inset } else { 0. };
+        div()
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .child(sticky::below(cover.max(clip), rows))
+            .children(sticky.map(|(card, _)| sticky::below(clip, card)))
+            .children(timeline)
+            .children(pill)
     }
 
     /// Opens or closes a fold, phase or sub-agent, and has the list measure again what that shows or hides.
