@@ -363,12 +363,10 @@ func putDelegation(tx *Tx, t Delegation) error {
 }
 
 // queuedAfter says whether a session has a prompt queued for a turn after the given one: still pending, or
-// sent since that turn began, as a prompt sent earlier is the one that started it. One the agent took
-// without a turn has none to wait for.
+// sent by the drain once that turn ended. A prompt sent before it ended steered into it or started it.
 const queuedAfter = `SELECT EXISTS (SELECT 1 FROM queue q WHERE q.session_id = ?1 AND (q.state = 'pending' OR q.state IN ('sending', 'sent') AND EXISTS (
 	SELECT 1 FROM outbox o WHERE o.session_id = ?1 AND o.kind = '` + EffTurnStart + `' AND json_extract(o.payload, '$.key') = q.id
-		AND o.created_at > (SELECT started_at FROM turns WHERE id = ?2)
-		AND NOT (json_valid(o.result) AND COALESCE(json_extract(o.result, '$.turnless'), 0)))))`
+		AND o.created_at >= (SELECT ended_at FROM turns WHERE id = ?2))))`
 
 func startedNoTurn(cmd Command) bool {
 	var p struct {
