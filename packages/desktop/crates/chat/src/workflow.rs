@@ -169,19 +169,32 @@ fn literal(rest: &str) -> Option<String> {
     None
 }
 
-/// The first `open`…`close` span in `s`, brackets included, skipping any inside strings.
+/// The first `open`…`close` span in `s`, brackets included, skipping any inside strings or comments.
 fn enclosed(s: &str, open: char, close: char) -> Option<&str> {
     let start = s.find(open)?;
-    let (mut depth, mut quote, mut escaped) = (0, None, false);
-    for (i, c) in s[start..].char_indices() {
-        match (quote, c) {
-            (Some(_), _) if escaped => escaped = false,
-            (Some(_), '\\') => escaped = true,
-            (Some(q), c) if c == q => quote = None,
-            (Some(_), _) => {}
-            (None, '"' | '\'' | '`') => quote = Some(c),
-            (None, c) if c == open => depth += 1,
-            (None, c) if c == close => {
+    let (mut depth, mut quote, mut escaped, mut comment) = (0, None, false, None);
+    let mut chars = s[start..].char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        let next = chars.peek().map(|&(_, n)| n);
+        match (comment, quote, c) {
+            (Some("\n"), _, '\n') => comment = None,
+            (Some(_), _, '*') if next == Some('/') => {
+                chars.next();
+                comment = None;
+            }
+            (Some(_), _, _) => {}
+            (None, Some(_), _) if escaped => escaped = false,
+            (None, Some(_), '\\') => escaped = true,
+            (None, Some(q), c) if c == q => quote = None,
+            (None, Some(_), _) => {}
+            (None, None, '/') if next == Some('/') => comment = Some("\n"),
+            (None, None, '/') if next == Some('*') => {
+                chars.next();
+                comment = Some("*/");
+            }
+            (None, None, '"' | '\'' | '`') => quote = Some(c),
+            (None, None, c) if c == open => depth += 1,
+            (None, None, c) if c == close => {
                 depth -= 1;
                 if depth == 0 {
                     return Some(&s[start..start + i + c.len_utf8()]);
@@ -219,6 +232,9 @@ const r = await agent('x', { phase: 'Instrument', name: 'not this' })"#;
         assert_eq!(titles(&w), [("Instrument", "Add timings, {braces} and 'quotes' too"), ("Judge", "")]);
         let w = Workflow::from_input(&json!({ "script": "export const meta = { description: 'Pick a name: short', name: 'x' }" }));
         assert_eq!(w.name, "x", "a key inside an earlier value isn't the key");
+        let script = "export const meta = {\n  // don't { trip\n  name: 'y', /* it's } */ phases: [{ title: 'A' }],\n}";
+        let w = Workflow::from_input(&json!({ "script": script }));
+        assert_eq!((w.name.as_str(), titles(&w)), ("y", vec![("A", "")]), "comments hold no strings or brackets");
     }
 
     #[test]

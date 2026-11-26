@@ -207,11 +207,11 @@ func (s *Subagents) unfollowed() map[string]string {
 // timeline already shows some.
 func (s *Subagents) journaled(raw []byte, call string) []timeline.Event {
 	var l struct {
-		Type    string `json:"type"`
-		AgentID string `json:"agentId"`
-		Label   string `json:"label"`
-		Phase   string `json:"phase"`
-		Result  string `json:"result"`
+		Type    string          `json:"type"`
+		AgentID string          `json:"agentId"`
+		Label   string          `json:"label"`
+		Phase   string          `json:"phase"`
+		Result  json.RawMessage `json:"result"`
 	}
 	if json.Unmarshal(raw, &l) != nil || l.AgentID == "" {
 		return nil
@@ -224,9 +224,24 @@ func (s *Subagents) journaled(raw []byte, call string) []timeline.Event {
 		detail := proto.ToolDetail{Kind: "task", Description: l.Label, Phase: l.Phase}
 		return []timeline.Event{{Kind: "tool_start", ToolUseID: l.AgentID, Name: "Agent", Detail: &detail, ParentToolUseID: call}}
 	case l.Type == "result" && !settled:
-		return []timeline.Event{{Kind: "tool_end", ToolUseID: l.AgentID, OK: true, Output: &l.Result, ParentToolUseID: call}}
+		out := journalResult(l.Result)
+		return []timeline.Event{{Kind: "tool_end", ToolUseID: l.AgentID, OK: true, Output: &out, ParentToolUseID: call}}
 	}
 	return nil
+}
+
+// journalResult is an agent's result as text: its words, or the JSON an agent
+// asked for a schema answers with, indented.
+func journalResult(raw json.RawMessage) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	var out bytes.Buffer
+	if json.Indent(&out, raw, "", "  ") != nil {
+		return string(raw)
+	}
+	return out.String()
 }
 
 // workflowRuns is the runs the Workflow calls of the conversation at path

@@ -304,3 +304,16 @@ func TestARestoredAgentStoppedWithItsWorkflowTakesItsResultFromTheJournal(t *tes
 		t.Fatalf("got %q want %q", ends, want)
 	}
 }
+
+func TestAnAgentsResultIsItsTextOrTheJSONItAnsweredWith(t *testing.T) {
+	subs := NewSubagents(filepath.Join(t.TempDir(), "s.jsonl"))
+	for line, want := range map[string]string{
+		`{"type":"result","agentId":"a1","result":"found it"}`:         "found it",
+		`{"type":"result","agentId":"a1","result":{"files":["a.go"]}}`: "{\n  \"files\": [\n    \"a.go\"\n  ]\n}",
+	} {
+		got := subs.journaled([]byte(line), "wf")
+		if len(got) != 1 || *got[0].Output != want {
+			t.Fatalf("%s: got %+v", line, got)
+		}
+	}
+}
