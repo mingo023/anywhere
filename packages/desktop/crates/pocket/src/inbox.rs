@@ -199,6 +199,9 @@ impl Inbox {
         if self.cards != cards || self.observe_only != observe_only {
             self.answers.forget_gone(&cards);
             (self.cards, self.observe_only) = (cards, observe_only);
+            if self.replying.as_ref().is_some_and(|r| !self.lists(r)) {
+                self.replying = None;
+            }
             cx.notify();
         }
     }
@@ -217,6 +220,15 @@ impl Inbox {
 
     pub(crate) fn hung_from(this: &Entity<Self>, layout: Layout, bell: Layout, cx: &App) -> Option<Entity<Self>> {
         (this.read(cx).open && layout == bell).then(|| this.clone())
+    }
+
+    fn lists(&self, replying: &Replying) -> bool {
+        match replying {
+            Replying::Deny(request) | Replying::Other(request) => {
+                self.cards.iter().any(|c| matches!(&c.body, Body::Asks(asks) if asks.iter().any(|p| &p.request_id == request)))
+            }
+            Replying::Prompt(agent) => self.card(agent).is_some_and(|c| matches!(c.body, Body::Said { .. })),
+        }
     }
 
     fn card(&self, agent: &str) -> Option<&Card> {
