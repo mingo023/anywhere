@@ -253,6 +253,16 @@ pub(super) fn send_now(id: &str) -> Stateful<Div> {
         .child("Send now")
 }
 
+/// Where a sent image shows from: its own path, or once that fails to load, this Mac's copy of it in `here`. Picked
+/// before drawing, as a fallback drawn inside the failed image would sit in its fixed-height box.
+fn image_source(path: &str, here: &Path, window: &mut Window, cx: &mut App) -> PathBuf {
+    let own = PathBuf::from(path);
+    match window.use_asset::<ImgResourceLoader>(&Resource::from(own.clone()), cx) {
+        Some(Err(_)) => here.join(own.file_name().unwrap_or_default()),
+        _ => own,
+    }
+}
+
 /// A prompt, right-aligned in a wash rounded and ringed as the composer it was typed in, its images and files set apart
 /// above it; one over five lines clips to five with "Show more".
 /// `toggle` is set when the prompt collapses; `expanded` says which way it reads. Just after a toggle the height eases between the two.
@@ -268,6 +278,8 @@ pub(super) fn bubble(
     lit: bool,
     here: &Path,
     toggle: Option<(Fold, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static)>,
+    window: &mut Window,
+    cx: &mut App,
 ) -> Div {
     let Sent { text, files, images, elements } = split_attachments(&prompt);
     let text = text.to_string();
@@ -276,10 +288,8 @@ pub(super) fn bubble(
         let placeholder = || div().w(px(IMAGE_H * 0.75)).h_full().rounded(px(IMAGE_RADIUS)).bg(FILL_3).into_any_element();
         // `img` takes its shape as its aspect ratio, so a max width also caps its height and a wide image shrinks to fit.
         let picture = move |path: PathBuf| img(path).h(px(IMAGE_H)).max_w(px(fit)).rounded(px(IMAGE_RADIUS)).with_loading(placeholder);
-        let tile = |path: &str| {
-            let here = here.join(Path::new(path).file_name().unwrap_or_default());
-            let image = picture(PathBuf::from(path)).with_fallback(move || picture(here.clone()).with_fallback(placeholder).into_any_element());
-            div().flex_none().rounded(px(IMAGE_RADIUS + 1.)).border_1().border_color(hairline(0.10)).child(image)
+        let tile = |path: PathBuf| {
+            div().flex_none().rounded(px(IMAGE_RADIUS + 1.)).border_1().border_color(hairline(0.10)).child(picture(path).with_fallback(placeholder))
         };
         let card = |(i, path): (usize, &str)| file_card(SharedString::from(format!("{id}-file-{i}")), Path::new(path));
         let element = |(i, heading): (usize, &str)| {
@@ -293,7 +303,7 @@ pub(super) fn bubble(
             .justify_end()
             .items_end()
             .gap(px(8.))
-            .children(images.into_iter().map(tile))
+            .children(images.into_iter().map(|path| tile(image_source(path, here, window, cx))))
             .children(files.into_iter().enumerate().map(card))
             .children(elements.into_iter().enumerate().map(element))
     });
