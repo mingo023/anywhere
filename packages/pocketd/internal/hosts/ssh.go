@@ -181,6 +181,7 @@ func args(host Host, knownHosts, key string, extra []string, command string) []s
 		// A user's `ControlMaster auto` would hand the forward to a background master and exit at once.
 		"ControlMaster=no",
 		"ControlPath=none",
+		"Compression=yes",
 	)
 	out = append(out, knownHostsOption(knownHosts)...)
 	// With the app's key, keys ssh wasn't named aren't offered, so the user's agent can't spend MaxAuthTries first.
