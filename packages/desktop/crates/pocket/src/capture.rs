@@ -1314,7 +1314,10 @@ const STEPS: [(&str, Step); 312] = [
 const INPUT_STEPS: [(&str, Step); 25] = [
     ("key", |_, window, cx| {
         let Some(k) = next_arg("CAPTURE_KEYS", ';').and_then(|k| Keystroke::parse_with_os(&k, keys::OS).ok()) else { return };
-        window.defer(cx, move |window, cx| _ = window.dispatch_keystroke(k, cx));
+        window.defer(cx, move |window, cx| {
+            window.dispatch_keystroke(k.clone(), cx);
+            window.dispatch_event(PlatformInput::KeyUp(KeyUpEvent { keystroke: k }), cx);
+        });
     }),
     ("type", |_, window, cx| {
         let Some(text) = next_arg("CAPTURE_TYPE", '|') else { return };
