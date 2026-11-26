@@ -849,12 +849,13 @@ impl Render for Sidebar {
                 icon_button_sized("aside-collapse", "sidebar-collapse", 28., TEXT_3)
                     .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Collapse))),
             );
-        let search = ui::trigger_field("aside-search", "search", "Search all machines", "⌘K")
-            .mx(px(4.))
-            .mb(px(6.))
-            .h(px(32.))
-            .rounded(px(10.))
-            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Palette)));
+        let search =
+            ui::trigger_field("aside-search", "search", "Search all machines", &crate::settings::hint(&crate::actions::OpenPalette, cx).unwrap_or_default())
+                .mx(px(4.))
+                .mb(px(6.))
+                .h(px(32.))
+                .rounded(px(10.))
+                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Palette)));
         let pages: Vec<_> = f
             .pages
             .iter()

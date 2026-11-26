@@ -423,7 +423,10 @@ impl Panels {
             .cursor_pointer()
             .hover(|s| s.bg(FILL_3))
             .child(icon("x", 12., TEXT_3))
-            .tooltip(|window, cx| Tooltip::new("Close Pane (⌘W)").build(window, cx))
+            .tooltip(|window, cx| {
+                Tooltip::new(format!("Close Pane{}", crate::settings::hint(&crate::actions::CloseTab, cx).map(|k| format!(" ({k})")).unwrap_or_default()))
+                    .build(window, cx)
+            })
             .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                 cx.stop_propagation();
                 cx.emit(PanelsEvent::Close(p, 0));
@@ -458,11 +461,11 @@ impl Panels {
             ui::menu_pick(id(format!("pane-new-agent:{p}")), provider_icon(provider, 14., TEXT_2), &name, false)
                 .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(PanelsEvent::NewAgent(provider, Place::Pane(Some(p))))))
         });
-        let terminal = ui::menu_row(id(format!("pane-new-terminal:{p}")), "prompt", "Terminal", Some("⌘T"))
+        let terminal = ui::menu_row(id(format!("pane-new-terminal:{p}")), "prompt", "Terminal", crate::settings::hint(&crate::actions::NewTab, cx).as_deref())
             .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(PanelsEvent::NewShell(Place::Pane(Some(p))))));
-        let browser = ui::menu_row(id(format!("pane-new-browser:{p}")), "globe", "Browser", Some("⌘⇧B"))
+        let browser = ui::menu_row(id(format!("pane-new-browser:{p}")), "globe", "Browser", crate::settings::hint(&crate::actions::NewBrowser, cx).as_deref())
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(PanelsEvent::NewBrowser)));
-        let file = ui::menu_row(id(format!("pane-go-to-file:{p}")), "search", "Go to file", Some("⌘P"))
+        let file = ui::menu_row(id(format!("pane-go-to-file:{p}")), "search", "Go to file", crate::settings::hint(&crate::actions::GoToFile, cx).as_deref())
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(PanelsEvent::GoToFile)));
         pane.child(div().w(px(260.)).flex().flex_col().gap(px(2.)).child(title).children(agent).child(terminal).child(browser).child(file))
     }

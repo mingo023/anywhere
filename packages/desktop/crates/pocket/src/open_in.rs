@@ -223,7 +223,7 @@ impl OpenIn {
     fn open_in_menu(&self, flyouts: Flyouts, cx: &mut Context<Self>) -> Div {
         let groups = open_in::menu(&self.apps);
         let (group, editions) = flyouts.shown(&groups);
-        let copy = ui::menu_row("open-in-copy", "copy", "Copy path", Some("⌘⇧C"))
+        let copy = ui::menu_row("open-in-copy", "copy", "Copy path", crate::settings::hint(&CopyWorktreePath, cx).as_deref())
             .on_hover(Self::hover_open_in(Flyouts::default(), cx))
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(OpenInEvent::CopyPath)));
         let main = ui::pop(div().id("open-in-menu"))
