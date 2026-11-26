@@ -25,18 +25,35 @@ fn placeholder(step: &str) -> bool {
     })
 }
 
-/// A loop, condition, function, heredoc, array, `$(` or quote spans lines, so its block can't be split into a step per line.
+/// A loop, condition, function, heredoc, open bracket or quote spans lines, so its block can't be split into a step per line.
 fn compound(code: &str) -> bool {
-    code.lines().map(str::trim).filter(|l| !l.starts_with('#')).any(|l| {
+    code.lines().map(str::trim).any(|l| {
         let first = l.trim_start_matches("$ ").split_whitespace().next().unwrap_or("");
-        let open = |q: char| l.chars().filter(|&c| c == q).count() - l.matches(&format!("\\{q}")).count();
+        let (code, open_quote) = unquoted(l);
         matches!(first, "for" | "while" | "until" | "if" | "case" | "select" | "function")
-            || l.contains("<<")
-            || l.ends_with('{')
-            || l.ends_with('(')
-            || open('"') % 2 == 1
-            || open('\'') % 2 == 1
+            || code.contains("<<")
+            || code.ends_with('{')
+            || code.matches('(').count() > code.matches(')').count()
+            || open_quote
     })
+}
+
+/// A line's text outside quotes and before any comment, and whether a quote is still open at its end.
+fn unquoted(line: &str) -> (String, bool) {
+    let (mut out, mut quote, mut escaped, mut prev) = (String::new(), None, false, ' ');
+    for c in line.chars() {
+        match (quote, c) {
+            (_, _) if escaped => escaped = false,
+            (Some('\''), '\'') | (Some('"'), '"') => quote = None,
+            (Some('"') | None, '\\') => escaped = true,
+            (Some(_), _) => {}
+            (None, '\'' | '"') => quote = Some(c),
+            (None, '#') if prev.is_whitespace() => break,
+            (None, _) => out.push(c),
+        }
+        prev = c;
+    }
+    (out, quote.is_some())
 }
 
 /// The commands in `code`, one per line, or the whole block when it spans lines: a trailing `\` joins the next line, blank lines and comments are left out. In a
@@ -89,9 +106,9 @@ pub(crate) fn risky(step: &str) -> bool {
     let has = |w: &str| words.contains(&w);
     let flags = |short: char| words.iter().any(|w| w.starts_with('-') && !w.starts_with("--") && w.contains(short));
     let rm_recursive = has("rm") && (flags('r') || flags('R') || has("--recursive"));
-    let force_push = has("push") && (has("--force") || has("-f") || words.iter().any(|w| w.starts_with("--force-with-lease")));
+    let force_push = has("push") && (has("--force") || flags('f') || words.iter().any(|w| w.starts_with("--force-with-lease")));
     let hard_reset = has("reset") && has("--hard");
-    let clean = has("clean") && flags('f');
+    let clean = has("clean") && (flags('f') || has("--force"));
     let discard = has("checkout") && (has("--") || has(".")) || has("restore") || has("branch") && has("-D") || has("stash") && (has("drop") || has("clear"));
     let piped_shell = step.split('|').skip(1).any(|to| matches!(to.split_whitespace().next(), Some("sh" | "bash" | "zsh")));
     rm_recursive
@@ -130,8 +147,9 @@ mod tests {
     }
 
     #[test]
-    fn a_quote_in_a_comment_keeps_a_step_per_line() {
+    fn a_quote_in_a_comment_or_another_quote_keeps_a_step_per_line() {
         assert_eq!(steps("# Don't skip setup\nfalse\necho after"), ["false", "echo after"]);
+        assert_eq!(steps("echo \"Don't skip\"\nfalse # isn't it\necho after"), ["echo \"Don't skip\"", "false # isn't it", "echo after"]);
     }
 
     #[test]
@@ -164,6 +182,8 @@ mod tests {
             "chmod -R 777 .",
             "git checkout -- .",
             "git checkout .",
+            "git push -uf origin main",
+            "git clean --force -d",
             "git reset --hard; git status",
             "git restore src",
             "git branch -D old",
@@ -210,7 +230,7 @@ mod tests {
         assert_eq!(steps(code), [code]);
         let code = "git commit -m \"title\n\nbody\"";
         assert_eq!(steps(code), [code]);
-        for code in ["args=(\n  --help\n)", "value=$(\n  printf hello\n)"] {
+        for code in ["args=(\n  --help\n)", "value=$(\n  printf hello\n)", "value=$(printf hello\n)"] {
             assert_eq!(steps(code), [code]);
         }
     }

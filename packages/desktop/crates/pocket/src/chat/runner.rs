@@ -1,6 +1,7 @@
 //! Runs a shell block's steps one after another on this computer, streaming what they print.
 
-use futures::channel::mpsc::UnboundedSender;
+use futures::SinkExt;
+use futures::channel::mpsc::Sender;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -55,17 +56,17 @@ pub(crate) fn runs_in(cwd: &str, observe_only: bool) -> Option<PathBuf> {
 
 /// Runs `steps` in `cwd` in one shell, so a `cd` or `export` carries to the next, stopping at the first that fails. Events
 /// go to `tx` until the run is done.
-pub(crate) fn start(steps: Vec<String>, cwd: PathBuf, tx: UnboundedSender<Event>) -> Stop {
+pub(crate) fn start(steps: Vec<String>, cwd: PathBuf, tx: Sender<Event>) -> Stop {
     let stop = Arc::new(AtomicBool::new(false));
     let stopping = stop.clone();
     std::thread::spawn(move || {
         let exit = run(&steps, &cwd, &stopping, &tx);
-        _ = tx.unbounded_send(Event::Done(exit));
+        _ = send(&tx, Event::Done(exit));
     });
     Stop(stop)
 }
 
-fn run(steps: &[String], cwd: &Path, stop: &AtomicBool, tx: &UnboundedSender<Event>) -> Exit {
+fn run(steps: &[String], cwd: &Path, stop: &AtomicBool, tx: &Sender<Event>) -> Exit {
     let mut child = match shell(&script(steps)).current_dir(cwd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
         Ok(child) => child,
         Err(e) => return Exit::Unstarted(e.to_string()),
@@ -119,8 +120,13 @@ fn settle(readers: &[std::thread::JoinHandle<()>]) {
     }
 }
 
+/// Waits while the card is behind, so a step printing faster than it's drawn waits on its pipe rather than filling memory.
+fn send(tx: &Sender<Event>, event: Event) -> Result<(), futures::channel::mpsc::SendError> {
+    futures::executor::block_on(tx.clone().send(event))
+}
+
 /// Streams what a shell prints to `tx`; on stdout, `step` is where the step marks go and how many steps there are.
-fn stream(mut out: Box<dyn Read + Send>, tx: &UnboundedSender<Event>, step: Option<(&AtomicUsize, usize)>) {
+fn stream(mut out: Box<dyn Read + Send>, tx: &Sender<Event>, step: Option<(&AtomicUsize, usize)>) {
     let mut buf = [0u8; 4096];
     let mut held = Vec::new();
     while let Ok(n @ 1..) = out.read(&mut buf) {
@@ -129,13 +135,13 @@ fn stream(mut out: Box<dyn Read + Send>, tx: &UnboundedSender<Event>, step: Opti
             if let (Event::Step(n), Some((at, _))) = (&event, step) {
                 at.store(*n, Ordering::Relaxed);
             }
-            if tx.unbounded_send(event).is_err() {
+            if send(tx, event).is_err() {
                 return;
             }
         }
     }
     if !held.is_empty() {
-        _ = tx.unbounded_send(Event::Output(String::from_utf8_lossy(&held).into_owned()));
+        _ = send(tx, Event::Output(String::from_utf8_lossy(&held).into_owned()));
     }
 }
 
@@ -215,7 +221,7 @@ mod tests {
     use futures::channel::mpsc;
 
     fn events(steps: &[&str]) -> Vec<Event> {
-        let (tx, rx) = mpsc::unbounded();
+        let (tx, rx) = mpsc::channel(64);
         let _stop = start(steps.iter().map(|s| s.to_string()).collect(), std::env::temp_dir(), tx);
         futures::executor::block_on(rx.collect())
     }
@@ -242,7 +248,7 @@ mod tests {
 
     #[test]
     fn stopping_kills_the_running_step() {
-        let (tx, rx) = mpsc::unbounded();
+        let (tx, rx) = mpsc::channel(64);
         let stop = start(vec!["sleep 30".into()], std::env::temp_dir(), tx);
         std::thread::sleep(Duration::from_millis(200));
         stop.stop();
@@ -271,7 +277,7 @@ mod tests {
 
     #[test]
     fn stopping_kills_a_step_that_ignores_being_asked() {
-        let (tx, rx) = mpsc::unbounded();
+        let (tx, rx) = mpsc::channel(64);
         let stop = start(vec!["trap '' TERM; sleep 30".into()], std::env::temp_dir(), tx);
         std::thread::sleep(Duration::from_millis(300));
         let asked = std::time::Instant::now();
@@ -283,7 +289,7 @@ mod tests {
 
     #[test]
     fn a_step_left_in_the_background_doesnt_hold_the_run_open() {
-        let (tx, mut rx) = mpsc::unbounded();
+        let (tx, mut rx) = mpsc::channel(64);
         let _stop = start(vec!["sleep 5 &".into(), "echo up".into()], std::env::temp_dir(), tx);
         let started = std::time::Instant::now();
         let done = futures::executor::block_on(async {
@@ -300,7 +306,7 @@ mod tests {
 
     #[test]
     fn stopping_kills_what_ignores_being_asked_after_the_shell_is_gone() {
-        let (tx, rx) = mpsc::unbounded();
+        let (tx, rx) = mpsc::channel(64);
         let stop = start(vec!["(trap '' TERM; exec sleep 30) & wait".into()], std::env::temp_dir(), tx);
         std::thread::sleep(Duration::from_millis(300));
         let asked = std::time::Instant::now();

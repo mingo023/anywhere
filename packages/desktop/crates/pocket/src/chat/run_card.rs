@@ -23,7 +23,7 @@ pub(super) struct Run {
     output: String,
     exit: Option<Exit>,
     stop: Option<Stop>,
-    /// Whether its card shows; hiding it keeps the run.
+    /// Whether its card shows the output; hiding it keeps the run and the status line.
     pub(super) shown: bool,
     scroll: ScrollHandle,
 }
@@ -195,7 +195,7 @@ where
             .hover(|s| s.bg(FILL_2))
             .child(label.to_string())
     };
-    let output = (!run.output().is_empty()).then(|| {
+    let output = (run.shown && !run.output().is_empty()).then(|| {
         div()
             .id(SharedString::from(format!("run-out-{id}")))
             .mx(px(12.))
@@ -212,6 +212,7 @@ where
             .text_color(TEXT_3)
             .child(run.output().trim_end().to_string())
     });
+    let shown = run.shown;
     let status = div()
         .h(px(40.))
         .pl(px(16.))
@@ -225,8 +226,8 @@ where
         .children(fix.map(|(label, ask)| link("fix", &label, true).on_click(ask)))
         .when(!run.running(), |d| d.child(link("copy", if copied { "Copied" } else { "Copy output" }, false).on_click(copy)))
         .child(
-            ui::icon_button_sized(SharedString::from(format!("run-hide-{id}")), "chevron-up", 24., TEXT_3)
-                .tooltip(|window, cx| Tooltip::new("Hide output").build(window, cx))
+            ui::icon_button_sized(SharedString::from(format!("run-hide-{id}")), if run.shown { "chevron-up" } else { "chevron-down" }, 24., TEXT_3)
+                .tooltip(move |window, cx| Tooltip::new(if shown { "Hide output" } else { "Show output" }).build(window, cx))
                 .on_click(hide),
         );
     div()
@@ -243,8 +244,8 @@ where
         .child(status)
 }
 
-pub(super) fn start(steps: Vec<String>, cwd: std::path::PathBuf) -> (Run, futures::channel::mpsc::UnboundedReceiver<Event>) {
-    let (tx, rx) = futures::channel::mpsc::unbounded();
+pub(super) fn start(steps: Vec<String>, cwd: std::path::PathBuf) -> (Run, futures::channel::mpsc::Receiver<Event>) {
+    let (tx, rx) = futures::channel::mpsc::channel(64);
     let stop = runner::start(steps.clone(), cwd, tx);
     (Run::start(steps, stop), rx)
 }
@@ -255,7 +256,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     fn run(steps: &[&str]) -> Run {
-        Run::start(steps.iter().map(|s| s.to_string()).collect(), runner::start(Vec::new(), std::env::temp_dir(), futures::channel::mpsc::unbounded().0))
+        Run::start(steps.iter().map(|s| s.to_string()).collect(), runner::start(Vec::new(), std::env::temp_dir(), futures::channel::mpsc::channel(1).0))
     }
 
     #[test]

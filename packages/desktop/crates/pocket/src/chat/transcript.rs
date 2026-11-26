@@ -1035,7 +1035,7 @@ impl View {
                                         _ = this.update(cx, |v, cx| v.press_run(&row, steps.clone(), cx));
                                     })
                                 });
-                                let card = view.runs.get(&id).filter(|r| r.shown).map(|run| {
+                                let card = view.runs.get(&id).map(|run| {
                                     let key = format!("run:{id}");
                                     let fix = run.fix_prompt().map(|_| {
                                         let row = id.clone();
