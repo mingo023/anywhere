@@ -1,3 +1,4 @@
+use crate::workflow::Workflow;
 use crate::{
     Ask, Block, Child, Choice, Delivered, Diff, DiffLine, End, LineKind, Message, Outcome, Question, SubAgent, Todo, TodoStatus, ToolCall, ToolKind,
     ToolStatus, Transcript, Turn, Usage,
@@ -14,9 +15,10 @@ use std::collections::HashMap;
 /// - `host_link` → `Block::HostLink`, a card asking the user to add a host.
 /// - `notice` → `Block::Notice`: its `text`, else the `error` the agent went on after.
 /// - `tool` → `Block::Tool`, refreshed in place by `toolUseId`.
-/// - `task` detail → `ToolKind::Agent`. `other` named WebFetch/WebSearch → Fetch/Search.
+/// - `task` detail → `ToolKind::Agent`. `other` named WebFetch/WebSearch → Fetch/Search, Workflow → `ToolKind::Workflow`.
 /// - AskUserQuestion → `ToolKind::Question`.
-/// - Items carrying `parent_tool_use_id` fold into that tool's `SubAgent::transcript`.
+/// - Items carrying `parent_tool_use_id` fold into that tool's `SubAgent::transcript`, or a workflow's agents into its
+///   `Workflow::transcript`.
 pub(crate) fn fold(items: &[Item]) -> Transcript {
     let mut ordered: Vec<&Item> = items.iter().collect();
     if !items.is_sorted_by_key(|i| i.seq) {
@@ -150,14 +152,32 @@ fn tool_id<'a>(item: &'a Item, call: &'a Call) -> &'a str {
     if call.tool_use_id.is_empty() { &item.id } else { &call.tool_use_id }
 }
 
+/// The transcript a sub-agent or workflow call holds the items under it in.
+fn held(kind: &ToolKind) -> Option<&Transcript> {
+    match kind {
+        ToolKind::Agent(sub) => Some(&sub.transcript),
+        ToolKind::Workflow(w) => Some(&w.transcript),
+        _ => None,
+    }
+}
+
+fn held_mut(kind: &mut ToolKind) -> Option<&mut Transcript> {
+    match kind {
+        ToolKind::Agent(sub) => Some(&mut sub.transcript),
+        ToolKind::Workflow(w) => Some(&mut w.transcript),
+        _ => None,
+    }
+}
+
 /// Each sub-agent call takes its items out of `children` as it folds them, so a parent cycle can't recurse forever.
 fn claim<'a>(turns: &mut [Turn], children: &mut HashMap<&'a str, Vec<&'a Item>>) {
     for turn in turns {
         for block in &mut turn.blocks {
-            if let Block::Tool(ToolCall { id, kind: ToolKind::Agent(sub), .. }) = block
+            if let Block::Tool(ToolCall { id, kind, .. }) = block
+                && let Some(transcript) = held_mut(kind)
                 && let Some(kids) = children.remove(id.as_str())
             {
-                sub.transcript = fold_level(&kids, children);
+                *transcript = fold_level(&kids, children);
             }
         }
     }
@@ -166,11 +186,13 @@ fn claim<'a>(turns: &mut [Turn], children: &mut HashMap<&'a str, Vec<&'a Item>>)
 /// Notes each sub-agent call in `blocks`, at any depth and in the order `claim` reaches them, as held by top-level turn `turn`.
 fn record_agents(blocks: &[Block], turn: usize, agents: &mut HashMap<String, usize>) {
     for block in blocks {
-        if let Block::Tool(ToolCall { id, kind: ToolKind::Agent(sub), .. }) = block {
+        if let Block::Tool(ToolCall { id, kind, .. }) = block
+            && let Some(transcript) = held(kind)
+        {
             if !agents.contains_key(id) {
                 agents.insert(id.clone(), turn);
             }
-            for t in &sub.transcript.turns {
+            for t in &transcript.turns {
                 record_agents(&t.blocks, turn, agents);
             }
         }
@@ -263,10 +285,17 @@ fn kind(name: &str, d: &Detail) -> ToolKind {
         "write" => ToolKind::Write { path: d.path.clone(), diff: d.diff.as_ref().map(diff) },
         "search" if d.path.is_empty() => ToolKind::Search { query: d.query.clone() },
         "search" => ToolKind::Search { query: format!("{} in {}", d.query, d.path) },
-        "task" => ToolKind::Agent(SubAgent { description: d.description.clone(), model: d.model.clone(), tokens: d.tokens, ..Default::default() }),
+        "task" => ToolKind::Agent(SubAgent {
+            description: d.description.clone(),
+            model: d.model.clone(),
+            tokens: d.tokens,
+            phase: d.phase.clone(),
+            ..Default::default()
+        }),
         _ if name == "AskUserQuestion" => ToolKind::Question(questions(d.questions())),
         _ if name == "WebFetch" => ToolKind::Fetch { url: input_text(&d.input, "url") },
         _ if name == "WebSearch" => ToolKind::Search { query: input_text(&d.input, "query") },
+        _ if name == "Workflow" => ToolKind::Workflow(Workflow::from_input(&d.input)),
         _ if d.input.is_null() => ToolKind::Other { input: String::new(), description: d.description.clone() },
         _ => ToolKind::Other { input: serde_json::to_string_pretty(&d.input).unwrap_or_default(), description: d.description.clone() },
     }
@@ -333,6 +362,24 @@ mod tests {
             [Block::Tool(call)] => call,
             other => panic!("one tool, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_workflows_agents_and_their_steps_fold_under_its_call() {
+        let script = "export const meta = { name: 'measure', phases: [{ title: 'Probe' }] }";
+        let mut agent = tool("a1", "Agent", json!({"kind": "task", "description": "probe:one", "phase": "Probe"}), "running");
+        agent["parentToolUseId"] = json!("wf");
+        let t = fold(&items(json!([
+            tool("wf", "Workflow", json!({"kind": "other", "name": "Workflow", "input": {"script": script}}), "running"),
+            agent,
+            {"kind": "tool", "parentToolUseId": "a1", "call": {"toolUseId": "r1", "name": "Read", "detail": {"kind": "read", "path": "a.rs"}, "status": "ok"}},
+        ])));
+        let ToolKind::Workflow(w) = &only_tool(&t).kind else { panic!("a workflow") };
+        assert_eq!((w.name.as_str(), w.phases[0].title.as_str()), ("measure", "Probe"));
+        let agents: Vec<_> = w.agents().collect();
+        let [(call, sub)] = agents[..] else { panic!("one agent, got {agents:?}") };
+        assert_eq!((call.id.as_str(), sub.phase.as_str(), sub.description.as_str()), ("a1", "Probe", "probe:one"));
+        assert_eq!(only_tool(&sub.transcript).kind, ToolKind::Read { path: "a.rs".into() });
     }
 
     #[test]

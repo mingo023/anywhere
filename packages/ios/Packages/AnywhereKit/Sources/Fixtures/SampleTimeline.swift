@@ -26,7 +26,7 @@ extension Sample {
                 ]))
                 add(.plan(text: "1. Port `Lanes` as a value type.\n2. Port each test as a sentence.\n3. Bench 10 000 commits in release."))
                 let task = "task-\(t)"
-                add(.tool(ToolCall(toolUseId: task, name: "Agent", detail: .task(description: "Find every caller of Lanes", model: "claude-haiku-4-5", tokens: 18_508), status: .ok,
+                add(.tool(ToolCall(toolUseId: task, name: "Agent", detail: .task(description: "Find every caller of Lanes", model: "claude-haiku-4-5", tokens: 18_508, phase: nil), status: .ok,
                                    output: "Two callers: history.rs and log_view.rs", durationMs: 9_100)))
                 add(.user(text: "Find every caller of Lanes in packages/desktop and report the files."), parent: task)
                 add(.tool(ToolCall(toolUseId: "sub-grep-\(t)", name: "Grep", detail: .search(query: "Lanes", path: nil), status: .ok)), parent: task)

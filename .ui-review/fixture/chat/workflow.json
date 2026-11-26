@@ -1,0 +1,198 @@
+[
+ {
+  "id": "u1",
+  "kind": "user",
+  "text": "Run a workflow that measures the release build and judges it."
+ },
+ {
+  "id": "a0",
+  "kind": "assistant",
+  "text": "Starting a workflow: instrument, measure, then judge."
+ },
+ {
+  "id": "w",
+  "kind": "tool",
+  "call": {
+   "toolUseId": "tu-wf",
+   "name": "Workflow",
+   "detail": {
+    "kind": "other",
+    "name": "Workflow",
+    "input": {
+     "script": "export const meta = {\n  name: 'measure-build',\n  description: 'Time the release build, then judge where it spends its time',\n  phases: [\n    { title: 'Instrument', detail: 'Add timings to the build scripts' },\n    { title: 'Measure', detail: 'Run the build and collect the timings' },\n    { title: 'Judge', detail: 'Rank the slowest crates and propose fixes' },\n  ],\n}\nconst timings = await parallel(['desktop', 'pocketd'].map(p => () => agent(`instrument:${p}`, { phase: 'Instrument' })))\n"
+    }
+   },
+   "status": "running"
+  }
+ },
+ {
+  "id": "a1",
+  "kind": "assistant",
+  "text": "The workflow runs in the background. I'll report when it finishes."
+ },
+ {
+  "id": "r1",
+  "kind": "result",
+  "ok": true,
+  "durationMs": 6000,
+  "usage": {
+   "inputTokens": 4000,
+   "outputTokens": 300
+  }
+ },
+ {
+  "id": "wa1",
+  "kind": "tool",
+  "parentToolUseId": "tu-wf",
+  "call": {
+   "toolUseId": "wa-1",
+   "name": "Agent",
+   "detail": {
+    "kind": "task",
+    "description": "instrument:desktop",
+    "phase": "Instrument",
+    "tokens": 18200,
+    "model": "claude-sonnet-4-5"
+   },
+   "status": "ok",
+   "output": "Added `--timings` to the desktop release build.",
+   "durationMs": 52000
+  }
+ },
+ {
+  "id": "wa1-p",
+  "kind": "user",
+  "parentToolUseId": "wa-1",
+  "text": "Add build timings to the desktop crates."
+ },
+ {
+  "id": "wa1-s0",
+  "kind": "tool",
+  "parentToolUseId": "wa-1",
+  "call": {
+   "toolUseId": "wa-1-s0",
+   "name": "Read",
+   "detail": {
+    "kind": "read",
+    "path": "packages/desktop/Cargo.toml"
+   },
+   "status": "ok",
+   "durationMs": 40
+  }
+ },
+ {
+  "id": "wa1-s1",
+  "kind": "tool",
+  "parentToolUseId": "wa-1",
+  "call": {
+   "toolUseId": "wa-1-s1",
+   "name": "Edit",
+   "detail": {
+    "kind": "edit",
+    "path": "packages/desktop/build.rs"
+   },
+   "status": "ok",
+   "durationMs": 40
+  }
+ },
+ {
+  "id": "wa2",
+  "kind": "tool",
+  "parentToolUseId": "tu-wf",
+  "call": {
+   "toolUseId": "wa-2",
+   "name": "Agent",
+   "detail": {
+    "kind": "task",
+    "description": "instrument:pocketd",
+    "phase": "Instrument",
+    "tokens": 9400,
+    "model": "claude-sonnet-4-5"
+   },
+   "status": "ok",
+   "output": "pocketd already prints its build time; nothing to add.",
+   "durationMs": 31000
+  }
+ },
+ {
+  "id": "wa2-p",
+  "kind": "user",
+  "parentToolUseId": "wa-2",
+  "text": "Add build timings to pocketd."
+ },
+ {
+  "id": "wa2-s0",
+  "kind": "tool",
+  "parentToolUseId": "wa-2",
+  "call": {
+   "toolUseId": "wa-2-s0",
+   "name": "Read",
+   "detail": {
+    "kind": "read",
+    "path": "packages/pocketd/Makefile"
+   },
+   "status": "ok",
+   "durationMs": 40
+  }
+ },
+ {
+  "id": "wa3",
+  "kind": "tool",
+  "parentToolUseId": "tu-wf",
+  "call": {
+   "toolUseId": "wa-3",
+   "name": "Agent",
+   "detail": {
+    "kind": "task",
+    "description": "measure:desktop",
+    "phase": "Measure",
+    "tokens": 22800,
+    "model": "claude-sonnet-4-5"
+   },
+   "status": "running"
+  }
+ },
+ {
+  "id": "wa3-p",
+  "kind": "user",
+  "parentToolUseId": "wa-3",
+  "text": "Run the desktop release build with timings and collect them."
+ },
+ {
+  "id": "wa3-s0",
+  "kind": "tool",
+  "parentToolUseId": "wa-3",
+  "call": {
+   "toolUseId": "wa-3-s0",
+   "name": "Bash",
+   "detail": {
+    "kind": "shell",
+    "command": "cargo build --release --timings"
+   },
+   "status": "running"
+  }
+ },
+ {
+  "id": "wa4",
+  "kind": "tool",
+  "parentToolUseId": "tu-wf",
+  "call": {
+   "toolUseId": "wa-4",
+   "name": "Agent",
+   "detail": {
+    "kind": "task",
+    "description": "measure:pocketd",
+    "phase": "Measure",
+    "tokens": 0,
+    "model": "claude-sonnet-4-5"
+   },
+   "status": "running"
+  }
+ },
+ {
+  "id": "wa4-p",
+  "kind": "user",
+  "parentToolUseId": "wa-4",
+  "text": "Build pocketd and record how long it takes."
+ }
+]

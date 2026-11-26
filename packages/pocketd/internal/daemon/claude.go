@@ -576,6 +576,9 @@ func (d *Daemon) tailWithin(pr *presence, path, hookModel string, resumed bool, 
 				if e.Kind == "tool_start" {
 					subs.Spawned(e.ToolUseID, record)
 				}
+				if e.Kind == "tool_background" && e.Run != "" {
+					subs.Workflow(e.ToolUseID, e.Run)
+				}
 			}
 		}
 		if shown > 0 {

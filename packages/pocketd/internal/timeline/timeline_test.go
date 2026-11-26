@@ -622,16 +622,19 @@ func TestLastingNamesTheBackgroundCallsAndCountsItsAgents(t *testing.T) {
 	}
 }
 
-func TestLastingAgentsNamesTheTasksOfBackgroundSubagentsOnly(t *testing.T) {
+func TestLastingAgentsNamesTheTasksOfBackgroundSubagentsAndWorkflowsOnly(t *testing.T) {
 	tl := New()
 	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"bun run dev","run_in_background":true}`)}, 1)
 	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "b1"}, 1)
 	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "Agent", Input: json.RawMessage(`{"description":"Look","run_in_background":true}`)}, 2)
 	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t2", TaskID: "a2"}, 2)
-	if got := tl.LastingAgents(); !reflect.DeepEqual(got, []string{"a2"}) {
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t3", Name: "Workflow", Input: json.RawMessage(`{"script":"export const meta = {}"}`)}, 2)
+	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t3", TaskID: "w3", Run: "r3"}, 2)
+	if got := tl.LastingAgents(); !reflect.DeepEqual(got, []string{"a2", "w3"}) {
 		t.Fatalf("%v", got)
 	}
 	tl.Apply(Event{Kind: "tool_end", TaskID: "a2", OK: true}, 3)
+	tl.Apply(Event{Kind: "tool_end", TaskID: "w3", OK: true}, 3)
 	if got := tl.LastingAgents(); len(got) != 0 {
 		t.Fatalf("%v", got)
 	}

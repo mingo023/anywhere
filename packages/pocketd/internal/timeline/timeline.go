@@ -39,6 +39,8 @@ type Event struct {
 	HostLink *proto.HostLink
 	// Limit marks a result that the account's usage limit ended.
 	Limit bool
+	// Run is the workflow run a Workflow call's tool_background launched.
+	Run string
 	// Detached marks a tool_background no turn waits for: its end takes no turn of the agent's, or may never come.
 	Detached bool
 	// Steer marks a user item the agent took into the turn under way, which goes on with the calls it left open.
@@ -626,13 +628,38 @@ func (t *Timeline) Running() []string {
 	return ids
 }
 
-// LastingAgents returns the task ids of the sub-agents running on in the background, oldest first.
+// WorkflowStopped is the output of a workflow's agent that was still running when its workflow ended.
+const WorkflowStopped = "Stopped when its workflow ended"
+
+// EndedWorkflow says whether call is a Workflow call that has ended.
+func (t *Timeline) EndedWorkflow(call string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n := t.call(call)
+	return n >= 0 && t.items[n].Call.Name == "Workflow" && t.items[n].Call.Status != "running"
+}
+
+// RunningUnder returns the tool use ids of the calls still running that call's sub-agent or workflow made.
+func (t *Timeline) RunningUnder(call string) []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var ids []string
+	for id, n := range t.tools {
+		if it := t.items[n]; it.ParentToolUseID == call && it.Call.Status == "running" {
+			ids = append(ids, id)
+		}
+	}
+	slices.SortFunc(ids, func(a, b string) int { return t.tools[a] - t.tools[b] })
+	return ids
+}
+
+// LastingAgents returns the task ids of the sub-agents and workflows running on in the background, oldest first.
 func (t *Timeline) LastingAgents() []string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	var ids []string
 	for id, n := range t.tasks {
-		if c := t.items[n].Call; t.lasting[c.ToolUseID] && c.Detail.Kind == "task" {
+		if c := t.items[n].Call; t.lasting[c.ToolUseID] && (c.Detail.Kind == "task" || c.Name == "Workflow") {
 			ids = append(ids, id)
 		}
 	}

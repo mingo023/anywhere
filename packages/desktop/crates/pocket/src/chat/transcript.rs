@@ -547,6 +547,7 @@ fn find_call(t: &Transcript, id: &str) -> Option<(usize, usize)> {
 fn notice_label(calls: &[&chat::ToolCall]) -> String {
     match calls {
         [chat::ToolCall { kind: ToolKind::Agent(a), .. }] => format!("{} is done", sub_agent::name(a)),
+        [chat::ToolCall { kind: ToolKind::Workflow(w), .. }] => format!("{} is done", w.label()),
         [c @ chat::ToolCall { kind: ToolKind::Shell { command, .. }, .. }] => {
             let command = command.lines().next().unwrap_or_default();
             match (c.name.as_str(), c.status) {
@@ -1227,6 +1228,8 @@ mod tests {
         let cmd = || ToolKind::Shell { command: "cargo test\n--workspace".into(), description: String::new() };
         assert_eq!(notice_label(&[&call("Bash", cmd(), ToolStatus::Failed)]), "Background command `cargo test` failed");
         assert_eq!(notice_label(&[&call("Bash", cmd(), ToolStatus::Ok)]), "Background command `cargo test` is done");
+        let workflow = ToolKind::Workflow(chat::workflow::Workflow { name: "measure".into(), ..Default::default() });
+        assert_eq!(notice_label(&[&call("Workflow", workflow, ToolStatus::Ok)]), "Workflow measure is done");
         assert_eq!(notice_label(&[&call("Monitor", cmd(), ToolStatus::Ok)]), "Monitor `cargo test` ended");
         let agent = call("Agent", ToolKind::Agent(SubAgent::default()), ToolStatus::Ok);
         assert_eq!(notice_label(&[&agent, &agent]), "2 subagents are done");

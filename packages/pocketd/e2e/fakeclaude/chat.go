@@ -186,6 +186,8 @@ func (c *chatter) turn(text string) {
 	case strings.HasPrefix(text, "agent "):
 		c.backgroundAgent(model, id, strings.TrimPrefix(text, "agent "))
 		failed = c.slow(model, "done")
+	case strings.HasPrefix(text, "workflow "):
+		c.workflow(model, id, strings.TrimPrefix(text, "workflow "))
 	case strings.HasPrefix(text, "mcp "):
 		c.reply(model, callMCP(strings.TrimPrefix(text, "mcp ")))
 	case strings.HasPrefix(text, "env "):
@@ -295,6 +297,21 @@ func (c *chatter) backgroundAgent(model, id, description string) {
 	r["toolUseResult"] = map[string]any{"isAsync": true, "status": "async_launched", "agentId": "agent_" + id}
 	c.s.write(r)
 	c.reply(model, "started "+description)
+}
+
+// workflow launches a Workflow whose journal starts one agent, labelled label, in phase Probe.
+func (c *chatter) workflow(model, id, label string) {
+	script := "export const meta = { name: 'probe', phases: [{ title: 'Probe' }] }"
+	c.s.write(assistant(map[string]any{"type": "tool_use", "id": id, "name": "Workflow", "input": map[string]any{"script": script}}))
+	run := "wf-run-" + id
+	dir := filepath.Join(strings.TrimSuffix(c.s.transcript, ".jsonl"), "subagents", "workflows", run)
+	_ = os.MkdirAll(dir, 0o755)
+	r := toolResult(id, "Workflow launched in the background.", false)
+	r["toolUseResult"] = map[string]any{"status": "async_launched", "taskId": "wf_" + id, "taskType": "local_workflow", "workflowName": "probe", "runId": run}
+	c.s.write(r)
+	journal, _ := json.Marshal(map[string]any{"type": "started", "agentId": "agent_" + id, "label": label, "phase": "Probe"})
+	_ = os.WriteFile(filepath.Join(dir, "journal.jsonl"), append(journal, '\n'), 0o644)
+	c.reply(model, "launched "+label)
 }
 
 func (c *chatter) askUser(model, id, q string) {
