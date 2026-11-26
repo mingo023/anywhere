@@ -511,7 +511,7 @@ impl Store {
 
     pub fn save(&self) {
         if let Some((path, raw)) = self.encode() {
-            write(&path, &raw);
+            write(&path, &raw).ok();
         }
     }
 
@@ -660,10 +660,10 @@ pub(crate) fn lenient<'de, D: serde::Deserializer<'de>, T: serde::de::Deserializ
 }
 
 /// Replaces `path` in one rename, owner-only, so pocketd never reads half a file.
-pub fn write(path: &Path, raw: &[u8]) {
+pub fn write(path: &Path, raw: &[u8]) -> std::io::Result<()> {
     static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _held = WRITING.lock();
-    let _ = write_private(path, raw);
+    write_private(path, raw)
 }
 
 fn write_private(path: &Path, raw: &[u8]) -> std::io::Result<()> {
@@ -683,6 +683,15 @@ fn write_private(path: &Path, raw: &[u8]) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_write_that_cant_land_says_why() {
+        let dir = std::env::temp_dir().join(format!("store-write-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(write(&dir.join("desktop.json"), b"{}").is_ok());
+        assert!(write(&dir.join("missing").join("desktop.json"), b"{}").is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn the_settings_view_keeps_what_settings_shows_and_drops_the_rest() {

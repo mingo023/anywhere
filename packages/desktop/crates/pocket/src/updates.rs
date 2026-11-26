@@ -77,7 +77,7 @@ impl Updates {
         if store.seen_version != before
             && let Some((path, raw)) = store.encode()
         {
-            cx.background_executor().spawn(async move { store::write(&path, &raw) }).detach();
+            cx.background_executor().spawn(async move { store::write(&path, &raw).ok() }).detach();
         }
         let (tx, mut rx) = mpsc::unbounded();
         updates.sparkle = sparkle::Sparkle::start(tx);
