@@ -198,7 +198,7 @@ fn denied_banner() -> Div {
         .flex()
         .flex_col()
         .gap(px(2.))
-        .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child("Notifications are off for Anywhere in macOS"))
+        .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child("Notifications are off for Zoes in macOS"))
         .child(
             div()
                 .text_size(px(12.))

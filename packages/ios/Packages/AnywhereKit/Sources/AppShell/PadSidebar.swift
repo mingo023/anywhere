@@ -44,7 +44,7 @@ struct PadSidebar: View {
         #if os(iOS) && compiler(>=6.2)
             .toolbar { leadingTitle }
         #endif
-        .navigationTitle("Anywhere")
+        .navigationTitle("Zoes")
         .navigationSplitViewColumnWidth(min: 220, ideal: 260)
         .onGeometryChange(for: Bool.self) { $0.size.width < 240 } action: { narrow = $0 }
         .onChange(of: macId, initial: true) { if let macId { folds.openMacs.insert(macId) } }
@@ -139,7 +139,7 @@ struct PadSidebar: View {
             if #available(iOS 26, *) {
                 NoBarTitle()
                 ToolbarItem(placement: .topBarLeading) {
-                    Text("Anywhere").font(Typography.headline).foregroundStyle(Palette.text.color).fixedSize()
+                    Text("Zoes").font(Typography.headline).foregroundStyle(Palette.text.color).fixedSize()
                 }
                 .sharedBackgroundVisibility(.hidden)
             }

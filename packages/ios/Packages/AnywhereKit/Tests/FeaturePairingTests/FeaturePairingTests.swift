@@ -90,7 +90,7 @@ struct PairingFailureCopyTests {
     @Test("a Mac whose link ended says why: removed, or which side to update")
     func ended() {
         #expect(EndedView.copy(.revoked, mac: "Studio").title == "Removed from Studio")
-        #expect(EndedView.copy(.updateMac, mac: "Studio").title == "Update Anywhere on Studio")
+        #expect(EndedView.copy(.updateMac, mac: "Studio").title == "Update Zoes on Studio")
         #expect(EndedView.copy(.updatePhone, mac: "Studio").title == "Update this app")
     }
 

@@ -23,18 +23,18 @@ import (
 )
 
 func anywhereUsage() string {
-	return `usage: anywhere project list [--json]
-       anywhere session list [--json]
-       anywhere session read [--limit 200] [--json] <id>
-       anywhere session create [--project <name|path>] [--worktree <name> | --new-worktree [<name>] [--base <branch>]] [--provider <agent>] [--access settings|ask|edits|auto|full] [--prompt <text>]
-       anywhere session prompt <id> <text|->
-       anywhere session close <id>
-       anywhere session wait [--timeout 30m] <id>
-       anywhere ticket create [--project <name|path>] [--provider <agent>] [--base <branch>] [--title <text>] [--start] <prompt|->
-       anywhere ticket list [--json]
-       anywhere ticket read [--json] <id>
-       anywhere ticket update [--title <text>] [--provider <agent>] [--base <branch>] [--prompt <text|->] <id>
-       anywhere ticket delete <id>
+	return `usage: zoes project list [--json]
+       zoes session list [--json]
+       zoes session read [--limit 200] [--json] <id>
+       zoes session create [--project <name|path>] [--worktree <name> | --new-worktree [<name>] [--base <branch>]] [--provider <agent>] [--access settings|ask|edits|auto|full] [--prompt <text>]
+       zoes session prompt <id> <text|->
+       zoes session close <id>
+       zoes session wait [--timeout 30m] <id>
+       zoes ticket create [--project <name|path>] [--provider <agent>] [--base <branch>] [--title <text>] [--start] <prompt|->
+       zoes ticket list [--json]
+       zoes ticket read [--json] <id>
+       zoes ticket update [--title <text>] [--provider <agent>] [--base <branch>] [--prompt <text|->] <id>
+       zoes ticket delete <id>
 <agent> is ` + strings.Join(providers.IDs(), "|")
 }
 
@@ -62,7 +62,7 @@ func anywhereMain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, anywhereUsage())
 		return exitUsage
 	case err != nil:
-		fmt.Fprintln(stderr, "anywhere:", err)
+		fmt.Fprintln(stderr, "zoes:", err)
 		return exitError
 	}
 	return code

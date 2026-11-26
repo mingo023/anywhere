@@ -6,7 +6,7 @@ pub(crate) const HINT_AFTER: Duration = Duration::from_secs(10);
 pub(crate) const STALE_AFTER: Duration = Duration::from_secs(15);
 /// How long the page stays after pocketd answers as this build, to show the update done.
 pub(crate) const HAND_BACK: Duration = Duration::from_millis(700);
-pub(crate) const UPDATING: &str = "Anywhere's background service is updating; try again in a moment.";
+pub(crate) const UPDATING: &str = "Zoes's background service is updating; try again in a moment.";
 
 pub(crate) fn replaced(ours: &str, on_disk: Option<&str>) -> bool {
     on_disk.is_some_and(|v| v != ours)

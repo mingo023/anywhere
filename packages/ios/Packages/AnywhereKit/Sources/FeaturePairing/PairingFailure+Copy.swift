@@ -27,9 +27,9 @@ extension PairingFailure {
                 message: "Your iPhone reaches your Mac over Tailscale. Check that Tailscale is connected on both, and that the Mac is awake.",
                 suggestsTailscale: true)
         case .updateMac:
-            Copy(title: "Update Anywhere on \(mac)", message: "It's older than this app. Update it on the Mac, then pair again.", suggestsTailscale: false)
+            Copy(title: "Update Zoes on \(mac)", message: "It's older than this app. Update it on the Mac, then pair again.", suggestsTailscale: false)
         case .updatePhone:
-            Copy(title: "Update this app", message: "\(mac) runs a newer Anywhere than this app speaks. Update it from the App Store.", suggestsTailscale: false)
+            Copy(title: "Update this app", message: "\(mac) runs a newer Zoes than this app speaks. Update it from the App Store.", suggestsTailscale: false)
         case .failed(let message):
             Copy(title: "Pairing failed", message: message, suggestsTailscale: false)
         }

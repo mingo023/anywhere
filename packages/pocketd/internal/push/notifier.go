@@ -177,9 +177,9 @@ func (n *Notifier) Test(ctx context.Context, device string) error {
 		return ErrNotRegistered
 	}
 	if r.Alert == nil {
-		return errors.New("The relay no longer knows this phone; open Anywhere to register again")
+		return errors.New("The relay no longer knows this phone; open Zoes to register again")
 	}
-	notice := Notice{Mac: n.Mac, Kind: Test, Title: "Anywhere", Place: n.MacName, Line: "Notifications from " + n.MacName + " work.", Badge: Badge(n.Agents.List())}
+	notice := Notice{Mac: n.Mac, Kind: Test, Title: "Zoes", Place: n.MacName, Line: "Notifications from " + n.MacName + " work.", Badge: Badge(n.Agents.List())}
 	payload, err := AlertPayload(r.Key, notice, "", Level(Test, false))
 	if err != nil {
 		return err
@@ -189,7 +189,7 @@ func (n *Notifier) Test(ctx context.Context, device string) error {
 	n.Store.Note(Sent{At: now.UnixMilli(), Device: device, Kind: Test, Priority: 10, Outcome: outcome(err)})
 	if errors.Is(err, ErrGone) {
 		n.Store.Drop(device, AlertHandle, r.Alert.Handle)
-		return errors.New("The relay no longer knows this phone; open Anywhere to register again")
+		return errors.New("The relay no longer knows this phone; open Zoes to register again")
 	}
 	if err != nil {
 		return fmt.Errorf("The test push didn't go out: %v", err)

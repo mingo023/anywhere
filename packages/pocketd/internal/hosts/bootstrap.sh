@@ -43,7 +43,7 @@ version_of() {
   POCKET_HOME="$DIR" POCKETD_SOCK="$DIR/pocketd.sock" "$exe" "$@" 2>/dev/null </dev/null | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' | head -n 1
 }
 
-# update_app swaps in the release's Anywhere.app for the one whose pocketd is $from. That pocketd sees its file change
+# update_app swaps in the release's Zoes.app for the one whose pocketd is $from. That pocketd sees its file change
 # and hands off to the new one in place, as after a Sparkle update.
 update_app() {
   app=${from%/Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd}
@@ -57,10 +57,10 @@ update_app() {
   [ "$got" = "$want" ] || fail "checksum mismatch for Anywhere.dmg: got $got, want $want"
   mkdir "$tmp/mnt" && hdiutil attach -quiet -nobrowse -readonly -noautoopen -mountpoint "$tmp/mnt" "$tmp/Anywhere.dmg" || fail "can't open Anywhere.dmg"
   rm -rf "$app.new" "$app.old"
-  out=$(ditto "$tmp/mnt/Anywhere.app" "$app.new" 2>&1)
+  out=$(ditto "$tmp/mnt/Zoes.app" "$app.new" 2>&1)
   copied=$?
   hdiutil detach -quiet "$tmp/mnt"
-  [ "$copied" = 0 ] || fail "can't copy Anywhere.app beside $app: $out"
+  [ "$copied" = 0 ] || fail "can't copy Zoes.app beside $app: $out"
   if [ "$(version_of "$app.new/Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd" version --json)" != "$VERSION" ]; then
     rm -rf "$app.new"
     fail "Anywhere.dmg doesn't hold pocketd $VERSION"

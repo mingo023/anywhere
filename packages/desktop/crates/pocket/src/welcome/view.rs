@@ -156,7 +156,7 @@ fn view(pose: Pose, cx: &mut Context<Welcome>) -> AnyElement {
                 .text_size(px(15.))
                 .line_height(px(22.))
                 .text_color(TEXT_2)
-                .child("Anywhere keeps every coding agent you run in one window, and tells you which one needs you."),
+                .child("Zoes keeps every coding agent you run in one window, and tells you which one needs you."),
         ))
         .child(copy(2, div().child(go)))
         .into_any_element()

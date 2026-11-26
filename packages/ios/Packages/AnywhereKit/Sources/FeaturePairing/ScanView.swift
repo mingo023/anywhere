@@ -24,7 +24,7 @@ struct ScanView: View {
         }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: Space.m) {
-                Text(denied ? "Anywhere can't use the camera." : notOurs ? "That isn't an Anywhere pairing code." : "Point at the QR code on your Mac.")
+                Text(denied ? "Zoes can't use the camera." : notOurs ? "That isn't a Zoes pairing code." : "Point at the QR code on your Mac.")
                     .font(Typography.headline)
                     .foregroundStyle(notOurs ? Palette.failedText.color : Palette.text.color)
                     .multilineTextAlignment(.center)
