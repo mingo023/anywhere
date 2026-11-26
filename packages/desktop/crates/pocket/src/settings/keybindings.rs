@@ -483,6 +483,12 @@ impl Settings {
         cx.notify();
     }
 
+    /// The Unassigned filter with Fixed keys open: capture's steps.
+    pub(crate) fn show_unassigned(&mut self, cx: &mut Context<Self>) {
+        (self.keyboard.filter, self.fixed_open) = (Filter::Unassigned, true);
+        cx.notify();
+    }
+
     fn chip(&self, row: usize, chip: &model::Chip, cx: &mut Context<Self>) -> Stateful<Div> {
         let (r, slot) = (&SHORTCUTS[row], chip.slot);
         let id = SharedString::from(format!("key-{row}-{slot:?}"));

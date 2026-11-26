@@ -36,7 +36,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 321] = [
+const STEPS: [(&str, Step); 323] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -999,6 +999,10 @@ const STEPS: [(&str, Step); 321] = [
     ("key-terminal", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("Next session", false, Some("ctrl-r"), window, cx))),
     ("key-macos", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("Toggle sidebar", true, Some("cmd-h"), window, cx))),
     ("key-find", |d, _, cx| d.settings.update(cx, |s, cx| s.find_keys("cmd-c", cx))),
+    ("key-unassigned", |d, _, cx| d.settings.update(cx, |s, cx| s.show_unassigned(cx))),
+    ("key-mixed", |d, _, _| {
+        d.store.keys.insert("desktop::JumpTo(1)".into(), "alt-cmd-1".into());
+    }),
     ("custom-keys-added", |d, _, _| {
         d.store.keys.insert("desktop::NextNeedsYou".into(), "cmd-shift-u".into());
         for n in 1..=9 {
