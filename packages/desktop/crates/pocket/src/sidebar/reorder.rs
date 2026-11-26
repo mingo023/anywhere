@@ -104,11 +104,13 @@ impl Held {
         Self { list, slide: Slide::new(from, grab, pointer, gap), keys, landing: None }
     }
 
-    /// Follows the pointer at `y`, `inside` the sidebar or not; true when that changes what's drawn.
-    fn point(&mut self, y: f32, inside: bool) -> bool {
+    /// Follows the pointer at `y`, `inside` the sidebar or not, with the list scrolled to show `seen`, top to bottom; true when that changes what's drawn.
+    fn point(&mut self, y: f32, inside: bool, seen: (f32, f32)) -> bool {
         // Past a project list's edge lies another section, which takes the drop itself.
         let reach = if matches!(self.list, List::Projects(_)) { 0. } else { ui::SIDEBAR_ROW_H / 2. };
-        let away = !inside || self.slide.span().is_some_and(|(top, bottom)| y < top - reach || y > bottom + reach);
+        // The held row draws unclipped, so off the scrolled view it would float over the rest and land among rows out of sight.
+        let unseen = y < seen.0 || y > seen.1;
+        let away = !inside || unseen || self.slide.span().is_some_and(|(top, bottom)| y < top - reach || y > bottom + reach);
         let changed = self.slide.pointer != y || self.slide.away != away;
         (self.slide.pointer, self.slide.away) = (y, away);
         changed
@@ -149,6 +151,9 @@ impl Held {
 pub(crate) struct Reorder {
     lists: RefCell<HashMap<List, ScrollHandle>>,
     held: Option<Held>,
+    /// The scrolled areas the lists show in: the projects' and the Threads section's.
+    pub(super) projects: ScrollHandle,
+    pub(super) threads: ScrollHandle,
 }
 
 impl Sidebar {
@@ -188,8 +193,10 @@ impl Sidebar {
         let list = &e.drag(cx).list;
         let Some(held) = self.reorder.held.as_mut().filter(|h| h.list == *list) else { return };
         let (x, y) = (e.event.position.x, f32::from(e.event.position.y));
+        let view = if held.list == List::Threads { &self.reorder.threads } else { &self.reorder.projects }.bounds();
+        let seen = (f32::from(view.top()), f32::from(view.bottom()));
         // A drag move comes every frame, moved or not; notifying on each would redraw forever.
-        if held.point(y, e.bounds.left() <= x && x <= e.bounds.right()) {
+        if held.point(y, e.bounds.left() <= x && x <= e.bounds.right(), seen) {
             cx.notify();
         }
     }
@@ -232,6 +239,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     const ROWS: [(f32, f32); 3] = [(0., 28.), (29., 28.), (58., 28.)];
+    const ALL: (f32, f32) = (-1000., 1000.);
 
     fn keys() -> Vec<String> {
         ["a", "b", "c"].map(String::from).to_vec()
@@ -241,7 +249,7 @@ mod tests {
     fn holding(from: usize, y: f32) -> Held {
         let mut h = Held::new(List::Threads, from, 5., y, keys());
         h.frame(ROWS.to_vec(), &keys(), true, Instant::now(), true);
-        h.point(y, true);
+        h.point(y, true, ALL);
         h
     }
 
@@ -279,12 +287,12 @@ mod tests {
     #[test]
     fn a_row_dragged_out_of_its_list_lets_the_others_slide_home_and_drops_nowhere() {
         let mut h = holding(0, 70.);
-        assert!(h.point(130., true));
+        assert!(h.point(130., true, ALL));
         h.frame(ROWS.to_vec(), &keys(), true, Instant::now(), true);
         assert_eq!(h.slide.offsets, [0.; 3]);
         assert_eq!(h.release(), None);
         let mut h = holding(0, 70.);
-        h.point(70., false);
+        h.point(70., false, ALL);
         assert_eq!(h.release(), None);
     }
 
@@ -292,7 +300,14 @@ mod tests {
     fn a_project_dragged_just_past_its_section_drops_nowhere_in_it() {
         let mut h = Held::new(List::Projects(Section::Other), 0, 5., 70., keys());
         h.frame(ROWS.to_vec(), &keys(), true, Instant::now(), true);
-        h.point(96., true);
+        h.point(96., true, ALL);
+        assert_eq!(h.release(), None);
+    }
+
+    #[test]
+    fn a_row_held_past_the_scrolled_view_drops_nowhere() {
+        let mut h = holding(0, 70.);
+        h.point(70., true, (0., 60.));
         assert_eq!(h.release(), None);
     }
 }

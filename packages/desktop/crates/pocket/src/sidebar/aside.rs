@@ -586,7 +586,16 @@ impl Sidebar {
         }
         // Folders come before loose threads, and only folders move.
         let folders = (!folders.is_empty()).then(|| self.tracks(List::Threads, div().id("folders")).flex().flex_col().gap(px(1.)).children(folders));
-        let list = div().id("aside-scratch-rows").max_h(px(height)).overflow_y_scroll().flex().flex_col().gap(px(1.)).children(folders).children(loose);
+        let list = div()
+            .id("aside-scratch-rows")
+            .track_scroll(&self.reorder.threads)
+            .max_h(px(height))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .gap(px(1.))
+            .children(folders)
+            .children(loose);
         div().flex().flex_col().flex_none().child(head).child(fold::springing("aside-scratch-fold", open, height, div().child(list)))
     }
 
@@ -872,7 +881,7 @@ impl Render for Sidebar {
                 .into_any_element(),
             None => list.into_any_element(),
         };
-        let body = div().id("aside-repos").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().child(list);
+        let body = div().id("aside-repos").track_scroll(&self.reorder.projects).flex_1().min_h_0().overflow_y_scroll().flex().flex_col().child(list);
         let scratch = f.scratch.as_ref().map(|s| self.scratch_section(s, f, cx));
         let aside = ui::side(div())
             .bg(nav_fill())
