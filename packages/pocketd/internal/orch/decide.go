@@ -21,23 +21,24 @@ type AgentInfo struct {
 
 // State is everything decide reads, loaded by the engine before it runs.
 type State struct {
-	Now       int64
-	Session   *Session
-	Queue     []QueueEntry // the session's entries not sent or cancelled, by order
-	Children  []Delegation // delegations the session started
-	Task      *Delegation  // the delegation the payload names
-	Subtree   []Delegation // Task and every delegation under it, deepest first
-	Parent    *Session     // Task's parent, for a settle
-	Request   *Request
-	Other     *Session // the payload's target session
-	Related   bool     // Other is the session's parent, child, fork or source
-	Running   int      // sessions agents started on this Mac: launching, or running and not yet settled
-	Limits    Limits
-	Self      AgentInfo // the session's own agent
-	Target    AgentInfo // the payload's agent
-	Held      []string  // task ids the session holds
-	Starting  bool      // a turn start the session was sent is still out
-	ChildTurn int64     // the latest turn of Task's child, for a settle that names its turn
+	Now         int64
+	Session     *Session
+	Queue       []QueueEntry // the session's entries not sent or cancelled, by order
+	Children    []Delegation // delegations the session started
+	Task        *Delegation  // the delegation the payload names
+	Subtree     []Delegation // Task and every delegation under it, deepest first
+	Parent      *Session     // Task's parent, for a settle
+	Request     *Request
+	Other       *Session // the payload's target session
+	Related     bool     // Other is the session's parent, child, fork or source
+	Running     int      // sessions agents started on this Mac: launching, or running and not yet settled
+	Limits      Limits
+	Self        AgentInfo // the session's own agent
+	Target      AgentInfo // the payload's agent
+	Held        []string  // task ids the session holds
+	Starting    bool      // a turn start the session was sent is still out
+	ChildTurn   int64     // the latest turn of Task's child, for a settle that names its turn
+	ChildQueued bool      // Task's child has a prompt queued for its next turn
 }
 
 // Decision is what a command does: facts, row writes, effects and the
@@ -867,9 +868,9 @@ func task(st State, cmd Command, p TaskPayload) (Decision, error) {
 	return Decision{}, nil
 }
 
-// superseded says a turn's end reached the task after the child's next turn began, which settles it instead.
+// superseded says the child has a next turn, begun or queued, which settles the task instead.
 func superseded(st State, p TaskPayload) bool {
-	return p.Turn != 0 && st.ChildTurn != p.Turn
+	return p.Turn != 0 && (st.ChildTurn != p.Turn || st.ChildQueued)
 }
 
 // settle publishes t's result once and decides how the parent hears of it. A

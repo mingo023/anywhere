@@ -150,6 +150,10 @@ func (e *Engine) Dispatch(cmd Command) (Receipt, error) {
 	if cmd.Kind == CmdDelegateStarted && len(d.Delegations) == 1 {
 		e.catchUp(d.Delegations[0].ChildID)
 	}
+	// A turn's end left its task to the queued prompt, which the child refused.
+	if cmd.Kind == CmdQueueUnsent {
+		e.catchUp(cmd.Session)
+	}
 	for _, ev := range d.Events {
 		if ev.Kind == "delegation.settled" || ev.Kind == "delegation.cancelled" {
 			e.pumpOthers(ev.Session)
@@ -420,7 +424,7 @@ func (e *Engine) load(tx *Tx, cmd Command) (State, error) {
 			return st, err
 		}
 		if p.Turn != 0 {
-			if err := tx.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM turns WHERE session_id = ?`, st.Task.ChildID).Scan(&st.ChildTurn); err != nil {
+			if err := tx.QueryRow(`SELECT COALESCE(MAX(id), 0), EXISTS (SELECT 1 FROM queue WHERE session_id = ?1 AND state IN ('pending', 'sending')) FROM turns WHERE session_id = ?1`, st.Task.ChildID).Scan(&st.ChildTurn, &st.ChildQueued); err != nil {
 				return st, err
 			}
 		}
