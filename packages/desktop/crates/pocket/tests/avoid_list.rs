@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 const AVOID: [&str; 10] = ["workspace", "waiting", "attention", "blocked", "unread", "acknowledged", "finished", "running", "busy", "mark all read"];
-const ALLOWED: [&str; 2] = ["This session is not running.", "Delivered, waiting for agent…"];
+const ALLOWED: [&str; 1] = ["This session is not running."];
 
 fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).expect("src readable").flatten() {

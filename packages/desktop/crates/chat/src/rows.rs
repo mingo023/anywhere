@@ -68,7 +68,7 @@ pub enum Row {
     Live {
         turn: usize,
     },
-    /// "Sending…", while a send is on its way.
+    /// "Thinking…", while a send is on its way.
     Working,
     /// An outgoing message not yet in the transcript.
     Pending(usize),
@@ -120,7 +120,7 @@ impl Row {
     }
 }
 
-/// The transcript's rows, then a row per pending send, "Sending…" while one is on its way, and what the agent is doing while at work.
+/// The transcript's rows, then a row per pending send, "Thinking…" while one is on its way, and what the agent is doing while at work.
 pub fn rows(t: &Transcript, pending: usize, sending: bool) -> Vec<Row> {
     let mut rows = Vec::new();
     rows_from(&mut rows, t, 0, pending, sending, &[]);
@@ -446,11 +446,13 @@ pub(crate) fn working(turn: &Turn) -> bool {
 }
 
 /// 16 over the first row and 14 at each exchange; within one, 6 between parts, 10 between markdown blocks of one
-/// message, and none above a phase, whose rail runs on from the fold, or "Sending…", which brings its own.
+/// message, and none above a phase, whose rail runs on from the fold. "Thinking…" under a send sits where the live line
+/// takes over once the send echoes, below its prompt and the fold.
 pub fn top_gap(prev: Option<&Row>, row: &Row) -> f32 {
     let Some(prev) = prev else { return 16. };
     match (prev, row) {
         (_, Row::Prompt { .. } | Row::Pending(_)) | (Row::Pending(_), Row::Live { .. }) => 14.,
+        (Row::Pending(_), Row::Working) => 12.,
         (_, Row::Phase { .. } | Row::Working) => 0.,
         (Row::Text { turn: a, block: x, .. }, Row::Text { turn: b, block: y, .. }) if (a, x) == (b, y) => 10.,
         (_, Row::Tasks { .. }) => 12.,
@@ -785,8 +787,15 @@ mod tests {
         };
         let rows = rows(&t, 1, true);
         let gaps: Vec<_> = rows.iter().enumerate().map(|(i, r)| top_gap(i.checked_sub(1).map(|p| &rows[p]), r)).collect();
-        // prompt, fold, phase, a, b, compacted, end, prompt, fold, pending, sending, live
-        assert_eq!(gaps, vec![16., 6., 0., 6., 10., 8., 6., 14., 6., 14., 0., 6.]);
+        // prompt, fold, phase, a, b, compacted, end, prompt, fold, pending, thinking, live
+        assert_eq!(gaps, vec![16., 6., 0., 6., 10., 8., 6., 14., 6., 14., 12., 6.]);
+    }
+
+    #[test]
+    fn thinking_under_a_send_sits_where_the_live_line_takes_over_once_it_echoes() {
+        let (prompt, fold) = (Row::Prompt { turn: 0 }, Row::Fold { turn: 0 });
+        let echoed = top_gap(Some(&prompt), &fold) + top_gap(Some(&fold), &Row::Live { turn: 0 });
+        assert_eq!(top_gap(Some(&Row::Pending(0)), &Row::Working), echoed);
     }
 
     #[test]

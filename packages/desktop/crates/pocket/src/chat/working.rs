@@ -1,5 +1,4 @@
 use super::shimmer::shimmer;
-use agents::PromptState;
 use gpui_kit::*;
 use theme::*;
 
@@ -13,13 +12,8 @@ pub(super) fn format_elapsed(secs: i64) -> String {
     }
 }
 
-/// "Sending…", light sweeping across it, until the send lands; what else is known of it reads still.
-pub(super) fn sending(state: PromptState) -> Div {
-    let row = div().py(px(4.)).text_size(px(14.)).line_height(px(20.));
-    match (state, chat::trail_text(state)) {
-        (PromptState::Sending, _) | (_, None) => row.child(shimmer("chat-sending", "Sending…", TEXT_3)),
-        (_, Some(text)) => row.text_color(TEXT_3).child(text),
-    }
+pub(super) fn resending() -> Div {
+    div().py(px(4.)).text_size(px(14.)).line_height(px(20.)).text_color(TEXT_3).child("Sending again…")
 }
 
 pub(super) fn compacting() -> Div {

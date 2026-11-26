@@ -343,7 +343,7 @@ impl Creates {
         !done.is_empty()
     }
 
-    /// A session started in place sent `prompt`; its chat shows it as sending from when pocketd makes its terminal.
+    /// A session started in place sent `prompt`; its chat shows it on its way from when pocketd makes its terminal.
     pub(crate) fn sent_in_place(&mut self, request: String, prompt: &str) {
         if !prompt.is_empty() {
             self.asked.insert(request, prompt.to_string());
@@ -361,7 +361,7 @@ impl Creates {
         self.asked.remove(request);
     }
 
-    /// The prompt to show as sending when `agent`'s chat in `terminal` first opens; not once the transcript should hold it, or it would never settle.
+    /// The prompt to show on its way when `agent`'s chat in `terminal` first opens; not once the transcript should hold it, or it would never settle.
     pub(crate) fn unsent(&self, agent: &str, terminal: &str, now: Instant) -> Option<&str> {
         let a = self.arrivals.get(agent).or_else(|| self.opening.get(terminal))?;
         (!a.prompt.is_empty() && now - a.at < FRESH).then_some(a.prompt.as_str())

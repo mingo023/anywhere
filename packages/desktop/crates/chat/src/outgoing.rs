@@ -27,6 +27,8 @@ pub struct Pending {
     request: Option<String>,
     /// A stop put it back in the queue after it went out; should the agent run it after all, its echo settles it.
     stopped: bool,
+    /// The agent was seen at work since it went out, which its own live line shows.
+    worked: bool,
 }
 
 /// How far the agent's clock may run behind ours when its prompt item is stamped.
@@ -106,6 +108,7 @@ impl Outgoing {
             failure: None,
             request: None,
             stopped: false,
+            worked: false,
         });
         (!working).then_some(self.next_id)
     }
@@ -125,6 +128,7 @@ impl Outgoing {
             failure: None,
             request: None,
             stopped: false,
+            worked: false,
         });
         self.next_id
     }
@@ -161,6 +165,10 @@ impl Outgoing {
             if (ran.worked && !working) || (!ran.worked && age > STATUS_LAG_MS) || (age > COMMAND_MS && !self.compacting) {
                 self.command = None;
             }
+        }
+        let seen_at_work = at_work(t);
+        for send in self.sends.iter_mut().filter(|s| s.delivery == Delivery::Sending) {
+            send.worked |= seen_at_work;
         }
         // A command steered in waits in the agent's queue, however long the turn it came into runs, and goes as that turn
         // ends. One that takes a turn settles by its echo before then, should the agent start it before we see it idle.
@@ -297,11 +305,10 @@ impl Outgoing {
         }
     }
 
-    /// What the line under the sends says: of those still on their way, the one in most doubt. None once the agent has
-    /// them all.
+    /// Where the sends still on their way are, `Resending` first. None once the agent was seen at work.
     pub fn trail(&self) -> Option<PromptState> {
-        let states = || self.sends.iter().filter(|s| s.delivery == Delivery::Sending).map(|s| s.state);
-        [PromptState::Resending, PromptState::Sending, PromptState::Delivered].into_iter().find(|wanted| states().any(|s| s == *wanted))
+        let states = || self.sends.iter().filter(|s| s.delivery == Delivery::Sending && !s.worked).map(|s| s.state);
+        states().find(|s| *s == PromptState::Resending).or_else(|| states().next())
     }
 
     /// Whether queued sends wait for the user because the last turn ended in a stop or an error, or is being stopped,
@@ -397,16 +404,6 @@ fn tidy(text: &str) -> String {
     match text.strip_prefix("! ") {
         Some(command) => format!("!{command}"),
         None => text,
-    }
-}
-
-/// The line under the sends for `state`; none once the agent has them.
-pub fn trail_text(state: PromptState) -> Option<&'static str> {
-    match state {
-        PromptState::Sending => Some("Sending…"),
-        PromptState::Resending => Some("Sending again…"),
-        PromptState::Delivered => Some("Delivered, waiting for agent…"),
-        PromptState::Taken => None,
     }
 }
 
@@ -1238,29 +1235,39 @@ mod tests {
     }
 
     #[test]
-    fn a_send_reads_as_sending_again_while_the_link_is_down_and_as_delivered_once_pocketd_has_it() {
+    fn a_send_trails_until_its_echo_and_reads_as_sending_again_while_the_link_is_down() {
         let mut o = Outgoing::default();
         sent(&mut o, "a", "prompt-1");
         assert_eq!(o.trail(), Some(PromptState::Sending));
         o.prompt_state("prompt-1", PromptState::Resending);
-        assert_eq!(o.trail().and_then(trail_text), Some("Sending again…"));
-        o.prompt_state("prompt-1", PromptState::Sending);
+        assert_eq!(o.trail(), Some(PromptState::Resending));
         o.prompt_state("prompt-1", PromptState::Delivered);
-        assert_eq!(o.trail().and_then(trail_text), Some("Delivered, waiting for agent…"));
+        assert_eq!(o.trail(), Some(PromptState::Delivered));
         o.prompt_state("prompt-1", PromptState::Taken);
-        assert_eq!(o.trail(), None, "the agent has it; its echo is all that's left");
-        assert_eq!(deliveries(&o), vec![Delivery::Sending], "still waiting for the echo");
+        assert_eq!(o.trail(), Some(PromptState::Taken), "the agent has it; the line stays until its echo");
+        o.settle(&Transcript { turns: vec![turn("u1", 0, "a", false)] }, true, 10);
+        assert_eq!(o.trail(), None);
     }
 
     #[test]
-    fn the_trail_speaks_of_the_send_in_most_doubt() {
+    fn the_trail_reads_as_sending_again_while_any_send_waits_on_the_link() {
         let mut o = Outgoing::default();
         sent(&mut o, "a", "prompt-1");
         sent(&mut o, "b", "prompt-2");
         o.prompt_state("prompt-1", PromptState::Delivered);
-        assert_eq!(o.trail(), Some(PromptState::Sending), "b is still on its way");
         o.prompt_state("prompt-2", PromptState::Resending);
         assert_eq!(o.trail(), Some(PromptState::Resending));
+    }
+
+    #[test]
+    fn a_send_stops_trailing_once_the_agent_is_seen_at_work() {
+        let mut o = Outgoing::default();
+        sent(&mut o, "a", "prompt-1");
+        o.prompt_state("prompt-1", PromptState::Delivered);
+        o.settle(&Transcript { turns: vec![turn("u1", 0, "other", false)] }, true, 10);
+        assert_eq!(o.trail(), None, "the agent's own live line says it works");
+        o.settle(&Transcript { turns: vec![turn("u1", 0, "other", true)] }, false, 20);
+        assert_eq!(o.trail(), None, "nor does it come back once that turn ends");
     }
 
     #[test]
