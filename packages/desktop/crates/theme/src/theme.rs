@@ -845,6 +845,7 @@ const ICONS: &[(&str, &[u8])] = embed!(
     "list-checks",
     "list-flat",
     "list-tree",
+    "lock",
     "mascot-body",
     "mascot-eyes",
     "mascot-eyes-happy",
