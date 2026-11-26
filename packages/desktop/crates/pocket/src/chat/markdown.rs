@@ -27,6 +27,10 @@ impl Colours {
         let held = styles.clone();
         Self { styles, highlighter: Arc::new(move |_| held.to_vec()) }
     }
+
+    pub(super) fn styles(&self) -> &Styles {
+        &self.styles
+    }
 }
 
 /// How far a list item's text sits from its marker's edge.

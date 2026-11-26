@@ -1,3 +1,4 @@
+use super::markdown::Styles;
 use crate::add_to_chat::{Body, Quote};
 use crate::util::basename;
 use gpui_kit::component::tooltip::Tooltip;
@@ -10,7 +11,22 @@ const RAIL_ROOM: f32 = 28.;
 const RAIL_W: f32 = 17.;
 const SHOWN_LINES: usize = 2;
 
-pub(super) fn quote_card(id: &str, quote: &Quote, width: f32, open: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Stateful<Div> {
+/// The grammar and text a card's code is coloured from: its shown lines, joined. None for prose and diffs, which keep their own colours.
+pub(super) fn colour_source(quote: &Quote) -> Option<(&'static str, String)> {
+    match &quote.body {
+        Body::Code { text, .. } => Some((crate::syntax::language_for(&quote.path), shown_lines(text).join("\n"))),
+        Body::Diff { .. } | Body::Prose { .. } => None,
+    }
+}
+
+/// `colours` are byte ranges into `colour_source`'s text.
+pub(super) fn quote_card(
+    id: &str,
+    quote: &Quote,
+    width: f32,
+    colours: Option<Styles>,
+    open: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
     let (place, text) = match &quote.body {
         Body::Code { lines, text, .. } => (format!("lines {}", span(*lines)), text),
         Body::Diff { lines, text, .. } => (format!("uncommitted · line {}", span(*lines)), text),
@@ -33,13 +49,14 @@ pub(super) fn quote_card(id: &str, quote: &Quote, width: f32, open: impl Fn(&Cli
                 .flex_col()
                 .font_family(code_font())
                 .line_height(px(19.))
-                .children(shown_lines(text).into_iter().enumerate().map(move |(i, line)| {
+                .children(shown_lines(text).into_iter().zip(line_starts(text)).enumerate().map(move |(i, (line, start))| {
                     let ink = match line.chars().next() {
                         Some('+') if diff => DIFF_ADD_TEXT,
                         Some('-') if diff => DIFF_DEL_TEXT,
                         _ => TEXT_2,
                     };
-                    div().whitespace_nowrap().truncate().text_color(ink).when(i > 0, |d| d.opacity(0.45)).child(line)
+                    let runs = colours.as_deref().map(|c| in_line(c, start, line.len())).unwrap_or_default();
+                    div().whitespace_nowrap().truncate().text_color(ink).when(i > 0, |d| d.opacity(0.45)).child(StyledText::new(line).with_highlights(runs))
                 }))
                 .into_any_element()
         }
@@ -74,6 +91,17 @@ fn span((lo, hi): (usize, usize)) -> String {
     if lo == hi { lo.to_string() } else { format!("{lo}–{hi}") }
 }
 
+/// Where each shown line starts in their `\n`-joined text.
+fn line_starts(text: &str) -> Vec<usize> {
+    shown_lines(text).iter().scan(0, |at, l| Some(std::mem::replace(at, *at + l.len() + 1))).collect()
+}
+
+/// The runs of `styles` that fall in the line at `start..start + len`, measured from the line's start.
+fn in_line(styles: &[(std::ops::Range<usize>, HighlightStyle)], start: usize, len: usize) -> Vec<(std::ops::Range<usize>, HighlightStyle)> {
+    let end = start + len;
+    styles.iter().filter(|(r, _)| r.start < end && r.end > start).map(|(r, s)| (r.start.max(start) - start..r.end.min(end) - start, *s)).collect()
+}
+
 fn shown_lines(text: &str) -> Vec<String> {
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).take(SHOWN_LINES).collect();
     let indent = lines.iter().map(|l| l.len() - l.trim_start_matches([' ', '\t']).len()).min().unwrap_or(0);
@@ -82,7 +110,8 @@ fn shown_lines(text: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::shown_lines;
+    use super::{in_line, line_starts, shown_lines};
+    use gpui_kit::HighlightStyle;
 
     #[test]
     fn a_card_shows_the_first_two_lines_with_text_without_their_shared_indent() {
@@ -92,6 +121,15 @@ mod tests {
     #[test]
     fn lines_indented_with_different_whitespace_keep_it() {
         assert_eq!(shown_lines(" x\n\u{3000}y"), [" x", "\u{3000}y"]);
+    }
+
+    #[test]
+    fn colours_for_the_joined_lines_split_back_onto_each_line() {
+        let text = "  let a = 1;\n  b(a);";
+        assert_eq!(line_starts(text), [0, 11]);
+        let style = HighlightStyle::default();
+        let runs = in_line(&[(0..3, style), (9..14, style)], 11, 5);
+        assert_eq!(runs.iter().map(|(r, _)| (r.start, r.end)).collect::<Vec<_>>(), [(0, 3)]);
     }
 
     #[test]

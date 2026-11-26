@@ -284,6 +284,7 @@ pub(super) fn bubble(
     here: &Path,
     toggle: Option<(Fold, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static)>,
     open_quote: impl Fn(&str, &mut Window, &mut App) + 'static,
+    quote_colours: Option<super::markdown::Styles>,
     window: &mut Window,
     cx: &mut App,
 ) -> Div {
@@ -294,7 +295,7 @@ pub(super) fn bubble(
             Body::Code { lines, .. } | Body::Diff { lines, .. } => format!("{}:{}", quote.path, lines.0),
             Body::Prose { .. } => quote.path.clone(),
         };
-        super::quote_card::quote_card(id, quote, width, move |_, window, cx| open_quote(&at, window, cx))
+        super::quote_card::quote_card(id, quote, width, quote_colours, move |_, window, cx| open_quote(&at, window, cx))
     });
     let Sent { text, files, images, elements } = split_attachments(rest);
     let text = text.to_string();

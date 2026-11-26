@@ -593,6 +593,7 @@ fn prompt_bubble(
     under: Option<Div>,
     width: f32,
     here: &std::path::Path,
+    quote_colours: Option<markdown::Styles>,
     window: &mut Window,
     cx: &mut Context<View>,
 ) -> Div {
@@ -606,12 +607,24 @@ fn prompt_bubble(
         let this = cx.weak_entity();
         move |at: &str, _: &mut Window, cx: &mut App| _ = this.update(cx, |_, cx| cx.emit(ViewEvent::Open(at.to_string(), markdown::Press::Follow)))
     };
-    let bubble = user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), view.flashing(id), here, toggle, open, window, cx);
+    let bubble =
+        user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), view.flashing(id), here, toggle, open, quote_colours, window, cx);
     let under = under.unwrap_or_else(|| {
         let key = format!("prompt:{id}");
         user_bubble::actions(id, view.copied(&key), copy(key, text.to_string(), cx), Some(at))
     });
     div().flex().flex_col().items_end().gap(px(4.)).child(bubble).child(under)
+}
+
+/// The colours of the code a prompt quotes, once worked out; the first ask for them is left in `highlight`.
+fn quote_colours(code: &mut Highlights, id: &str, prompt: &str, highlight: &mut Option<(String, String)>) -> Option<markdown::Styles> {
+    let (quote, _) = crate::add_to_chat::split_quote(prompt)?;
+    let (lang, text) = super::quote_card::colour_source(&quote)?;
+    let (colours, start) = code.get(id, &text, is_dark());
+    if start {
+        *highlight = Some((lang.to_string(), text));
+    }
+    colours.map(|c| c.styles().clone())
 }
 
 /// Whether a row opened or shut at `toggled` can still be easing to its height at `now`.
@@ -904,7 +917,8 @@ impl View {
         let inner = match &row {
             Row::Prompt { turn } => match t.turns.get(*turn).and_then(|t| t.prompt.as_ref()) {
                 Some(p) => {
-                    let bubble = prompt_bubble(view, &id, &p.text, p.at, false, None, width, &here, window, cx);
+                    let colours = quote_colours(&mut view.code, &id, &p.text, &mut highlight);
+                    let bubble = prompt_bubble(view, &id, &p.text, p.at, false, None, width, &here, colours, window, cx);
                     match delegated_by.filter(|_| *turn == 0) {
                         Some((by, label)) => div()
                             .flex()
@@ -1156,7 +1170,8 @@ impl View {
                     });
                     let under = under.or_else(|| s.outgoing.after_turn().any(|c| c.id == p.id).then(|| user_bubble::after_turn(who)));
                     let dim = p.delivery == Delivery::Failed || under.is_some();
-                    prompt_bubble(view, &id, &p.text, p.sent_at, dim, under, width, &here, window, cx).children(retry)
+                    let colours = quote_colours(&mut view.code, &id, &p.text, &mut highlight);
+                    prompt_bubble(view, &id, &p.text, p.sent_at, dim, under, width, &here, colours, window, cx).children(retry)
                 }
                 None => div(),
             },
