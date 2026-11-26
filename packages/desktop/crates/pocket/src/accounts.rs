@@ -526,7 +526,6 @@ impl Desktop {
         let (host, provider) = (key.host.clone(), key.provider.clone());
         let sub = cx.subscribe_in(&code, window, move |this, _, ev: &InputEvent, window, cx| match ev {
             InputEvent::PressEnter { .. } => this.send_sign_in_code(&host, &provider, window, cx),
-            // Settings shows the Enter button only while the field has text.
             InputEvent::Change => this.settings.update(cx, |_, cx| cx.notify()),
             _ => {}
         });

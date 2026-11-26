@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 use theme::*;
 
-/// How long a toast with Undo stays; the spec's 6 s.
+/// How long a toast with Undo stays.
 const UNDO_FOR: Duration = Duration::from_secs(6);
 /// How long a toast that only tells stays.
 const TELL_FOR: Duration = Duration::from_millis(2600);
@@ -15,7 +15,6 @@ const TELL_FOR: Duration = Duration::from_millis(2600);
 const MOST: usize = 3;
 
 /// What a toast's Undo puts back, run on the Desktop that holds the store and files.
-/// Runs on the Desktop, which holds the store and files.
 pub(crate) type Restore = Rc<dyn Fn(&mut Desktop, &mut Window, &mut Context<Desktop>)>;
 
 #[derive(Clone)]

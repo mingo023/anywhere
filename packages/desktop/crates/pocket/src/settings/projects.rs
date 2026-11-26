@@ -328,7 +328,7 @@ impl Settings {
                     .min_w_0()
                     .text_size(px(11.5))
                     .text_color(TEXT_3)
-                    .child(div().min_w_0().truncate().font_family(MONO).child(tilde(&card.path)))
+                    .child(div().min_w_0().truncate().font_family(MONO).child(tilde(hosts::split(&card.path).1)))
                     .children(picks.map(|pick| div().flex().flex_none().items_center().gap(px(6.)).child("\u{b7}").child(pick))),
             );
         div()

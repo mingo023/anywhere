@@ -13,6 +13,8 @@ pub(super) struct Related {
 const LINKS: &[(Section, &str, Related)] = &[
     (Section::Files, "Tabs", Related { lead: "Whether a new tab starts a shell or an agent is set in", to: Section::Agents, label: "Agents \u{203a} Tabs" }),
     (Section::Terminal, "Keyboard & mouse", Related { lead: "Terminal shortcuts are in", to: Section::Keyboard, label: "Keyboard" }),
+    (Section::Agents, "Tabs", Related { lead: "Where tabs sit and how they preview is set in", to: Section::Files, label: "Files & Editor \u{203a} Tabs" }),
+    (Section::Git, "GitHub", Related { lead: "Agent sign-ins are in", to: Section::Accounts, label: "Accounts" }),
 ];
 
 /// The pointer under `group` of `section`'s page.
@@ -58,6 +60,8 @@ mod tests {
     #[test]
     fn only_the_groups_that_name_a_related_page_get_a_pointer() {
         assert_eq!(of(Section::Files, "Tabs").map(|r| r.to), Some(Section::Agents));
+        assert_eq!(of(Section::Agents, "Tabs").map(|r| r.to), Some(Section::Files));
+        assert_eq!(of(Section::Git, "GitHub").map(|r| r.to), Some(Section::Accounts));
         assert!(of(Section::Files, "Editor").is_none());
         assert!(of(Section::Terminal, "Tabs").is_none());
     }

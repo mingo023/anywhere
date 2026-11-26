@@ -30,9 +30,6 @@ pub(crate) struct Off {
 /// What an `Off` row's fix writes.
 pub(crate) type Fix = fn(&mut Store);
 
-/// Whether a text row's draft can be saved, and why not.
-pub(crate) type Valid = fn(&str) -> Result<(), String>;
-
 /// What a row's control reads and writes in the store.
 #[derive(Clone, Copy)]
 pub(crate) enum Control {
@@ -95,8 +92,6 @@ pub(crate) struct Setting {
     pub resets: Option<Resets>,
     /// Why the row can't apply in this store; its control is off while it says so.
     pub off: Option<fn(&Store) -> Option<Off>>,
-    /// Which drafts a text row saves.
-    pub valid: Option<Valid>,
 }
 
 impl Setting {
@@ -115,7 +110,6 @@ impl Setting {
             effect: None,
             resets: None,
             off: None,
-            valid: None,
         }
     }
 
@@ -210,12 +204,6 @@ impl Setting {
     /// Tab but no typing); a custom draw has to keep its own controls out of the tab order.
     pub const fn off(mut self, off: fn(&Store) -> Option<Off>) -> Self {
         self.off = Some(off);
-        self
-    }
-
-    #[expect(dead_code, reason = "the provider and host pages validate their fields")]
-    pub const fn valid(mut self, valid: Valid) -> Self {
-        self.valid = Some(valid);
         self
     }
 

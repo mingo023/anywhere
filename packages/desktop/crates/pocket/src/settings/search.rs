@@ -24,8 +24,6 @@ fn is_live(setting: &Setting) -> bool {
     !LISTS.contains(&setting.id)
 }
 
-// ---- Matching -----------------------------------------------------------------------------------------------------
-
 /// Whether `word` starts a word somewhere in `hay`, which is lowercase.
 fn starts_a_word(hay: &str, word: &str) -> bool {
     hay.match_indices(word).any(|(i, _)| hay[..i].chars().next_back().is_none_or(|c| !c.is_alphanumeric()))
@@ -79,8 +77,6 @@ fn page_fields(section: Section) -> Vec<&'static str> {
 fn pages() -> impl Iterator<Item = Section> {
     Section::ALL.into_iter().chain((0..agents::providers::COUNT).map(Section::Provider))
 }
-
-// ---- What a search finds ------------------------------------------------------------------------------------------
 
 /// Something that isn't a catalog row, and the page its result opens.
 #[derive(Clone, Debug, PartialEq)]
@@ -316,8 +312,6 @@ pub(super) fn results(words: &[String], inputs: &Inputs) -> Vec<Group> {
     groups
 }
 
-// ---- Scrolling to a result ----------------------------------------------------------------------------------------
-
 /// The scroll offset, zero or less, that puts a row `height` tall `top` below the start of the content in the middle of a
 /// viewport `view` tall, kept inside the scrollable `max`.
 fn centred(top: f32, height: f32, view: f32, max: f32) -> f32 {
@@ -365,8 +359,6 @@ impl Reach {
         (self.pending, self.spot) = (false, Rc::default());
     }
 }
-
-// ---- Drawing ------------------------------------------------------------------------------------------------------
 
 /// "7 results for “worktree”".
 fn summary(query: &str, n: usize) -> String {

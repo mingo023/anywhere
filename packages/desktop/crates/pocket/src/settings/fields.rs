@@ -50,7 +50,6 @@ impl Draft {
     }
 }
 
-/// Any text is valid.
 pub(crate) fn any(_: &str) -> Result<(), String> {
     Ok(())
 }

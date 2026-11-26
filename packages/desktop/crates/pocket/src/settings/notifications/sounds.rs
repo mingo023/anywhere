@@ -222,10 +222,10 @@ fn bring_back(sounds: &mut Sounds, path: &str, held: Held) {
 /// or is already gone, `Err` when the Trash refused it.
 fn trash_file(dir: &Path, path: &str) -> Result<Option<PathBuf>, ()> {
     let path = Path::new(path);
-    if !path.starts_with(dir) || !path.exists() {
+    if !path.starts_with(dir) {
         return Ok(None);
     }
-    crate::util::trash(path).map(Some).ok_or(())
+    crate::util::trash_for_undo(path)
 }
 
 impl Desktop {

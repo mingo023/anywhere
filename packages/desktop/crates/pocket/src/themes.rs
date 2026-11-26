@@ -181,14 +181,6 @@ fn bring_back(a: &mut Appearance, id: &str, dark: bool, held: Held) {
     }
 }
 
-/// Moves the theme file to the Trash: where it landed, `None` when it was already gone, `Err` when the Trash refused it.
-fn trash_file(path: &Path) -> Result<Option<PathBuf>, ()> {
-    if !path.exists() {
-        return Ok(None);
-    }
-    crate::util::trash(path).map(Some).ok_or(())
-}
-
 impl Desktop {
     /// Paints the chosen theme and forces its appearance on the window.
     pub(crate) fn apply_theme(&mut self, cx: &mut Context<Self>) {
@@ -242,7 +234,7 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             // The file goes first: a reload that reads the folder after the theme left the list must not find it there.
             let from = path.clone();
-            let moved = cx.background_spawn(async move { trash_file(&from) }).await;
+            let moved = cx.background_spawn(async move { crate::util::trash_for_undo(&from) }).await;
             this.update(cx, |d, cx| {
                 let Ok(landed) = moved else {
                     d.themes.error = Some(format!("Couldn\u{2019}t move \u{201c}{}\u{201d} to the Trash", custom.theme.name).into());
@@ -301,7 +293,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Custom, SYSTEM, Themes, active, bring_back, choose, chosen, find, forced, forget, held, import, in_use, load, name, system_theme, trash_file};
+    use super::{Custom, SYSTEM, Themes, active, bring_back, choose, chosen, find, forced, forget, held, import, in_use, load, name, system_theme};
     use store::{Appearance, Mode};
     use theme::{GRAPHITE_DARK, GRAPHITE_LIGHT, TEXT, Theme};
 
@@ -421,7 +413,7 @@ mod tests {
 
     #[test]
     fn a_theme_file_that_is_already_gone_needs_no_trash() {
-        assert_eq!(trash_file(&home("gone").join("no-such.json")), Ok(None));
+        assert_eq!(crate::util::trash_for_undo(&home("gone").join("no-such.json")), Ok(None));
     }
 
     #[test]

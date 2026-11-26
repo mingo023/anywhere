@@ -556,7 +556,7 @@ impl Settings {
     fn commit_field(&mut self, setting: &'static Setting, window: &mut Window, cx: &mut Context<Self>) {
         match setting.control {
             Control::Text { get, set, .. } => {
-                let (stored, valid) = (get(&self.store), setting.valid.unwrap_or(fields::any));
+                let (stored, valid) = (get(&self.store), fields::any);
                 let Some(field) = self.fields.get_mut(setting.id) else { return };
                 if let Commit::Save(text) = field.commit(&stored, valid, cx) {
                     self.set(setting, cx, move |s| set(s, text.clone()));
@@ -569,7 +569,6 @@ impl Settings {
                 let typed = field.input.read(cx).value().to_string();
                 let bounds = Bounds { min: min.into(), max: max.into(), step: step.into() };
                 let n = fields::typed_step(&typed, current.into(), bounds) as i32;
-                // Written back, since the typed text may have been clamped or rounded.
                 field.draft = fields::Draft::new(n.to_string());
                 field.input.update(cx, |f, cx| f.set_value(n.to_string(), window, cx));
                 if n != current {

@@ -386,7 +386,6 @@ mod tests {
 
     #[test]
     fn every_binding_appears_in_the_shortcut_table() {
-        // Copy, paste and undo inside a web page are the page's own text editing.
         for b in actions::bindings().iter().filter(|b| place(b).is_some() && b.action().name() != "desktop::PageEdit") {
             assert!(label(b.action().name()).is_some(), "{} has no label", b.action().name());
         }
