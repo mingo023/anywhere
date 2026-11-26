@@ -1,6 +1,7 @@
 use super::composer::{RADIUS, block_shade, code_shade};
 use super::mention::{hidden, paint_icons, tint};
 use super::selectable::selectable;
+use crate::add_to_chat::{Body, split_quote};
 use crate::composer::element_card::element_card;
 use crate::composer::elements::heading_parts;
 use crate::composer::file_card::file_card;
@@ -164,7 +165,11 @@ pub(super) fn lines(text: &str, width: f32, window: &Window) -> usize {
 
 /// The lines a prompt's `text` wraps to at `size` px in `width` px, as a bubble shows it.
 pub(super) fn wrapped_lines(text: &str, size: f32, width: f32, window: &Window) -> usize {
-    text_lines(&shown(split_attachments(text).text).text, size, width, window)
+    text_lines(&shown(split_attachments(typed(text)).text).text, size, width, window)
+}
+
+fn typed(prompt: &str) -> &str {
+    split_quote(prompt).map_or(prompt, |(_, rest)| rest)
 }
 
 /// The lines plain `text` wraps to at `size` px in `width` px.
@@ -278,10 +283,20 @@ pub(super) fn bubble(
     lit: bool,
     here: &Path,
     toggle: Option<(Fold, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static)>,
+    open_quote: impl Fn(&str, &mut Window, &mut App) + 'static,
     window: &mut Window,
     cx: &mut App,
 ) -> Div {
-    let Sent { text, files, images, elements } = split_attachments(&prompt);
+    let split = split_quote(&prompt);
+    let rest = split.as_ref().map_or(prompt.as_str(), |(_, rest)| rest);
+    let quote = split.as_ref().map(|(quote, _)| {
+        let at = match &quote.body {
+            Body::Code { lines, .. } | Body::Diff { lines, .. } => format!("{}:{}", quote.path, lines.0),
+            Body::Prose { .. } => quote.path.clone(),
+        };
+        super::quote_card::quote_card(id, quote, width, move |_, window, cx| open_quote(&at, window, cx))
+    });
+    let Sent { text, files, images, elements } = split_attachments(rest);
     let text = text.to_string();
     let attached = (!images.is_empty() || !files.is_empty() || !elements.is_empty()).then(|| {
         let fit = IMAGE_MAX_W.min(width * WIDTH - 2.);
@@ -387,7 +402,16 @@ pub(super) fn bubble(
             files.into_any_element()
         }
     });
-    div().w_full().flex().flex_col().items_end().gap(px(6.)).when(pending, |d| d.opacity(0.65)).children(attached).when(!text.is_empty(), |d| d.child(bubble))
+    div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .items_end()
+        .gap(px(6.))
+        .when(pending, |d| d.opacity(0.65))
+        .children(quote)
+        .children(attached)
+        .when(!text.is_empty(), |d| d.child(bubble))
 }
 
 #[cfg(test)]

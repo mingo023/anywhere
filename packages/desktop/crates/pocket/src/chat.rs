@@ -18,6 +18,7 @@ mod pin;
 mod pr_link;
 pub(crate) mod question;
 mod question_marker;
+mod quote_card;
 mod reveal;
 pub(crate) mod selectable;
 mod selection;

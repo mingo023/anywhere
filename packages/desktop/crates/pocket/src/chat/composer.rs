@@ -444,7 +444,7 @@ impl ComposerState {
         let background = background.map(|t| fade_in(id(format!("chat-background-in:{terminal}")), t));
         let btw = matches!(mode, Mode::Prompt).then(|| self.btw_card(&agent.id, cx)).flatten();
         let (typed, draft) = self.draft_of(&agent.id, cx);
-        let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
+        let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::sends_without_text);
         let asking = matches!(mode, Mode::Permission { .. } | Mode::Question { .. });
         let account = chip.map(|chip| self.account_chip(&chip, cx));
         let footer = footer(branch, account, hint(mode, busy, stopping, empty, can_queue), said, asking);
