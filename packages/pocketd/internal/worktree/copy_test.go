@@ -24,7 +24,11 @@ func TestCopyNeverOverwritesAndTakesOnlyPlainFilesInsideTheProject(t *testing.T)
 	os.WriteFile(filepath.Join(p, ".env"), []byte("A=1"), 0o600)
 	os.WriteFile(filepath.Join(p, ".env.local"), []byte("B=2"), 0o644)
 	// Making a symlink on Windows needs a privilege.
-	links := os.Symlink(filepath.Join(p, ".env"), filepath.Join(p, ".env.link")) == nil
+	err := os.Symlink(filepath.Join(p, ".env"), filepath.Join(p, ".env.link"))
+	if err != nil && runtime.GOOS != "windows" {
+		t.Fatal(err)
+	}
+	links := err == nil
 	os.Mkdir(filepath.Join(p, ".env.d"), 0o755)
 	os.MkdirAll(filepath.Join(p, "sub"), 0o755)
 	os.WriteFile(filepath.Join(p, "sub", "deep.txt"), []byte("deep"), 0o644)
@@ -61,7 +65,7 @@ func TestCopyWritesNothingThroughASymlinkedFolderInTheWorktree(t *testing.T) {
 	os.MkdirAll(filepath.Join(p, "sub", "deeper"), 0o755)
 	os.WriteFile(filepath.Join(p, "sub", "deeper", "deep.txt"), []byte("deep"), 0o644)
 	if err := os.Symlink(outside, filepath.Join(dst, "sub")); err != nil {
-		t.Skip(err)
+		symlinkFailed(t, err)
 	}
 	os.WriteFile(filepath.Join(p, ".worktreeinclude"), []byte("sub/deeper/deep.txt\n"), 0o600)
 	copied, skipped := CopyInto(p, dst)

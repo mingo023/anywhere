@@ -16,6 +16,8 @@ fn windows_icon() {
         .arg("rc")
         .arg("/:output-format")
         .arg("coff")
+        .arg("/:target")
+        .arg(std::env::var("CARGO_CFG_TARGET_ARCH").expect("cargo sets CARGO_CFG_TARGET_ARCH"))
         .arg(format!("/fo{}", res.display()))
         .arg(out.join("app.rc"))
         .status()

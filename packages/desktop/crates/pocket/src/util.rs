@@ -172,7 +172,7 @@ pub fn drawn_cards(top: usize, viewport: f32, overdraw: f32, min_card: f32, len:
 
 #[cfg(test)]
 mod tests {
-    use super::{ago, ago_long, basename, drawn_cards, first_line, folder, initials, list_dir, mark, tilde, tilde_in, tree_icon, untilde_in};
+    use super::{ago, ago_long, drawn_cards, first_line, folder, initials, list_dir, mark, tilde, tilde_in, tree_icon, untilde_in};
     use store::ProjectIcon;
     use store::prefs::files::Files;
 
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     #[cfg(windows)]
     fn a_windows_path_s_folder_is_its_last_component() {
-        assert_eq!((folder(r"C:\w\app-login"), folder(r"C:\w\app\"), basename(r"C:\w\app")), ("app-login", "app", "app".to_string()));
+        assert_eq!((folder(r"C:\w\app-login"), folder(r"C:\w\app\"), super::basename(r"C:\w\app")), ("app-login", "app", "app".to_string()));
     }
 
     #[test]

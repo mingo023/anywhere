@@ -40,7 +40,8 @@ func own(c *ops.Conn) error {
 	return auth(c, token)
 }
 
-// cliToken is the owner token kept in home, minted again when there is none or it was revoked.
+// cliToken is the owner token kept in home, minted again when there is none or it was revoked. A token the
+// owners file couldn't be read to check is not taken for revoked.
 func cliToken(home string) (string, error) {
 	file := filepath.Join(home, "cli.token")
 	store := owners.Store{Path: owners.Path(home)}
@@ -49,12 +50,19 @@ func cliToken(home string) (string, error) {
 		if _, ok := store.Lookup(token); ok {
 			return token, nil
 		}
+		if _, err := store.List(); err != nil {
+			return "", err
+		}
 	}
-	_, token, err := store.Mint("pocketd CLI")
+	o, token, err := store.Mint("pocketd CLI")
 	if err != nil {
 		return "", err
 	}
-	return token, atomicfile.Write(file, []byte(token), 0o600)
+	if err := atomicfile.Write(file, []byte(token), 0o600); err != nil {
+		store.Revoke(o.ID)
+		return "", err
+	}
+	return token, nil
 }
 
 func auth(c *ops.Conn, token string) error {

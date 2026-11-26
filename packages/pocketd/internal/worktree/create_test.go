@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -114,7 +115,7 @@ func TestAWorktreesFolderBehindASymlinkGivesThePathListReports(t *testing.T) {
 	p := repo(t)
 	link := filepath.Join(t.TempDir(), "wt")
 	if err := os.Symlink(t.TempDir(), link); err != nil {
-		t.Skip(err)
+		symlinkFailed(t, err)
 	}
 	c, err := Create(worktreesIn(p, link), p, "calm-otter", "")
 	ws, _ := List(p)
@@ -128,7 +129,7 @@ func TestARootBehindASymlinkContainsTheRealPathsGitReports(t *testing.T) {
 	real, _ := filepath.EvalSymlinks(t.TempDir())
 	link := filepath.Join(t.TempDir(), "root")
 	if err := os.Symlink(real, link); err != nil {
-		t.Skip(err)
+		symlinkFailed(t, err)
 	}
 	f := registered(p, registry.Repo{Name: "Pocket"})
 	f.Worktree.Root = link
@@ -343,4 +344,13 @@ func TestABranchAlreadyGoneLeavesTheOthersLostCommitsCounted(t *testing.T) {
 func setHome(t *testing.T, dir string) {
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
+}
+
+// symlinkFailed skips on Windows, where making a symlink needs Developer Mode or admin.
+func symlinkFailed(t *testing.T, err error) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip(err)
+	}
+	t.Fatal(err)
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -20,7 +21,16 @@ func readJSON(t *testing.T, path string) map[string]any {
 	return v
 }
 
+func needsFileLinks(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	if runtime.GOOS == "windows" && os.Symlink(filepath.Join(dir, "a"), filepath.Join(dir, "b")) != nil {
+		t.Skip("Windows links a file only in Developer Mode")
+	}
+}
+
 func TestAManagedAccountReadsTheUsersClaudeFolderThroughLinks(t *testing.T) {
+	needsFileLinks(t)
 	s := store(t)
 	builtIn := s.Dir("claude", BuiltIn)
 	os.MkdirAll(filepath.Join(builtIn, "skills"), 0o700)

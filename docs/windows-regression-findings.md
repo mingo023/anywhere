@@ -9,17 +9,17 @@ Status: **fixed**, **open** (left for a follow-up, with the reason), **by design
 | # | Finding | Status |
 |---|---|---|
 | B1 | With `core.autocrlf=true` (Git for Windows' default), shell scripts and golden files check out with CRLF, which breaks `scripts/*.sh` and the protocol golden tests. `.gitattributes` now pins `eol=lf`. | fixed |
-| B2 | `crates/pocket/build.rs` had `zig rc` emit a `.res`, which only lld links; a native `x86_64-pc-windows-gnu` build links with GNU ld and failed with "app.res: file not recognized". It now emits a COFF object, which both link. | fixed |
+| B2 | `crates/pocket/build.rs` had `zig rc` emit a `.res`, which only lld links; a native `x86_64-pc-windows-gnu` build links with GNU ld and failed with "app.res: file not recognized". It now emits a COFF object for the target architecture (`/:target`), which both link. | fixed |
 
 ## pocketd
 
 | # | Finding | Status |
 |---|---|---|
-| P1 | `logfile.rotate` renamed the log while it was still open, which Windows refuses, and then reopened it truncating, wiping the live log on every rotation. It now closes first and appends when the rename fails. | fixed |
+| P1 | `logfile.rotate` renamed the log while it was still open, which Windows refuses, and then reopened it truncating, wiping the live log on every rotation. It now closes first. When another process holds the log open the rename still fails: it keeps appending to the live log, and tries again only after another max bytes, so the older logs stay where they are. | fixed |
 | P2 | `gitview.Top`, `worktree.parse` and `launch.revParse` compared git's `C:/x` output with `filepath`'s `C:\x`, so a repo's own worktree never matched. | fixed |
 | P3 | Path containment (`fsview.within`, `worktree.Containing`, `inside`, `project`, `Claim`, `AgentMade`) checked a `/` prefix, so on Windows no path was ever inside a project. | fixed |
 | P4 | `launch.trustedAt` read only `HOME`, which Windows doesn't set, so claude's trust file was never found. It falls back to `USERPROFILE`. | fixed |
-| P5 | `accounts` shares used `os.Symlink`, which needs Developer Mode or admin on Windows. It falls back to a junction for folders and a hard link for files. | fixed |
+| P5 | `accounts` shares used `os.Symlink`, which needs Developer Mode or admin on Windows. It falls back to a junction for a folder. A file gets no fallback, since a hard link would break the first time claude or codex replaced the file by rename: sharing it fails with an error that names Developer Mode. | fixed |
 | P6 | `anywhere.exe` wasn't recognised as the `anywhere` command (main.go). | fixed |
 | P7 | `pipe.go` treated `C:/x/claude.exe` and `.\claude` as names to look up on PATH. | fixed |
 | P8 | `shellenv.IsExecutable` needs a unix exec bit, which Go never reports on Windows, so `config set claude.command C:\…\claude.exe` was always refused. It now accepts a regular file whose extension is in `PATHEXT`. | fixed |
@@ -31,6 +31,7 @@ Status: **fixed**, **open** (left for a follow-up, with the reason), **by design
 | P14 | Windows PowerShell 5.1 drops the double quotes inside an argument it passes to a native program, so a login spawn or an agent launch whose argv held `"` (`sh -c 'echo "x"'`, a prompt with quotes) reached the program broken. `shellenv.PSCommandIn` escapes them for `powershell.exe`; login spawns, `Wrap`, `InShell` and account launches use it. pwsh 7.3+ passes them intact and is left alone. | fixed |
 | P15 | Windows PowerShell still splits an argument holding an odd number of `"` followed by a space, and pwsh 7.0–7.2 strips quotes the way 5.1 does. | open: rare, and the fix needs version detection |
 | P16 | `launch` resolved an agent's command with `exec.LookPath`, which skips npm's `claude.cmd` shim; it now uses `terminal.LookPath`, which honours `PATHEXT`. `bare()` also handles `\` and drive letters. | fixed |
+| P17 | Windows PowerShell wraps an argument holding a space in quotes when it passes it to a program, so one ending in `\` (`C:\my dir\`) had its closing quote escaped and swallowed the arguments after it. `PSCommandIn` doubles those trailing backslashes. | fixed |
 
 ## Remote control
 
@@ -52,7 +53,7 @@ Status: **fixed**, **open** (left for a follow-up, with the reason), **by design
 | D3 | `util::folder`, `tilde_in` and `untilde_in` split only on `/`, so a Windows path's folder name was the whole path. | fixed |
 | D4 | A link or file reference in chat joined the agent's folder with `Path::join`, which on Windows puts `\` into a unix host's path. `util::join` uses the separator the folder is written with. | fixed |
 | D5 | `git::Runner::place` kept Git for Windows' `C:/x`, so a worktree's path never matched the project's `C:\x`. | fixed |
-| D6 | The Windows terminal default handed `-NoLogo` to any shell and `-l` to none. The argument now follows the shell: PowerShell gets `-NoLogo`, others `-l`. | fixed |
+| D6 | The Windows terminal default handed `-NoLogo` to any shell and `-l` to none. The argument now follows the shell: Windows PowerShell gets `-NoLogo`, every other shell `-l`, and pwsh on unix keeps `-l`, its login mode. | fixed |
 | D7 | Windows' AF_UNIX sockets ignore `SO_SNDTIMEO`, so a send to a pocketd that stopped reading hung the desktop for good. Writes now run on their own thread and give up at the timeout, and the reader wakes every 100ms to notice. A write thread stuck that way stays blocked until pocketd reads or closes the socket. | fixed |
 | D8 | A Codex transcript's relative path was sent to the host with `\`. | fixed |
 | D9 | Sounds play with `afplay`, which exists only on macOS. They are skipped elsewhere; playing them on Windows needs an audio crate for the mp3s. | open: needs a player |

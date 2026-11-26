@@ -44,6 +44,7 @@ func PSCommand(argv []string) string {
 
 // PSCommandIn is PSCommand for shell. Windows PowerShell drops the double quotes inside an argument it passes to a
 // program, so there each one goes escaped as the program's argv parser reads it: \" after its backslashes doubled.
+// It wraps an argument holding a space in quotes, so the backslashes that end one are doubled too.
 func PSCommandIn(shell string, argv []string) string {
 	name := strings.ToLower(shell[strings.LastIndexAny(shell, `/\`)+1:])
 	if name != "powershell.exe" && name != "powershell" {
@@ -64,6 +65,9 @@ func PSCommandIn(shell string, argv []string) string {
 				slashes = 0
 			}
 			b.WriteRune(r)
+		}
+		if strings.ContainsAny(a, " \t") {
+			b.WriteString(strings.Repeat(`\`, slashes))
 		}
 		escaped[i] = b.String()
 	}

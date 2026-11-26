@@ -53,3 +53,40 @@ func TestReopenedFileAppendsAndIsPrivate(t *testing.T) {
 		t.Fatalf("mode %v", st.Mode())
 	}
 }
+
+func TestALogHeldOpenElsewhereKeepsItsRotatedFilesAndDoesntRotateOnEveryWrite(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows refuses to rename a file another process holds open")
+	}
+	path := filepath.Join(t.TempDir(), "x.log")
+	if err := os.WriteFile(path+".1", []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Open(path, 8, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.Write([]byte("aaaaaa\n")); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range []string{"bb\n", "c\n"} {
+		if _, err := f.Write([]byte(line)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reader.Close()
+	if got := read(t, path+".1"); got != "old\n" {
+		t.Fatalf(".1 holds %q", got)
+	}
+	if _, err := os.Stat(path + ".2"); !os.IsNotExist(err) {
+		t.Fatalf("shifted .1 to .2 though the live log stayed: %v", err)
+	}
+	if got := read(t, path); got != "aaaaaa\nbb\nc\n" {
+		t.Fatalf("live log %q", got)
+	}
+}

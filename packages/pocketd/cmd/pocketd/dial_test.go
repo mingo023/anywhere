@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"pocketd/internal/owners"
@@ -29,5 +31,18 @@ func TestTheCLIKeepsOneOwnerTokenUntilItIsRevoked(t *testing.T) {
 	}
 	if list, _ := store.List(); len(list) != 1 {
 		t.Fatalf("%d owners, want 1", len(list))
+	}
+}
+
+func TestTheCLIKeepsNoOwnerTokenItCouldntSave(t *testing.T) {
+	home := t.TempDir()
+	if err := os.Mkdir(filepath.Join(home, "cli.token"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cliToken(home); err == nil {
+		t.Fatal("saved a token into a folder")
+	}
+	if list, _ := (owners.Store{Path: owners.Path(home)}).List(); len(list) != 0 {
+		t.Fatalf("%d owners left behind, want 0", len(list))
 	}
 }

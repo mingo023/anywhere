@@ -60,7 +60,7 @@ func TestResolvePlacesAFolderInItsProjectHoweverItIsSpelled(t *testing.T) {
 	realRoot := t.TempDir()
 	for name, to := range map[string]string{"repos": filepath.Dir(p), "root": realRoot} {
 		if err := os.Symlink(to, filepath.Join(links, name)); err != nil {
-			t.Skip(err)
+			symlinkFailed(t, err)
 		}
 	}
 	plain := filepath.Join(links, "repos", "plain")
