@@ -2,7 +2,7 @@
 
 An agent in an Anywhere chat can start, message, wait on and stop other sessions through an MCP server that pocketd hosts. Sessions stay isolated, run on any agent, and report back to the session that started them. To make that durable, every session in pocketd moves onto one SQLite store of events, projections, command receipts and an effect outbox.
 
-Background: T3 Code at `f8c8f30e` (`docs/orchestration-v2/orchestrator-mcp-server.md`, `docs/internals/overview.md`, `packages/contracts/src/orchestratorMcp.ts`), `.ui-review/prototypes/delegated-panel.html` (UI). The design re-implements T3's orchestrator MCP in Go. No T3 code is copied.
+Background: `.ui-review/prototypes/delegated-panel.html` (UI).
 
 The work ships as five plans on one branch, `orchestrator`, merged to `main` once, when every e2e test in "Testing" passes. Each plan is several PRs into that branch. A plan that needs to change a contract changes it here first.
 
@@ -20,10 +20,10 @@ Settled with the owner on 2026-11-16 (grilling, 28 questions).
 
 - **Language and place.** Go, inside pocketd: `internal/orch` (engine, store, worker), `internal/mcp` (endpoint, tokens, tools). No TypeScript, no Effect. Model logic stays out of the desktop (ADR 0003).
 - **Scope of the store: every session.** Chat and terminal sessions alike live in the store: hand-opened ones too, not only what MCP starts. A terminal session records launch, exit, turn start and end, and Needs you from its hooks, OSC 7501 and transcript watch. Commands to it (prompt, interrupt, close) go through the outbox; its worker types into the PTY. Raw PTY bytes never enter the store. An agent that isn't attached records only launch and exit.
-- **Conversation text is stored.** Messages, tool calls and results go into the store, as T3 does. This drops PRD §9 invariant 3 ("no conversation text on disk", `00-prd.md:56`, `:310`, FR 09-2, 09-4). P0 rewrites those lines.
+- **Conversation text is stored.** Messages, tool calls and results go into the store. This drops PRD §9 invariant 3 ("no conversation text on disk", `00-prd.md:56`, `:310`, FR 09-2, 09-4). P0 rewrites those lines.
 - **The store is the timeline's source.** Desktop, phone and `anywhere_thread_read` read it. Chats write to it from their streams, terminal Claude and Codex from the transcripts pocketd already watches. A session from before the upgrade imports its transcript once, the first time it's opened or restored. A restart reads the store, never the transcript.
 - **Retention.** A closed session stays in the store, hidden from the sidebar but readable and searchable by the tools, and is deleted 15 days after it closed. Events are kept 1 day (reconnect and replay only; projections are the truth). Command receipts are kept 7 days. Removing a project or worktree doesn't delete history early. `orchestrator.db` is `0600`.
-- **Wire stays.** Clients keep today's verbs (`agent.list`, `agent.timeline` with `epoch`/`seq`, …), now answered from the store. Additions only: `parent` and delegation fields, the queue verbs, delivery timeline items. No T3-style global event stream.
+- **Wire stays.** Clients keep today's verbs (`agent.list`, `agent.timeline` with `epoch`/`seq`, …), now answered from the store. Additions only: `parent` and delegation fields, the queue verbs, delivery timeline items. No global event stream.
 - **Message queue moves into pocketd.** The desktop's held sends (`chat/src/outgoing.rs`) become pocketd queue entries in the store: pending, sending, sent, cancelled. pocketd sends the next when a turn ends. On a user Stop, entries the user queued (`origin = user`) are held until the next send releases them; wake and question notices (`origin = wake | question`) are cancelled. Clients list, edit, cancel, reorder and send-now through new verbs.
 - **Fork.** The sidebar's Fork menu stays as it is. Its backend becomes the engine's fork command, which records fork lineage, so a user fork can `merge_back` later. Same agent: the agent's own fork args, as today: Claude `--resume <id> --fork-session` runs as a chat and gets MCP; a Codex fork runs in the TUI (`launch/codex.go:51`), so it is a terminal session without tools. No "Fork to…" in the menu.
 - **One release, one branch.** No feature flag. Every PR lands on `orchestrator`; `main` gets it in one merge.
@@ -40,7 +40,7 @@ Settled with the owner on 2026-11-16 (grilling, 28 questions).
   - ACP: an HTTP entry in `mcpServers` of `session/new` and `session/load` (`acp/session.go:289`, `:313`, `:1142`) when the agent advertises HTTP MCP. Otherwise the agent gets no tools. pocketd sends no `thread/fork` or `session/fork` today.
   - pi and omp: no tools this time. They can still be delegated to.
   - The user's own MCP servers stay.
-- **Exposure.** Listed up front: `orchestrator_capabilities`, `delegate_task`, `task_status`, `tool_search`. `tool_search` loads others for the rest of the session (T3's `McpToolExposure`).
+- **Exposure.** Listed up front: `orchestrator_capabilities`, `delegate_task`, `task_status`, `tool_search`. `tool_search` loads others for the rest of the session.
 - **Bounded waits.** Every wait returns within 45 s with `waitTimedOut: true`. The caller calls again or ends its turn.
 - **No `request_secret`.** Dropped. 27 tools.
 
@@ -49,8 +49,8 @@ Settled with the owner on 2026-11-16 (grilling, 28 questions).
 - **Child = parent's access.** A child runs with exactly the parent's access and plan mode; the tools take no `runtimeMode` or `interactionMode`. A target agent that lacks that access steps down to the broadest narrower access it offers, and the result says which. An agent that always runs Full (`providers.NeverAsks`) can only be delegated to by a Full parent. Order: `settings` ≡ `ask` < `edits` < `auto` < `full`.
 - **Ceiling on other sessions.** `anywhere_thread_send`, `anywhere_thread_configure`, `anywhere_thread_update` and `anywhere_thread_interrupt` refuse a target whose access is broader than the caller's.
 - **Workspace.** `isolation: "worktree"` is the default: a new worktree and same-named branch from the parent's HEAD commit, named by `naming`. Uncommitted parent edits are not copied, and the result warns when there are some. `shared` runs in the parent's checkout. A parent outside a git repository gets `shared` only. The worktree is an ordinary one in the sidebar. Nothing auto-commits, merges or deletes it.
-- **Completion wake (as T3).** The wake message carries no result: "Delegated task X reached a terminal state. Use task_status …". The result is the child's latest assistant text of its final turn, or its error. `mode: "async"` wakes the parent on completion. `mode: "wait"` returns the result through the wait; a wait that timed out after the parent's turn ended switches to waking. The wake steers into a running parent turn when the agent can steer without cutting tools (Claude, Codex), else queues; an idle parent starts a turn. Siblings that finish before the wake starts merge into one wake. A user Stop on the parent, or `task_cancel`, disposes pending wakes for good. A published result never changes; follow-ups via `anywhere_thread_send` are new turns.
-- **Question routing (as T3's code).** Only questions are routed: Claude's `AskUserQuestion`, Codex user input, ACP questions. Permission asks never are. The parent gets a queued message (not steered): "Delegated task X is blocked on a question … read it with `anywhere_pending_request` … answer it when the answer follows from the task or the user's instructions; otherwise ask the user." The queued notice is cancelled when the question is answered first or the child settles. A parent in a `delegate_task` wait gets `hasPendingQuestion: true` instead. The question still shows to the user; the first answer wins.
+- **Completion wake.** The wake message carries each task's result, the reports sharing 16 KB: "Delegated task X reached a terminal state. Its result follows; …". The result is the child's latest assistant text of its final turn, or its error. A result the parent already read through `task_status` or a wait wakes no one. `mode: "async"` wakes the parent on completion. `mode: "wait"` returns the result through the wait; a wait that timed out after the parent's turn ended switches to waking. The wake steers into a running parent turn when the agent can steer without cutting tools (Claude, Codex), else queues; an idle parent starts a turn. Siblings that finish before the wake starts merge into one wake. A user Stop on the parent, or `task_cancel`, disposes pending wakes for good. A published result never changes: a prompt or wake that starts a settled child's next turn opens a follow-up task with its own id and result, and a turn the child starts on its own, as on a background task's notice, is no task's work.
+- **Question routing.** Only questions are routed: Claude's `AskUserQuestion`, Codex user input, ACP questions. Permission asks never are. The parent gets a queued message (not steered): "Delegated task X is blocked on a question … read it with `anywhere_pending_request` … answer it when the answer follows from the task or the user's instructions; otherwise ask the user." The queued notice is cancelled when the question is answered first or the child settles. A parent in a `delegate_task` wait gets `hasPendingQuestion: true` instead. The question still shows to the user; the first answer wins.
 - **Limits** (in Settings): 3 levels below a session the user opened; 6 children running per session (the 7th queues as `queued`); 12 MCP-started sessions running per Mac (user sessions don't count); `create_threads` 1–20 per call.
 - **Who can be a parent.** Claude, Codex and ACP chats with HTTP MCP. Anyone can be a child.
 - **`anywhere_thread_configure`** reads and sets model, effort and options of the same agent. Changing the agent is refused with a hint to fork; a Session stays one agent (CONTEXT.md). Access isn't set here.
@@ -137,7 +137,7 @@ Hosts (P3.4): `delegations` gains `environment_id` and `host_project` (`TEXT NOT
 
 ### Tools (27)
 
-Names are T3's with `t3_` → `anywhere_`. Inputs and results follow `orchestratorMcp.ts` minus `runtimeMode`, `interactionMode` and environment fields where noted. Errors are T3's `OrchestratorMcpFailure` codes plus `unsupported` and `depth_exceeded`.
+Thread tools carry the `anywhere_` prefix. Inputs and results leave out `runtimeMode`, `interactionMode` and environment fields where noted. Errors are the codes in `internal/orch/types.go`, `unsupported` and `depth_exceeded` among them.
 
 | Tool | Group | Engine path |
 |---|---|---|
@@ -187,7 +187,7 @@ Toolset, as `scripts/check.sh`: from `packages/pocketd`, `env -u POCKETD_SOCK go
 - `request_secret`.
 - pi and omp as parents.
 - Snooze and settle.
-- A T3-style event-stream wire.
+- A global event-stream wire.
 - Webhooks reachable from the internet. The user tunnels them.
 
 ## Open questions
@@ -200,7 +200,7 @@ Toolset, as `scripts/check.sh`: from `packages/pocketd`, `env -u POCKETD_SOCK go
 - Hosts, host-key trust verb: **None.** Trust on first use stays as today.
 - Hosts, "the desktop goes through pocketd" (Decisions): **For the list, links, install and sign-in.** Terminals, agents and files still go over the tunnel socket in `Host.socket`, which the desktop dials itself.
 - Hosts, where a remote worktree starts (Delegation decisions say the parent's HEAD): **The host project's default branch**, since the parent's commit may not exist there. The result warns.
-- Hosts, `anywhere_environment_link`: **Returns `pending` and no message comes back** when the user finishes the card. T3 posts the answer back; that is left out.
+- Hosts, `anywhere_environment_link`: **Returns `pending` and no message comes back** when the user finishes the card. Posting the answer back is left out.
 - Hosts, limits: **Remote tasks count against the Mac's 12; the host's own depth limit is not enforced.** A remote child is a depth-0 session to its host's pocketd and can delegate further.
 - Hosts, who may call `anywhere_environment_unlink`: the tool table doesn't say. **Only a session with `full` access**, as the schedule tools let a session change only a schedule no broader than its own access, and the user linked the host; anything narrower gets `forbidden`.
 - Hosts, `delegate_task`'s result on a host (P3.4 S5): **the child is `childThreadId`, tagged, beside `environmentId`**, as a local task's result names it; there is no `childId` field.

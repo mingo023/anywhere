@@ -4,7 +4,6 @@
 
 **Read first:**
 - `docs/plans/2026-11-16-orchestrator.md`: Decisions → MCP.
-- T3 `f8c8f30e`: `docs/orchestration-v2/orchestrator-mcp-server.md` ("Transport And Authentication", "Provider Injection"), `apps/server/src/mcp/McpSessionRegistry.ts`, `McpToolExposure.ts`, `McpToolAccess.ts`.
 - `packages/pocketd/cmd/pocketd/serve.go:288`: the owner TCP listener, the pattern for a second loopback listener.
 - `packages/pocketd/internal/launch/claude.go:31` (`chatFlags`), `internal/daemon/codex_chat.go:206` (`thread/start` / `thread/resume`), `internal/acp/session.go:289`, `:313`, `:1142` (`mcpServers` on `session/new` and `session/load`).
 - `packages/pocketd/internal/handoff/handoff.go:27`: `Terminal.Args` is written to `handoff.json`, so no token on argv.
@@ -20,7 +19,7 @@
 
 ## PR 1.2: Tokens
 
-- `internal/mcp/tokens.go`: `Issue(sessionID, agent)` returns the token; the store keeps its SHA-256. `Resolve` touches `last_alive`; idle over 24 h marks it expired (the larger of wall and monotonic elapsed, as T3). `Revoke(session)` runs on `session.closed`.
+- `internal/mcp/tokens.go`: `Issue(sessionID, agent)` returns the token; the store keeps its SHA-256. `Resolve` touches `last_alive`; idle over 24 h marks it expired (the larger of wall and monotonic elapsed). `Revoke(session)` runs on `session.closed`.
 - The principal `mcp` has scope `Delegate`. It is never `Approve`, and the WebSocket and ops servers don't accept it.
 - Tests: hash only on disk; idle expiry; revoke on close; a token survives a pocketd restart; a token can't call a WebSocket verb.
 
@@ -34,6 +33,6 @@
 
 ## PR 1.4: Exposure
 
-- `internal/mcp/exposure.go`: four direct tools plus `tool_search` (term scoring as T3, at most 10 results). Loaded tools stay listed for the session and announce `list_changed`.
+- `internal/mcp/exposure.go`: four direct tools plus `tool_search` (term scoring, at most 10 results). Loaded tools stay listed for the session and announce `list_changed`.
 - Tool definitions live in `internal/mcp/tools/`, one file per group. P1 registers `orchestrator_capabilities` only; the rest land in P2–P4.
 - Tests: `tool_search "queue"` lists `anywhere_queue` and it stays listed; `anywhere-direct` lists only the two blocking tools.

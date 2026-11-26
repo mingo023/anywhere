@@ -4,7 +4,6 @@
 
 **Read first:**
 - `docs/plans/2026-11-16-orchestrator.md`: Decisions → Delegation, Desktop; Contracts → Tools.
-- T3 `f8c8f30e`: `packages/contracts/src/orchestratorMcp.ts`, `apps/server/src/orchestration-v2/ProviderContinuationService.ts` (wake text), `DelegatedTaskQuestionReactor.ts` (question routing), `DelegatedCompletionDelivery.test.ts` (batching and disposal cases), `apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts`.
 - `.ui-review/prototypes/delegated-panel.html`: the panel, delivery rows and child view.
 - `packages/desktop/crates/pocket/src/chat/sub_agent.rs`, `tool_row.rs`: the voice of the delivery rows.
 
@@ -33,7 +32,7 @@
 - `clientRequestId` derives the command id within the token's session.
 - Every wait returns within 45 s.
 - Results carry `link: anywhere://session/<id>`.
-- Tests: the integration test mirrors T3's `OrchestratorMcpToolkit.integration.test.ts` case list, with fakes as the only substitutes.
+- Tests: the integration test covers each tool's cases, with fakes as the only substitutes.
 
 ## PR 2.3: Wire and alerts
 
