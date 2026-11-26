@@ -208,7 +208,6 @@ impl Setting {
 
     /// Turns the row off while `off` says why. A catalog control then takes no presses or focus (a text field still takes
     /// Tab but no typing); a custom draw has to keep its own controls out of the tab order.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the Pages slice turns Window opacity off in light themes"))]
     pub const fn off(mut self, off: fn(&Store) -> Option<Off>) -> Self {
         self.off = Some(off);
         self

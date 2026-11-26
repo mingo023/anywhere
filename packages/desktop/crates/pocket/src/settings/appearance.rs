@@ -1,4 +1,4 @@
-use super::catalog::{Look, Setting};
+use super::catalog::{Look, Off, Setting};
 use super::{Settings, SettingsEvent, action, dropdown, row, themes};
 use crate::desktop::Desktop;
 use crate::git_ui::diff::{code, code_text};
@@ -23,8 +23,9 @@ const DIFF_COLORS: [DiffColors; 2] = [DiffColors::GreenRed, DiffColors::BlueOran
 const SYNTAXES: [SyntaxTheme; 4] = [SyntaxTheme::Graphite, SyntaxTheme::Github, SyntaxTheme::One, SyntaxTheme::Solarized];
 
 const GLASS: Setting = Setting::custom("glass", "Theme", "Window opacity", glass_row)
-    .hint("Dark themes only: lower lets more of the desktop show through the glass")
+    .hint("Lower lets more of the desktop show through the glass")
     .resets(|s| format!("{}%", s.appearance.glass()), |s, d| s.appearance.glass = d.appearance.glass)
+    .off(|s| opacity_off(theme::is_dark(), &s.appearance))
     .effect(apply_glass);
 
 const BACKGROUND: Setting = Setting::custom("background-image", "Theme", "Background image", background_row)
@@ -179,8 +180,30 @@ pub(crate) fn apply_fonts(d: &mut Desktop, cx: &mut Context<Desktop>) {
     d.recolor_commit(cx);
 }
 
-fn apply_glass(d: &mut Desktop, _: &mut Context<Desktop>) {
+/// Why the opacity slider does nothing while the window is painted `dark` or not, and the theme that gives it a window to act on.
+fn opacity_off(dark: bool, a: &Appearance) -> Option<Off> {
+    (!dark).then(|| Off { reason: "Dark themes only \u{b7}".into(), fix: Some((format!("Switch to {}", crate::themes::name(&[], night(a))), use_night)) })
+}
+
+/// The theme System paints while macOS is dark.
+fn night(a: &Appearance) -> &str {
+    a.night.as_deref().unwrap_or(GRAPHITE_DARK)
+}
+
+fn use_night(s: &mut Store) {
+    s.appearance.theme = Some(night(&s.appearance).to_string());
+}
+
+/// Whether the chosen theme paints the other appearance than the one on screen, as after the opacity row's fix.
+fn repaints(forced: Option<bool>, dark: bool) -> bool {
+    forced.is_some_and(|forced| forced != dark)
+}
+
+fn apply_glass(d: &mut Desktop, cx: &mut Context<Desktop>) {
     theme::set_glass(d.store.appearance.glass());
+    if repaints(crate::themes::forced(&d.store.appearance, &d.themes.custom), theme::is_dark()) {
+        d.apply_theme(cx);
+    }
 }
 
 /// The opacity slider, saving and repainting as it's dragged.
@@ -198,9 +221,8 @@ pub(super) fn glass_slider(store: &Store, window: &mut Window, cx: &mut Context<
 
 fn glass_row(d: &mut Settings, setting: &'static Setting, _: &mut Context<Settings>) -> Div {
     let percent = div().w(px(40.)).text_right().text_size(px(13.)).text_color(TEXT_2).child(format!("{}%", d.store.appearance.glass()));
-    let dark = theme::is_dark();
-    let slider = Slider::new(&d.glass).disabled(!dark).w(px(180.));
-    row(setting.label, setting.hint, div().flex().items_center().gap(px(10.)).when(!dark, |d| d.opacity(0.45)).child(slider).child(percent))
+    let slider = Slider::new(&d.glass).disabled(!theme::is_dark()).w(px(180.));
+    row(setting.label, setting.hint, div().flex().items_center().gap(px(10.)).child(slider).child(percent))
 }
 
 fn apply_background(d: &mut Desktop, cx: &mut Context<Desktop>) {
@@ -509,6 +531,25 @@ mod tests {
         assert_eq!(["accent", "code-font", "code-size"].map(|id| row(id).value(&store).unwrap()), ["#3E8EF7", "Menlo", "14 pt"]);
         super::super::catalog::reset(super::ROWS, &mut store);
         assert_eq!((store.appearance.accent, store.appearance.code_font.as_deref(), store.appearance.code_size()), (None, None, 12));
+    }
+
+    #[test]
+    fn window_opacity_is_off_in_a_light_theme_and_offers_the_night_theme() {
+        let mut store = store::Store::default();
+        assert!(super::opacity_off(true, &store.appearance).is_none());
+        let off = super::opacity_off(false, &store.appearance).expect("off while light");
+        assert_eq!(off.reason, "Dark themes only \u{b7}");
+        let (label, fix) = off.fix.expect("a fix");
+        assert_eq!(label, "Switch to Graphite Dark");
+        fix(&mut store);
+        assert_eq!(store.appearance.theme.as_deref(), Some("graphite-dark"));
+        store.appearance.night = Some("dracula".into());
+        assert_eq!(super::opacity_off(false, &store.appearance).and_then(|o| o.fix).map(|f| f.0).as_deref(), Some("Switch to Dracula"));
+    }
+
+    #[test]
+    fn a_theme_chosen_for_the_other_appearance_repaints_the_window() {
+        assert_eq!([(Some(true), false), (Some(true), true), (None, false)].map(|(forced, dark)| super::repaints(forced, dark)), [true, false, false]);
     }
 
     #[test]
