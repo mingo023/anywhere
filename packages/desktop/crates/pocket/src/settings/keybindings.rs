@@ -552,6 +552,7 @@ impl Settings {
             .flex()
             .items_center()
             .justify_center()
+            .bg(SURFACE)
             .rounded(px(7.))
             .border_1()
             .border_color(border)
@@ -584,7 +585,10 @@ impl Settings {
             .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5).inset()])
             .tab_index(0)
             .hover(|d| d.bg(FILL_3))
-            .child(set_caps(mods, set.shown))
+            .child(match mods {
+                Some(m) => set_caps(m, set.shown),
+                None => div().px(px(3.)).text_size(px(12.)).text_color(TEXT_2).child("Mixed"),
+            })
             .child(icon("chevron-down", 10., TEXT_3));
         let menu = open.then(|| {
             let pool = conflicts::pool(&SHORTCUTS, &c);
@@ -593,7 +597,7 @@ impl Settings {
                 let used = pool.iter().find(|b| b.row != Some(row) && keys.contains(&b.key) && !b.kind.fixed());
                 let blocked = used.filter(|_| Some(o) != mods);
                 dropdown::pick_row(SharedString::from(format!("set-{row}-{o}")), Some(o) == mods)
-                    .child(set_caps(Some(o), set.shown))
+                    .child(set_caps(o, set.shown))
                     .children(blocked.map(|b| div().ml(px(8.)).text_size(px(11.5)).text_color(TEXT_3).child(format!("Used by {}", b.label))))
                     .when(blocked.is_some(), |d| d.opacity(0.5))
                     .when(blocked.is_none(), |d| d.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_mods(row, o, cx))))
@@ -890,11 +894,8 @@ impl Settings {
 }
 
 /// A set's keys as caps: its modifiers, then "1…9".
-fn set_caps(mods: Option<&str>, keys: &str) -> Div {
-    let mut caps: Vec<String> = match mods {
-        Some(mods) => shown(&model::canon(&actions::native(&format!("{mods}-x"), None))).split_whitespace().map(String::from).collect(),
-        None => vec![String::new()],
-    };
+fn set_caps(mods: &str, keys: &str) -> Div {
+    let mut caps: Vec<String> = shown(&model::canon(&actions::native(&format!("{mods}-x"), None))).split_whitespace().map(String::from).collect();
     caps.pop();
     caps.push(keys.to_string());
     keycaps(&caps.join(" "))

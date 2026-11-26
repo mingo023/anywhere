@@ -994,14 +994,16 @@ const STEPS: [(&str, Step); 321] = [
     ("key-recording", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("New worktree", false, None, window, cx))),
     ("key-browser-takes", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("Toggle sidebar", true, Some("cmd-r"), window, cx))),
     ("key-browser-keeps", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("Focus mode", false, Some("cmd-r"), window, cx))),
-    ("key-text-fields", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("Go to Activity", true, Some("cmd-z"), window, cx))),
+    ("key-text-fields", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("Toggle sidebar", true, Some("cmd-z"), window, cx))),
     ("key-prompt", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("Toggle rail", false, Some("cmd-i"), window, cx))),
     ("key-terminal", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("Next session", false, Some("ctrl-r"), window, cx))),
     ("key-macos", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("Toggle sidebar", true, Some("cmd-h"), window, cx))),
     ("key-find", |d, _, cx| d.settings.update(cx, |s, cx| s.find_keys("cmd-c", cx))),
     ("custom-keys-added", |d, _, _| {
         d.store.keys.insert("desktop::NextNeedsYou".into(), "cmd-shift-u".into());
-        d.store.keys.insert("desktop::JumpTo(1)".into(), "alt-cmd-1".into());
+        for n in 1..=9 {
+            d.store.keys.insert(format!("desktop::JumpTo({n})"), format!("alt-cmd-{n}"));
+        }
         d.store.added.push(("desktop::OpenActivity".into(), "cmd-shift-y".into()));
         d.store.added.push(("desktop::OpenPalette".into(), "cmd-shift-p".into()));
     }),
