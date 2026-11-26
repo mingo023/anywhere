@@ -190,18 +190,14 @@ fn shell(script: &str) -> Command {
     c
 }
 
-/// Asks the step's processes to end, and kills any still there after two seconds.
+/// Asks the step's processes to end, gives the shell two seconds to, then kills whatever of its group is left.
 #[cfg(unix)]
 fn kill(child: &mut Child) {
     let group = format!("-{}", child.id());
-    let signal = |sig: &str| Command::new("kill").args([sig, &group]).stderr(Stdio::null()).status().is_ok_and(|s| s.success());
+    let signal = |sig: &str| _ = Command::new("kill").args([sig, &group]).stderr(Stdio::null()).status();
     signal("-TERM");
-    for _ in 0..40 {
-        // Reaped first, as an exited shell left unreaped still counts in its group.
-        _ = child.try_wait();
-        if !signal("-0") {
-            return;
-        }
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while std::time::Instant::now() < deadline && !matches!(child.try_wait(), Ok(Some(_))) {
         std::thread::sleep(Duration::from_millis(50));
     }
     signal("-KILL");
