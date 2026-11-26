@@ -22,7 +22,7 @@ fn show_badge(d: &mut Desktop, _: &mut Context<Desktop>) {
 
 /// By urgency, as the subtitle says.
 pub(super) const ROWS: &[Setting] = &[
-    Setting::switch("banners", "Banners", "Banners", |s| s.notifications.banners, |s, on| s.notifications.banners = on)
+    Setting::switch("banners", "Banners", "Show banners", |s| s.notifications.banners, |s, on| s.notifications.banners = on)
         .hint("A macOS banner when a session needs you, fails or is done"),
     Setting::switch("banner-needs-you", "Banners", "Needs you", |s| s.notifications.needs_you, |s, on| s.notifications.needs_you = on)
         .hint("An agent asks for an approval or an answer")

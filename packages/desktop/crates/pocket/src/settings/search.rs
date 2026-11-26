@@ -819,6 +819,12 @@ mod tests {
     }
 
     #[test]
+    fn the_banners_switch_is_found_by_the_words_its_row_shows() {
+        let ids = row_ids(&found("show banners", &Store::default(), &[]));
+        assert!(ids.contains(&(Section::Notifications, "banners")), "{ids:?}");
+    }
+
+    #[test]
     fn a_result_needs_one_word_in_the_row_itself() {
         let ids = row_ids(&found("codex model", &Store::default(), &[]));
         assert_eq!(ids, [(Section::Provider(1), "codex-model")]);
