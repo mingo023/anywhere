@@ -1116,7 +1116,11 @@ impl View {
                 fold::live(&id, &provider, fold::live_label(who, &model, &live_state(t, chat::folded(t, *turn), ask, s.outgoing.stopping(), now_ms())))
             }
             Row::Working if s.outgoing.compacting() => working::compacting(),
-            Row::Working => working::sending(s.outgoing.trail().unwrap_or(agents::PromptState::Sending)),
+            Row::Working if s.outgoing.trail() == Some(agents::PromptState::Resending) => working::resending(),
+            Row::Working => {
+                let live = if s.outgoing.stopping() { Live::Stopping } else { Live::Thinking };
+                fold::live(&id, &provider, fold::live_label(who, &model, &live))
+            }
             Row::Pending(i) => match s.outgoing.echoed().nth(*i) {
                 Some((_, p)) => {
                     let retry = p.not_delivered().map(|text| {
@@ -1130,15 +1134,11 @@ impl View {
                         if waiting.last() != Some(&p.id) {
                             return div();
                         }
-                        let action = if s.outgoing.sending_now() {
-                            Some(div().child("Sending…").into_any_element())
-                        } else {
-                            send_now.then(|| {
-                                user_bubble::send_now(&id)
-                                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(ViewEvent::Command(Command::SendNow))))
-                                    .into_any_element()
-                            })
-                        };
+                        let action = (send_now && !s.outgoing.sending_now()).then(|| {
+                            user_bubble::send_now(&id)
+                                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(ViewEvent::Command(Command::SendNow))))
+                                .into_any_element()
+                        });
                         user_bubble::waiting(who, waiting.len(), action)
                     });
                     let under = under.or_else(|| s.outgoing.after_turn().any(|c| c.id == p.id).then(|| user_bubble::after_turn(who)));
