@@ -309,6 +309,17 @@ func TestAWorktreeHandedOffUnderAnotherMacsProjectNameCanBeDeleted(t *testing.T)
 	}
 }
 
+func TestAFolderProjectAboveARepoProjectDoesNotTakeItsWorktrees(t *testing.T) {
+	var b bench
+	withWorkspace(t, &b)
+	wt := filepath.Join(b.project, "inside")
+	gitOut(t, b.project, "worktree", "add", "-q", "-b", "inside", wt)
+	f := registry.File{Projects: []string{filepath.Dir(b.project), b.project}, Repos: map[string]registry.Repo{}}
+	if p, _ := treeProject(f, wt); p != b.project {
+		t.Fatalf("got %q, want %q", p, b.project)
+	}
+}
+
 func TestDeletingAWorktreeTakesTheOnesAnywhereMadeForItsSessionsSubagents(t *testing.T) {
 	var b bench
 	tree := func(name string) string { return filepath.Join(b.root, "pocket", name) }
