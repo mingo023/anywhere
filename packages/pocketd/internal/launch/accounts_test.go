@@ -2,6 +2,7 @@ package launch
 
 import (
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"pocketd/internal/accounts"
@@ -30,5 +31,16 @@ func TestHomeStandsForASessionWithNoProjectButAnotherFolderIsRefused(t *testing.
 	}
 	if _, err := l.ConfigDir("claude", "", "/etc"); err == nil {
 		t.Fatal("/etc was taken")
+	}
+}
+
+func TestHomeIsAProjectOnceItIsOne(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if launcher(t, `[`+strconv.Quote(home)+`]`).Projectless(home) {
+		t.Fatal("home as a project was taken for none")
+	}
+	if !launcher(t, `["/p"]`).Projectless(home) {
+		t.Fatal("home stood for a project")
 	}
 }

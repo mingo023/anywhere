@@ -52,20 +52,26 @@ func (l *Launcher) Accounts(ctx context.Context, m ops.Msg) ops.Msg {
 	return ops.Msg{Ev: "accounts", Accounts: s.List(l.d.Running), AutoSwitch: &auto}
 }
 
+// Projectless says project stands for a session with no project yet, whose new
+// folder holds no skills of its own: the user's home, unless it is a project.
+func (l *Launcher) Projectless(project string) bool {
+	home, _ := os.UserHomeDir()
+	return home != "" && project == home && !slices.Contains(l.reg.Load().Projects, project)
+}
+
 // ConfigDir is where provider keeps the config of the account a new session
 // in project would run on, account being the one it names; "" for a provider
-// pocketd keeps no accounts of. The user's home stands for a session with no
-// project yet, whose new folder holds no skills of its own.
+// pocketd keeps no accounts of.
 func (l *Launcher) ConfigDir(provider, account, project string) (string, error) {
 	f := l.reg.Load()
-	home, _ := os.UserHomeDir()
-	if (home == "" || project != home) && !slices.Contains(f.Projects, project) {
+	if !slices.Contains(f.Projects, project) && !l.Projectless(project) {
 		return "", errors.New("This project isn't on your Mac anymore")
 	}
 	if !accounts.Managed(provider) {
 		return "", nil
 	}
 	if l.d.Accounts == nil {
+		home, _ := os.UserHomeDir()
 		return filepath.Join(home, "."+provider), nil
 	}
 	id, err := l.d.Accounts.Resolve(provider, l.pick(provider, account, f.Repos[project].Accounts[provider]))

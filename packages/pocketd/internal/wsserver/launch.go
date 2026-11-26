@@ -97,8 +97,8 @@ func (c *conn) skills(m proto.ClientMessage) error {
 	}
 	home, _ := os.UserHomeDir()
 	cwd := m.Project
-	if cwd == home {
-		// Home stands for a session with no project yet: its own .claude is the default account's config, not a project's.
+	if c.s.Launch.Projectless(cwd) {
+		// Home's own .claude is the default account's config, not a project's.
 		cwd = ""
 	}
 	go func() {
