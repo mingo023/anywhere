@@ -6,6 +6,7 @@ use crate::chat::{markdown, user_bubble};
 use chat::{Row, Transcript};
 use gpui_kit::base::text::{RangeHighlight, RenderedText, TextViewState};
 use gpui_kit::*;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::time::Instant;
@@ -25,6 +26,19 @@ pub(super) struct Finding {
     revealed: Option<u64>,
     /// Whether the current match stays still when it lands: typing that keeps it in the same row doesn't pop it.
     quiet: bool,
+    /// Each searched row's text length, to place a match within its row.
+    lens: HashMap<usize, usize>,
+    /// The ticks last placed, for the search and the chat height they were placed at.
+    ticks: RefCell<Option<(u64, Pixels, Vec<f32>)>>,
+}
+
+/// Where on the chat's height a match sits, 0 at the top and 1 at the end: `frac` of the way down its row, placed by the
+/// row's laid-out `place` (top, height) when it has one, else by the row count.
+fn tick_at(row: usize, frac: f32, place: Option<(f32, f32)>, total: f32, rows: usize) -> f32 {
+    match place {
+        Some((top, height)) if total > 0. => (top + height * frac) / total,
+        _ => (row as f32 + frac) / rows.max(1) as f32,
+    }
 }
 
 /// What `row` is searched in: a message's prose or code, or the text its prompt's bubble shows.
@@ -61,6 +75,7 @@ impl View {
         let t = &self.session.transcript;
         let texts: Vec<(usize, String)> = self.session.rows.iter().enumerate().filter_map(|(i, r)| Some((i, searched(t, r)?))).collect();
         let f = self.finding.get_or_insert_default();
+        f.lens = texts.iter().map(|(i, s)| (*i, s.len())).collect();
         let was = f.find.current().map(|h| h.row);
         f.find.search(query, texts.iter().map(|(i, s)| (*i, s.as_str())));
         // While typing, the first match pops only when it lands in another row; otherwise each key would flash it.
@@ -73,6 +88,7 @@ impl View {
         let Some(f) = &mut self.finding else { return };
         let t = &self.session.transcript;
         let texts: Vec<(usize, String)> = self.session.rows.iter().enumerate().filter_map(|(i, r)| Some((i, searched(t, r)?))).collect();
+        f.lens = texts.iter().map(|(i, s)| (*i, s.len())).collect();
         f.find.research(texts.iter().map(|(i, s)| (*i, s.as_str())));
     }
 
@@ -104,17 +120,58 @@ impl View {
     /// Where on the chat's height each match sits, 0 at the top and 1 at the end, and whether it's the current one.
     pub(super) fn find_ticks(&self) -> Vec<(f32, bool)> {
         let Some(f) = &self.finding else { return Vec::new() };
-        let rows = self.session.rows.len().max(1) as f32;
-        let current = f.find.current().map(|h| h.row);
+        let total = self.list.laid_out_height_from(0);
+        let mut cache = f.ticks.borrow_mut();
+        if cache.as_ref().is_none_or(|(version, at, _)| *version != f.find.version || *at != total) {
+            let mut places: HashMap<usize, Option<(f32, f32)>> = HashMap::new();
+            let ticks = f
+                .find
+                .hits
+                .iter()
+                .map(|h| {
+                    let place = *places.entry(h.row).or_insert_with(|| self.row_place(h.row, total));
+                    let frac = h.range.start as f32 / f.lens.get(&h.row).copied().unwrap_or(1).max(1) as f32;
+                    tick_at(h.row, frac, place, f32::from(total), self.session.rows.len())
+                })
+                .collect();
+            *cache = Some((f.find.version, total, ticks));
+        }
+        let current = f.find.current();
         let mut ticks: Vec<(f32, bool)> = Vec::new();
-        for h in &f.find.hits {
-            let tick = (h.row as f32 / rows, Some(h.row) == current);
+        for (h, at) in f.find.hits.iter().zip(cache.as_ref().map(|(_, _, t)| t.as_slice()).unwrap_or_default()) {
+            let tick = (*at, current.is_some_and(|c| std::ptr::eq(c, h)));
+            // Ticks closer than a pixel or so on the rail read as one.
             match ticks.last_mut() {
-                Some(last) if last.0 == tick.0 => last.1 |= tick.1,
+                Some(last) if (tick.0 - last.0).abs() < 0.002 => last.1 |= tick.1,
                 _ => ticks.push(tick),
             }
         }
         ticks
+    }
+
+    /// Row `ix`'s top and height in the list as last laid out, when it was.
+    fn row_place(&self, ix: usize, total: Pixels) -> Option<(f32, f32)> {
+        self.list.laid_out(ix).then(|| {
+            let from = self.list.laid_out_height_from(ix);
+            (f32::from(total - from), f32::from(from - self.list.laid_out_height_from(ix + 1)))
+        })
+    }
+
+    /// Scrolls so the current match sits mid-chat, as far as its row was laid out.
+    fn centre(&self, row: usize) {
+        let Some(f) = &self.finding else { return };
+        let Some(h) = f.find.current() else { return };
+        let total = self.list.laid_out_height_from(0);
+        let Some((top, height)) = self.row_place(row, total) else { return };
+        let frac = h.range.start as f32 / f.lens.get(&row).copied().unwrap_or(1).max(1) as f32;
+        let half = f32::from(self.list.viewport_bounds().size.height) / 2.;
+        let goal = (top + height * frac - half).max(0.);
+        let top_of = |i: usize| f32::from(total - self.list.laid_out_height_from(i));
+        let mut ix = row;
+        while ix > 0 && top_of(ix) > goal {
+            ix -= 1;
+        }
+        self.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(goal - top_of(ix)) });
     }
 
     fn go(&mut self, quiet: bool, cx: &mut Context<Self>) {
@@ -132,6 +189,7 @@ impl View {
             self.toggle_expanded(&id, cx);
         }
         self.reveal(row, cx);
+        self.centre(row);
         cx.notify();
     }
 }
@@ -207,4 +265,21 @@ pub(super) fn rail(ticks: Vec<(f32, bool)>) -> Option<Div> {
             })
         }))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tick_at;
+
+    #[test]
+    fn two_matches_in_one_row_get_their_own_ticks() {
+        let place = Some((100., 200.));
+        let (a, b) = (tick_at(3, 0.1, place, 1000., 10), tick_at(3, 0.9, place, 1000., 10));
+        assert!((a - 0.12).abs() < 1e-4 && (b - 0.28).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_row_not_laid_out_yet_is_placed_by_the_row_count() {
+        assert!((tick_at(5, 0.5, None, 1000., 10) - 0.55).abs() < 1e-4);
+    }
 }

@@ -8,6 +8,8 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 
+/// How much of the popover colour the bar keeps over the chat.
+const BAR_ALPHA: f32 = 0.72;
 const WIDTH: f32 = 372.;
 
 pub(crate) struct FindBar {
@@ -106,7 +108,12 @@ pub(crate) fn bar(
             .on_click(move |_, window, cx| step(down, window, cx))
     };
     let none = count.as_deref() == Some("No results");
-    let shown = ui::pop(div())
+    // Glass over the chat, blurred where the renderer can blur, so what scrolls under the bar still shows through.
+    let shown = match cfg!(target_os = "macos") {
+        true => ui::pop(div()).bg(Hsla::from(POPOVER).opacity(BAR_ALPHA)).backdrop_blur(px(POPOVER_BLUR)),
+        false => ui::pop(div()),
+    };
+    let shown = shown
         .absolute()
         .top(px(12.))
         .right(px(16.))
