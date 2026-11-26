@@ -15,11 +15,11 @@ Status: **fixed**, **open** (left for a follow-up, with the reason), **by design
 
 | # | Finding | Status |
 |---|---|---|
-| P1 | `logfile.rotate` renamed the log while it was still open, which Windows refuses, and then reopened it truncating, wiping the live log on every rotation. It now closes first. When another process holds the log open the rename still fails: it keeps appending to the live log, and tries again only after another max bytes, so the older logs stay where they are. | fixed |
+| P1 | `logfile.rotate` renamed the log while it was still open, which Windows refuses, and then reopened it truncating, wiping the live log on every rotation. It now closes first. When another process holds the log open the rename still fails: it keeps appending to the live log, and tries again only after another max bytes, so the older logs stay where they are. A rotated file held open leaves the live log in place, and a log a crash left mid-rotation becomes `.1` on the next start. | fixed |
 | P2 | `gitview.Top`, `worktree.parse` and `launch.revParse` compared git's `C:/x` output with `filepath`'s `C:\x`, so a repo's own worktree never matched. | fixed |
 | P3 | Path containment (`fsview.within`, `worktree.Containing`, `inside`, `project`, `Claim`, `AgentMade`) checked a `/` prefix, so on Windows no path was ever inside a project. | fixed |
 | P4 | `launch.trustedAt` read only `HOME`, which Windows doesn't set, so claude's trust file was never found. It falls back to `USERPROFILE`. | fixed |
-| P5 | `accounts` shares used `os.Symlink`, which needs Developer Mode or admin on Windows. It falls back to a junction for a folder. A file gets no fallback, since a hard link would break the first time claude or codex replaced the file by rename: sharing it fails with an error that names Developer Mode. | fixed |
+| P5 | `accounts` shares used `os.Symlink`, which needs Developer Mode or admin on Windows. It falls back to a junction for a folder. A file gets no fallback, since a hard link would break the first time claude or codex replaced the file by rename: sharing it fails with an error that names Developer Mode. That error reaches only the pocketd log, again on each launch; showing it where accounts are listed needs a protocol field. | fixed; showing the error is open |
 | P6 | `anywhere.exe` wasn't recognised as the `anywhere` command (main.go). | fixed |
 | P7 | `pipe.go` treated `C:/x/claude.exe` and `.\claude` as names to look up on PATH. | fixed |
 | P8 | `shellenv.IsExecutable` needs a unix exec bit, which Go never reports on Windows, so `config set claude.command C:\…\claude.exe` was always refused. It now accepts a regular file whose extension is in `PATHEXT`. | fixed |

@@ -23,6 +23,9 @@ func Open(path string, max int64, keep int) (*File, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
+	if _, err := os.Stat(path + ".rotating"); err == nil {
+		shift(path, keep)
+	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
@@ -55,11 +58,11 @@ func (l *File) rotate() error {
 	l.f.Close()
 	flag := os.O_WRONLY | os.O_CREATE | os.O_APPEND
 	if os.Rename(l.path, l.path+".rotating") == nil {
-		for n := l.keep; n > 1; n-- {
-			os.Rename(fmt.Sprintf("%s.%d", l.path, n-1), fmt.Sprintf("%s.%d", l.path, n))
+		if shift(l.path, l.keep) == nil {
+			flag |= os.O_TRUNC
+		} else {
+			os.Rename(l.path+".rotating", l.path)
 		}
-		os.Rename(l.path+".rotating", l.path+".1")
-		flag |= os.O_TRUNC
 	}
 	f, err := os.OpenFile(l.path, flag, 0o600)
 	if err != nil {
@@ -67,6 +70,15 @@ func (l *File) rotate() error {
 	}
 	l.f, l.size = f, 0
 	return nil
+}
+
+// shift moves path.rotating to path.1 after making room. A crash in rotate leaves path.rotating behind, so Open
+// shifts it too.
+func shift(path string, keep int) error {
+	for n := keep; n > 1; n-- {
+		os.Rename(fmt.Sprintf("%s.%d", path, n-1), fmt.Sprintf("%s.%d", path, n))
+	}
+	return os.Rename(path+".rotating", path+".1")
 }
 
 func (l *File) Close() error {

@@ -90,3 +90,52 @@ func TestALogHeldOpenElsewhereKeepsItsRotatedFilesAndDoesntRotateOnEveryWrite(t 
 		t.Fatalf("live log %q", got)
 	}
 }
+
+func TestALogLeftMidRotationByACrashBecomesTheNewestRotatedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x.log")
+	os.WriteFile(path+".1", []byte("older\n"), 0o600)
+	os.WriteFile(path+".rotating", []byte("before the crash\n"), 0o600)
+	f, err := Open(path, 8, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if got := read(t, path+".1"); got != "before the crash\n" {
+		t.Fatalf(".1 holds %q", got)
+	}
+	if got := read(t, path+".2"); got != "older\n" {
+		t.Fatalf(".2 holds %q", got)
+	}
+	if _, err := os.Stat(path + ".rotating"); !os.IsNotExist(err) {
+		t.Fatalf(".rotating is left: %v", err)
+	}
+}
+
+func TestARotatedFileHeldOpenElsewhereLeavesTheLiveLogWhole(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows refuses to rename a file another process holds open")
+	}
+	path := filepath.Join(t.TempDir(), "x.log")
+	os.WriteFile(path+".1", []byte("old\n"), 0o600)
+	reader, err := os.Open(path + ".1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	f, err := Open(path, 8, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	for _, line := range []string{"aaaaaa\n", "bb\n"} {
+		if _, err := f.Write([]byte(line)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := read(t, path); got != "aaaaaa\nbb\n" {
+		t.Fatalf("live log %q", got)
+	}
+	if _, err := os.Stat(path + ".rotating"); !os.IsNotExist(err) {
+		t.Fatalf(".rotating is left: %v", err)
+	}
+}
