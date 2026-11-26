@@ -96,8 +96,13 @@ func (c *conn) skills(m proto.ClientMessage) error {
 		return err
 	}
 	home, _ := os.UserHomeDir()
+	cwd := m.Project
+	if cwd == home {
+		// Home stands for a session with no project yet: its own .claude is the default account's config, not a project's.
+		cwd = ""
+	}
 	go func() {
-		k := skills.Key{Provider: m.Provider, Config: config, Cwd: m.Project}
+		k := skills.Key{Provider: m.Provider, Config: config, Cwd: cwd}
 		err := c.s.Skills.List(k, home, func(list []proto.Command) {
 			c.send(proto.NewSkillsList(m.ID, m.Provider, m.Account, m.Project, list))
 		})
