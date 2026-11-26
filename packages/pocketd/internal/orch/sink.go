@@ -49,7 +49,7 @@ type TurnChange struct {
 	Stopped  bool // the turn ended because the user or an agent stopped it
 	// Restarted is the turn cut for a message sent in restart mode, whose turn follows.
 	Restarted bool
-	Turn      int64 // the turn that ended
+	Turn      int64 // the turn that began or ended
 	Summary   proto.AgentSummary
 }
 
@@ -321,7 +321,11 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 	var turn int64
 	switch {
 	case working(s.Status) && !working(from):
-		if _, err := tx.Exec(`INSERT INTO turns (session_id, state, started_at, results_before) VALUES (?, 'working', ?, (`+countResults+`))`, s.ID, now, s.ID); err != nil {
+		res, err := tx.Exec(`INSERT INTO turns (session_id, state, started_at, results_before) VALUES (?, 'working', ?, (`+countResults+`))`, s.ID, now, s.ID)
+		if err != nil {
+			return nil, err
+		}
+		if turn, err = res.LastInsertId(); err != nil {
 			return nil, err
 		}
 		if err := event(tx, s.ID, "turn.started", nil); err != nil {

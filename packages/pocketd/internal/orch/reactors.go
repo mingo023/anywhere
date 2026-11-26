@@ -2,6 +2,7 @@ package orch
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
@@ -9,14 +10,14 @@ import (
 	"pocketd/internal/proto"
 )
 
-// OnTurn reacts to a session's turn starting or ending: a child that settles
-// finalizes its delegation, and a session that goes idle sends what waits for it.
+// OnTurn reacts to a session's turn starting or ending: a child prompted after it settled opens a follow-up, a child
+// that settles finalizes its delegation, and a session that goes idle sends what waits for it.
 func (e *Engine) OnTurn(c TurnChange) {
 	busy := func(s string) bool { return s == "working" || s == "needsYou" }
 	if busy(c.To) {
 		// A compaction the user starts from idle isn't a turn of the task.
 		if c.From != "" && !busy(c.From) && !c.Summary.Compacting {
-			e.reopenChild(c.Session)
+			e.followUp(c.Session, c.Turn)
 		}
 		return
 	}
@@ -61,12 +62,26 @@ func (e *Engine) dropChildren(parent string) {
 	}
 }
 
-func (e *Engine) reopenChild(child string) {
-	ts, err := e.store.Delegations(`child_id = ? ORDER BY created_at DESC LIMIT 1`, child)
+// prompted is the text of the prompt pocketd sent a session between its turn before and the turn that began, which
+// started that turn; a turn the agent starts on its own, as on a background task's notice, has none. A wake counts: it is
+// how a child hears that its own children finished, and its turn may give the report it held back for them.
+const prompted = `SELECT json_extract(payload, '$.text') FROM outbox WHERE session_id = ?1 AND kind = '` + EffTurnStart + `'
+	AND state IN ('running', 'done') AND CASE WHEN result = '' THEN 1 ELSE COALESCE(json_extract(result, '$.turnless'), 0) = 0 END
+	AND json_extract(payload, '$.origin') IN ('` + OriginUser + `', '` + OriginWake + `')
+	AND created_at >= COALESCE((SELECT MAX(ended_at) FROM turns WHERE session_id = ?1 AND id < ?2), 0)
+	AND created_at <= (SELECT started_at FROM turns WHERE id = ?2)
+	ORDER BY id DESC LIMIT 1`
+
+func (e *Engine) followUp(child string, turn int64) {
+	var brief string
+	if e.store.db.QueryRow(prompted, child, turn).Scan(&brief) != nil {
+		return
+	}
+	ts, err := e.store.Delegations(`child_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, child)
 	if err != nil || len(ts) == 0 || !ts[0].Terminal() {
 		return
 	}
-	e.dispatch(NewCommand("", CmdDelegateReopen, ts[0].ParentID, TaskPayload{TaskID: ts[0].TaskID}))
+	e.dispatch(NewCommand(fmt.Sprintf("follow_%s_%d", child, turn), CmdDelegateFollow, ts[0].ParentID, TaskPayload{TaskID: ts[0].TaskID, Brief: brief}))
 }
 
 func (e *Engine) settleChild(c TurnChange) {
@@ -241,7 +256,7 @@ func (s *Store) Lineage(id string) agent.Lineage {
 		return agent.Lineage{}
 	}
 	l := agent.Lineage{Parent: x.ParentID, Relationship: x.Relationship, CreatedBy: x.CreatedBy, Title: x.Title}
-	if ts, err := s.Delegations(`child_id = ? ORDER BY created_at DESC LIMIT 1`, id); err == nil && len(ts) == 1 {
+	if ts, err := s.Delegations(`child_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, id); err == nil && len(ts) == 1 {
 		l.Delegation = &proto.DelegationRef{TaskID: ts[0].TaskID, Status: ts[0].Status, WorkState: ts[0].WorkState}
 	}
 	return l

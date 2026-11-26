@@ -32,7 +32,7 @@ pub(crate) fn standing<'a>(deliveries: impl Iterator<Item = &'a Delivered>, list
     let mut out: Vec<Standing> = Vec::new();
     for d in deliveries {
         for child in &d.children {
-            let listed = list.iter().find(|l| l.child_id == child.id);
+            let listed = list.iter().find(|l| l.task_id == child.task_id);
             let phase = listed.map_or(
                 match d.outcome {
                     Outcome::Done => Phase::Done,
@@ -54,7 +54,7 @@ pub(crate) fn standing<'a>(deliveries: impl Iterator<Item = &'a Delivered>, list
             .iter()
             .filter(|l| !l.phase().settled() && !out.iter().any(|o| o.child.id == l.child_id))
             .map(|l| Standing {
-                child: Child { id: l.child_id.clone(), title: l.title.clone(), agent: l.agent.clone() },
+                child: Child { id: l.child_id.clone(), task_id: l.task_id.clone(), title: l.title.clone(), agent: l.agent.clone() },
                 phase: l.phase(),
                 question: l.question.clone(),
             })
@@ -224,7 +224,7 @@ mod tests {
     use chat::{Child, Delivered, Outcome, Span};
 
     fn child(id: &str) -> Child {
-        Child { id: id.into(), title: format!("Task {id}"), agent: "codex".into() }
+        Child { id: id.into(), task_id: format!("t{id}"), title: format!("Task {id}"), agent: "codex".into() }
     }
 
     fn news(outcome: Outcome, ids: &[&str]) -> Delivered {
@@ -238,6 +238,7 @@ mod tests {
 
     fn listed(id: &str, status: &str, question: &str, settled_at: i64) -> Delegation {
         Delegation {
+            task_id: format!("t{id}"),
             child_id: id.into(),
             title: format!("Task {id}"),
             agent: "claude".into(),
@@ -255,6 +256,16 @@ mod tests {
         let list = [listed("b", "failed", "", 300)];
         let phases: Vec<(String, Phase)> = standing(deliveries.iter(), &list, false).into_iter().map(|s| (s.child.id, s.phase)).collect();
         assert_eq!(phases, [("a".into(), Phase::Done), ("b".into(), Phase::Failed)]);
+    }
+
+    #[test]
+    fn a_report_stands_as_the_task_it_told_of_not_another_task_of_the_same_session() {
+        let mut told = news(Outcome::Done, &["a"]);
+        told.children[0].task_id = "ta2".into();
+        let follow_up = Delegation { task_id: "ta2".into(), ..listed("a", "failed", "", 300) };
+        let list = [listed("a", "completed", "", 200), follow_up];
+        let phases: Vec<Phase> = standing([told].iter(), &list, false).into_iter().map(|s| s.phase).collect();
+        assert_eq!(phases, [Phase::Failed]);
     }
 
     #[test]

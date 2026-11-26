@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"pocketd/internal/orch"
+	"pocketd/internal/proto"
 )
 
 func storeOf(h *Harness) *orch.Store {
@@ -83,6 +85,32 @@ func TestAWaitThatTimesOutSaysTheTaskIsStillWorkingAndTheParentIsWokenWhenItSett
 	}
 }
 
+func TestAPromptToASettledChildIsAFollowUpWithItsOwnResultAndWake(t *testing.T) {
+	h, phone, _, parent := chatClaude(t)
+	phone.Prompt(parent, delegateCall("run ls"))
+	allowAsks(phone, parent, 1)
+	first := settledAndWoken(h, phone, parent, "completed")
+
+	phone.Prompt(first.ChildID, "run pwd")
+	allowAsks(phone, parent, 1)
+	var tasks []proto.Delegation
+	h.eventually("the follow-up settled", func() bool {
+		tasks = delegationsOf(phone, parent)
+		return len(tasks) == 2 && tasks[1].Status == "completed"
+	})
+	if tasks[0].TaskID != first.TaskID || tasks[0].Summary != "echo: ran ls" || tasks[0].SettledAt != first.SettledAt {
+		t.Fatalf("the settled task changed: %+v, was %+v", tasks[0], first)
+	}
+	if f := tasks[1]; f.ChildID != first.ChildID || f.Summary != "echo: ran pwd" {
+		t.Fatalf("follow-up %+v", f)
+	}
+	h.eventually("the follow-up's wake, with its report", func() bool {
+		return slices.ContainsFunc(timelineItems(phone, parent), func(it acpItem) bool {
+			return it.Origin == orch.OriginWake && strings.HasPrefix(it.Text, "Delegated task "+tasks[1].TaskID+" reached a terminal state") && strings.Contains(it.Text, "echo: ran pwd")
+		})
+	})
+}
+
 func TestAThreadWaitThatTimesOutSaysTheChildIsStillWorkingAndTheParentIsWokenWhenItSettles(t *testing.T) {
 	h, phone, _, parent := chatClaude(t)
 	phone.Prompt(parent, `mcp delegate_task {"task":"await release","title":"Held"}`)
@@ -120,20 +148,32 @@ func TestSiblingsThatSettleWhileTheParentIsBusyShareOneWake(t *testing.T) {
 	release()
 
 	h.eventually("the wake sent", func() bool { return wakesIn(timelineOf(phone, parent)) > 0 })
-	got := timelineOf(phone, parent)
-	want := "user " + orch.WakeText(wake.Refs)
-	if wakesIn(got) != 1 || !containsItem(got, want) {
-		t.Fatalf("timeline %q, want one wake: %q", got, want)
+	if n := wakesIn(timelineOf(phone, parent)); n != 1 {
+		t.Fatalf("%d wakes, want one", n)
+	}
+	for _, report := range []string{"echo: ran ls", "echo: ran pwd"} {
+		if !strings.Contains(wake.Text, report) {
+			t.Fatalf("the wake lacks the report %q: %q", report, wake.Text)
+		}
+	}
+	var marked []acpItem
+	for _, it := range timelineItems(phone, parent) {
+		if it.Kind == "user" && it.Origin == orch.OriginWake {
+			marked = append(marked, it)
+		}
+	}
+	if len(marked) != 1 || marked[0].Text != wake.Text {
+		t.Fatalf("items marked as a wake %+v, want the wake's text: %q", marked, wake.Text)
 	}
 }
 
-func containsItem(items []string, want string) bool {
-	for _, it := range items {
-		if it == want {
-			return true
-		}
+func timelineItems(p *Phone, id string) []acpItem {
+	p.Send(map[string]any{"type": "agent.timeline", "id": "w-" + id, "agentId": id})
+	var page struct {
+		Items []acpItem `json:"items"`
 	}
-	return false
+	json.Unmarshal([]byte(p.WaitFor("the timeline", func(m Message) bool { return m.Type == "agent.timeline" && m.ID == "w-"+id }).Raw), &page)
+	return page.Items
 }
 
 func TestAUserStopOnTheParentDisposesItsQueuedWakeSoTheChildSettlesAndTheParentIsNotStarted(t *testing.T) {
@@ -187,23 +227,4 @@ func TestAnAnswerThatComesBeforeAChildsQuestionNoticeIsSentCancelsTheNotice(t *t
 			t.Fatalf("the parent was told of a question that was already answered: %q", item)
 		}
 	}
-}
-
-func TestAChildPromptedAfterItSettledWorksItsTaskAgainAndWakesTheParentWithTheNewResult(t *testing.T) {
-	h, phone, _, parent := chatClaude(t)
-	phone.Prompt(parent, `mcp delegate_task {"task":"first pass","title":"Pass"}`)
-	first := settledAndWoken(h, phone, parent, "completed")
-	if first.Summary != "echo: first pass" {
-		t.Fatalf("task = %+v", first)
-	}
-
-	phone.Prompt(first.ChildID, "second pass")
-	phone.WaitFor("the task working again", func(m Message) bool {
-		return m.Type == "delegation.update" && m.Delegation.TaskID == first.TaskID && m.Delegation.Status == "working"
-	})
-	h.eventually("the task settled with the new reply", func() bool {
-		ts := delegationsOf(phone, parent)
-		return ts[0].Status == "completed" && ts[0].Summary == "echo: second pass"
-	})
-	h.eventually("the parent woken a second time", func() bool { return wakesIn(timelineOf(phone, parent)) == 2 })
 }

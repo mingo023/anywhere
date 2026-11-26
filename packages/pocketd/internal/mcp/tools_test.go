@@ -161,6 +161,36 @@ func TestTaskStatusAndCancelNameTheChildSessionAndStopsItsTurn(t *testing.T) {
 	})
 }
 
+func TestATaskStatusThatReadsAResultCancelsTheWakeStillQueuedForIt(t *testing.T) {
+	f := newFixture(t)
+	task := f.ok(t, "delegate_task", `{"task":"Write the tests","title":"Tests"}`)["taskId"].(string)
+	args := fmt.Sprintf(`{"taskId":%q}`, task)
+	eventually(t, "the child to start", func() bool {
+		return f.ok(t, "task_status", args)["tasks"].([]any)[0].(map[string]any)["status"] == "running"
+	})
+	if _, err := f.engine.Dispatch(orch.NewCommand("", orch.CmdDelegateSettle, "parent", orch.TaskPayload{TaskID: task, Status: orch.TaskCompleted, Summary: "Tests written"})); err != nil {
+		t.Fatal(err)
+	}
+	wakes := func() (n int) {
+		q, _ := f.store.Queue("parent", true)
+		for _, e := range q {
+			if e.Origin == orch.OriginWake && e.State == orch.EntryPending {
+				n++
+			}
+		}
+		return n
+	}
+	eventually(t, "the wake to queue behind the parent's turn", func() bool { return wakes() == 1 })
+	view := f.ok(t, "task_status", args)["tasks"].([]any)[0].(map[string]any)
+	if view["summary"] != "Tests written" {
+		t.Fatalf("task_status = %v", view)
+	}
+	ts, _ := f.store.Delegations(`task_id = ?`, task)
+	if n := wakes(); n != 0 || ts[0].Delivery != orch.DeliverReturned {
+		t.Fatalf("%d wakes still queued, delivery %q", n, ts[0].Delivery)
+	}
+}
+
 func TestCreateThreadsStartsEachSessionInTheCallersCheckoutAndLinksIt(t *testing.T) {
 	f := newFixture(t)
 	sc := f.ok(t, "create_threads", `{"threads":[{"prompt":"one","title":"One"},{"prompt":"two","title":"Two","target":{"agent":"codex"}}]}`)

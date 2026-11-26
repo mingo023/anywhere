@@ -967,7 +967,7 @@ mod tests {
             id: id.into(),
             outcome: Outcome::Done,
             question: String::new(),
-            children: vec![Child { id: "a2".into(), title: "Write the tests".into(), agent: "codex".into() }],
+            children: vec![Child { id: "a2".into(), title: "Write the tests".into(), agent: "codex".into(), task_id: String::new() }],
         })
     }
 
