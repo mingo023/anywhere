@@ -36,7 +36,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 339] = [
+const STEPS: [(&str, Step); 343] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -1072,6 +1072,22 @@ const STEPS: [(&str, Step); 339] = [
     }),
     ("code-font-menu", |d, _, cx| d.settings.update(cx, |s, cx| s.set_menu(Some("code-font"), cx))),
     ("settings-menu", |d, _, cx| d.settings.update(cx, |s, cx| s.set_menu(Some("close-window"), cx))),
+    ("settings-projects-fold", |d, _, cx| {
+        d.settings.update(cx, |s, cx| {
+            s.projects.toggle(None);
+            cx.notify();
+        })
+    }),
+    ("settings-projects-filter", |d, window, cx| {
+        d.settings.update(cx, |s, cx| s.projects.filter.update(cx, |f, cx| f.set_value("ios", window, cx)));
+    }),
+    ("settings-projects-add-menu", |d, _, cx| d.settings.update(cx, |s, cx| s.set_menu(Some("add-project"), cx))),
+    ("settings-hosts-menu", |d, _, cx| {
+        d.settings.update(cx, |s, cx| {
+            s.projects.host_menu = Some("devbox".into());
+            s.set_menu(Some("host-actions"), cx);
+        });
+    }),
     ("settings-changed", |d, _, _| {
         (d.store.general.auto_install, d.store.general.launch_layout) = (false, Some(store::Layout::Focus));
     }),

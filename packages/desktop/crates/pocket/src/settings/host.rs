@@ -1,3 +1,5 @@
+use super::fields::{Commit, TextField};
+use super::toasts::Toast;
 use super::{Settings, SettingsEvent};
 use crate::desktop::Desktop;
 use agents::automations::valid_time;
@@ -18,6 +20,9 @@ pub(crate) struct Host {
     pub cli: bool,
     pub time: Entity<InputState>,
     pub port: Entity<InputState>,
+    /// The drafts of `time` and `port`, which share their inputs: each commits on Enter or blur.
+    pub time_field: TextField,
+    pub port_field: TextField,
     pub renaming: Option<Rename>,
 }
 
@@ -32,20 +37,17 @@ impl Host {
     pub fn new(store: &Store, window: &mut Window, cx: &mut Context<Settings>) -> (Self, Vec<Subscription>) {
         let time = cx.new(|cx| InputState::new(window, cx).placeholder("09:00").default_value(store.automations.time.clone()));
         let port = cx.new(|cx| InputState::new(window, cx).placeholder(channel::phone_port().to_string()).default_value(port_field(store.phone.port)));
-        let subs = vec![
-            cx.subscribe_in(&time, window, |this, field, ev: &InputEvent, _, cx| {
-                let time = field.read(cx).value().trim().to_string();
-                if matches!(ev, InputEvent::Change) && valid_time(&time) && time != this.store.automations.time {
-                    this.write(None, cx, move |s, _| s.automations.time = time.clone());
-                }
-            }),
-            cx.subscribe_in(&port, window, |this, _, ev: &InputEvent, window, cx| {
+        let mut commits = |input: &Entity<InputState>, commit: fn(&mut Settings, &mut Window, &mut Context<Settings>)| {
+            cx.subscribe_in(input, window, move |this, _, ev: &InputEvent, window, cx| {
                 if matches!(ev, InputEvent::PressEnter { .. } | InputEvent::Blur) {
-                    this.commit_port(window, cx);
+                    commit(this, window, cx);
                 }
-            }),
-        ];
-        (Self { status: None, devices: None, cli: false, time, port, renaming: None }, subs)
+            })
+        };
+        let subs = vec![commits(&time, |this, _, cx| this.commit_time(cx)), commits(&port, Settings::commit_port)];
+        let (time_field, port_field) =
+            (TextField::new(time.clone(), store.automations.time.clone()), TextField::new(port.clone(), port_field(store.phone.port)));
+        (Self { status: None, devices: None, cli: false, time, port, time_field, port_field, renaming: None }, subs)
     }
 }
 
@@ -136,19 +138,44 @@ pub(super) fn uptime(secs: u64) -> String {
 }
 
 impl Settings {
-    /// pocketd keeps its old port when the new one won't bind, so a refusal puts the field and store back.
+    /// An invalid time stays in its field with its reason; a valid one is written.
+    fn commit_time(&mut self, cx: &mut Context<Self>) {
+        let stored = self.store.automations.time.clone();
+        let valid = |t: &str| if valid_time(t.trim()) { Ok(()) } else { Err("Use a time like 09:00".to_string()) };
+        match self.host.time_field.commit(&stored, valid, cx) {
+            Commit::Save(text) => {
+                let time = text.trim().to_string();
+                if time != stored {
+                    self.write(None, cx, move |s, _| s.automations.time = time.clone());
+                }
+            }
+            Commit::Invalid => {
+                let error = self.host.time_field.draft.error.clone().unwrap_or_default();
+                self.toast(Toast::tell(error), cx);
+            }
+            Commit::Same => {}
+        }
+        cx.notify();
+    }
+
+    /// An invalid port stays in its field with its reason. pocketd keeps its old port when the new one won't bind, so a
+    /// refusal puts the field and store back (`Desktop::set_port`).
     fn commit_port(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let before = self.store.phone.port;
-        let port = match parse_port(&self.host.port.read(cx).value(), channel::phone_port()) {
-            Ok(port) => port,
-            Err(e) => {
-                cx.emit(SettingsEvent::Error(e.into()));
-                self.host.port.update(cx, |f, cx| f.set_value(port_field(before), window, cx));
+        let valid = |t: &str| parse_port(t, channel::phone_port()).map(|_| ()).map_err(str::to_string);
+        let port = match self.host.port_field.commit(&port_field(before), valid, cx) {
+            Commit::Invalid => {
+                let error = self.host.port_field.draft.error.clone().unwrap_or_default();
+                cx.emit(SettingsEvent::Error(error));
                 cx.notify();
                 return;
             }
+            Commit::Save(text) => parse_port(&text, channel::phone_port()).unwrap_or(before),
+            Commit::Same => before,
         };
-        self.host.port.update(cx, |f, cx| f.set_value(port_field(port), window, cx));
+        let shown = port_field(port);
+        self.host.port_field.draft.text = shown.clone();
+        self.host.port.update(cx, |f, cx| f.set_value(shown, window, cx));
         if port != before {
             cx.emit(SettingsEvent::Port { port, before });
         }

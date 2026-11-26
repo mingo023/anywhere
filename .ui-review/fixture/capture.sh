@@ -11,7 +11,10 @@ trap 'defaults delete pocket-desktop AppleFontSmoothing' EXIT
 out=$1; shift
 mkdir -p "$out"
 for spec in "$@"; do
+  # Settings' Projects and Hosts pages need projects on devbox (online) and 10.0.4.12 (offline), next to this Mac's.
+  extra=
   case ${spec%%=*} in
+    settings-projects*|settings-hosts*) scenario=sessions extra=FIXTURE_HOST_FILES=1 ;;
     compact-sidebar-open|repositories-worktrees) scenario=worktrees ;;
     restore-*) scenario=restored ;;
     agents-chat*) scenario=agents-chat ;;
@@ -22,7 +25,7 @@ for spec in "$@"; do
   esac
   fx=$(mktemp -d)
   log="$fx.log"
-  bun "$root/.ui-review/fixture/fixture.ts" "$scenario" "$fx" > "$log" 2>&1 &
+  env $extra bun "$root/.ui-review/fixture/fixture.ts" "$scenario" "$fx" > "$log" 2>&1 &
   pid=$!
   until grep -q ready "$log"; do kill -0 $pid; sleep 0.2; done
   fx=$(cd "$fx" && pwd -P)

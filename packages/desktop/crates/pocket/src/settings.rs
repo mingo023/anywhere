@@ -290,6 +290,8 @@ pub(crate) enum SettingsEvent {
     },
     EditProject(String),
     AddProject,
+    /// Add a project on a host: its folders, not this Mac's Finder.
+    AddProjectOn(String),
     CloneProject,
     RemoveTheme(String),
     ChooseBackground(&'static Setting),
@@ -349,6 +351,7 @@ pub struct Settings {
     /// The project whose GitHub account menu is open, while `menu` is `git::ACCOUNT_MENU`.
     pub(crate) account_menu: Option<String>,
     pub(crate) host: host::Host,
+    pub(crate) projects: projects::View,
     pub(crate) banners_denied: bool,
     /// Each project's dev server field, by project path.
     dev_urls: HashMap<String, (Entity<InputState>, Subscription)>,
@@ -414,6 +417,8 @@ impl Settings {
         }
         let (host, host_subs) = host::Host::new(store, window, cx);
         subs.extend(host_subs);
+        let (projects, projects_subs) = projects::View::new(window, cx);
+        subs.extend(projects_subs);
         let (keyboard, keyboard_subs) = keybindings::Keyboard::new(window, cx);
         subs.extend(keyboard_subs);
         let (launch, launch_subs) = provider::LaunchFields::new(store, window, cx);
@@ -436,6 +441,7 @@ impl Settings {
             menu: None,
             account_menu: None,
             host,
+            projects,
             banners_denied: false,
             dev_urls: HashMap::new(),
             keyboard,
@@ -1342,6 +1348,9 @@ impl Render for Settings {
         if self.resync {
             self.sync_inputs(window, cx);
         }
+        if matches!(self.section, Section::Projects | Section::Hosts) {
+            self.sync_filter_hints(window, cx);
+        }
         self.settings_page(cx)
     }
 }
@@ -1487,6 +1496,10 @@ impl Desktop {
             }
             SettingsEvent::EditProject(p) => self.edit_project(Some(p.clone()), window, cx),
             SettingsEvent::AddProject => self.add_local_project(window, cx),
+            SettingsEvent::AddProjectOn(host) => {
+                self.open_host_folder(window, cx);
+                self.open_host_finder(host.clone(), None, crate::modals::host_finder::Opener::AddProject, window, cx);
+            }
             SettingsEvent::CloneProject => self.clone_project(window, cx),
             SettingsEvent::CheckGh => self.check_gh(cx),
             SettingsEvent::GhLogin => {

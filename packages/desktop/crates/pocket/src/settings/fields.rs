@@ -202,7 +202,6 @@ impl NumberField {
     }
 }
 
-#[expect(dead_code, reason = "the Projects slice filters its list with it")]
 /// A filter field for a long list; the caller owns `input` and narrows its rows with `filter_matches`.
 pub(crate) fn filter_field(input: &Entity<InputState>) -> Div {
     div()
@@ -219,7 +218,6 @@ pub(crate) fn filter_field(input: &Entity<InputState>) -> Div {
         .child(div().flex_1().min_w_0().child(Input::new(input).appearance(false).p_0().text_size(px(13.))))
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "the Projects slice filters its list with it"))]
 /// Whether every word of `query` is in one of `fields`, ignoring case; an empty query keeps everything.
 pub(crate) fn filter_matches(query: &str, fields: &[&str]) -> bool {
     let fields: Vec<String> = fields.iter().map(|f| f.to_lowercase()).collect();
