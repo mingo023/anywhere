@@ -24,7 +24,6 @@ import (
 	"pocketd/internal/ops"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
-	"pocketd/internal/registry"
 	"pocketd/internal/terminal"
 )
 
@@ -44,8 +43,13 @@ func withTerminals(t *testing.T, terms *terminal.Manager, project string) func(*
 	if err := os.WriteFile(path, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	db, reg := openStore(t, dir)
+	ls, err := locals.Open(db, reg.Load)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return func(s *Server) {
-		s.Terminals, s.TerminalHost, s.Registry, s.Locals = terms, shells{terms}, registry.Open(filepath.Dir(path)), locals.Open(dir)
+		s.Terminals, s.TerminalHost, s.Registry, s.Locals = terms, shells{terms}, reg, ls
 	}
 }
 

@@ -2,21 +2,20 @@ package automation
 
 import (
 	"cmp"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
-	"log"
-	"os"
-	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"pocketd/internal/atomicfile"
 	"pocketd/internal/proto"
+	"pocketd/internal/registry"
 	"pocketd/internal/terminal"
+	"pocketd/internal/worktree"
 )
 
 const (
@@ -39,8 +38,7 @@ type File struct {
 	Runs        []proto.Run        `json:"runs"`
 }
 
-// diskAutomation is an automation as saved: proto.Automation keeps its webhook
-// secret off the wire, so the file holds it beside the rest.
+// diskAutomation keeps WebhookSecret, which proto omits.
 type diskAutomation struct {
 	proto.Automation
 	WebhookSecret string `json:"webhookSecret,omitempty"`
@@ -87,43 +85,93 @@ func (f *File) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// Store is the automations and their runs, saved whole to Home/state/automations.json
-// on every change. Runs are kept oldest first.
+// Each change writes the rows it changed to pocketd.db.
+// Runs are kept oldest first.
 type Store struct {
-	path string
+	db    *sql.DB
+	files func() registry.File
 	// Grace and History are read on each claim and run, so a changed setting applies to the next one.
 	Grace   func() time.Duration
 	History func() int
 
-	mu      sync.Mutex
-	f       File
-	changed chan struct{}
+	mu                sync.Mutex
+	f                 File
+	nextAuto, nextRun int64
+	changed           chan struct{}
 }
 
-// Open reads home/state/automations.json. A file it can't use is renamed to
-// .bad, so the next save doesn't erase it, and the store starts empty.
-func Open(home string) *Store {
-	s := &Store{path: filepath.Join(home, "state", "automations.json"), f: File{Version: Version}, changed: make(chan struct{})}
-	raw, err := os.ReadFile(s.path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return s
+// An automation is saved only in a folder files places in a project.
+func Open(db *sql.DB, files func() registry.File) (*Store, error) {
+	s := &Store{db: db, files: files, changed: make(chan struct{})}
+	var err error
+	if s.f, s.nextAuto, s.nextRun, err = load(db); err != nil {
+		return nil, fmt.Errorf("automations: %w", err)
 	}
-	var f File
-	if err == nil {
-		err = json.Unmarshal(raw, &f)
-	}
-	if err == nil && f.Version != Version {
-		err = fmt.Errorf("version %d, want %d", f.Version, Version)
-	}
+	return s, nil
+}
+
+func load(db *sql.DB) (f File, nextAuto, nextRun int64, err error) {
+	f.Version = Version
+	rows, err := db.Query(`SELECT a.id, COALESCE(a.tree, p.path), a.name, a.prompt, a.provider, a.schedule, a.enabled, a.next_run_at, a.access, a.new_worktree,
+		a.base, a.model, a.effort, a.created_by, a.bound, a.webhook, a.webhook_secret, a.position
+		FROM automations a JOIN projects p ON p.id = a.project_id ORDER BY a.position`)
 	if err != nil {
-		log.Printf("automations %s: %v; starting empty", s.path, err)
-		if rerr := os.Rename(s.path, s.path+".bad"); rerr != nil {
-			log.Print(rerr)
-		}
-		return s
+		return f, 0, 0, err
 	}
-	s.f = f
-	return s
+	defer rows.Close()
+	for rows.Next() {
+		var a proto.Automation
+		var schedule string
+		var pos int64
+		if err := rows.Scan(&a.ID, &a.Folder, &a.Name, &a.Prompt, &a.Provider, &schedule, &a.Enabled, &a.NextRunAt, &a.Access, &a.NewWorktree,
+			&a.Base, &a.Model, &a.Effort, &a.CreatedBy, &a.Bound, &a.Webhook, &a.WebhookSecret, &pos); err != nil {
+			return f, 0, 0, err
+		}
+		if err := json.Unmarshal([]byte(schedule), &a.Schedule); err != nil {
+			return f, 0, 0, fmt.Errorf("automation %s: %w", a.ID, err)
+		}
+		f.Automations = append(f.Automations, a)
+		nextAuto = pos + 1
+	}
+	if err := rows.Err(); err != nil {
+		return f, 0, 0, err
+	}
+	rows.Close()
+	if rows, err = db.Query(`SELECT id, automation_id, status, trigger, why, summary, started_at, finished_at, agent_id, terminal_id, access, worktree,
+		turn_after, turn_prompt, turn_entry, position FROM runs ORDER BY position`); err != nil {
+		return f, 0, 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var r proto.Run
+		var pos int64
+		if err := rows.Scan(&r.ID, &r.AutomationID, &r.Status, &r.Trigger, &r.Why, &r.Summary, &r.StartedAt, &r.FinishedAt, &r.AgentID, &r.TerminalID,
+			&r.Access, &r.Worktree, &r.TurnAfter, &r.TurnPrompt, &r.TurnEntry, &pos); err != nil {
+			return f, 0, 0, err
+		}
+		f.Runs = append(f.Runs, r)
+		nextRun = pos + 1
+	}
+	return f, nextAuto, nextRun, rows.Err()
+}
+
+// Reload takes the automations and runs the database holds, which are fewer after a project's removal
+// cascaded, and wakes whoever waits on Changed when they are.
+func (s *Store) Reload() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next, nextAuto, nextRun, err := load(s.db)
+	if err != nil || len(next.Automations) == len(s.f.Automations) && len(next.Runs) == len(s.f.Runs) {
+		return err
+	}
+	s.f, s.nextAuto, s.nextRun = next, nextAuto, nextRun
+	s.wake()
+	return nil
+}
+
+func (s *Store) wake() {
+	close(s.changed)
+	s.changed = make(chan struct{})
 }
 
 // Changed closes at the next save; take a new one after each.
@@ -190,20 +238,129 @@ func (s *Store) commit(change func(f *File) error) error {
 		}
 		return err
 	}
-	raw, err := json.MarshalIndent(next, "", "  ")
-	if err == nil {
-		err = os.MkdirAll(filepath.Dir(s.path), 0o700)
-	}
-	if err == nil {
-		err = atomicfile.Write(s.path, raw, 0o600)
-	}
+	nextAuto, nextRun, err := s.write(next)
 	if err != nil {
 		return err
 	}
-	s.f = next
-	close(s.changed)
-	s.changed = make(chan struct{})
+	s.f, s.nextAuto, s.nextRun = next, nextAuto, nextRun
+	s.wake()
 	return nil
+}
+
+// One transaction.
+func (s *Store) write(next File) (nextAuto, nextRun int64, err error) {
+	// Read before the transaction holds the one connection: a registry write holds its lock waiting for it.
+	files := s.files()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, 0, err
+	}
+	defer tx.Rollback()
+	prev := make(map[string]proto.Automation, len(s.f.Automations))
+	for _, a := range s.f.Automations {
+		prev[a.ID] = a
+	}
+	nextAuto = s.nextAuto
+	kept := make(map[string]bool, len(next.Automations))
+	for _, a := range next.Automations {
+		kept[a.ID] = true
+		old, had := prev[a.ID]
+		switch {
+		case !had:
+			err = insert(tx, files, a, nextAuto)
+			nextAuto++
+		case !reflect.DeepEqual(a, old):
+			err = update(tx, files, a, old.Folder)
+		}
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+	for id := range prev {
+		if !kept[id] {
+			if _, err := tx.Exec(`DELETE FROM automations WHERE id = ?`, id); err != nil {
+				return 0, 0, err
+			}
+		}
+	}
+	prevRuns := make(map[string]proto.Run, len(s.f.Runs))
+	for _, r := range s.f.Runs {
+		prevRuns[r.ID] = r
+	}
+	nextRun = s.nextRun
+	keptRuns := make(map[string]bool, len(next.Runs))
+	for _, r := range next.Runs {
+		keptRuns[r.ID] = true
+		old, had := prevRuns[r.ID]
+		switch {
+		case !had:
+			_, err = tx.Exec(`INSERT INTO runs (id, automation_id, status, trigger, why, summary, started_at, finished_at, agent_id, terminal_id,
+				access, worktree, turn_after, turn_prompt, turn_entry, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				r.ID, r.AutomationID, r.Status, r.Trigger, r.Why, r.Summary, r.StartedAt, r.FinishedAt, r.AgentID, r.TerminalID,
+				r.Access, r.Worktree, r.TurnAfter, r.TurnPrompt, r.TurnEntry, nextRun)
+			nextRun++
+		case r != old:
+			_, err = tx.Exec(`UPDATE runs SET status = ?, trigger = ?, why = ?, summary = ?, started_at = ?, finished_at = ?, agent_id = ?, terminal_id = ?,
+				access = ?, worktree = ?, turn_after = ?, turn_prompt = ?, turn_entry = ? WHERE id = ?`,
+				r.Status, r.Trigger, r.Why, r.Summary, r.StartedAt, r.FinishedAt, r.AgentID, r.TerminalID,
+				r.Access, r.Worktree, r.TurnAfter, r.TurnPrompt, r.TurnEntry, r.ID)
+		}
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+	for id, r := range prevRuns {
+		// A deleted automation's runs went with it.
+		if !keptRuns[id] && kept[r.AutomationID] {
+			if _, err := tx.Exec(`DELETE FROM runs WHERE id = ?`, id); err != nil {
+				return 0, 0, err
+			}
+		}
+	}
+	return nextAuto, nextRun, tx.Commit()
+}
+
+func place(files registry.File, folder string) (string, *string, error) {
+	id, tree, ok := worktree.Belong(files, folder)
+	if !ok {
+		return "", nil, registry.ErrUnknownProject
+	}
+	return id, tree, nil
+}
+
+func insert(tx *sql.Tx, files registry.File, a proto.Automation, pos int64) error {
+	id, tree, err := place(files, a.Folder)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(`INSERT INTO automations (id, project_id, tree, name, prompt, provider, schedule, enabled, next_run_at, access, new_worktree,
+		base, model, effort, created_by, bound, webhook, webhook_secret, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, id, tree, a.Name, a.Prompt, a.Provider, scheduleJSON(a.Schedule), a.Enabled, a.NextRunAt, a.Access, a.NewWorktree,
+		a.Base, a.Model, a.Effort, a.CreatedBy, a.Bound, a.Webhook, a.WebhookSecret, pos)
+	return err
+}
+
+// update writes a's columns, and its project and tree when its folder moved from was.
+func update(tx *sql.Tx, files registry.File, a proto.Automation, was string) error {
+	if a.Folder != was {
+		id, tree, err := place(files, a.Folder)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE automations SET project_id = ?, tree = ? WHERE id = ?`, id, tree, a.ID); err != nil {
+			return err
+		}
+	}
+	_, err := tx.Exec(`UPDATE automations SET name = ?, prompt = ?, provider = ?, schedule = ?, enabled = ?, next_run_at = ?, access = ?, new_worktree = ?,
+		base = ?, model = ?, effort = ?, created_by = ?, bound = ?, webhook = ?, webhook_secret = ? WHERE id = ?`,
+		a.Name, a.Prompt, a.Provider, scheduleJSON(a.Schedule), a.Enabled, a.NextRunAt, a.Access, a.NewWorktree,
+		a.Base, a.Model, a.Effort, a.CreatedBy, a.Bound, a.Webhook, a.WebhookSecret, a.ID)
+	return err
+}
+
+func scheduleJSON(s proto.Schedule) string {
+	raw, _ := json.Marshal(s)
+	return string(raw)
 }
 
 func nextRunAt(a proto.Automation, now time.Time) int64 {

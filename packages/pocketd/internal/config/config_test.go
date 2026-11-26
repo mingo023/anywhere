@@ -1,9 +1,12 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
-	"strings"
+	"reflect"
+	"runtime"
+	"strconv"
 	"testing"
 )
 
@@ -11,72 +14,106 @@ func refuse(string) error {
 	panic("a config without a token has nothing to adopt")
 }
 
-func TestLoadCreatesPrivateConfigOnce(t *testing.T) {
-	t.Setenv("POCKET_HOME", t.TempDir())
-	first, err := Load(refuse)
+func TestLoadFillsTheTableWithTheDefaultsOnceAndTouchesNoFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("POCKET_HOME", home)
+	db := newDB(t, nil)
+	first, err := Load(db, refuse)
 	if err != nil || first.Port != DefaultPort() || first.Listen != "auto" {
 		t.Fatalf("%+v %v", first, err)
 	}
-	st, _ := os.Stat(filepath.Join(Home(), "config.json"))
-	if st.Mode().Perm() != 0o600 {
-		t.Fatalf("mode %v", st.Mode())
+	if rows, want := configRows(t, db), map[string]string{"port": strconv.Itoa(DefaultPort()), "listen": `"auto"`}; !reflect.DeepEqual(rows, want) {
+		t.Fatalf("rows %v", rows)
 	}
-	again, _ := Load(refuse)
+	again, _ := Load(db, refuse)
 	if again != first {
 		t.Fatal("config changed on second load")
+	}
+	if entries, _ := os.ReadDir(home); len(entries) != 0 {
+		t.Fatalf("Load wrote %v", entries)
 	}
 }
 
 func TestAConfigWithATokenMovesItIntoDevicesAndForgetsIt(t *testing.T) {
-	t.Setenv("POCKET_HOME", t.TempDir())
-	path := filepath.Join(Home(), "config.json")
-	os.WriteFile(path, []byte(`{"token":"t","port":1,"profiles":[]}`), 0o600)
+	db := newDB(t, map[string]string{"token": `"t"`, "port": "1", "profiles.work": `{"cmd":"x"}`})
 	var adopted []string
 	adopt := func(tok string) error { adopted = append(adopted, tok); return nil }
-	c, err := Load(adopt)
+	c, err := Load(db, adopt)
 	if err != nil || c.Port != 1 || c.Listen != "auto" || len(adopted) != 1 || adopted[0] != "t" {
 		t.Fatalf("%+v %v %v", c, err, adopted)
 	}
-	raw, _ := os.ReadFile(path)
-	if strings.Contains(string(raw), "token") || !strings.Contains(string(raw), "profiles") {
-		t.Fatalf("config.json = %s", raw)
+	if rows := configRows(t, db); rows["token"] != "" || rows["profiles.work"] == "" {
+		t.Fatalf("config = %v", rows)
 	}
-	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
-		t.Fatalf("mode %v", st.Mode())
-	}
-	if _, err := Load(adopt); err != nil || len(adopted) != 1 {
+	if _, err := Load(db, adopt); err != nil || len(adopted) != 1 {
 		t.Fatalf("second load adopted again: %v %v", adopted, err)
 	}
 }
 
+func TestATokenThatCantBeAdoptedStaysInTheTable(t *testing.T) {
+	db := newDB(t, map[string]string{"token": `"t"`, "port": "1"})
+	if _, err := Load(db, func(string) error { return errors.New("no") }); err == nil {
+		t.Fatal("want error")
+	}
+	if configRows(t, db)["token"] != `"t"` {
+		t.Fatal("the token was dropped before anything held it")
+	}
+}
+
 func TestLoadRejectsBrokenConfig(t *testing.T) {
-	t.Setenv("POCKET_HOME", t.TempDir())
-	os.WriteFile(filepath.Join(Home(), "config.json"), []byte(`{"token":"t"}`), 0o600)
-	if _, err := Load(refuse); err == nil {
+	if _, err := Load(newDB(t, map[string]string{"token": `"t"`}), refuse); err == nil {
 		t.Fatal("want error")
 	}
 }
 
 func TestLoadRejectsAnUnknownListenMode(t *testing.T) {
-	t.Setenv("POCKET_HOME", t.TempDir())
 	keep := func(string) error { return nil }
-	os.WriteFile(filepath.Join(Home(), "config.json"), []byte(`{"port":1,"listen":"0.0.0.0"}`), 0o600)
-	if _, err := Load(keep); err == nil {
+	if _, err := Load(newDB(t, map[string]string{"port": "1", "listen": `"0.0.0.0"`}), keep); err == nil {
 		t.Fatal("want error")
 	}
-	os.WriteFile(filepath.Join(Home(), "config.json"), []byte(`{"port":1,"listen":"loopback"}`), 0o600)
-	if c, err := Load(keep); err != nil || c.Listen != "loopback" {
+	if _, err := Load(newDB(t, map[string]string{"port": "1", "listen": "false"}), keep); err == nil {
+		t.Fatal("a listen that isn't a string: want error")
+	}
+	if c, err := Load(newDB(t, map[string]string{"port": "1", "listen": `"loopback"`}), keep); err != nil || c.Listen != "loopback" {
 		t.Fatalf("%+v %v", c, err)
 	}
 }
 
 func TestOwnerListenTakesOnlyALoopbackAddress(t *testing.T) {
-	t.Setenv("POCKET_HOME", t.TempDir())
-	for v, ok := range map[string]bool{`"off"`: true, `"127.0.0.1:4519"`: true, `"[::1]:4519"`: true, `"0.0.0.0:4519"`: false, `"localhost:4519"`: false, `"4519"`: false} {
-		os.WriteFile(filepath.Join(Home(), "config.json"), []byte(`{"port":1,"ownerListen":`+v+`}`), 0o600)
-		if c, err := Load(refuse); (err == nil) != ok || ok && `"`+c.OwnerListen+`"` != v {
+	for v, ok := range map[string]bool{`"off"`: true, `"127.0.0.1:4519"`: true, `"[::1]:4519"`: true, `"0.0.0.0:4519"`: false, `"localhost:4519"`: false, `"4519"`: false, `4519`: false} {
+		db := newDB(t, map[string]string{"port": "1", "ownerListen": v})
+		if c, err := Load(db, refuse); (err == nil) != ok || ok && `"`+c.OwnerListen+`"` != v {
 			t.Errorf("%s: %+v %v", v, c, err)
 		}
+		if got, err := OwnerListen(db); (err == nil) != ok || ok && `"`+got+`"` != v {
+			t.Errorf("%s: OwnerListen %q %v", v, got, err)
+		}
+	}
+}
+
+func TestOwnerListenReadsAsOffWithoutARow(t *testing.T) {
+	if got, err := OwnerListen(newDB(t, nil)); err != nil || got != "off" && runtime.GOOS != "windows" {
+		t.Fatalf("%q %v", got, err)
+	}
+}
+
+func TestAHomeNoDaemonImportedYetHasItsOwnerListenInConfigJSONAndNothingIsWritten(t *testing.T) {
+	home := t.TempDir()
+	if got, err := LegacyOwnerListen(home); err != nil || got != "off" && runtime.GOOS != "windows" {
+		t.Fatalf("no file: %q %v", got, err)
+	}
+	path := filepath.Join(home, "config.json")
+	original := []byte(`{"port":1,"ownerListen":"127.0.0.1:4519"}`)
+	os.WriteFile(path, original, 0o600)
+	if got, err := LegacyOwnerListen(home); err != nil || got != "127.0.0.1:4519" {
+		t.Fatalf("%q %v", got, err)
+	}
+	if now, _ := os.ReadFile(path); string(now) != string(original) {
+		t.Fatalf("config.json became %s", now)
+	}
+	os.WriteFile(path, []byte(`{"ownerListen":"0.0.0.0:1"}`), 0o600)
+	if _, err := LegacyOwnerListen(home); err == nil {
+		t.Fatal("a public address was accepted")
 	}
 }
 

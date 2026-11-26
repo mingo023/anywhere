@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -15,20 +14,14 @@ import (
 )
 
 // pushStatus prints each phone's push registration and the last sends, read
-// from push.json; it shows when handles expire, never their keys or secrets.
+// from pocketd.db; it shows when handles expire, never their keys or secrets.
 func pushStatus(home string, args []string, w io.Writer, now time.Time) error {
 	if len(args) > 1 || len(args) == 1 && args[0] != "--json" {
 		return errors.New(usage)
 	}
-	store, err := push.Open(push.Path(home))
+	records, sends, names, err := readPush(home)
 	if err != nil {
 		return err
-	}
-	names := map[string]string{}
-	if devs, err := devices.Open(filepath.Join(home, "devices.json"), ""); err == nil {
-		for _, d := range devs.List() {
-			names[d.ID] = d.Name
-		}
 	}
 	type phone struct {
 		Device       string `json:"device"`
@@ -42,7 +35,7 @@ func pushStatus(home string, args []string, w io.Writer, now time.Time) error {
 		RegisteredAt int64  `json:"registeredAt"`
 	}
 	phones := []phone{}
-	for _, r := range store.Records() {
+	for _, r := range records {
 		p := phone{Device: r.Device, Name: names[r.Device], Env: r.Env, Prefs: prefs(r), Frequent: r.Frequent, RegisteredAt: r.UpdatedAt}
 		if r.Alert != nil {
 			p.AlertUntil = r.Alert.ExpiresAt
@@ -58,7 +51,6 @@ func pushStatus(home string, args []string, w io.Writer, now time.Time) error {
 		}
 		phones = append(phones, p)
 	}
-	sends := append([]push.Sent{}, store.Sends()...)
 	if len(args) == 1 {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
@@ -96,6 +88,26 @@ func pushStatus(home string, args []string, w io.Writer, now time.Time) error {
 		fmt.Fprintf(tw, "%s\t%s\t%s\tp%d\t%s\n", ago(s.At, now), s.Device[:min(8, len(s.Device))], s.Kind, s.Priority, s.Outcome)
 	}
 	return tw.Flush()
+}
+
+// readPush is the registrations, the last sends and the names of the paired phones, as the daemon last saved them.
+func readPush(home string) (records []push.Record, sends []push.Sent, names map[string]string, err error) {
+	names, sends = map[string]string{}, []push.Sent{}
+	db, err := openReadOnly(home)
+	if err != nil || db == nil {
+		return nil, sends, names, err
+	}
+	defer db.Close()
+	store, err := push.Open(db)
+	if err != nil {
+		return nil, sends, names, err
+	}
+	if devs, err := devices.Open(db, ""); err == nil {
+		for _, d := range devs.List() {
+			names[d.ID] = d.Name
+		}
+	}
+	return store.Records(), append(sends, store.Sends()...), names, nil
 }
 
 func prefs(r push.Record) string {

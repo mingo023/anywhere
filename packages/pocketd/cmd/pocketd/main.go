@@ -14,7 +14,7 @@ import (
 	"pocketd/internal/lock"
 )
 
-const usage = "usage: pocketd serve [--home dir] | run <cmd> [args...] | attach <id> | hook | pipe <cmd> [args...] | pair [--host h:p | --json [--name n]] | owner list|revoke <id> | devices [--json | rename <id> <name> | revoke <id>] | status [--json] | upgrade | stats [--since 7d] [--json] | daemon install | daemon uninstall [--force] | service install|uninstall|status [--json] [--label <name>] | --version | version --json | worktree list|create|remove | config set phone.maxAccess <ask|edits|auto> | config set restore.resumeAgents <true|false> | config set listen <auto|loopback> | config set port <1024-65535> | config set phone.terminals <on|off> | config set push.relay <url> | push status [--json] | skill install"
+const usage = "usage: pocketd serve [--home dir] | run <cmd> [args...] | attach <id> | hook | pipe <cmd> [args...] | pair [--host h:p | --json [--name n]] | owner list|revoke <id> | devices [--json | rename <id> <name> | revoke <id>] | status [--json] | upgrade | stats [--since 7d] [--json] | daemon install | daemon uninstall [--force] | service install|uninstall|status [--json] [--label <name>] | --version | version --json | worktree list|create|remove | config set phone.maxAccess <ask|edits|auto> | config set restore.resumeAgents <true|false> | config set listen <auto|loopback> | config set ownerListen <off|ip:port> | config set port <1024-65535> | config set phone.terminals <on|off> | config set push.relay <url> | push status [--json] | skill install"
 
 func main() {
 	if filepath.Base(os.Args[0]) == "anywhere" {
@@ -57,7 +57,7 @@ func main() {
 	case os.Args[1] == "hook" && len(os.Args) == 5 && os.Args[2] == "exit":
 		err = hookExit(sock, os.Args[3], os.Args[4])
 	case os.Args[1] == "config" && len(os.Args) == 5 && os.Args[2] == "set":
-		err = configSet(sock, os.Args[3], os.Args[4], os.Stdout)
+		err = configSet(sock, config.Home(), os.Args[3], os.Args[4], os.Stdout)
 	case os.Args[1] == "hook":
 		err = hook(sock)
 	case slices.Equal(os.Args[1:], []string{"hold"}):

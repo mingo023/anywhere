@@ -22,7 +22,7 @@ func TestAnInstallAlreadyUnderWayIsRefused(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "ssh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	m, err := Open(Paths{Home: t.TempDir(), RemoteDir: ".cp"}, func() []string { return []string{"PATH=" + bin} }, "1.2.0", "Mac")
+	m, err := openManager(t, Paths{Home: t.TempDir(), RemoteDir: ".cp"}, func() []string { return []string{"PATH=" + bin} }, "1.2.0", "Mac")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestRemovingAHostMidInstallOrSignInLeavesNoneOfItsFiles(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			env, started, release := standIn(t)
 			home := t.TempDir()
-			m, err := Open(Paths{Home: home, RemoteDir: ".cp"}, env, "1.2.0", "Mac")
+			m, err := openManager(t, Paths{Home: home, RemoteDir: ".cp"}, env, "1.2.0", "Mac")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -155,7 +155,7 @@ func TestAHostAddedAgainBeforeItsRemovalFinishesKeepsItsFiles(t *testing.T) {
 	env, started, release := standIn(t)
 	defer release()
 	home := t.TempDir()
-	m, err := Open(Paths{Home: home, RemoteDir: ".cp"}, env, "1.2.0", "Mac")
+	m, err := openManager(t, Paths{Home: home, RemoteDir: ".cp"}, env, "1.2.0", "Mac")
 	if err != nil {
 		t.Fatal(err)
 	}

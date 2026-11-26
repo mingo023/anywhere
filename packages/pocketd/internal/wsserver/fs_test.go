@@ -31,7 +31,7 @@ func withFiles(t *testing.T) (func(*Server), string, string) {
 	raw, _ := json.Marshal(registry.File{Projects: []string{root}})
 	os.WriteFile(desktop, raw, 0o644)
 	attachments := filepath.Join(base, "home", "attachments")
-	files := &fsview.Service{Registry: registry.Open(filepath.Dir(desktop)), Env: os.Environ, Attachments: attachments}
+	files := &fsview.Service{Registry: openRegistry(t, filepath.Dir(desktop)), Env: os.Environ, Attachments: attachments}
 	return func(s *Server) { s.Files = files }, root, attachments
 }
 

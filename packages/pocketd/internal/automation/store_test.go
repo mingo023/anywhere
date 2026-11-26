@@ -1,7 +1,9 @@
 package automation
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -12,7 +14,41 @@ import (
 	"time"
 
 	"pocketd/internal/proto"
+	"pocketd/internal/registry"
+	"pocketd/internal/statedb/dbtest"
 )
+
+// newDB is a database whose registry lists the projects /f and /other.
+func newDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db := dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db"))
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Insert(tx, registry.State{Projects: []proto.RegistryProject{{ID: "p1", Path: "/f"}, {ID: "p2", Path: "/other"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
+func open(t *testing.T, db *sql.DB) *Store {
+	t.Helper()
+	reg, err := registry.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(db, reg.Load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func openNew(t *testing.T) *Store { return open(t, newDB(t)) }
 
 var morning = proto.Automation{Name: "Morning review", Prompt: "Review new PRs", Provider: "claude", Folder: "/f",
 	Schedule: proto.Schedule{Kind: "days", Days: []int{1, 2, 3, 4, 5}, Time: "09:00"}, Enabled: true}
@@ -27,24 +63,21 @@ func saved(t *testing.T, s *Store, now time.Time) proto.Automation {
 }
 
 func TestWhatIsSavedLoadsBackUnchanged(t *testing.T) {
-	home := t.TempDir()
-	s := Open(home)
+	db := newDB(t)
+	s := open(t, db)
 	a := saved(t, s, at(9, 8, 0))
 	run, err := s.Begin(a.ID, at(9, 8, 5))
 	if err != nil {
 		t.Fatal(err)
 	}
-	autos, runs := Open(home).Snapshot()
+	autos, runs := open(t, db).Snapshot()
 	if !reflect.DeepEqual(autos, []proto.Automation{a}) || !slices.Equal(runs, []proto.Run{run}) {
 		t.Fatalf("got %+v %+v", autos, runs)
-	}
-	if st, _ := os.Stat(filepath.Join(home, "state", "automations.json")); st.Mode().Perm() != 0o600 {
-		t.Fatalf("mode %v", st.Mode())
 	}
 }
 
 func TestSavingGivesANewIDAndSchedulesTheNextRun(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	if a.ID == "" || a.NextRunAt != at(9, 9, 0).UnixMilli() {
 		t.Fatalf("%+v", a)
@@ -56,7 +89,7 @@ func TestSavingGivesANewIDAndSchedulesTheNextRun(t *testing.T) {
 }
 
 func TestSavingAgainReplacesTheAutomationAndKeepsItsRuns(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	s.Begin(a.ID, at(9, 8, 1))
 	a.Name, a.Schedule = "Evening review", proto.Schedule{Kind: "interval", EveryMin: 60}
@@ -71,7 +104,7 @@ func TestSavingAgainReplacesTheAutomationAndKeepsItsRuns(t *testing.T) {
 }
 
 func TestSavingRefusesWhatIsInvalidOrUnknown(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	bad := morning
 	bad.Name = " "
 	if _, err := s.Save(bad, at(9, 8, 0)); err != ErrInvalid {
@@ -85,7 +118,7 @@ func TestSavingRefusesWhatIsInvalidOrUnknown(t *testing.T) {
 }
 
 func TestAPausedAutomationHasNoNextRunUntilItIsEnabledAgain(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	if err := s.Enable(a.ID, false, at(9, 8, 1)); err != nil {
 		t.Fatal(err)
@@ -104,28 +137,8 @@ func TestAPausedAutomationHasNoNextRunUntilItIsEnabledAgain(t *testing.T) {
 	}
 }
 
-func TestABadFileIsSetAsideAndTheStoreStartsEmpty(t *testing.T) {
-	home := t.TempDir()
-	path := filepath.Join(home, "state", "automations.json")
-	for name, content := range map[string]string{"garbage": "{not json", "future": `{"version":99,"automations":[],"runs":[]}`} {
-		os.MkdirAll(filepath.Dir(path), 0o700)
-		os.Remove(path + ".bad")
-		os.WriteFile(path, []byte(content), 0o600)
-		autos, runs := Open(home).Snapshot()
-		if len(autos)+len(runs) != 0 {
-			t.Fatalf("%s: not empty", name)
-		}
-		if kept, _ := os.ReadFile(path + ".bad"); string(kept) != content {
-			t.Fatalf("%s: kept %q", name, kept)
-		}
-		if _, err := os.Stat(path); err == nil {
-			t.Fatalf("%s: the bad file is still in place", name)
-		}
-	}
-}
-
 func TestOnlyOneOfTwoClaimsOnTheSameDueTimeWins(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	due, now := time.UnixMilli(a.NextRunAt), at(9, 9, 0)
 	var wins int
@@ -151,20 +164,20 @@ func TestOnlyOneOfTwoClaimsOnTheSameDueTimeWins(t *testing.T) {
 }
 
 func TestAClaimSurvivesARestartSoTheSameDueTimeIsNotClaimedAgain(t *testing.T) {
-	home := t.TempDir()
-	s := Open(home)
+	db := newDB(t)
+	s := open(t, db)
 	a := saved(t, s, at(9, 8, 0))
 	due, now := time.UnixMilli(a.NextRunAt), at(9, 9, 0)
 	if _, ok := s.Claim(a.ID, due, now); !ok {
 		t.Fatal("first claim lost")
 	}
-	if _, ok := Open(home).Claim(a.ID, due, now); ok {
+	if _, ok := open(t, db).Claim(a.ID, due, now); ok {
 		t.Fatal("claimed twice across a restart")
 	}
 }
 
 func TestAClaimOnAPausedOrDeletedAutomationLoses(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	s.Enable(a.ID, false, at(9, 8, 1))
 	if _, ok := s.Claim(a.ID, time.UnixMilli(a.NextRunAt), at(9, 9, 0)); ok {
@@ -176,7 +189,7 @@ func TestAClaimOnAPausedOrDeletedAutomationLoses(t *testing.T) {
 }
 
 func TestAClaimLaterThanTheGraceWindowIsSkipped(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	due := time.UnixMilli(a.NextRunAt)
 	now := due.Add(Grace + time.Minute)
@@ -191,7 +204,7 @@ func TestAClaimLaterThanTheGraceWindowIsSkipped(t *testing.T) {
 
 func TestAClaimWhileARunIsActiveIsSkipped(t *testing.T) {
 	for _, status := range []string{"pending", "running", "waiting"} {
-		s := Open(t.TempDir())
+		s := openNew(t)
 		a := saved(t, s, at(9, 8, 0))
 		first, _ := s.Begin(a.ID, at(9, 8, 30))
 		s.Update(first.ID, func(r *proto.Run) { r.Status = status })
@@ -203,7 +216,7 @@ func TestAClaimWhileARunIsActiveIsSkipped(t *testing.T) {
 }
 
 func TestAClaimAfterTheLastRunFinishedStarts(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	first, _ := s.Begin(a.ID, at(9, 8, 30))
 	s.Update(first.ID, func(r *proto.Run) { r.Status = "succeeded" })
@@ -213,7 +226,7 @@ func TestAClaimAfterTheLastRunFinishedStarts(t *testing.T) {
 }
 
 func TestHistoryKeepsTheNewestFiftyRunsPerAutomation(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a, b := saved(t, s, at(9, 8, 0)), saved(t, s, at(9, 8, 0))
 	var first proto.Run
 	for i := range history + 5 {
@@ -241,7 +254,7 @@ func TestHistoryKeepsTheNewestFiftyRunsPerAutomation(t *testing.T) {
 }
 
 func TestAShorterGraceSkipsARunTheDefaultWouldStart(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	s.Grace = func() time.Duration { return time.Hour }
 	a := saved(t, s, at(9, 8, 0))
 	due := time.UnixMilli(a.NextRunAt)
@@ -251,7 +264,7 @@ func TestAShorterGraceSkipsARunTheDefaultWouldStart(t *testing.T) {
 }
 
 func TestHistoryKeepsAsManyRunsAsTheSettingSays(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	s.History = func() int { return 10 }
 	a := saved(t, s, at(9, 8, 0))
 	for i := range 12 {
@@ -264,7 +277,7 @@ func TestHistoryKeepsAsManyRunsAsTheSettingSays(t *testing.T) {
 }
 
 func TestSnapshotListsRunsNewestFirstAcrossAutomations(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a, b := saved(t, s, at(9, 8, 0)), saved(t, s, at(9, 8, 0))
 	r1, _ := s.Begin(a.ID, at(9, 8, 1))
 	r2, _ := s.Begin(b.ID, at(9, 8, 2))
@@ -281,7 +294,7 @@ func TestSnapshotListsRunsNewestFirstAcrossAutomations(t *testing.T) {
 }
 
 func TestDeletingAnAutomationDropsItsRuns(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a, b := saved(t, s, at(9, 8, 0)), saved(t, s, at(9, 8, 0))
 	s.Begin(a.ID, at(9, 8, 1))
 	kept, _ := s.Begin(b.ID, at(9, 8, 1))
@@ -298,7 +311,7 @@ func TestDeletingAnAutomationDropsItsRuns(t *testing.T) {
 }
 
 func TestRunNowIsRefusedWhileARunIsActive(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	run, err := s.Begin(a.ID, at(9, 8, 1))
 	if err != nil || run.Trigger != "manual" || run.Status != "pending" {
@@ -317,7 +330,7 @@ func TestRunNowIsRefusedWhileARunIsActive(t *testing.T) {
 }
 
 func TestRunNowLeavesTheNextScheduledRunAlone(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	s.Begin(a.ID, at(9, 8, 1))
 	if got, _ := s.Automation(a.ID); got.NextRunAt != a.NextRunAt {
@@ -326,13 +339,13 @@ func TestRunNowLeavesTheNextScheduledRunAlone(t *testing.T) {
 }
 
 func TestReconcileFailsRunsLeftPending(t *testing.T) {
-	home := t.TempDir()
-	s := Open(home)
+	db := newDB(t)
+	s := open(t, db)
 	a := saved(t, s, at(9, 8, 0))
 	pending, _ := s.Begin(a.ID, at(9, 8, 1))
 	other, _ := s.Begin(saved(t, s, at(9, 8, 0)).ID, at(9, 8, 1))
 	s.Update(other.ID, func(r *proto.Run) { r.Status = "running" })
-	s = Open(home)
+	s = open(t, db)
 	if err := s.Reconcile(at(9, 8, 5)); err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +359,7 @@ func TestReconcileFailsRunsLeftPending(t *testing.T) {
 }
 
 func TestEverySaveClosesTheChangedChannel(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	changed := s.Changed()
 	select {
 	case <-changed:
@@ -369,22 +382,28 @@ func TestEverySaveClosesTheChangedChannel(t *testing.T) {
 }
 
 func TestAFailedSaveLeavesTheStoreAsItWas(t *testing.T) {
-	home := t.TempDir()
-	s := Open(home)
+	db := newDB(t)
+	s := open(t, db)
 	a := saved(t, s, at(9, 8, 0))
-	dir := filepath.Join(home, "state")
-	os.Chmod(dir, 0o500)
-	t.Cleanup(func() { os.Chmod(dir, 0o700) })
-	if _, err := s.Save(morning, at(9, 8, 0)); err == nil {
-		t.Skip("the folder is writable anyway")
+	elsewhere := morning
+	elsewhere.Folder = "/nowhere"
+	if _, err := s.Save(elsewhere, at(9, 8, 0)); !errors.Is(err, registry.ErrUnknownProject) {
+		t.Fatalf("got %v", err)
 	}
-	if autos, _ := s.Snapshot(); len(autos) != 1 || !reflect.DeepEqual(autos[0], a) {
-		t.Fatalf("%+v", autos)
+	moved := a
+	moved.Folder = "/nowhere"
+	if _, err := s.Save(moved, at(9, 8, 0)); !errors.Is(err, registry.ErrUnknownProject) {
+		t.Fatalf("moving it: %v", err)
+	}
+	for _, store := range []*Store{s, open(t, db)} {
+		if autos, _ := store.Snapshot(); len(autos) != 1 || !reflect.DeepEqual(autos[0], a) {
+			t.Fatalf("%+v", autos)
+		}
 	}
 }
 
 func TestAWebhookOnlyAutomationNeverRunsOnATimer(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	hook := morning
 	hook.Schedule, hook.Webhook = proto.Schedule{Kind: "webhook"}, true
 	a, err := s.Save(hook, at(9, 8, 0))
@@ -401,21 +420,148 @@ func TestAWebhookOnlyAutomationNeverRunsOnATimer(t *testing.T) {
 	}
 }
 
-func TestAWebhookSecretSurvivesARestartInTheFileButNotOnTheWire(t *testing.T) {
-	home := t.TempDir()
-	s := Open(home)
+func TestAWebhookSecretSurvivesARestartButNotOnTheWire(t *testing.T) {
+	db := newDB(t)
+	s := open(t, db)
 	hook := morning
 	hook.Schedule, hook.Webhook, hook.WebhookSecret = proto.Schedule{Kind: "webhook"}, true, "s3cret"
 	a, err := s.Save(hook, at(9, 8, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
-	reopened, ok := Open(home).Automation(a.ID)
+	reopened, ok := open(t, db).Automation(a.ID)
 	if !ok || reopened.WebhookSecret != "s3cret" {
 		t.Fatalf("the secret did not survive: %+v", reopened)
 	}
 	raw, _ := json.Marshal(proto.NewAutomations([]proto.Automation{reopened}, nil))
 	if strings.Contains(string(raw), "s3cret") {
 		t.Fatalf("the secret is on the wire: %s", raw)
+	}
+}
+
+func TestAnAutomationInAWorktreeKeepsItsFolderAcrossARestart(t *testing.T) {
+	home := t.TempDir()
+	repo, tree := filepath.Join(home, "repo"), filepath.Join(home, "repo-wt")
+	gitdir := filepath.Join(repo, ".git", "worktrees", "wt")
+	for _, dir := range []string{gitdir, tree} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(gitdir, "commondir"), []byte("../.."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tree, ".git"), []byte("gitdir: "+gitdir), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db := dbtest.Open(t, filepath.Join(home, "pocketd.db"))
+	reg, err := registry.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.AddProject(repo, nil); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(db, reg.Load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inTree, inRepo := morning, morning
+	inTree.Folder, inRepo.Folder = tree, repo
+	for _, a := range []proto.Automation{inTree, inRepo} {
+		if _, err := s.Save(a, at(9, 8, 0)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reopened, err := Open(db, reg.Load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	autos, _ := reopened.Snapshot()
+	if len(autos) != 2 || autos[0].Folder != tree || autos[1].Folder != repo {
+		t.Fatalf("got %+v", autos)
+	}
+}
+
+func TestEveryAutomationAndRunSurvivesARestartInOrder(t *testing.T) {
+	db := newDB(t)
+	s := open(t, db)
+	s.History = func() int { return 2 }
+	first := saved(t, s, at(9, 8, 0))
+	other := morning
+	other.Folder, other.Bound = "/other", "ag1"
+	second, err := s.Save(other, at(9, 8, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 3 {
+		run, err := s.Begin(first.ID, at(9, 8, 1+i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.Update(run.ID, func(r *proto.Run) { r.Status, r.TurnAfter, r.TurnPrompt, r.TurnEntry = "succeeded", 7, "p", "q_1" })
+	}
+	if _, err := s.Begin(second.ID, at(9, 8, 9)); err != nil {
+		t.Fatal(err)
+	}
+	wantAutos, wantRuns := s.Snapshot()
+	gotAutos, gotRuns := open(t, db).Snapshot()
+	if len(wantRuns) != 3 || !reflect.DeepEqual(gotAutos, wantAutos) || !reflect.DeepEqual(gotRuns, wantRuns) {
+		t.Fatalf("got %+v %+v\nwant %+v %+v", gotAutos, gotRuns, wantAutos, wantRuns)
+	}
+}
+
+func TestDeletingAnAutomationDeletesItsRunsAndNoOthers(t *testing.T) {
+	db := newDB(t)
+	s := open(t, db)
+	a, b := saved(t, s, at(9, 8, 0)), saved(t, s, at(9, 8, 0))
+	s.Begin(a.ID, at(9, 8, 1))
+	keep, _ := s.Begin(b.ID, at(9, 8, 1))
+	if err := s.Delete(a.ID); err != nil {
+		t.Fatal(err)
+	}
+	autos, runs := open(t, db).Snapshot()
+	if len(autos) != 1 || autos[0].ID != b.ID || len(runs) != 1 || runs[0].ID != keep.ID {
+		t.Fatalf("got %+v %+v", autos, runs)
+	}
+}
+
+func TestRemovingAProjectDropsItsAutomationsAndRunsAndWakesWhoWatches(t *testing.T) {
+	db := newDB(t)
+	reg, err := registry.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(db, reg.Load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg.OnRemove(func(string) { s.Reload() })
+	a := saved(t, s, at(9, 8, 0))
+	elsewhere := morning
+	elsewhere.Folder = "/other"
+	b, err := s.Save(elsewhere, at(9, 8, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Begin(a.ID, at(9, 8, 1))
+	keep, _ := s.Begin(b.ID, at(9, 8, 1))
+	changed := s.Changed()
+	if err := reg.RemoveProject("/f"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-changed:
+	default:
+		t.Fatal("watchers weren't told")
+	}
+	autos, runs := s.Snapshot()
+	if len(autos) != 1 || autos[0].ID != b.ID || len(runs) != 1 || runs[0].ID != keep.ID {
+		t.Fatalf("got %+v %+v", autos, runs)
+	}
+	var n int
+	db.QueryRow(`SELECT (SELECT COUNT(*) FROM automations) + (SELECT COUNT(*) FROM runs)`).Scan(&n)
+	if n != 2 {
+		t.Fatalf("%d rows", n)
 	}
 }

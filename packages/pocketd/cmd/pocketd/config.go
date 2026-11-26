@@ -12,10 +12,13 @@ import (
 	"time"
 
 	"pocketd/internal/config"
+	"pocketd/internal/daemon"
 	"pocketd/internal/launch"
+	"pocketd/internal/lock"
 	"pocketd/internal/ops"
 	"pocketd/internal/providers"
 	"pocketd/internal/reach"
+	"pocketd/internal/statedb"
 )
 
 // hookExit reports a create wrapper's setup or agent exit. Like hook, it
@@ -46,10 +49,14 @@ func hookExit(sock, phase, status string) error {
 	return nil
 }
 
-func configSet(sock, key, value string, out io.Writer) error {
+func configSet(sock, home, key, value string, out io.Writer) error {
 	c, err := ops.Dial(sock)
 	if err != nil {
-		return fmt.Errorf("pocketd isn't running: %w", err)
+		if err := configSetStopped(home, key, value); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "%s = %s\n", key, value)
+		return nil
 	}
 	defer c.Close()
 	if err := c.Send(ops.Msg{Op: "config-set", Key: key, Text: value}); err != nil {
@@ -64,6 +71,39 @@ func configSet(sock, key, value string, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "%s = %s\n", key, value)
 	return nil
+}
+
+// configSetStopped writes key with no pocketd running, so a setting that keeps it from starting can be
+// repaired. Holding pocketd.lock keeps one from starting meanwhile: the database still has one writer.
+func configSetStopped(home, key, value string) error {
+	held, err := lock.Acquire(home)
+	if err != nil {
+		return err
+	}
+	defer held.Close()
+	db, err := statedb.Open(home)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	settings, err := config.NewSettings(db)
+	if err != nil {
+		return err
+	}
+	switch key {
+	case "listen":
+		if err := config.ParseListen(value); err != nil {
+			return err
+		}
+		return settings.SetListen(value)
+	case "port":
+		n, err := config.ParsePort(value)
+		if err != nil {
+			return err
+		}
+		return settings.SetPort(n)
+	}
+	return configSetter(launch.New(&daemon.Daemon{}, nil, settings, nil), settings, func() {})(key, value)
 }
 
 // networkSetter applies listen and port to the phone listener before saving
@@ -99,7 +139,7 @@ func networkSetter(phones *atomic.Pointer[reach.Listener], settings *config.Sett
 				phones.Store(next)
 			}
 			if err := settings.SetPort(n); err != nil {
-				// Unsaved, the new port would last only until pocketd restarts, so go back to the one config.json names.
+				// Unsaved, the new port would last only until pocketd restarts, so go back to the one the config names.
 				if back, moveErr := phones.Load().Move(old); moveErr == nil {
 					phones.Store(back)
 				}

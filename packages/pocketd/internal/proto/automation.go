@@ -101,7 +101,7 @@ type Automation struct {
 	Webhook bool `json:"webhook,omitempty"`
 	// WebhookURL is where Webhook listens; the server fills it in for clients, and it isn't stored.
 	WebhookURL string `json:"webhookUrl,omitempty"`
-	// WebhookSecret never goes to a client; the store keeps it in automations.json beside the automation.
+	// Never sent to clients.
 	WebhookSecret string `json:"-"`
 }
 
@@ -129,7 +129,7 @@ type Run struct {
 	Access   string `json:"access,omitempty"`
 	Worktree string `json:"worktree,omitempty"`
 	// TurnAfter is the bound session's timeline seq before the run's prompt went into it, zero for a run in a new
-	// session. It never goes to a client; the store keeps it in automations.json beside the run.
+	// session. Never sent to clients.
 	TurnAfter int64 `json:"-"`
 	// TurnPrompt is the run's prompt, and TurnEntry its queue entry when it queued behind the session's other
 	// messages, kept like TurnAfter.

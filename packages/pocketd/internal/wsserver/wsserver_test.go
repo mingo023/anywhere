@@ -17,16 +17,16 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/broker"
-	"pocketd/internal/config"
+	"pocketd/internal/config/configtest"
 	"pocketd/internal/devices"
 	"pocketd/internal/events"
 	"pocketd/internal/host"
 	"pocketd/internal/hub"
 	"pocketd/internal/launch"
-	"pocketd/internal/names"
 	"pocketd/internal/pairing"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
+	"pocketd/internal/statedb/dbtest"
 	"pocketd/internal/terminal"
 	"pocketd/internal/timeline"
 )
@@ -74,7 +74,7 @@ func setup(t *testing.T, opts ...func(*Server)) (*agent.Registry, *fakeDriver, *
 	reg := agent.NewRegistry(h)
 	d := &fakeDriver{}
 	reg.Add("a1", "/w", "claude", d)
-	devs, err := devices.Open(filepath.Join(t.TempDir(), "devices.json"), "tok")
+	devs, err := devices.Open(dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db")), "tok")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +369,7 @@ func TestTheGoldenPromptInterruptCompactAndSettingsReachTheDriver(t *testing.T) 
 }
 
 func withMaxAccess(t *testing.T, maxAccess string) func(*Server) {
-	set := config.NewSettings(t.TempDir())
+	set := configtest.Settings(t)
 	if err := set.SetPhoneMaxAccess(maxAccess); err != nil {
 		t.Fatal(err)
 	}
@@ -942,7 +942,7 @@ func TestAnEmptyRegistryListsNoProjects(t *testing.T) {
 const helloWithNames = `{"type":"hello","id":"h","token":"tok","clientId":"c","protocolVersion":3,"caps":["names.v1"]}`
 
 func TestANamesClientGetsEveryNameThenEachRename(t *testing.T) {
-	n := names.Open(t.TempDir())
+	n := openNames(t)
 	n.Rename("/w/a", "First")
 	_, _, p := local(t, peer.OwnerOf(1), func(s *Server) { s.Names = n })
 	p.send(helloWithNames)
@@ -966,7 +966,7 @@ func TestANamesClientGetsEveryNameThenEachRename(t *testing.T) {
 }
 
 func TestAClientWithoutTheNamesCapGetsNoNames(t *testing.T) {
-	n := names.Open(t.TempDir())
+	n := openNames(t)
 	_, _, old := setup(t, func(s *Server) { s.Names = n })
 	old.hello()
 	n.Rename("/w/a", "First")

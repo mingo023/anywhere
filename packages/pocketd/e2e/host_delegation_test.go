@@ -65,7 +65,7 @@ func hostAgent(t *testing.T, host *Harness, tagged string) (proto.AgentSummary, 
 func TestADelegationToALinkedHostCompletesWithTheDesktopDisconnected(t *testing.T) {
 	mac, host := linkedHost(t)
 	mac.Restart()
-	// Only to see the link back up from hosts.json: no owner is connected once the parent delegates.
+	// Only to see the link back up from the saved hosts: no owner is connected once the parent delegates.
 	watch := mac.Owner(proto.CapHosts)
 	waitLink(watch, "devbox", proto.LinkOnline, "")
 	watch.ws.CloseNow()

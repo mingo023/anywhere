@@ -87,6 +87,9 @@ func (u *upgrader) run() error {
 	if u.handover != nil {
 		u.handover()
 	}
+	// The exec ends every goroutine of this pocketd at once, so the next one, in this pid, opens and imports
+	// the state with nothing of this one left writing. --version and handoff --check, the only runs of the
+	// new binary beside this one, touch no state.
 	err = syscall.Exec(u.exe, []string{u.exe, "serve", "--handoff", path}, os.Environ())
 	if u.resume != nil {
 		u.resume()

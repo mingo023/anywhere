@@ -94,7 +94,7 @@ type Server struct {
 	Retitle func(match func(terminal.Info) bool, title string)
 	// Owners are the tokens a TCP peer sends in hello's ownerToken to become the owner.
 	Owners *owners.Store
-	// Settings are the owner's choices in config.json; nil takes only phone.maxAccess in config.set.
+	// Settings are the owner's choices in the config table; nil takes only phone.maxAccess in config.set.
 	Settings *config.Settings
 
 	// The phone areas of protocol.md, each typed in its own file.

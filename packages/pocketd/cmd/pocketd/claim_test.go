@@ -17,26 +17,52 @@ import (
 	"pocketd/internal/orch"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
+	"pocketd/internal/statedb"
+	"pocketd/internal/statedb/dbtest"
 	"pocketd/internal/terminal"
 	"pocketd/internal/worktree"
 )
 
 func TestTheFoldersOnRecordAreNamedWorktreesTicketsAndRunsWorktreesAndTerminalsFolders(t *testing.T) {
-	home, now := t.TempDir(), time.Now()
-	named := names.Open(home)
+	now := time.Now()
+	db := dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db"))
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Insert(tx, registry.State{Projects: []proto.RegistryProject{{ID: "p1", Path: "/repo"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := registry.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	named, err := names.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
 	named.Rename("/wt/named", "Fix login")
 	terminals := terminal.NewManager()
 	t.Cleanup(func() { terminals.CloseAll(0) })
 	if _, err := terminals.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: t.TempDir()}); err != nil {
 		t.Fatal(err)
 	}
-	tickets := board.Open(home)
+	tickets, err := board.Open(db, reg.Load)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ticket, err := tickets.Save(proto.Ticket{Title: "Fix", Prompt: "fix", Provider: "claude", Folder: "/repo"}, false, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	tickets.Update(ticket.ID, func(x *proto.Ticket) { x.Worktree = "/wt/ticket" })
-	autos := automation.Open(home)
+	autos, err := automation.Open(db, reg.Load)
+	if err != nil {
+		t.Fatal(err)
+	}
 	auto, err := autos.Save(proto.Automation{Name: "Review", Prompt: "review", Provider: "claude", Folder: "/repo",
 		Schedule: proto.Schedule{Kind: "days", Days: []int{1}, Time: "09:00"}, Enabled: true}, now)
 	if err != nil {
@@ -57,7 +83,7 @@ func TestTheFoldersOnRecordAreNamedWorktreesTicketsAndRunsWorktreesAndTerminalsF
 
 func TestWorktreesOnRecordAreClaimedTheFirstTimeOnly(t *testing.T) {
 	p := scratch(t)
-	f := registry.Open(config.Home()).Load()
+	f := openRegistry(t, config.Home()).Load()
 	early, late := filepath.Join(worktree.Dir(f, p), "early"), filepath.Join(worktree.Dir(f, p), "late")
 	for _, w := range []string{early, late} {
 		if out, err := exec.Command("git", "-C", p, "worktree", "add", "-q", "-b", filepath.Base(w), w).CombinedOutput(); err != nil {
@@ -78,7 +104,7 @@ func TestWorktreesOnRecordAreClaimedTheFirstTimeOnly(t *testing.T) {
 
 func TestTheWorktreesAgentsMadeBeforeAreClaimedOnceAndCleanedUp(t *testing.T) {
 	p := scratch(t)
-	reg := registry.Open(config.Home())
+	reg := openRegistry(t, config.Home())
 	add := func(name string) string {
 		c, err := worktree.Add(reg.Load(), p, name, "")
 		if err != nil {
@@ -105,4 +131,18 @@ func TestTheWorktreesAgentsMadeBeforeAreClaimedOnceAndCleanedUp(t *testing.T) {
 	if len(reaped) != 2 || slices.Contains(reg.Load().AgentWorktrees, later) {
 		t.Fatal("claimed a second time")
 	}
+}
+
+func openRegistry(t *testing.T, home string) *registry.Registry {
+	t.Helper()
+	db, err := statedb.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	r, err := registry.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
 }

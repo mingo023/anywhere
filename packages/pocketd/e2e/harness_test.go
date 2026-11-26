@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -25,6 +26,7 @@ import (
 	"pocketd/internal/holder"
 	"pocketd/internal/ops"
 	"pocketd/internal/registry"
+	"pocketd/internal/statedb"
 )
 
 var binDir string
@@ -66,6 +68,7 @@ type Harness struct {
 	OwnerPort int
 	ownerTCP  bool
 	resume    bool
+	started   bool
 	Token     string
 	Env       []string
 	Repo      string
@@ -167,17 +170,8 @@ func (h *Harness) Restart() {
 // serve starts pocketd on a free port and reports whether it came up.
 func (h *Harness) serve() bool {
 	log := &bytes.Buffer{}
-	h.Port, h.log = freePort(h.t), log
-	// resumeAgents is off unless a test asks: a resumed agent would run from the login shell's PATH, where the real claude is.
-	owner := ""
-	if h.ownerTCP {
-		h.OwnerPort = freePort(h.t)
-		owner = fmt.Sprintf(`,"ownerListen":"127.0.0.1:%d"`, h.OwnerPort)
-	}
-	config := fmt.Sprintf(`{"token":%q,"port":%d,"listen":"loopback","restore":{"resumeAgents":%t}%s}`, h.Token, h.Port, h.resume, owner)
-	if err := os.WriteFile(filepath.Join(h.Home, "config.json"), []byte(config), 0o600); err != nil {
-		h.t.Fatal(err)
-	}
+	h.log = log
+	h.writeConfig()
 	cmd := exec.Command(cmp.Or(h.exe, filepath.Join(binDir, "pocketd")), "serve")
 	cmd.Env = h.Env
 	cmd.Stdout, cmd.Stderr = log, log
@@ -213,7 +207,36 @@ func (h *Harness) serve() bool {
 	case <-exited:
 		return false
 	default:
+		h.started = true
 		return true
+	}
+}
+
+// writeConfig gives pocketd its settings. config.json is only read on a first start, which imports it into
+// pocketd.db, so a start that failed on its port begins again from nothing, and a later start, with no pocketd
+// running, changes the one setting a test may change in between.
+func (h *Harness) writeConfig() {
+	h.t.Helper()
+	if h.started {
+		// A pocketd from before pocketd.db made none; its config.json still holds what the first start wrote.
+		if _, err := os.Stat(statedb.Path(h.Home)); err == nil {
+			setConfigRow(h.t, h, "restore.resumeAgents", strconv.FormatBool(h.resume))
+		}
+		return
+	}
+	for _, f := range []string{"", "-wal", "-shm"} {
+		os.Remove(statedb.Path(h.Home) + f)
+	}
+	h.Port = freePort(h.t)
+	// resumeAgents is off unless a test asks: a resumed agent would run from the login shell's PATH, where the real claude is.
+	owner := ""
+	if h.ownerTCP {
+		h.OwnerPort = freePort(h.t)
+		owner = fmt.Sprintf(`,"ownerListen":"127.0.0.1:%d"`, h.OwnerPort)
+	}
+	config := fmt.Sprintf(`{"token":%q,"port":%d,"listen":"loopback","restore":{"resumeAgents":%t}%s}`, h.Token, h.Port, h.resume, owner)
+	if err := os.WriteFile(filepath.Join(h.Home, "config.json"), []byte(config), 0o600); err != nil {
+		h.t.Fatal(err)
 	}
 }
 

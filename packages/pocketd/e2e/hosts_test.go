@@ -15,6 +15,7 @@ import (
 	"pocketd/internal/hosts"
 	"pocketd/internal/ops"
 	"pocketd/internal/proto"
+	"pocketd/internal/statedb"
 )
 
 // fakeSSH makes pocketd's ssh, in its login env too, e2e/fakessh reaching as its host whatever h.Home/remote leads to.
@@ -189,8 +190,8 @@ func TestRemovingAHostClosesItsTunnelAndForgetsItsFiles(t *testing.T) {
 			t.Errorf("%s is still there", f)
 		}
 	}
-	if saved, err := hosts.Load(mac.Home); err != nil || len(saved) != 0 {
-		t.Fatalf("hosts.json holds %+v %v", saved, err)
+	if saved, err := savedHosts(mac.Home); err != nil || len(saved) != 0 {
+		t.Fatalf("pocketd.db holds %+v %v", saved, err)
 	}
 }
 
@@ -294,4 +295,14 @@ func TestRemovingAHostFailsTheTasksRunningThereAndWakesTheirParent(t *testing.T)
 	if task := settledAndWoken(mac, phone, parent, "failed"); !strings.Contains(task.Error, "devbox") {
 		t.Fatalf("task = %+v", task)
 	}
+}
+
+// savedHosts is the hosts pocketd.db holds, read as the CLI reads it, beside the running daemon.
+func savedHosts(home string) ([]hosts.Host, error) {
+	db, err := statedb.OpenReadOnly(home)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	return hosts.Load(db)
 }

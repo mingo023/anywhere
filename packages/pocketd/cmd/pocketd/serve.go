@@ -57,6 +57,7 @@ import (
 	"pocketd/internal/shellenv"
 	"pocketd/internal/skills"
 	"pocketd/internal/state"
+	"pocketd/internal/statedb"
 	"pocketd/internal/terminal"
 	"pocketd/internal/workspace"
 	"pocketd/internal/worktree"
@@ -102,6 +103,11 @@ func serve(sock, handed string) error {
 	case home != legacy:
 		log.Printf("home: moved %s to %s", legacy, home)
 	}
+	db, err := statedb.Open(home)
+	if err != nil {
+		return fmt.Errorf("pocketd.db: %w", err)
+	}
+	defer db.Close()
 	started := time.Now()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
@@ -133,11 +139,11 @@ func serve(sock, handed string) error {
 		evs.Emit(events.Event{Kind: "stop", Reason: reason})
 	}()
 
-	devs, err := devices.Open(filepath.Join(home, "devices.json"), "")
+	devs, err := devices.Open(db, "")
 	if err != nil {
-		return fmt.Errorf("devices.json unreadable: %v. Move it away to reset pairing.", err)
+		return fmt.Errorf("devices: %w", err)
 	}
-	cfg, err := config.Load(devs.EnsureLegacy)
+	cfg, err := config.Load(db, devs.EnsureLegacy)
 	if err != nil {
 		return err
 	}
@@ -145,7 +151,10 @@ func serve(sock, handed string) error {
 	if err != nil {
 		return err
 	}
-	reg := registry.Open(home)
+	reg, err := registry.Open(db)
+	if err != nil {
+		return err
+	}
 	h := hub.New()
 	d := &daemon.Daemon{
 		Terminals: terminal.NewManager(),
@@ -166,12 +175,15 @@ func serve(sock, handed string) error {
 	mon := host.NewMonitor()
 	kick := make(chan struct{}, 1)
 	hostname, _ := os.Hostname()
-	pushes, err := push.Open(push.Path(home))
+	pushes, err := push.Open(db)
 	if err != nil {
-		log.Printf("push.json: %v; no phone is registered for pushes", err)
+		log.Printf("push: %v; no phone is registered for pushes", err)
 	}
 	notifier := &push.Notifier{Store: pushes, Agents: d.Agents, Broker: d.Broker, Mac: hostname, Events: evs}
-	settings := config.NewSettings(home)
+	settings, err := config.NewSettings(db)
+	if err != nil {
+		return err
+	}
 	o, err := openOrchestrator(home, settings, d.Agents, h, inherited.MCPFD)
 	if err != nil {
 		return fmt.Errorf("orchestrator.db: %w", err)
@@ -200,7 +212,7 @@ func serve(sock, handed string) error {
 	}
 	d.Terminals.OnInput = d.Input
 	d.Terminals.OnReport = d.Report
-	hostID, err := state.HostID(home)
+	hostID, err := state.HostID(db)
 	if err != nil {
 		return err
 	}
@@ -218,7 +230,10 @@ func serve(sock, handed string) error {
 		}
 		return "", false
 	}
-	worktreeNames := names.Open(home)
+	worktreeNames, err := names.Open(db)
+	if err != nil {
+		return err
+	}
 	l := launch.New(d, reg, settings, evs)
 	d.Accounts.Agy = func() (string, []string, bool) {
 		env := d.LoginEnv()
@@ -235,7 +250,10 @@ func serve(sock, handed string) error {
 	}
 	d.MCPCodex = o.host.CodexConfig
 	d.MCPServers = o.host.ACPServers
-	localStore := locals.Open(home)
+	localStore, err := locals.Open(db, reg.Load)
+	if err != nil {
+		return err
+	}
 	l.Locals = localStore
 	d.OnPrompt = l.Prompted
 	if settings.ResumeAgents() {
@@ -253,7 +271,10 @@ func serve(sock, handed string) error {
 			watch = &selfWatch{exe: exe, sum: sum, seen: st, now: time.Now}
 		}
 	}
-	autos := automation.Open(home)
+	autos, err := automation.Open(db, reg.Load)
+	if err != nil {
+		return err
+	}
 	autos.Grace, autos.History = settings.AutomationGrace, settings.AutomationHistory
 	scheduler := &automation.Scheduler{Store: autos, Now: time.Now, Watch: automation.AgentWatcher(d.Agents),
 		Post: postBound(d.Agents, o.engine),
@@ -267,7 +288,11 @@ func serve(sock, handed string) error {
 			a, _ := autos.Automation(r.AutomationID)
 			notifier.Automation(r, a.Name)
 		}}
-	tickets := board.Open(home)
+	tickets, err := board.Open(db, reg.Load)
+	if err != nil {
+		return err
+	}
+	reloadOnRemove(reg, localStore, tickets, autos)
 	boardScheduler := &board.Scheduler{Store: tickets, Now: time.Now, Watch: board.AgentWatcher(d.Agents),
 		Start: func(requestID string, t proto.Ticket, created func(string)) launch.Result {
 			return l.Create(launch.Who{Owner: true, Key: "board:" + t.ID}, requestID, board.Spec(t, requestID), func(string, string) {}, func(c launch.Creating) { created(c.Cwd) })
@@ -280,7 +305,7 @@ func serve(sock, handed string) error {
 	o.host.Sched = schedules{store: autos, scheduler: scheduler}
 	o.server.Hooks = hooks(schedules{store: autos, scheduler: scheduler})
 	ws := &wsserver.Server{Orch: o.engine, Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Board: tickets, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv), Skills: skillStore}
-	if hm := openHosts(ctx, home, d.LoginEnv, ws.MacName, mirror{o}); hm != nil {
+	if hm := openHosts(ctx, db, home, d.LoginEnv, ws.MacName, mirror{o}); hm != nil {
 		ws.Hosts = &wsserver.Hosts{Manager: hm}
 		o.host.Hosts, o.host.Envs = hm, environments{hm, o.host.Registry}
 	}

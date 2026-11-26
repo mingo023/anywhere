@@ -1,13 +1,12 @@
 package config
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net"
 	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -17,7 +16,6 @@ import (
 	"time"
 	"unicode"
 
-	"pocketd/internal/atomicfile"
 	"pocketd/internal/proto"
 	"pocketd/internal/providers"
 )
@@ -29,31 +27,28 @@ var (
 
 const DefaultPushRelay = "https://push.getanywhere.dev"
 
-// Settings are the owner's choices in config.json.
+// Only the daemon writes it, so the copy in memory is current.
 type Settings struct {
 	// Changed, when set before use, hears each key Set saves.
 	Changed func(key string)
-	path    string
+	db      *sql.DB
 	mu      sync.Mutex
+	rows    map[string]string
 }
 
-func NewSettings(home string) *Settings {
-	return &Settings{path: filepath.Join(home, "config.json")}
+func NewSettings(db *sql.DB) (*Settings, error) {
+	rows, err := readRows(db)
+	if err != nil {
+		return nil, err
+	}
+	return &Settings{db: db, rows: rows}, nil
 }
 
 // PhoneMaxAccess is "ask" when unset or not a phone access.
 func (s *Settings) PhoneMaxAccess() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var f struct {
-		Phone struct {
-			MaxAccess string `json:"maxAccess"`
-		} `json:"phone"`
-	}
-	raw, _ := os.ReadFile(s.path)
-	json.Unmarshal(raw, &f)
-	if slices.Contains(proto.PhoneAccesses, f.Phone.MaxAccess) {
-		return f.Phone.MaxAccess
+	v := ""
+	if s.get("phone", "maxAccess", &v) && slices.Contains(proto.PhoneAccesses, v) {
+		return v
 	}
 	return "ask"
 }
@@ -95,16 +90,9 @@ func ValidRelay(v string) error {
 
 // ResumeAgents is true unless restore.resumeAgents is false.
 func (s *Settings) ResumeAgents() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var f struct {
-		Restore struct {
-			ResumeAgents *bool `json:"resumeAgents"`
-		} `json:"restore"`
-	}
-	raw, _ := os.ReadFile(s.path)
-	json.Unmarshal(raw, &f)
-	return f.Restore.ResumeAgents == nil || *f.Restore.ResumeAgents
+	on := true
+	s.get("restore", "resumeAgents", &on)
+	return on
 }
 
 func (s *Settings) SetResumeAgents(on bool) error { return s.set("restore", "resumeAgents", on) }
@@ -152,7 +140,6 @@ func (s *Settings) command(provider string) string {
 	return ""
 }
 
-// AgentCommand is what starts provider: its command in config.json, else its own.
 func (s *Settings) AgentCommand(provider string) string {
 	if cmd := s.command(provider); cmd != "" {
 		return cmd
@@ -193,7 +180,7 @@ func (s *Settings) Values() map[string]any {
 	return v
 }
 
-// Listen is where phones reach pocketd: "auto" (loopback and the tailnet) unless config.json says "loopback".
+// Listen is where phones reach pocketd: "auto" (loopback and the tailnet) unless the config says "loopback".
 func (s *Settings) Listen() string {
 	mode := "auto"
 	if s.get("", "listen", &mode) && mode != "loopback" {
@@ -213,7 +200,6 @@ func (s *Settings) MCPPort() int { return s.number("mcp", "port", 0, 1024, 65535
 
 func (s *Settings) SetMCPPort(n int) error { return s.set("mcp", "port", n) }
 
-// Port is the phone port in config.json, DefaultPort when unset.
 func (s *Settings) Port() int { return s.number("", "port", DefaultPort(), 1024, 65535) }
 
 // ParseListen checks a "listen" value for config-set.
@@ -259,6 +245,11 @@ func (s *Settings) parseAndSet(key, value string) error {
 		}
 		section, name, _ := strings.Cut(key, ".")
 		return s.set(section, name, on)
+	case "ownerListen":
+		if _, err := ownerListen(value); err != nil {
+			return err
+		}
+		return s.set("", "ownerListen", value)
 	case "phone.terminals":
 		if value != "on" && value != "off" {
 			return errors.New("phone.terminals is on or off")
@@ -321,42 +312,26 @@ func (s *Settings) number(section, key string, def, lo, hi int) int {
 func (s *Settings) get(section, key string, v any) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var top, inner map[string]json.RawMessage
-	raw, _ := os.ReadFile(s.path)
-	json.Unmarshal(raw, &top)
-	if inner = top; section != "" {
-		inner = nil
-		json.Unmarshal(top[section], &inner)
-	}
-	p, ok := inner[key]
-	return ok && json.Unmarshal(p, v) == nil
+	raw, ok := s.rows[name(section, key)]
+	return ok && json.Unmarshal([]byte(raw), v) == nil
 }
 
-// set writes section.key, or a top-level key when section is "", keeping every other key in the file.
+// set writes section.key, or a top-level key when section is "", leaving every other row as it is.
 func (s *Settings) set(section, key string, v any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	top, inner := map[string]json.RawMessage{}, map[string]json.RawMessage{}
-	raw, err := os.ReadFile(s.path)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+	n := name(section, key)
+	raw, _ := json.Marshal(v)
+	if _, err := s.db.Exec(`INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, n, string(raw)); err != nil {
 		return err
 	}
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &top); err != nil {
-			return err
-		}
-	}
+	s.rows[n] = string(raw)
+	return nil
+}
+
+func name(section, key string) string {
 	if section == "" {
-		top[key], _ = json.Marshal(v)
-	} else {
-		if p, ok := top[section]; ok {
-			if err := json.Unmarshal(p, &inner); err != nil {
-				return err
-			}
-		}
-		inner[key], _ = json.Marshal(v)
-		top[section], _ = json.Marshal(inner)
+		return key
 	}
-	out, _ := json.MarshalIndent(top, "", "  ")
-	return atomicfile.Write(s.path, append(out, '\n'), 0o600)
+	return section + "." + key
 }

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"pocketd/internal/ops"
@@ -96,18 +97,9 @@ func TestAnUpgradeKeepsTheMCPPortAndAChildLaunchedBeforeItStillCallsATool(t *tes
 
 func mcpPort(t *testing.T, h *Harness) int {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(h.Home, "config.json"))
-	if err != nil {
-		t.Fatal(err)
+	port, _ := strconv.Atoi(configRow(t, h, "mcp.port"))
+	if port == 0 {
+		t.Fatal("no MCP port saved in pocketd.db")
 	}
-	var cfg struct {
-		MCP struct {
-			Port int `json:"port"`
-		} `json:"mcp"`
-	}
-	json.Unmarshal(raw, &cfg)
-	if cfg.MCP.Port == 0 {
-		t.Fatalf("no MCP port saved in %s", raw)
-	}
-	return cfg.MCP.Port
+	return port
 }

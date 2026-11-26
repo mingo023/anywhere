@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"pocketd/internal/hosts"
 	"pocketd/internal/proto"
 )
 
@@ -47,14 +46,14 @@ func TestUnlinkRefusesAHostWithATaskRunningThere(t *testing.T) {
 	phone.Prompt(parent, `mcp anywhere_environment_unlink {"environmentId":"devbox"}`)
 
 	phone.WaitFor("the refusal", saysAbout(parent, "conflict", "run on devbox"))
-	if saved, err := hosts.Load(mac.Home); err != nil || len(saved) != 1 {
+	if saved, err := savedHosts(mac.Home); err != nil || len(saved) != 1 {
 		t.Fatalf("hosts after the refusal: %+v %v", saved, err)
 	}
 	phone.Prompt(parent, `mcp task_cancel {"taskId":"`+task.TaskID+`"}`)
 	hostTask(mac, phone, parent, 1, "cancelled")
 	phone.Prompt(parent, `mcp anywhere_environment_unlink {"environmentId":"devbox"}`)
 	phone.WaitFor("the unlink", saysAbout(parent, `"removed":true`))
-	if saved, err := hosts.Load(mac.Home); err != nil || len(saved) != 0 {
+	if saved, err := savedHosts(mac.Home); err != nil || len(saved) != 0 {
 		t.Fatalf("hosts after the unlink: %+v %v", saved, err)
 	}
 }

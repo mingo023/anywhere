@@ -16,6 +16,7 @@ import (
 	"github.com/coder/websocket"
 
 	"pocketd/internal/config"
+	"pocketd/internal/config/configtest"
 	"pocketd/internal/devices"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
@@ -103,7 +104,7 @@ func TestAPhoneVerbIsCheckedForScopeBeforeItsCap(t *testing.T) {
 }
 
 func withSettings(t *testing.T, set func(*config.Settings)) func(*Server) {
-	s := config.NewSettings(t.TempDir())
+	s := configtest.Settings(t)
 	set(s)
 	return func(srv *Server) { srv.Settings = s }
 }

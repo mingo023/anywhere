@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"pocketd/internal/registry"
+	"pocketd/internal/statedb"
 )
 
 // TestMain pins git's config for the git the code under test runs itself, so
@@ -37,6 +38,12 @@ func scratch(t *testing.T) string {
 	f := registry.File{Projects: []string{p}, Worktree: registry.Worktree{Root: filepath.Join(dir, "wt")}}
 	raw, _ := json.Marshal(f)
 	os.WriteFile(filepath.Join(dir, "desktop.json"), raw, 0o600)
+	// As the daemon leaves it: desktop.json imported into pocketd.db, which the CLI reads.
+	db, err := statedb.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
 	os.WriteFile(filepath.Join(p, ".env"), []byte("A=1"), 0o600)
 	t.Setenv("POCKETD_SOCK", filepath.Join(dir, "pocketd.sock"))
 	t.Setenv("POCKET_HOME", dir)

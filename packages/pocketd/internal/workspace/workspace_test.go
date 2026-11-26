@@ -15,6 +15,7 @@ import (
 	"pocketd/internal/accounts"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
+	"pocketd/internal/statedb"
 	"pocketd/internal/worktree"
 )
 
@@ -57,7 +58,7 @@ func registryOf(t *testing.T, projects ...string) *registry.Registry {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "desktop.json")
 	write(path, registry.File{Projects: projects})
-	return registry.Open(filepath.Dir(path))
+	return openRegistry(t, filepath.Dir(path))
 }
 
 func write(path string, f registry.File) {
@@ -141,7 +142,7 @@ func TestTrackingAWorktreeOnTheDesktopPushesTheListWithIt(t *testing.T) {
 	git(t, p, "worktree", "add", "-q", "-b", "calm-otter", wt)
 	dir := t.TempDir()
 	write(filepath.Join(dir, "desktop.json"), registry.File{Projects: []string{p}})
-	reg := registry.Open(dir)
+	reg := openRegistry(t, dir)
 	ps := NewProjects(reg)
 	msgs, stop := ps.Subscribe()
 	defer stop()
@@ -166,7 +167,7 @@ func TestClaimingAWorktreeAnywhereMadePushesTheListWithIt(t *testing.T) {
 	f := registry.File{Projects: []string{p}, Worktree: registry.Worktree{Root: root}}
 	path := filepath.Join(t.TempDir(), "desktop.json")
 	write(path, f)
-	ps := NewProjects(registry.Open(filepath.Dir(path)))
+	ps := NewProjects(openRegistry(t, filepath.Dir(path)))
 	msgs, stop := ps.Subscribe()
 	defer stop()
 	ps.Scan()
@@ -269,4 +270,19 @@ func TestAnAccountIsNamedByItsLabelElseItsEmailAndOneSigningInIsLeftOut(t *testi
 	if got := Accounts(list, "codex"); len(got) != 1 || got[0].ID != "a2" {
 		t.Fatalf("codex: %+v", got)
 	}
+}
+
+// openRegistry is the registry pocketd serves from home, once it has imported home's files into pocketd.db.
+func openRegistry(t *testing.T, home string) *registry.Registry {
+	t.Helper()
+	db, err := statedb.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	r, err := registry.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
 }

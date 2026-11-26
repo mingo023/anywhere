@@ -1,17 +1,53 @@
 package board
 
 import (
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
 
 	"pocketd/internal/proto"
+	"pocketd/internal/registry"
+	"pocketd/internal/statedb/dbtest"
 )
 
 var at = time.UnixMilli(1_000_000)
+
+// newDB is a database whose registry lists the projects /repo and /other.
+func newDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db := dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db"))
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Insert(tx, registry.State{Projects: []proto.RegistryProject{{ID: "p1", Path: "/repo"}, {ID: "p2", Path: "/other"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
+func open(t *testing.T, db *sql.DB) *Store {
+	t.Helper()
+	reg, err := registry.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(db, reg.Load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func openNew(t *testing.T) *Store { return open(t, newDB(t)) }
 
 func draft(title string) proto.Ticket {
 	return proto.Ticket{Title: title, Prompt: "do " + title, Provider: "claude", Folder: "/repo"}
@@ -45,7 +81,7 @@ func titles(tickets []proto.Ticket) []string {
 }
 
 func TestANewTicketWaitsInToDoUntilStarted(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	if x := saved(t, s, "a", false); x.State != proto.TicketTodo || x.Order == 0 || x.ID == "" {
 		t.Fatalf("got %+v", x)
 	}
@@ -55,14 +91,14 @@ func TestANewTicketWaitsInToDoUntilStarted(t *testing.T) {
 }
 
 func TestSavingWithStartQueuesTheTicket(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	if x := saved(t, s, "a", true); x.State != proto.TicketQueued {
 		t.Fatalf("got %+v", x)
 	}
 }
 
 func TestClaimStartsTheOldestQueuedUpToTheLimit(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	s.SetLimit(2)
 	for _, n := range []string{"a", "b", "c"} {
 		saved(t, s, n, true)
@@ -76,7 +112,7 @@ func TestClaimStartsTheOldestQueuedUpToTheLimit(t *testing.T) {
 }
 
 func TestAFinishedTicketFreesItsSlotForTheNextInLine(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	s.SetLimit(1)
 	a := saved(t, s, "a", true)
 	saved(t, s, "b", true)
@@ -88,7 +124,7 @@ func TestAFinishedTicketFreesItsSlotForTheNextInLine(t *testing.T) {
 }
 
 func TestAClosedTicketStopsHoldingItsSlot(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	s.SetLimit(1)
 	a := saved(t, s, "a", true)
 	saved(t, s, "b", true)
@@ -103,7 +139,7 @@ func TestAClosedTicketStopsHoldingItsSlot(t *testing.T) {
 }
 
 func TestMoveReordersAQueueAndSoWhatStartsNext(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	s.SetLimit(1)
 	a := saved(t, s, "a", true)
 	b := saved(t, s, "b", true)
@@ -116,7 +152,7 @@ func TestMoveReordersAQueueAndSoWhatStartsNext(t *testing.T) {
 }
 
 func TestMoveBackToToDoTakesATicketOutOfTheQueue(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, "a", true)
 	if err := s.Move(a.ID, proto.TicketTodo, "", at); err != nil {
 		t.Fatal(err)
@@ -127,7 +163,7 @@ func TestMoveBackToToDoTakesATicketOutOfTheQueue(t *testing.T) {
 }
 
 func TestALiveTicketCanNeitherBeMovedNorDeleted(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, "a", true)
 	s.Claim(at)
 	for _, err := range []error{s.Move(a.ID, proto.TicketTodo, "", at), s.Delete(a.ID)} {
@@ -138,7 +174,7 @@ func TestALiveTicketCanNeitherBeMovedNorDeleted(t *testing.T) {
 }
 
 func TestAnEndedTicketStartsAgainAtOnceInItsWorktreeEvenOverTheLimit(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	s.SetLimit(1)
 	a := saved(t, s, "a", true)
 	s.Claim(at)
@@ -166,7 +202,7 @@ func TestAnEndedTicketStartsAgainAtOnceInItsWorktreeEvenOverTheLimit(t *testing.
 }
 
 func TestAFailedTicketWhoseAgentLivesCannotStartAgain(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, "a", true)
 	s.Claim(at)
 	s.Update(a.ID, func(x *proto.Ticket) { x.Status, x.AgentID = proto.TicketFailed, "ag" })
@@ -176,7 +212,7 @@ func TestAFailedTicketWhoseAgentLivesCannotStartAgain(t *testing.T) {
 }
 
 func TestAStartedTicketSaysSoWhenEdited(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, "a", true)
 	s.Claim(at)
 	edit := draft("b")
@@ -187,7 +223,7 @@ func TestAStartedTicketSaysSoWhenEdited(t *testing.T) {
 }
 
 func TestATicketChangesProjectOnlyBeforeItStarts(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, "a", false)
 	edit := draft("a")
 	edit.ID, edit.Folder = a.ID, "/other"
@@ -204,7 +240,7 @@ func TestATicketChangesProjectOnlyBeforeItStarts(t *testing.T) {
 }
 
 func TestAStartedTicketStillTakesAPriorityAndLabels(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, "a", true)
 	s.Claim(at)
 	edit := draft("a")
@@ -216,8 +252,8 @@ func TestAStartedTicketStillTakesAPriorityAndLabels(t *testing.T) {
 }
 
 func TestEveryTicketGetsANumberOfItsOwn(t *testing.T) {
-	home := t.TempDir()
-	s := Open(home)
+	db := newDB(t)
+	s := open(t, db)
 	a, b := saved(t, s, "a", false), saved(t, s, "b", false)
 	if a.Number != 1 || b.Number != 2 {
 		t.Fatalf("got %d, %d", a.Number, b.Number)
@@ -225,35 +261,19 @@ func TestEveryTicketGetsANumberOfItsOwn(t *testing.T) {
 }
 
 func TestADeletedTicketsNumberIsNotGivenAgain(t *testing.T) {
-	home := t.TempDir()
-	s := Open(home)
+	db := newDB(t)
+	s := open(t, db)
 	a := saved(t, s, "a", false)
 	if err := s.Delete(a.ID); err != nil {
 		t.Fatal(err)
 	}
-	if b := saved(t, Open(home), "b", false); b.Number != a.Number+1 {
+	if b := saved(t, open(t, db), "b", false); b.Number != a.Number+1 {
 		t.Fatalf("got %d after %d", b.Number, a.Number)
 	}
 }
 
-func TestTicketsFromBeforeNumbersGetOneOnOpen(t *testing.T) {
-	home := t.TempDir()
-	path := filepath.Join(home, "state", "board.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	raw := `{"version":1,"limit":4,"tickets":[{"id":"a","title":"a","prompt":"p","provider":"claude","folder":"/r","state":"todo","order":1,"createdAt":1,"changedAt":1},{"id":"b","title":"b","prompt":"p","provider":"claude","folder":"/r","state":"todo","order":2,"createdAt":2,"changedAt":2,"number":5}]}`
-	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	tickets, _ := Open(home).Snapshot()
-	if tickets[0].Number != 6 || tickets[1].Number != 5 {
-		t.Fatalf("got %d, %d", tickets[0].Number, tickets[1].Number)
-	}
-}
-
 func TestReopenIsRefusedOnceWhatClosedItStillHolds(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	for _, c := range []struct{ why, tree string }{{proto.ClosedMerged, ""}, {proto.ClosedDeleted, ""}, {proto.ClosedByUser, "/nowhere/at/all"}} {
 		a := saved(t, s, "a", true)
 		s.Claim(at)
@@ -266,7 +286,7 @@ func TestReopenIsRefusedOnceWhatClosedItStillHolds(t *testing.T) {
 }
 
 func TestReconcileClearsAStartAgainARestartInterrupted(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, "a", true)
 	s.Claim(at)
 	s.Update(a.ID, func(x *proto.Ticket) { x.Status = proto.TicketStopped })
@@ -281,7 +301,7 @@ func TestReconcileClearsAStartAgainARestartInterrupted(t *testing.T) {
 }
 
 func TestAWorkingTicketCannotBeStartedAgain(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, "a", true)
 	s.Claim(at)
 	if err := s.Start(a.ID, at); !errors.Is(err, ErrBusy) {
@@ -290,7 +310,7 @@ func TestAWorkingTicketCannotBeStartedAgain(t *testing.T) {
 }
 
 func TestReopenUndoesClose(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, "a", true)
 	s.Claim(at)
 	s.Update(a.ID, func(x *proto.Ticket) { x.Status = proto.TicketDone })
@@ -304,7 +324,7 @@ func TestReopenUndoesClose(t *testing.T) {
 }
 
 func TestReconcileFailsWhatARestartLeftStarting(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, "a", true)
 	s.Claim(at)
 	if err := s.Reconcile(at); err != nil {
@@ -316,7 +336,7 @@ func TestReconcileFailsWhatARestartLeftStarting(t *testing.T) {
 }
 
 func TestReconcileLeavesAStartingTicketThatHasItsAgent(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, "a", true)
 	s.Claim(at)
 	s.Update(a.ID, func(x *proto.Ticket) { x.AgentID = "ag" })
@@ -327,36 +347,204 @@ func TestReconcileLeavesAStartingTicketThatHasItsAgent(t *testing.T) {
 }
 
 func TestTheBoardSurvivesARestart(t *testing.T) {
-	home := t.TempDir()
-	s := Open(home)
+	db := newDB(t)
+	s := open(t, db)
 	a := saved(t, s, "a", false)
 	s.SetLimit(7)
-	again := Open(home)
+	again := open(t, db)
 	tickets, limit := again.Snapshot()
 	if limit != 7 || len(tickets) != 1 || tickets[0].ID != a.ID {
 		t.Fatalf("got %d %+v", limit, tickets)
 	}
 }
 
-func TestAnUnreadableFileIsKeptAsideAndTheBoardStartsEmpty(t *testing.T) {
-	home := t.TempDir()
-	path := filepath.Join(home, "state", "board.json")
-	os.MkdirAll(filepath.Dir(path), 0o700)
-	os.WriteFile(path, []byte("{"), 0o600)
-	tickets, limit := Open(home).Snapshot()
-	if len(tickets) != 0 || limit != proto.DefaultBoardLimit {
-		t.Fatalf("got %d %+v", limit, tickets)
-	}
-	if _, err := os.Stat(path + ".bad"); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestALimitOutsideTheRangeIsRefused(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	for _, n := range []int{0, 9} {
 		if err := s.SetLimit(n); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("%d: %v", n, err)
 		}
+	}
+}
+
+func TestEveryFieldOfEveryTicketSurvivesARestart(t *testing.T) {
+	db := newDB(t)
+	s := open(t, db)
+	a := saved(t, s, "a", true)
+	b, err := s.Save(proto.Ticket{Title: "b", Prompt: "do b", Provider: "claude", Folder: "/other", Base: "main", Priority: 2, Labels: []string{"Bug", "Docs"}}, false, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := saved(t, s, "c", false)
+	s.Claim(at)
+	s.Update(a.ID, func(x *proto.Ticket) {
+		x.AgentID, x.TerminalID, x.Worktree, x.Status, x.Why = "ag", "tm", "/repo/wt", proto.TicketWorking, "because"
+	})
+	s.Close(a.ID, proto.ClosedByUser, at.Add(time.Minute))
+	s.Delete(c.ID)
+	before, limit := s.Snapshot()
+	after, again := open(t, db).Snapshot()
+	if !reflect.DeepEqual(before, after) || limit != again || len(after) != 2 || after[0].ID != a.ID || after[1].ID != b.ID {
+		t.Fatalf("before %+v\nafter %+v", before, after)
+	}
+}
+
+func TestATicketInAWorktreeKeepsItsFolderAcrossARestart(t *testing.T) {
+	home := t.TempDir()
+	repo := filepath.Join(home, "repo")
+	tree := filepath.Join(home, "repo-wt")
+	for _, dir := range []string{repo, tree} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "worktrees", "wt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".git", "worktrees", "wt", "commondir"), []byte("../.."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tree, ".git"), []byte("gitdir: "+filepath.Join(repo, ".git", "worktrees", "wt")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db := dbtest.Open(t, filepath.Join(home, "pocketd.db"))
+	reg, err := registry.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.AddProject(repo, nil); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(db, reg.Load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := draft("a"), draft("b")
+	a.Folder, b.Folder = tree, repo
+	for _, d := range []proto.Ticket{a, b} {
+		if _, err := s.Save(d, false, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reopened, err := Open(db, reg.Load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tickets, _ := reopened.Snapshot()
+	if len(tickets) != 2 || tickets[0].Folder != tree || tickets[1].Folder != repo {
+		t.Fatalf("got %+v", tickets)
+	}
+	var trees []sql.NullString
+	rows, _ := db.Query(`SELECT tree FROM tickets ORDER BY position`)
+	defer rows.Close()
+	for rows.Next() {
+		var tr sql.NullString
+		rows.Scan(&tr)
+		trees = append(trees, tr)
+	}
+	if len(trees) != 2 || !trees[0].Valid || trees[0].String != tree || trees[1].Valid {
+		t.Fatalf("trees %v", trees)
+	}
+}
+
+func TestATicketInNoProjectIsRefusedAndSavesNothing(t *testing.T) {
+	db := newDB(t)
+	s := open(t, db)
+	d := draft("a")
+	d.Folder = "/nowhere"
+	if _, err := s.Save(d, false, at); !errors.Is(err, registry.ErrUnknownProject) {
+		t.Fatalf("got %v", err)
+	}
+	ok := saved(t, s, "b", false)
+	ok.Folder = "/nowhere"
+	if _, err := s.Save(ok, false, at); !errors.Is(err, registry.ErrUnknownProject) {
+		t.Fatalf("moving a ticket: %v", err)
+	}
+	if tickets, _ := open(t, db).Snapshot(); len(tickets) != 1 || tickets[0].Folder != "/repo" {
+		t.Fatalf("got %+v", tickets)
+	}
+}
+
+func TestRemovingAProjectDropsItsTicketsAndWakesWhoWatchesTheBoard(t *testing.T) {
+	db := newDB(t)
+	reg, err := registry.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(db, reg.Load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg.OnRemove(func(string) { s.Reload() })
+	saved(t, s, "a", false)
+	other := draft("b")
+	other.Folder = "/other"
+	if _, err := s.Save(other, false, at); err != nil {
+		t.Fatal(err)
+	}
+	changed := s.Changed()
+	if err := reg.RemoveProject("/repo"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-changed:
+	default:
+		t.Fatal("the board wasn't told")
+	}
+	if tickets, _ := s.Snapshot(); !slices.Equal(titles(tickets), []string{"b"}) {
+		t.Fatalf("got %v", titles(tickets))
+	}
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM tickets`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("%d rows", n)
+	}
+}
+
+func TestASaveWritesOnlyTheTicketsThatChanged(t *testing.T) {
+	db := newDB(t)
+	s := open(t, db)
+	a, b := saved(t, s, "a", false), saved(t, s, "b", false)
+	if _, err := db.Exec(`UPDATE tickets SET prompt = 'untouched' WHERE id IN (?, ?)`, a.ID, b.ID); err != nil {
+		t.Fatal(err)
+	}
+	s.Update(a.ID, func(x *proto.Ticket) { x.Status = proto.TicketWorking })
+	var prompts []string
+	rows, _ := db.Query(`SELECT prompt FROM tickets ORDER BY position`)
+	defer rows.Close()
+	for rows.Next() {
+		var p string
+		rows.Scan(&p)
+		prompts = append(prompts, p)
+	}
+	if !slices.Equal(prompts, []string{"do a", "untouched"}) {
+		t.Fatalf("got %v", prompts)
+	}
+}
+
+func TestSavingTicketsWhileTheRegistryIsWrittenDoesNotDeadlock(t *testing.T) {
+	db := newDB(t)
+	reg, err := registry.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(db, reg.Load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 200 {
+			reg.Track("/repo/wt", i%2 == 0)
+		}
+	}()
+	for range 200 {
+		saved(t, s, "a", false)
+	}
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("deadlocked")
 	}
 }

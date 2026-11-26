@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"pocketd/internal/names"
 	"pocketd/internal/peer"
 	"pocketd/internal/terminal"
 )
@@ -34,7 +33,7 @@ func next(t *testing.T, got <-chan retitled) retitled {
 
 func TestAWorktreeRenameRetitlesTheClaudesInItsTerminals(t *testing.T) {
 	retitle, got := retitles()
-	_, _, p := local(t, peer.OwnerOf(1), func(s *Server) { s.Names = names.Open(t.TempDir()) }, retitle)
+	_, _, p := local(t, peer.OwnerOf(1), func(s *Server) { s.Names = openNames(t) }, retitle)
 	p.send(helloWithNames)
 	p.send(`{"type":"worktree.rename","id":"r","path":"/w/a","title":"Fix login"}`)
 	r := next(t, got)

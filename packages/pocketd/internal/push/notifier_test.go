@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"pocketd/internal/broker"
 	"pocketd/internal/hub"
 	"pocketd/internal/proto"
+	"pocketd/internal/statedb/dbtest"
 	"pocketd/internal/timeline"
 )
 
@@ -123,7 +125,7 @@ func newRig(t *testing.T, timing Timing, restore ...agent.Restored) *rig {
 	h := hub.New()
 	r.agents = agent.NewRegistry(h)
 	r.broker = broker.New(h)
-	store, err := Open(Path(t.TempDir()))
+	store, err := Open(dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db")))
 	if err != nil {
 		t.Fatal(err)
 	}

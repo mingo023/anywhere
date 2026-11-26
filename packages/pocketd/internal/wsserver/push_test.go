@@ -17,6 +17,7 @@ import (
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
 	"pocketd/internal/push"
+	"pocketd/internal/statedb/dbtest"
 )
 
 // relaySends is a relay that takes every send and keeps their payloads.
@@ -44,7 +45,7 @@ func withPush(t *testing.T, sends *relaySends, s **Server) func(*Server) {
 	}))
 	t.Cleanup(relay.Close)
 	return func(srv *Server) {
-		store, _ := push.Open(push.Path(t.TempDir()))
+		store, _ := push.Open(dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db")))
 		timing := push.DefaultTiming
 		timing.NeedsYou, timing.Done = 20*time.Millisecond, 20*time.Millisecond
 		n := &push.Notifier{Store: store, Relay: &push.Client{URL: func() string { return relay.URL }}, Agents: srv.Agents, Broker: srv.Broker,

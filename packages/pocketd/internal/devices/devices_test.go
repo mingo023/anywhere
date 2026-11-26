@@ -1,19 +1,36 @@
 package devices
 
 import (
-	"bytes"
 	"errors"
-	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"pocketd/internal/statedb/dbtest"
 )
+
+func openAt(t *testing.T, path, legacyToken string) (*Store, error) {
+	t.Helper()
+	return Open(dbtest.Open(t, path), legacyToken)
+}
+
+// deviceRows is every column of every device, as text.
+func deviceRows(t *testing.T, path string) string {
+	t.Helper()
+	var rows string
+	err := dbtest.Open(t, path).QueryRow(`SELECT coalesce(group_concat(id || '|' || name || '|' || platform || '|' || scopes || '|' || token_hash || '|' || last_addr, char(10)), '') FROM devices`).Scan(&rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows
+}
 
 func open(t *testing.T) (*Store, string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "devices.json")
-	s, err := Open(path, "legacy-token")
+	path := filepath.Join(t.TempDir(), "pocketd.db")
+	s, err := openAt(t, path, "legacy-token")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,22 +43,15 @@ func TestATokenIsStoredOnlyAsItsHash(t *testing.T) {
 	if err != nil || len(token) != 43 || d.TokenHash != "" {
 		t.Fatalf("%+v %q %v", d, token, err)
 	}
-	raw, _ := os.ReadFile(path)
-	if bytes.Contains(raw, []byte(token)) || !bytes.Contains(raw, []byte(hash(token))) {
-		t.Fatalf("%s", raw)
-	}
-	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
-		t.Fatalf("mode %v", st.Mode())
-	}
-	if entries, _ := os.ReadDir(filepath.Dir(path)); len(entries) != 1 {
-		t.Fatalf("%v", entries)
+	if rows := deviceRows(t, path); strings.Contains(rows, token) || !strings.Contains(rows, hash(token)) {
+		t.Fatalf("%s", rows)
 	}
 }
 
 func TestLookupFindsPairedDevicesAndTheSharedToken(t *testing.T) {
 	s, path := open(t)
 	d, token, _ := s.Add("iPhone", "ios", PhoneScopes)
-	again, err := Open(path, "legacy-token")
+	again, err := openAt(t, path, "legacy-token")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +66,7 @@ func TestLookupFindsPairedDevicesAndTheSharedToken(t *testing.T) {
 			t.Fatalf("%q got in", bad)
 		}
 	}
-	if s, _ := Open(filepath.Join(t.TempDir(), "devices.json"), ""); s.Has(LegacyID) || len(s.List()) != 0 {
+	if s, _ := openAt(t, filepath.Join(t.TempDir(), "pocketd.db"), ""); s.Has(LegacyID) || len(s.List()) != 0 {
 		t.Fatal("a legacy device without a legacy token")
 	}
 }
@@ -128,7 +138,7 @@ func TestLastSeenIsSavedAtMostOncePerMinutePerDevice(t *testing.T) {
 	d, _, _ := s.Add("iPhone", "ios", PhoneScopes)
 	e, _, _ := s.Add("iPad", "ios", PhoneScopes)
 	saved := func(i int) int64 {
-		again, _ := Open(path, "")
+		again, _ := openAt(t, path, "")
 		return again.List()[i].LastSeenAt
 	}
 	t0 := time.UnixMilli(1_000_000_000_000)
@@ -154,12 +164,35 @@ func TestLastSeenIsSavedAtMostOncePerMinutePerDevice(t *testing.T) {
 	}
 }
 
-func TestACorruptFileRefusesToOpen(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "devices.json")
-	for _, raw := range []string{"{", `{"version":2,"devices":[]}`} {
-		os.WriteFile(path, []byte(raw), 0o600)
-		if _, err := Open(path, "t"); err == nil {
-			t.Fatalf("%s opened", raw)
-		}
+func TestADeviceWhoseScopesAreNotJSONRefusesToOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pocketd.db")
+	db := dbtest.Open(t, path)
+	if _, err := db.Exec(`INSERT INTO devices (id, name, scopes, position) VALUES ('a', 'x', '{', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(db, "t"); err == nil {
+		t.Fatal("opened")
+	}
+}
+
+func TestEveryDeviceAndTheGraceFlagSurviveAReopen(t *testing.T) {
+	s, path := open(t)
+	phone, _, _ := s.Add("iPhone", "ios", PhoneScopes)
+	pad, _, _ := s.Add("iPad", "ios", LegacyScopes)
+	s.Rename(phone.ID, "Mine")
+	s.Revoke(pad.ID)
+	if _, err := s.StartGrace(time.UnixMilli(1)); err != nil {
+		t.Fatal(err)
+	}
+	if over, err := s.EndGrace(time.UnixMilli(1).Add(Grace)); !over || err != nil {
+		t.Fatal(over, err)
+	}
+	again, err := openAt(t, path, "legacy-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := again.List()
+	if len(got) != 1 || got[0].ID != phone.ID || got[0].Name != "Mine" || !reflect.DeepEqual(got[0].Scopes, PhoneScopes) || again.Has(LegacyID) {
+		t.Fatalf("%+v", got)
 	}
 }

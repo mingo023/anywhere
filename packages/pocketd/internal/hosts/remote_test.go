@@ -285,7 +285,7 @@ func TestAReconnectedLinkReadsOnlyTheItemsPastThoseMirroredBefore(t *testing.T) 
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(home) })
-	m, err := Open(Paths{Home: home, RemoteDir: ".cp"}, os.Environ, "1.2.0", "Mac")
+	m, err := openManager(t, Paths{Home: home, RemoteDir: ".cp"}, os.Environ, "1.2.0", "Mac")
 	if err != nil {
 		t.Fatal(err)
 	}

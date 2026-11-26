@@ -127,10 +127,14 @@ func Containing(f registry.File, dir string) (string, bool) {
 	return best, depth > 0
 }
 
-// resolved is p's real path, or p as written when it doesn't exist.
+// resolved is p's real path. A part that doesn't exist stays as written under its parent's real path,
+// so a deleted Worktree under a root behind a link still sits under that root.
 func resolved(p string) string {
 	if real, err := filepath.EvalSymlinks(p); err == nil {
 		return real
+	}
+	if parent := filepath.Dir(p); parent != p {
+		return filepath.Join(resolved(parent), filepath.Base(p))
 	}
 	return p
 }

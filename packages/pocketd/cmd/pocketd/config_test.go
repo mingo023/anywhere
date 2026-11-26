@@ -1,22 +1,28 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"pocketd/internal/config"
+	"pocketd/internal/config/configtest"
 	"pocketd/internal/daemon"
 	"pocketd/internal/launch"
+	"pocketd/internal/lock"
 	"pocketd/internal/reach"
+	"pocketd/internal/statedb"
 )
 
 func TestAnUnknownConfigKeyIsNamedAsUnknown(t *testing.T) {
-	settings := config.NewSettings(t.TempDir())
+	settings := configtest.Settings(t)
 	set := configSetter(launch.New(&daemon.Daemon{}, nil, settings, nil), settings, func() {})
 	err := set("phone.maxAcess", "ask")
 	if err == nil || errors.Is(err, config.ErrInvalid) || !strings.Contains(err.Error(), `unknown key "phone.maxAcess"`) {
@@ -25,7 +31,7 @@ func TestAnUnknownConfigKeyIsNamedAsUnknown(t *testing.T) {
 }
 
 func TestAKeepAwakeChangeWakesTheKeeperAndARefusedOneDoesNot(t *testing.T) {
-	settings := config.NewSettings(t.TempDir())
+	settings := configtest.Settings(t)
 	kicks := 0
 	set := configSetter(launch.New(&daemon.Daemon{}, nil, settings, nil), settings, func() { kicks++ })
 	if err := set("awake.enabled", "false"); err != nil || kicks != 1 || settings.KeepAwake() {
@@ -37,7 +43,7 @@ func TestAKeepAwakeChangeWakesTheKeeperAndARefusedOneDoesNot(t *testing.T) {
 }
 
 func TestAProviderCommandThatIsntOnTheMacIsRefused(t *testing.T) {
-	settings := config.NewSettings(t.TempDir())
+	settings := configtest.Settings(t)
 	set := configSetter(launch.New(&daemon.Daemon{}, nil, settings, nil), settings, func() {})
 	if err := set("claude.command", "/nowhere/claude"); err == nil || !strings.Contains(err.Error(), "isn't an executable") || settings.AgentCommand("claude") != "claude" {
 		t.Fatalf("err %v, command %q", err, settings.AgentCommand("claude"))
@@ -48,7 +54,7 @@ func TestAProviderCommandThatIsntOnTheMacIsRefused(t *testing.T) {
 }
 
 func TestPocketdConfigSetsPhoneTerminalsAndThePushRelay(t *testing.T) {
-	settings := config.NewSettings(t.TempDir())
+	settings := configtest.Settings(t)
 	set := configSetter(launch.New(&daemon.Daemon{}, nil, settings, nil), settings, func() {})
 	if err := set("phone.terminals", "off"); err != nil || settings.PhoneTerminals() {
 		t.Fatalf("phone.terminals: %v", err)
@@ -68,7 +74,7 @@ func freePort(t *testing.T) int {
 }
 
 func TestAPortChangeMovesThePhoneListenerAndATakenPortKeepsIt(t *testing.T) {
-	settings := config.NewSettings(t.TempDir())
+	settings := configtest.Settings(t)
 	first, err := reach.Listen(freePort(t), "loopback", http.NotFoundHandler())
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +108,7 @@ func TestAPortChangeMovesThePhoneListenerAndATakenPortKeepsIt(t *testing.T) {
 }
 
 func TestListenSwitchesModeInPlaceAndOtherKeysPassThrough(t *testing.T) {
-	settings := config.NewSettings(t.TempDir())
+	settings := configtest.Settings(t)
 	ln, err := reach.Listen(freePort(t), "auto", http.NotFoundHandler())
 	if err != nil {
 		t.Fatal(err)
@@ -120,5 +126,95 @@ func TestListenSwitchesModeInPlaceAndOtherKeysPassThrough(t *testing.T) {
 	}
 	if set("awake.enabled", "false"); passed != "awake.enabled" {
 		t.Fatalf("passed %q", passed)
+	}
+}
+
+func TestAPortSetByTheDaemonsSetterIsThePortAfterARestartAndConfigJSONIsUntouched(t *testing.T) {
+	home := t.TempDir()
+	original := []byte("{\n  \"port\": 4517,\n  \"listen\": \"auto\"\n}\n")
+	if err := os.WriteFile(filepath.Join(home, "config.json"), original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := statedb.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := config.NewSettings(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := reach.Listen(freePort(t), "loopback", http.NotFoundHandler())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var phones atomic.Pointer[reach.Listener]
+	phones.Store(first)
+	t.Cleanup(func() { phones.Load().Close() })
+	port := freePort(t)
+	set := networkSetter(&phones, settings, func() {}, func(string, string) error { return errors.New("rest") })
+	if err := set("port", strconv.Itoa(port)); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	db, err = statedb.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	c, err := config.Load(db, func(string) error { return nil })
+	if err != nil || c.Port != port {
+		t.Fatalf("port %d after the restart, want %d: %v", c.Port, port, err)
+	}
+	if now, _ := os.ReadFile(filepath.Join(home, "config.json")); !bytes.Equal(now, original) {
+		t.Fatalf("config.json became %s", now)
+	}
+}
+
+func TestConfigSetWithNoPocketdRunningWritesTheDatabaseSoABadPortCanBeRepaired(t *testing.T) {
+	home := t.TempDir()
+	original := []byte(`{"port": 0}`)
+	if err := os.WriteFile(filepath.Join(home, "config.json"), original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := statedb.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Load(db, func(string) error { return nil }); err == nil {
+		t.Fatal("port 0 loaded")
+	}
+	db.Close()
+
+	var out bytes.Buffer
+	if err := configSet(filepath.Join(home, "none.sock"), home, "port", "4600", &out); err != nil {
+		t.Fatal(err)
+	}
+	db, err = statedb.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if c, err := config.Load(db, func(string) error { return nil }); err != nil || c.Port != 4600 {
+		t.Fatalf("%+v %v", c, err)
+	}
+	if now, _ := os.ReadFile(filepath.Join(home, "config.json")); !bytes.Equal(now, original) {
+		t.Fatalf("config.json became %s", now)
+	}
+}
+
+func TestConfigSetRefusesToWriteBesideAPocketdThatHoldsTheLock(t *testing.T) {
+	home := t.TempDir()
+	held, err := lock.Acquire(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	var out bytes.Buffer
+	if err := configSet(filepath.Join(home, "none.sock"), home, "port", "4600", &out); !errors.As(err, new(lock.ErrRunning)) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Stat(statedb.Path(home)); err == nil {
+		t.Fatal("pocketd.db written beside a running pocketd")
 	}
 }

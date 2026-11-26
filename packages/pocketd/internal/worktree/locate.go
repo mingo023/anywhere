@@ -86,6 +86,37 @@ func Project(f registry.File, cwd string) (string, bool) {
 	return p, ok
 }
 
+// Resolve is the registered Project a Ticket's or an Automation's folder belongs to: the one at that path,
+// else the one Project places it in, else the one Containing it, which still places a Worktree deleted since.
+func Resolve(f registry.File, folder string) (string, bool) {
+	if !filepath.IsAbs(folder) {
+		return "", false
+	}
+	folder = filepath.Clean(folder)
+	for _, p := range f.Projects {
+		if filepath.Clean(p) == folder {
+			return p, true
+		}
+	}
+	if p, ok := Project(f, folder); ok {
+		return p, true
+	}
+	return Containing(f, folder)
+}
+
+// Belong is the id of the Project Resolve gives folder, and folder as the tree it sits in; tree is nil for the
+// Project's own folder. It is false when folder is in no Project.
+func Belong(f registry.File, folder string) (id string, tree *string, ok bool) {
+	p, ok := Resolve(f, folder)
+	if !ok {
+		return "", nil, false
+	}
+	if p != filepath.Clean(folder) {
+		tree = &folder
+	}
+	return f.Repos[p].ID, tree, true
+}
+
 // project is the Project sharing cwd's repo, with cwd's checkout, or the
 // folder Project holding cwd, with no checkout.
 func project(f registry.File, cwd string) (string, Location, bool) {

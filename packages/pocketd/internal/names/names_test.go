@@ -1,12 +1,30 @@
 package names
 
 import (
+	"database/sql"
 	"encoding/json"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"pocketd/internal/statedb/dbtest"
 )
+
+func open(t *testing.T, db *sql.DB) *Names {
+	t.Helper()
+	n, err := Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func newDB(t *testing.T) *sql.DB {
+	t.Helper()
+	return dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db"))
+}
 
 func next(t *testing.T, msgs <-chan []byte) map[string]any {
 	t.Helper()
@@ -22,7 +40,7 @@ func next(t *testing.T, msgs <-chan []byte) map[string]any {
 }
 
 func TestNamingNamesAWorktreeUntilTheUserRenamesIt(t *testing.T) {
-	n := Open(t.TempDir())
+	n := open(t, newDB(t))
 	if !n.Auto("/w", "First") || !n.Auto("/w", "Refined") {
 		t.Fatal("auto refused")
 	}
@@ -33,7 +51,7 @@ func TestNamingNamesAWorktreeUntilTheUserRenamesIt(t *testing.T) {
 }
 
 func TestAnEmptyRenameClearsTheNameAndKeepsNamingOff(t *testing.T) {
-	n := Open(t.TempDir())
+	n := open(t, newDB(t))
 	n.Auto("/w", "First")
 	n.Rename("/w", "  ")
 	if _, ok := n.Titles()["/w"]; ok || n.Auto("/w", "Again") {
@@ -42,15 +60,28 @@ func TestAnEmptyRenameClearsTheNameAndKeepsNamingOff(t *testing.T) {
 }
 
 func TestNamesSurviveARestart(t *testing.T) {
-	home := t.TempDir()
-	Open(home).Auto("/w", "Fix login")
-	if got := Open(home).Titles(); !reflect.DeepEqual(got, map[string]string{"/w": "Fix login"}) {
+	db := newDB(t)
+	open(t, db).Auto("/w", "Fix login")
+	if got := open(t, db).Titles(); !reflect.DeepEqual(got, map[string]string{"/w": "Fix login"}) {
+		t.Fatalf("%v", got)
+	}
+}
+
+func TestAForgottenOrClearedNameIsGoneAfterARestart(t *testing.T) {
+	db := newDB(t)
+	n := open(t, db)
+	n.Rename("/a", "A")
+	n.Rename("/b", "B")
+	n.Rename("/c", "C")
+	n.Forget("/a")
+	n.Rename("/b", "")
+	if got := open(t, db).Titles(); !reflect.DeepEqual(got, map[string]string{"/c": "C"}) {
 		t.Fatalf("%v", got)
 	}
 }
 
 func TestEachChangeSendsEveryName(t *testing.T) {
-	n := Open(t.TempDir())
+	n := open(t, newDB(t))
 	n.Auto("/a", "A")
 	msgs, stop := n.Subscribe()
 	defer stop()
@@ -65,7 +96,7 @@ func TestEachChangeSendsEveryName(t *testing.T) {
 }
 
 func TestTitlesAreTrimmedAndClipped(t *testing.T) {
-	n := Open(t.TempDir())
+	n := open(t, newDB(t))
 	n.Rename("/w", "  "+strings.Repeat("é", 200)+" ")
 	if got := n.Titles()["/w"]; got != strings.Repeat("é", MaxTitle) {
 		t.Fatalf("%d runes", len([]rune(got)))
@@ -73,7 +104,7 @@ func TestTitlesAreTrimmedAndClipped(t *testing.T) {
 }
 
 func TestANewWorktreeAtAForgottenPathStartsUnnamed(t *testing.T) {
-	n := Open(t.TempDir())
+	n := open(t, newDB(t))
 	n.Rename("/w", "Mine")
 	n.Forget("/w")
 	if !n.Auto("/w", "New") || n.Titles()["/w"] != "New" {

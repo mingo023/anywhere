@@ -10,6 +10,7 @@ import (
 	"pocketd/internal/mcp"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
+	"pocketd/internal/registry"
 )
 
 // automations keeps the owner's desktop current: a snapshot on hello and after every change.
@@ -87,7 +88,7 @@ func (c *conn) automate(m proto.ClientMessage) error {
 }
 
 var (
-	errUnknownProject = errors.New("This folder isn't a project on your Mac")
+	errUnknownProject = registry.ErrUnknownProject
 	errFolderUnusable = errors.New("This folder can't be opened")
 )
 

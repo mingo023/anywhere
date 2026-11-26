@@ -1,24 +1,22 @@
-// Package devices keeps the phones paired with this Mac in devices.json. Only
+// Package devices keeps the phones paired with this Mac in pocketd.db. Only
 // a hash of each device's token is stored.
 package devices
 
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io/fs"
-	"os"
+	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
-
-	"pocketd/internal/atomicfile"
 )
 
 type Scope string
@@ -55,14 +53,8 @@ type Device struct {
 	GraceEndsAt int64  `json:"graceEndsAt,omitempty"`
 }
 
-type file struct {
-	Version    int      `json:"version"`
-	Devices    []Device `json:"devices"`
-	GraceEnded bool     `json:"graceEnded,omitempty"`
-}
-
 type Store struct {
-	path string
+	db *sql.DB
 
 	mu         sync.Mutex
 	devices    []Device
@@ -70,25 +62,35 @@ type Store struct {
 	savedAt    map[string]time.Time
 }
 
-// Open reads path, or starts empty if it doesn't exist. A non-empty
+// Open loads the devices from db, which may be read-only while legacyToken is empty. A non-empty
 // legacyToken is stored, hashed, as the legacy device.
-func Open(path, legacyToken string) (*Store, error) {
-	s := &Store{path: path, savedAt: map[string]time.Time{}}
-	raw, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return s, s.EnsureLegacy(legacyToken)
-	}
+func Open(db *sql.DB, legacyToken string) (*Store, error) {
+	s := &Store{db: db, savedAt: map[string]time.Time{}}
+	rows, err := db.Query(`SELECT id, name, platform, scopes, token_hash, created_at, last_seen_at, last_addr, legacy, grace_ends_at FROM devices ORDER BY position`)
 	if err != nil {
 		return nil, err
 	}
-	var f file
-	if err := json.Unmarshal(raw, &f); err != nil {
+	defer rows.Close()
+	for rows.Next() {
+		var d Device
+		var scopes string
+		if err := rows.Scan(&d.ID, &d.Name, &d.Platform, &scopes, &d.TokenHash, &d.CreatedAt, &d.LastSeenAt, &d.LastAddr, &d.Legacy, &d.GraceEndsAt); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(scopes), &d.Scopes); err != nil {
+			return nil, err
+		}
+		s.devices = append(s.devices, d)
+	}
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if f.Version != 1 {
-		return nil, fmt.Errorf("unknown version %d", f.Version)
+	rows.Close()
+	var ended string
+	if err := db.QueryRow(`SELECT value FROM meta WHERE key = 'devices.grace_ended'`).Scan(&ended); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
 	}
-	s.devices, s.graceEnded = f.Devices, f.GraceEnded
+	s.graceEnded = ended == "true"
 	return s, s.EnsureLegacy(legacyToken)
 }
 
@@ -128,9 +130,7 @@ func (s *Store) Add(name, platform string, scopes []Scope) (Device, string, erro
 	d := Device{ID: hex.EncodeToString(id), Name: name, Platform: platform, Scopes: scopes, TokenHash: hash(token), CreatedAt: time.Now().UnixMilli()}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.devices = append(s.devices, d)
-	if err := s.save(); err != nil {
-		s.devices = s.devices[:len(s.devices)-1]
+	if err := s.save(append(slices.Clone(s.devices), d), s.graceEnded); err != nil {
 		return Device{}, "", err
 	}
 	return d.public(), token, nil
@@ -164,7 +164,7 @@ func (s *Store) index(id string) int {
 	return slices.IndexFunc(s.devices, func(d Device) bool { return d.ID == id })
 }
 
-// Seen records a connection. The file is rewritten at most once a minute per device.
+// Rewrites the row at most once a minute.
 func (s *Store) Seen(id, addr string, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -175,7 +175,7 @@ func (s *Store) Seen(id, addr string, now time.Time) {
 	s.devices[n].LastSeenAt, s.devices[n].LastAddr = now.UnixMilli(), addr
 	if now.Sub(s.savedAt[id]) >= saveSeenGap {
 		s.savedAt[id] = now
-		s.save()
+		s.db.Exec(`UPDATE devices SET last_seen_at = ?, last_addr = ? WHERE id = ?`, s.devices[n].LastSeenAt, addr, id)
 	}
 }
 
@@ -219,10 +219,9 @@ func (s *Store) Rename(id, name string) (Device, error) {
 	if err != nil {
 		return Device{}, err
 	}
-	old := s.devices[n].Name
-	s.devices[n].Name = name
-	if err := s.save(); err != nil {
-		s.devices[n].Name = old
+	next := slices.Clone(s.devices)
+	next[n].Name = name
+	if err := s.save(next, s.graceEnded); err != nil {
 		return Device{}, err
 	}
 	return s.devices[n].public(), nil
@@ -236,13 +235,11 @@ func (s *Store) Revoke(id string) (Device, error) {
 	if err != nil {
 		return Device{}, err
 	}
-	before := s.devices
-	s.devices = slices.Delete(slices.Clone(before), n, n+1)
-	if err := s.save(); err != nil {
-		s.devices = before
+	gone := s.devices[n]
+	if err := s.save(slices.Delete(slices.Clone(s.devices), n, n+1), s.graceEnded); err != nil {
 		return Device{}, err
 	}
-	return before[n].public(), nil
+	return gone.public(), nil
 }
 
 func (s *Store) find(id string) (int, error) {
@@ -255,7 +252,45 @@ func (s *Store) find(id string) (int, error) {
 	return 0, ErrNotFound
 }
 
-func (s *Store) save() error {
-	raw, _ := json.MarshalIndent(file{1, s.devices, s.graceEnded}, "", "  ")
-	return atomicfile.Write(s.path, append(raw, '\n'), 0o600)
+// A failed write changes nothing.
+func (s *Store) save(next []Device, graceEnded bool) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, d := range s.devices {
+		if !slices.ContainsFunc(next, func(n Device) bool { return n.ID == d.ID }) {
+			if _, err := tx.Exec(`DELETE FROM devices WHERE id = ?`, d.ID); err != nil {
+				return err
+			}
+		}
+	}
+	for i, d := range next {
+		if i < len(s.devices) && reflect.DeepEqual(s.devices[i], d) {
+			continue
+		}
+		scopes := d.Scopes
+		if scopes == nil {
+			scopes = []Scope{}
+		}
+		raw, _ := json.Marshal(scopes)
+		if _, err := tx.Exec(`INSERT INTO devices (id, name, platform, scopes, token_hash, created_at, last_seen_at, last_addr, legacy, grace_ends_at, position)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name = excluded.name, platform = excluded.platform, scopes = excluded.scopes,
+			token_hash = excluded.token_hash, created_at = excluded.created_at, last_seen_at = excluded.last_seen_at, last_addr = excluded.last_addr,
+			legacy = excluded.legacy, grace_ends_at = excluded.grace_ends_at, position = excluded.position`,
+			d.ID, d.Name, d.Platform, string(raw), d.TokenHash, d.CreatedAt, d.LastSeenAt, d.LastAddr, d.Legacy, d.GraceEndsAt, i); err != nil {
+			return err
+		}
+	}
+	if graceEnded != s.graceEnded {
+		if _, err := tx.Exec(`INSERT INTO meta (key, value) VALUES ('devices.grace_ended', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, strconv.FormatBool(graceEnded)); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.devices, s.graceEnded = next, graceEnded
+	return nil
 }

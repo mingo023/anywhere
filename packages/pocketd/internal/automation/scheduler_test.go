@@ -43,7 +43,7 @@ func refuse(message string) Starter {
 }
 
 func TestADueAutomationStartsExactlyOnceAcrossTwoSchedulers(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	var starts atomic.Int32
 	start := func(string, proto.Automation) launch.Result {
@@ -70,7 +70,7 @@ func TestADueAutomationStartsExactlyOnceAcrossTwoSchedulers(t *testing.T) {
 }
 
 func TestAnAutomationThatIsNotDueYetDoesNotStart(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	saved(t, s, at(9, 8, 0))
 	scheduler(s, at(9, 8, 59), refuse("no"), nil).check()
 	if _, runs := s.Snapshot(); len(runs) != 0 {
@@ -79,7 +79,7 @@ func TestAnAutomationThatIsNotDueYetDoesNotStart(t *testing.T) {
 }
 
 func TestAFailedLaunchRecordsWhy(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	sched := scheduler(s, at(9, 8, 30), refuse("claude isn't installed on your Mac"), nil)
 	run, err := sched.RunNow(a.ID)
@@ -94,7 +94,7 @@ func TestAFailedLaunchRecordsWhy(t *testing.T) {
 }
 
 func TestALaunchFailureMessageIsCutToEightyRunes(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	long := ""
 	for range 100 {
@@ -108,7 +108,7 @@ func TestALaunchFailureMessageIsCutToEightyRunes(t *testing.T) {
 }
 
 func TestARunLaunchesThroughTheSpecAndFollowsItsAgentToTheEnd(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	var specs []proto.LaunchSpec
 	var mu sync.Mutex
@@ -150,7 +150,7 @@ func TestARunLaunchesThroughTheSpecAndFollowsItsAgentToTheEnd(t *testing.T) {
 }
 
 func TestARunWhoseShortTurnWasNeverSeenWorkingStillSucceeds(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	start := func(string, proto.Automation) launch.Result { return launch.Result{AgentID: "ag1", TerminalID: "t1"} }
 	var polls atomic.Int32
@@ -168,7 +168,7 @@ func TestARunWhoseShortTurnWasNeverSeenWorkingStillSucceeds(t *testing.T) {
 }
 
 func TestARunWaitsForTheSummaryOfATurnThatJustEnded(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	start := func(string, proto.Automation) launch.Result { return launch.Result{AgentID: "ag1", TerminalID: "t1"} }
 	var polls atomic.Int32
@@ -186,7 +186,7 @@ func TestARunWaitsForTheSummaryOfATurnThatJustEnded(t *testing.T) {
 }
 
 func TestARunWhoseSessionWasClosedIsCancelled(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	var gone atomic.Bool
 	start := func(string, proto.Automation) launch.Result { return launch.Result{AgentID: "ag1", TerminalID: "t1"} }
@@ -201,19 +201,19 @@ func TestARunWhoseSessionWasClosedIsCancelled(t *testing.T) {
 }
 
 func TestResumeFollowsTheRunsARestartLeftGoing(t *testing.T) {
-	home := t.TempDir()
-	s := Open(home)
+	db := newDB(t)
+	s := open(t, db)
 	a := saved(t, s, at(9, 8, 0))
 	waiting, _ := s.Begin(a.ID, at(9, 8, 1))
 	s.Update(waiting.ID, func(r *proto.Run) { r.Status, r.AgentID = "waiting", "ag1" })
-	s = Open(home)
+	s = open(t, db)
 	sched := scheduler(s, at(9, 8, 30), nil, func(string) (Seen, bool) { return Seen{Status: "idle", Summary: "ok"}, true })
 	sched.Resume()
 	eventually(t, "succeeded", func() bool { return runOf(t, s, waiting.ID).Status == "succeeded" })
 }
 
 func TestARunNowOnABusyAutomationIsRefused(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	a := saved(t, s, at(9, 8, 0))
 	block := make(chan struct{})
 	start := func(string, proto.Automation) launch.Result {
@@ -233,7 +233,7 @@ func TestARunNowOnABusyAutomationIsRefused(t *testing.T) {
 }
 
 func TestARunRecordsItsModeAndTheWorktreeItRanIn(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	inTree := morning
 	inTree.Access, inTree.NewWorktree = "edits", true
 	a, err := s.Save(inTree, at(9, 8, 0))
@@ -261,7 +261,7 @@ func TestARunRecordsItsModeAndTheWorktreeItRanIn(t *testing.T) {
 }
 
 func TestOnFinishSeesARunOnceItHasFinished(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	finished := make(chan proto.Run, 2)
 	sched := scheduler(s, at(9, 8, 30), refuse("no claude"), nil)
 	sched.OnFinish = func(r proto.Run) { finished <- r }
@@ -280,7 +280,7 @@ func TestOnFinishSeesARunOnceItHasFinished(t *testing.T) {
 }
 
 func TestABoundRunPostsIntoItsSessionAndIsNotEndedByTheSessionsEarlierDone(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	bound := morning
 	bound.Bound = "ag1"
 	a, err := s.Save(bound, at(9, 8, 0))
@@ -323,7 +323,7 @@ func TestABoundRunPostsIntoItsSessionAndIsNotEndedByTheSessionsEarlierDone(t *te
 }
 
 func TestABoundRunWhoseSessionIsGoneStartsANewSession(t *testing.T) {
-	s := Open(t.TempDir())
+	s := openNew(t)
 	bound := morning
 	bound.Bound = "ag1"
 	a, err := s.Save(bound, at(9, 8, 0))
@@ -344,8 +344,8 @@ func TestABoundRunWhoseSessionIsGoneStartsANewSession(t *testing.T) {
 }
 
 func TestABoundRunResumedAfterARestartIsNotEndedByTheSessionsEarlierDone(t *testing.T) {
-	home := t.TempDir()
-	s := Open(home)
+	db := newDB(t)
+	s := open(t, db)
 	bound := morning
 	bound.Bound = "ag1"
 	a, err := s.Save(bound, at(9, 8, 0))
@@ -362,7 +362,7 @@ func TestABoundRunResumedAfterARestartIsNotEndedByTheSessionsEarlierDone(t *test
 	eventually(t, "running in the session", func() bool { return runOf(t, s, run.ID).Status == "running" })
 	before.stopped.Store(true)
 
-	s = Open(home)
+	s = open(t, db)
 	var turnEnded atomic.Bool
 	var resumedAfter atomic.Int64
 	var resumedPrompt, resumedEntry atomic.Value

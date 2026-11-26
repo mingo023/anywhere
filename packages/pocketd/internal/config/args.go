@@ -12,7 +12,7 @@ import (
 // SessionID marks where fork args take the source session's id.
 const SessionID = providers.SessionID
 
-// ArgKeys are a provider's config.json keys for the words its command line takes.
+// ArgKeys are a provider's config keys for the words its command line takes.
 var ArgKeys = []string{"promptArgs", "resumeArgs", "forkArgs"}
 
 func defaults(id string) [3]string {
@@ -26,13 +26,13 @@ func defaults(id string) [3]string {
 // the id it resumes, and the fork args with SessionID still in them.
 type AgentArgs struct{ Prompt, Resume, Fork []string }
 
-// DefaultArgs is what a launch uses when config.json sets nothing.
+// DefaultArgs is what a launch uses when the config sets nothing.
 func DefaultArgs(provider string) AgentArgs {
 	d := defaults(provider)
 	return AgentArgs{Prompt: strings.Fields(d[0]), Resume: strings.Fields(d[1]), Fork: strings.Fields(d[2])}
 }
 
-// AgentArgs is provider's args from config.json, each its default when unset or not valid.
+// AgentArgs is provider's args from the config, each its default when unset or not valid.
 func (s *Settings) AgentArgs(provider string) AgentArgs {
 	var w [3][]string
 	for i, key := range ArgKeys {

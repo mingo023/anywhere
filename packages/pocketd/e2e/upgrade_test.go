@@ -89,11 +89,8 @@ func TestAnUpgradeKeepsTheShellWhenTheOwnerPortIsTaken(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer busy.Close()
-	path := filepath.Join(h.Home, "config.json")
-	raw, _ := os.ReadFile(path)
-	raw = []byte(strings.Replace(string(raw), fmt.Sprintf("127.0.0.1:%d", h.OwnerPort), busy.Addr().String(), 1))
-	if err := os.WriteFile(path, raw, 0o600); err != nil {
-		t.Fatal(err)
+	if out, code := h.Pocketd("config", "set", "ownerListen", busy.Addr().String()); code != 0 {
+		t.Fatalf("config set ownerListen: %s", out)
 	}
 
 	h.Upgrade()

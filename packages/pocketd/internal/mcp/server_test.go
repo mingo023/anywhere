@@ -13,8 +13,11 @@ import (
 	"testing"
 	"time"
 
+	"pocketd/internal/automation"
 	"pocketd/internal/orch"
 	"pocketd/internal/proto"
+	"pocketd/internal/registry"
+	"pocketd/internal/statedb/dbtest"
 )
 
 type launcher struct {
@@ -537,5 +540,60 @@ func TestTaskStatusSaysARunningTasksHostIsUnreachable(t *testing.T) {
 	envs.list[0].State = "retrying"
 	if w := warnings(); len(w) != 1 || w[0] != "Host Dev Box is unreachable; the task keeps waiting." {
 		t.Fatalf("retrying: %v", w)
+	}
+}
+
+// storeSchedules is Schedules over the real automation store.
+type storeSchedules struct{ s *automation.Store }
+
+func (s storeSchedules) List() []proto.Automation {
+	list, _ := s.s.Snapshot()
+	return list
+}
+func (s storeSchedules) Save(a proto.Automation) (proto.Automation, error) {
+	return s.s.Save(a, time.Now())
+}
+func (s storeSchedules) Delete(id string) error              { return s.s.Delete(id) }
+func (s storeSchedules) RunNow(id string) (proto.Run, error) { return proto.Run{}, nil }
+func (s storeSchedules) Get(id string) (proto.Automation, bool) {
+	return s.s.Automation(id)
+}
+
+func TestScheduleTaskRefusesAFolderInNoProjectAndSavesOneInAProject(t *testing.T) {
+	db := dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db"))
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Insert(tx, registry.State{Projects: []proto.RegistryProject{{ID: "p1", Path: "/repo"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := registry.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := automation.Open(db, reg.Load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		cwd, tree string
+		refused   bool
+	}{{"/nowhere", "", true}, {"/repo/src", "/repo", false}} {
+		parent := proto.AgentSummary{ID: "parent", TerminalID: "t", Provider: "claude", Access: "edits", Status: "working", Cwd: c.cwd, Worktree: "repo", Tree: c.tree}
+		k := NewToolkit(&host{parent: parent, sched: storeSchedules{store}})
+		out, _ := k.Call(context.Background(), Grant{Terminal: "t"}, "schedule_task", json.RawMessage(`{"prompt":"nightly tests","schedule":{"kind":"interval","everyMin":60}}`))
+		if c.refused && (out["isError"] != true || !strings.Contains(fmt.Sprint(out["structuredContent"]), proto.CodeUnknownProject) || !strings.Contains(fmt.Sprint(out["structuredContent"]), registry.ErrUnknownProject.Error())) {
+			t.Errorf("%s: %v", c.cwd, out)
+		}
+		if !c.refused && out["isError"] == true {
+			t.Errorf("%s: %v", c.cwd, out)
+		}
+	}
+	if autos, _ := store.Snapshot(); len(autos) != 1 || autos[0].Folder != "/repo" {
+		t.Fatalf("saved %+v", autos)
 	}
 }

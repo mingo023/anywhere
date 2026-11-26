@@ -4,16 +4,15 @@
 package push
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
-	"io/fs"
-	"os"
+	"log"
 	"path/filepath"
 	"slices"
 	"sync"
 	"time"
 
-	"pocketd/internal/atomicfile"
 	"pocketd/internal/proto"
 )
 
@@ -63,55 +62,108 @@ type Sent struct {
 
 const keepSends = 30
 
-type file struct {
-	Records map[string]*Record `json:"records"`
-	Sends   []Sent             `json:"sends"`
-}
-
-// Store keeps push.json, 0600 beside devices.json.
+// Store keeps the push_records and push_sends tables of pocketd.db.
 type Store struct {
-	path string
-	mu   sync.Mutex
-	f    file
+	db      *sql.DB
+	mu      sync.Mutex
+	records map[string]*Record
+	sends   []Sent
+	// lastSend is the position of the newest row in push_sends, -1 when it is empty.
+	lastSend int64
 }
 
+// Path is push.json, read only by the import.
 func Path(home string) string { return filepath.Join(home, "push.json") }
 
-func Open(path string) (*Store, error) {
-	s := &Store{path: path, f: file{Records: map[string]*Record{}}}
-	raw, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return s, nil
-	}
-	if err != nil {
+// Open loads the registrations and sends from db, which may be read-only. A store that can't load is still
+// returned, empty, with the error.
+func Open(db *sql.DB) (*Store, error) {
+	s := &Store{db: db, records: map[string]*Record{}, lastSend: -1}
+	if err := s.load(); err != nil {
+		*s = Store{db: db, records: map[string]*Record{}, lastSend: -1}
 		return s, err
-	}
-	if err := json.Unmarshal(raw, &s.f); err != nil {
-		return s, err
-	}
-	if s.f.Records == nil {
-		s.f.Records = map[string]*Record{}
 	}
 	return s, nil
 }
 
-func (s *Store) save() error {
-	raw, _ := json.MarshalIndent(s.f, "", "  ")
-	return atomicfile.Write(s.path, append(raw, '\n'), 0o600)
+func (s *Store) load() error {
+	rows, err := s.db.Query(`SELECT device, key, env, alert, start, activity, prefs, frequent, updated_at FROM push_records`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		r := &Record{}
+		var alert, start, activity sql.NullString
+		var prefs string
+		if err := rows.Scan(&r.Device, &r.Key, &r.Env, &alert, &start, &activity, &prefs, &r.Frequent, &r.UpdatedAt); err != nil {
+			return err
+		}
+		for _, f := range []struct {
+			raw sql.NullString
+			to  any
+		}{{alert, &r.Alert}, {start, &r.Start}, {activity, &r.Activity}, {sql.NullString{String: prefs, Valid: true}, &r.Prefs}} {
+			if f.raw.Valid {
+				if err := json.Unmarshal([]byte(f.raw.String), f.to); err != nil {
+					return err
+				}
+			}
+		}
+		s.records[r.Device] = r
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	if rows, err = s.db.Query(`SELECT position, at, device, kind, agent, priority, outcome FROM push_sends ORDER BY position`); err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var x Sent
+		if err := rows.Scan(&s.lastSend, &x.At, &x.Device, &x.Kind, &x.Agent, &x.Priority, &x.Outcome); err != nil {
+			return err
+		}
+		s.sends = append(s.sends, x)
+	}
+	return rows.Err()
+}
+
+func nullJSON[T any](v *T) *string {
+	if v == nil {
+		return nil
+	}
+	raw, _ := json.Marshal(v)
+	out := string(raw)
+	return &out
+}
+
+// put writes r's row and, once it is committed, takes r.
+func (s *Store) put(r *Record) error {
+	prefs, _ := json.Marshal(r.Prefs)
+	if _, err := s.db.Exec(`INSERT INTO push_records (device, key, env, alert, start, activity, prefs, frequent, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (device) DO UPDATE SET key = excluded.key, env = excluded.env, alert = excluded.alert, start = excluded.start,
+		activity = excluded.activity, prefs = excluded.prefs, frequent = excluded.frequent, updated_at = excluded.updated_at`,
+		r.Device, r.Key, r.Env, nullJSON(r.Alert), nullJSON(r.Start), nullJSON(r.Activity), string(prefs), r.Frequent, r.UpdatedAt); err != nil {
+		return err
+	}
+	s.records[r.Device] = r
+	return nil
 }
 
 // change runs f on device's record under the lock and saves; false from f saves nothing.
 func (s *Store) change(device string, f func(r *Record) bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r := s.f.Records[device]
-	if r == nil {
+	old := s.records[device]
+	if old == nil {
 		return ErrNotRegistered
 	}
-	if !f(r) {
+	r := clone(old)
+	if !f(&r) {
 		return nil
 	}
-	return s.save()
+	return s.put(&r)
 }
 
 // Register replaces device's registration; a Live Activity it had stays.
@@ -119,11 +171,10 @@ func (s *Store) Register(device string, reg Registration, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r := &Record{Device: device, Key: reg.Key, Env: reg.Env, Alert: reg.Alert, Start: reg.Start, Prefs: reg.Prefs, Frequent: reg.Frequent, UpdatedAt: now.UnixMilli()}
-	if old := s.f.Records[device]; old != nil {
+	if old := s.records[device]; old != nil {
 		r.Activity = old.Activity
 	}
-	s.f.Records[device] = r
-	return s.save()
+	return s.put(r)
 }
 
 // SetActivity names device's Live Activity, or forgets it when ended.
@@ -158,11 +209,14 @@ func (s *Store) SetPrefs(device string, p proto.PushPrefs) error {
 func (s *Store) Remove(device string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.f.Records[device] == nil {
+	if s.records[device] == nil {
 		return nil
 	}
-	delete(s.f.Records, device)
-	return s.save()
+	if _, err := s.db.Exec(`DELETE FROM push_records WHERE device = ?`, device); err != nil {
+		return err
+	}
+	delete(s.records, device)
+	return nil
 }
 
 // Which handle of a record a send used.
@@ -201,7 +255,7 @@ func clone(r *Record) Record {
 func (s *Store) Get(device string) (Record, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r := s.f.Records[device]
+	r := s.records[device]
 	if r == nil {
 		return Record{}, false
 	}
@@ -212,8 +266,8 @@ func (s *Store) Get(device string) (Record, bool) {
 func (s *Store) Records() []Record {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]Record, 0, len(s.f.Records))
-	for _, r := range s.f.Records {
+	out := make([]Record, 0, len(s.records))
+	for _, r := range s.records {
 		out = append(out, clone(r))
 	}
 	slices.SortFunc(out, func(a, b Record) int { return int(a.UpdatedAt - b.UpdatedAt) })
@@ -224,15 +278,37 @@ func (s *Store) Records() []Record {
 func (s *Store) Note(sent Sent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.f.Sends = append(s.f.Sends, sent)
-	if n := len(s.f.Sends); n > keepSends {
-		s.f.Sends = slices.Clone(s.f.Sends[n-keepSends:])
+	at := s.lastSend + 1
+	if err := s.insertSend(at, sent); err != nil {
+		log.Printf("push: a send isn't kept: %v", err)
+		return
 	}
-	s.save()
+	s.lastSend = at
+	s.sends = append(s.sends, sent)
+	if n := len(s.sends); n > keepSends {
+		s.sends = slices.Clone(s.sends[n-keepSends:])
+	}
+}
+
+// insertSend writes sent at position at and drops the sends past keepSends, in one transaction.
+func (s *Store) insertSend(at int64, sent Sent) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO push_sends (position, at, device, kind, agent, priority, outcome) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		at, sent.At, sent.Device, sent.Kind, sent.Agent, sent.Priority, sent.Outcome); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM push_sends WHERE position <= ?`, at-keepSends); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) Sends() []Sent {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return slices.Clone(s.f.Sends)
+	return slices.Clone(s.sends)
 }

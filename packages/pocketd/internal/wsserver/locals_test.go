@@ -9,7 +9,6 @@ import (
 
 	"pocketd/internal/locals"
 	"pocketd/internal/peer"
-	"pocketd/internal/registry"
 	"pocketd/internal/terminal"
 )
 
@@ -21,9 +20,12 @@ func withLocals(t *testing.T, terms *terminal.Manager) func(*Server) {
 	if err := os.WriteFile(path, []byte(`{"projects":["/p"],"repos":{}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return func(s *Server) {
-		s.Locals, s.Registry, s.Terminals = locals.Open(dir), registry.Open(filepath.Dir(path)), terms
+	db, reg := openStore(t, dir)
+	ls, err := locals.Open(db, reg.Load)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return func(s *Server) { s.Locals, s.Registry, s.Terminals = ls, reg, terms }
 }
 
 func TestALocalsClientGetsEveryLocalThenEachChange(t *testing.T) {

@@ -7,12 +7,13 @@ import (
 	"time"
 
 	"pocketd/internal/devices"
+	"pocketd/internal/statedb/dbtest"
 	"pocketd/internal/terminal"
 )
 
 func withDevices(t *testing.T) (*Server, *[]string) {
 	t.Helper()
-	store, err := devices.Open(filepath.Join(t.TempDir(), "devices.json"), "tok")
+	store, err := devices.Open(dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db")), "tok")
 	if err != nil {
 		t.Fatal(err)
 	}

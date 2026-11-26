@@ -14,9 +14,9 @@ import (
 	"pocketd/internal/accounts"
 	"pocketd/internal/agent"
 	"pocketd/internal/envdir"
-	"pocketd/internal/locals"
 	"pocketd/internal/names"
 	"pocketd/internal/naming"
+	"pocketd/internal/statedb/dbtest"
 	"pocketd/internal/timeline"
 	"pocketd/internal/worktree"
 )
@@ -28,7 +28,11 @@ func placed(t *testing.T) (*Launcher, *agent.Agent, job) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l.Names = names.Open(t.TempDir())
+	names, err := names.Open(dbtest.Open(t, filepath.Join(t.TempDir(), "pocketd.db")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Names = names
 	a := l.d.Agents.Add("a1", c.Path, "claude", nil)
 	return l, a, job{provider: "claude", prompt: "fix the login", project: s.Project, tree: c.Path, branch: "calm-otter"}
 }
@@ -105,7 +109,7 @@ func TestAnAgentWithNoHeadlessRunIsNamedByItsOwnTitleOrLeftUnnamedWithNoFailure(
 	replyPoll = time.Millisecond
 	t.Cleanup(func() { replyPoll = old })
 	l, _, j := placed(t)
-	l.Locals = locals.Open(t.TempDir())
+	l.Locals = openLocals(t, l)
 	l.Locals.Create("l1", j.project, "Local 1")
 	l.Locals.Create("l2", j.project, "Local 2")
 	msgs, stop := l.Names.Subscribe()
@@ -156,7 +160,7 @@ func TestAPushedPlaceholderKeepsItsBranch(t *testing.T) {
 
 func TestNamingTitlesTheLocalTheSessionStartedInOnlyOnce(t *testing.T) {
 	l, a, j := placed(t)
-	l.Locals = locals.Open(t.TempDir())
+	l.Locals = openLocals(t, l)
 	l.Locals.Create("l1", j.project, "Local 2")
 	j.tree, j.local = "", "l1"
 	answers(l, naming.Result{Title: "Fix login", Branch: "fix-login"}, naming.Result{Title: "Add tests", Branch: "add-tests"})

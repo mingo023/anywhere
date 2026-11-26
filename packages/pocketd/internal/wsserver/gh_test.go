@@ -41,7 +41,7 @@ func newGhFixture(t *testing.T) *ghFixture {
 	}
 	path := filepath.Join(root, "desktop.json")
 	os.WriteFile(path, []byte(fmt.Sprintf(`{"projects":[%q],"worktree":{"root":%q}}`, f.project, filepath.Join(root, "wt"))), 0o600)
-	f.reg = registry.Open(filepath.Dir(path))
+	f.reg = openRegistry(t, filepath.Dir(path))
 	f.put("version", "gh version 2.81.0 (2025-10-01)\n")
 	f.put("auth", "  ✓ Logged in to github.com account mingo023 (keyring)\n  - Active account: true\n")
 	f.put("view.json", `{"isDraft":false,"number":42,"state":"OPEN","title":"Fix the flaky snapshot","url":"https://github.com/acme/app/pull/42","mergeable":"MERGEABLE","reviewDecision":"APPROVED","statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"}]}`)

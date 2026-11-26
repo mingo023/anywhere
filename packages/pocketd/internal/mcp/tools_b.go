@@ -3,6 +3,7 @@ package mcp
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"pocketd/internal/orch"
 	"pocketd/internal/proto"
+	"pocketd/internal/registry"
 )
 
 // contextBudget bounds the conversation a fork or merge_back carries.
@@ -355,7 +357,7 @@ func scheduleTask(ctx context.Context, c *Call) (any, error) {
 	a.Name = cmp.Or(p.Name, cmp.Or(a.Name, clip(firstLine(p.Prompt), 60)))
 	a.Prompt = cmp.Or(p.Prompt, a.Prompt)
 	a.Provider = cmp.Or(p.Agent, cmp.Or(a.Provider, c.Caller.Provider))
-	a.Folder = cmp.Or(a.Folder, cmp.Or(c.Caller.Worktree, c.Caller.Cwd))
+	a.Folder = cmp.Or(a.Folder, cmp.Or(c.Caller.Tree, c.Caller.Cwd))
 	kinds := c.Host.Agents()
 	i := slices.IndexFunc(kinds, func(k AgentKind) bool { return k.ID == a.Provider })
 	if i < 0 {
@@ -386,6 +388,9 @@ func scheduleTask(ctx context.Context, c *Call) (any, error) {
 		a.Enabled = *p.Enabled
 	}
 	saved, err := s.Save(a)
+	if errors.Is(err, registry.ErrUnknownProject) {
+		return nil, fail(proto.CodeUnknownProject, err.Error())
+	}
 	if err != nil {
 		return nil, err
 	}
