@@ -54,7 +54,8 @@ actions!(
         FormatItalic,
         FormatCode,
         FormatLink,
-        BackToParent
+        BackToParent,
+        SettingsUp
     ]
 );
 
@@ -203,6 +204,9 @@ pub fn bindings() -> Vec<KeyBinding> {
     out.extend((1..=9).map(|n| bind(&format!("ctrl-{n}"), JumpTo(n), None)));
     // ⌃n is the session jump above, so spaces take ⌃⌘n.
     out.extend((1..=9).map(|n| bind(&format!("cmd-ctrl-{n}"), SwitchSpace(n), None)));
+    // Last, so it beats Back to parent in Settings and a field's own ⌘[ (Outdent), which a one-line field has no use for.
+    out.push(bind("cmd-[", SettingsUp, Some(settings::CONTEXT)));
+    out.push(bind("cmd-[", SettingsUp, Some(&format!("{} > Input", settings::CONTEXT))));
     out
 }
 
@@ -342,6 +346,22 @@ mod tests {
         };
         assert_eq!(action(&["Root", inbox::CONTEXT, "Input"]), Some("test::Submit"));
         assert_eq!(action(&["Root", inbox::CONTEXT]), Some("desktop::OpenSession"));
+    }
+
+    #[test]
+    fn cmd_bracket_goes_up_a_level_in_settings_even_from_a_field() {
+        let mut keymap = Keymap::default();
+        keymap.add_bindings([
+            KeyBinding::load_for_os("cmd-[", Box::new(Submit), KeyBindingContextPredicate::parse("Input").ok().map(Rc::new), keys::OS).unwrap()
+        ]);
+        keymap.add_bindings(bindings());
+        let action = |stack: &[&str]| {
+            let stack: Vec<KeyContext> = stack.iter().map(|c| KeyContext::parse(c).unwrap()).collect();
+            keymap.bindings_for_input(&[Keystroke::parse_with_os(&native("cmd-[", None), keys::OS).unwrap()], &stack).0.first().map(|b| b.action().name())
+        };
+        assert_eq!(action(&["Root", crate::settings::CONTEXT, "Input"]), Some("desktop::SettingsUp"));
+        assert_eq!(action(&["Root", crate::settings::CONTEXT]), Some("desktop::SettingsUp"));
+        assert_eq!(action(&["Root"]), Some("desktop::BackToParent"));
     }
 
     #[test]

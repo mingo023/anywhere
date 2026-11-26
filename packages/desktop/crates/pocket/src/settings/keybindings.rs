@@ -92,6 +92,7 @@ fn label(action: &str) -> Option<(&'static str, Topic)> {
         "ZoomOut" => ("Zoom out", App),
         "ResetZoom" => ("Actual size", App),
         "FocusSearch" => ("Search settings", App),
+        "SettingsUp" => ("Up a level in Settings", App),
         "Save" => ("Save", App),
         "Quit" => ("Quit", App),
         "CopySelection" => ("Copy", App),
