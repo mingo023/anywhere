@@ -4,7 +4,7 @@ use crate::desktop::Desktop;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use theme::*;
 use workspace::tree::PaneId;
@@ -20,7 +20,8 @@ struct Look {
     forward: bool,
     picking: bool,
     can_pick: bool,
-    page: Option<Rc<web::Page>>,
+    /// Weak: the pane keeps its last look after the tab closes, and a page kept alive stays drawn over GPUI.
+    page: Option<Weak<web::Page>>,
     shot: Option<Arc<RenderImage>>,
     focus: Option<FocusHandle>,
 }
@@ -61,8 +62,8 @@ impl BrowserPane {
         });
     }
 
-    fn page(&self) -> Option<&web::Page> {
-        self.look.as_ref()?.page.as_deref()
+    fn page(&self) -> Option<Rc<web::Page>> {
+        self.look.as_ref()?.page.as_ref()?.upgrade()
     }
 }
 
@@ -121,7 +122,7 @@ impl Render for BrowserPane {
                 let bounds = window.unzoomed(bounds);
                 let rect =
                     web::Rect { x: bounds.origin.x.into(), y: bounds.origin.y.into(), width: bounds.size.width.into(), height: bounds.size.height.into() };
-                if let Some(page) = &page
+                if let Some(page) = page.and_then(|p| p.upgrade())
                     && page.place(rect)
                     && focused
                     && focus.as_ref().is_some_and(|f| f.is_focused(window))
@@ -200,7 +201,7 @@ impl Desktop {
             forward: b.page.as_ref().is_some_and(|p| p.can_go_forward()),
             picking: b.picking,
             can_pick: b.page.is_some(),
-            page: b.page.clone().filter(|_| self.browsers.shown.contains(&id)),
+            page: b.page.as_ref().filter(|_| self.browsers.shown.contains(&id)).map(Rc::downgrade),
             shot: b.shot.clone(),
             focus: (pane == self.focused_pane(cx)).then(|| self.browsers.focus.clone()),
         };
