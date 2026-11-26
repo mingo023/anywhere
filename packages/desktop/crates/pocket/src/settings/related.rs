@@ -14,7 +14,7 @@ const LINKS: &[(Section, &str, Related)] = &[
     (Section::Files, "Tabs", Related { lead: "Whether a new tab starts a shell or an agent is set in", to: Section::Agents, label: "Agents \u{203a} Tabs" }),
     (Section::Terminal, "Keyboard & mouse", Related { lead: "Terminal shortcuts are in", to: Section::Keyboard, label: "Keyboard" }),
     (Section::Agents, "Tabs", Related { lead: "Where tabs sit and how they preview is set in", to: Section::Files, label: "Files & Editor \u{203a} Tabs" }),
-    (Section::Git, "GitHub", Related { lead: "Agent sign-ins are in", to: Section::Accounts, label: "Accounts" }),
+    (Section::Git, "GitHub", Related { lead: "The accounts your agents sign in with are in", to: Section::Accounts, label: "Accounts" }),
 ];
 
 /// The pointer under `group` of `section`'s page.

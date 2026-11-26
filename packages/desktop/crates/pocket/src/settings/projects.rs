@@ -328,7 +328,10 @@ impl Settings {
                     .min_w_0()
                     .text_size(px(11.5))
                     .text_color(TEXT_3)
-                    .child(div().min_w_0().truncate().font_family(MONO).child(tilde(hosts::split(&card.path).1)))
+                    .child(div().min_w_0().truncate().font_family(MONO).child(match hosts::split(&card.path) {
+                        (None, path) => tilde(path),
+                        (Some(_), path) => path.to_string(),
+                    }))
                     .children(picks.map(|pick| div().flex().flex_none().items_center().gap(px(6.)).child("\u{b7}").child(pick))),
             );
         div()

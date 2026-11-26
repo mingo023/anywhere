@@ -569,6 +569,7 @@ impl Settings {
                 let typed = field.input.read(cx).value().to_string();
                 let bounds = Bounds { min: min.into(), max: max.into(), step: step.into() };
                 let n = fields::typed_step(&typed, current.into(), bounds) as i32;
+                // Written back, since the typed text may have been clamped or rounded.
                 field.draft = fields::Draft::new(n.to_string());
                 field.input.update(cx, |f, cx| f.set_value(n.to_string(), window, cx));
                 if n != current {
