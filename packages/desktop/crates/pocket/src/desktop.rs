@@ -823,6 +823,7 @@ impl Render for Desktop {
                     || this.sidebar.update(cx, |s, cx| s.cancel_rename(cx))
                     || this.new_form.update(cx, |f, cx| f.close_picker(cx))
                     || this.escape_composer_menu(cx)
+                    || this.inbox(cx).update(cx, |i, cx| i.cancel_reply(cx))
                     || this.close_menus(cx)
                     || this.chat_escape_dock(cx)
                     || this.delegated_escape(window, cx)

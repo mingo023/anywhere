@@ -90,9 +90,8 @@ impl Render for Inbox {
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| this.shut(cx)))
             .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| {
                 if e.keystroke.key == "escape" {
-                    match this.replying {
-                        Some(_) => this.cancel_reply(cx),
-                        None => this.shut(cx),
+                    if !this.cancel_reply(cx) {
+                        this.shut(cx);
                     }
                     cx.stop_propagation();
                 }

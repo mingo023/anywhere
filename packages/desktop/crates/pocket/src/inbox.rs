@@ -49,6 +49,13 @@ pub(crate) struct Card {
     pub(crate) body: Body,
 }
 
+impl Card {
+    /// Retries and replies answer one turn; the agent's next one moves `at` and asks afresh.
+    fn turn(&self) -> String {
+        format!("{}@{}", self.agent, self.at)
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) enum Body {
     Asks(Vec<Permission>),
@@ -110,7 +117,7 @@ impl Answers {
         match &card.body {
             Body::Asks(asks) if self.shown(asks).is_none() => asks.last().and_then(|p| self.sent.get(&p.request_id)).map(String::as_str),
             Body::Asks(_) => None,
-            _ => self.sent.get(&card.agent).map(String::as_str),
+            _ => self.sent.get(&card.turn()).map(String::as_str),
         }
     }
 
@@ -124,14 +131,14 @@ impl Answers {
     }
 
     fn forget_gone(&mut self, cards: &[Card]) {
-        let live: HashSet<&str> = cards
+        let live: HashSet<String> = cards
             .iter()
             .flat_map(|c| {
                 let asks = match &c.body {
                     Body::Asks(asks) => asks.iter().map(|p| p.request_id.as_str()).collect(),
                     _ => Vec::new(),
                 };
-                asks.into_iter().chain(std::iter::once(c.agent.as_str()))
+                asks.into_iter().map(str::to_string).chain(std::iter::once(c.turn()))
             })
             .collect();
         self.sent.retain(|k, _| live.contains(k.as_str()));
@@ -156,6 +163,7 @@ pub(crate) enum InboxEvent {
     Prompt { agent: String, text: String },
     Retry(String),
     Seen(Vec<String>),
+    Link { agent: String, link: String },
 }
 
 pub struct Inbox {
@@ -224,7 +232,8 @@ impl Inbox {
     }
 
     fn retry(&mut self, agent: &str, cx: &mut Context<Self>) {
-        if self.answers.send(agent, "Retrying · back to Working".into()) {
+        let Some(turn) = self.card(agent).map(Card::turn) else { return };
+        if self.answers.send(&turn, "Retrying · back to Working".into()) {
             cx.emit(InboxEvent::Retry(agent.to_string()));
         }
         cx.notify();
@@ -245,9 +254,13 @@ impl Inbox {
         cx.notify();
     }
 
-    fn cancel_reply(&mut self, cx: &mut Context<Self>) {
-        self.replying = None;
-        cx.notify();
+    /// False when no reply was open, so Esc goes on to shut the popover.
+    pub(crate) fn cancel_reply(&mut self, cx: &mut Context<Self>) -> bool {
+        let was = self.replying.take().is_some();
+        if was {
+            cx.notify();
+        }
+        was
     }
 
     fn send_reply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -269,8 +282,9 @@ impl Inbox {
                 }
             }
             Replying::Prompt(agent) => {
-                let line = format!("Sent to {}", self.card(&agent).map(|c| c.agent_name.as_str()).unwrap_or("the agent"));
-                if self.answers.send(&agent, line) {
+                let Some(card) = self.card(&agent) else { return };
+                let (turn, line) = (card.turn(), format!("Sent to {}", card.agent_name));
+                if self.answers.send(&turn, line) {
                     cx.emit(InboxEvent::Prompt { agent, text });
                 }
             }
@@ -403,6 +417,10 @@ impl Desktop {
             InboxEvent::Prompt { agent, text } if answers => _ = self.outbox.prompt(agent, text),
             InboxEvent::Retry(agent) if answers => self.retry_turn(agent, cx),
             InboxEvent::Seen(ids) => self.outbox.seen(ids),
+            InboxEvent::Link { agent, link } => {
+                let cwd = self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default();
+                self.chat_open(agent, link, &cwd, window, cx);
+            }
             _ => {}
         }
         cx.notify();
@@ -514,10 +532,21 @@ mod tests {
         let mut answers = Answers::default();
         answers.send("r1", "Allowed".into());
         answers.send("gone", "Sent".into());
-        answers.send("fail", "Retrying".into());
+        answers.send("fail@0", "Retrying".into());
         answers.forget_gone(&[Card { body: Body::Asks(vec![ask("r1")]), ..card("a", Status::NeedsYou, 0) }, card("fail", Status::Failed, 0)]);
         let mut kept: Vec<_> = answers.sent.keys().cloned().collect();
         kept.sort();
-        assert_eq!(kept, ["fail", "r1"]);
+        assert_eq!(kept, ["fail@0", "r1"]);
+    }
+
+    #[test]
+    fn a_retry_settles_only_the_turn_it_was_sent_for() {
+        let mut answers = Answers::default();
+        let failed = card("a", Status::Failed, 1);
+        answers.send(&failed.turn(), "Retrying".into());
+        assert_eq!(answers.settled(&failed), Some("Retrying"));
+        let again = card("a", Status::Failed, 2);
+        answers.forget_gone(std::slice::from_ref(&again));
+        assert_eq!(answers.settled(&again), None);
     }
 }

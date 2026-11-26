@@ -1,5 +1,5 @@
 use super::card::{Btn, btn, in_session, reply_field};
-use super::{Inbox, Replying};
+use super::{Inbox, InboxEvent, Replying};
 use crate::chat::markdown;
 use crate::chat::question::title_and_body;
 use crate::desktop::chrome::id;
@@ -122,7 +122,14 @@ impl Inbox {
         let (title, body) = title_and_body(&q.question);
         let title = div().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title.to_string());
         let body = body.map(|text| {
-            let open: markdown::Open = Arc::new(|link, _, _, cx| cx.open_url(link));
+            let open: markdown::Open = {
+                let (this, agent) = (cx.weak_entity(), agent.to_string());
+                Arc::new(move |link, press, _, cx| {
+                    if matches!(press, markdown::Press::Follow) {
+                        _ = this.update(cx, |_, cx| cx.emit(InboxEvent::Link { agent: agent.clone(), link: link.to_string() }));
+                    }
+                })
+            };
             let view = TextView::markdown(id(format!("inbox-question-md:{}:{page}", p.request_id)), SharedString::from(text.to_string()));
             div().mt(px(4.)).child(markdown::block(view, open).text_size(px(12.5)).line_height(px(18.)).text_color(TEXT_2))
         });
@@ -132,7 +139,7 @@ impl Inbox {
         }
         if self.replying == Some(Replying::Other(request.clone())) {
             let back =
-                btn(id(format!("inbox-q-cancel:{request}")), Btn::Ghost, "Back").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.cancel_reply(cx)));
+                btn(id(format!("inbox-q-cancel:{request}")), Btn::Ghost, "Back").on_click(cx.listener(|this, _: &ClickEvent, _, cx| _ = this.cancel_reply(cx)));
             return div().flex().flex_col().gap(px(6.)).child(head).child(title).child(reply_field(&self.reply, cx)).child(div().flex().child(back));
         }
         let options = q.options.iter().enumerate().map(|(ix, o)| {

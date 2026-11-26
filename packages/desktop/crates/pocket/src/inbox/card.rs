@@ -310,7 +310,7 @@ impl Inbox {
                 .underline()
                 .hover(|s| s.text_color(TEXT))
                 .child("Cancel")
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.cancel_reply(cx)));
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| _ = this.cancel_reply(cx)));
             div().flex().flex_col().gap(px(6.)).child(reply_field(&self.reply, cx)).child(div().flex().child(cancel))
         } else {
             let (deny, allow, reply) = (request.clone(), request.clone(), request.clone());
