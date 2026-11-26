@@ -142,9 +142,20 @@ fn after<'a>(s: &'a str, key: &str) -> Option<&'a str> {
     None
 }
 
-/// The string literal that `key` holds in `s`.
+/// The string literal that `key` holds in `s`, skipping a `key` inside another value.
 fn string(s: &str, key: &str) -> Option<String> {
-    let rest = after(s, key)?.trim_start();
+    let mut rest = s;
+    while let Some(next) = after(rest, key) {
+        if let Some(value) = literal(next) {
+            return Some(value);
+        }
+        rest = next;
+    }
+    None
+}
+
+fn literal(rest: &str) -> Option<String> {
+    let rest = rest.trim_start();
     let quote = rest.chars().next().filter(|c| matches!(c, '"' | '\'' | '`'))?;
     let mut out = String::new();
     let mut chars = rest[1..].chars();
@@ -206,6 +217,8 @@ const r = await agent('x', { phase: 'Instrument', name: 'not this' })"#;
         let w = Workflow::from_input(&json!({ "script": script }));
         assert_eq!(w.name, "measure");
         assert_eq!(titles(&w), [("Instrument", "Add timings, {braces} and 'quotes' too"), ("Judge", "")]);
+        let w = Workflow::from_input(&json!({ "script": "export const meta = { description: 'Pick a name: short', name: 'x' }" }));
+        assert_eq!(w.name, "x", "a key inside an earlier value isn't the key");
     }
 
     #[test]

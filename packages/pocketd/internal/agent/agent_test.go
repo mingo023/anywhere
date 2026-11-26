@@ -959,6 +959,23 @@ func TestAWorkflowThatEndsEndsTheAgentsItLeftRunningAndOnlyThem(t *testing.T) {
 	}
 }
 
+func TestAnAgentAWorkflowStartsAfterItEndedEndsAtOnce(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("w", "/w", "claude", fakeDriver{})
+	for _, e := range []timeline.Event{
+		{Kind: "tool_start", ToolUseID: "wf", Name: "Workflow"},
+		{Kind: "tool_background", ToolUseID: "wf", TaskID: "w1"},
+		{Kind: "tool_end", TaskID: "w1", OK: true},
+		{Kind: "tool_start", ToolUseID: "a1", Name: "Agent", Detail: &proto.ToolDetail{Kind: "task"}, ParentToolUseID: "wf"},
+		{Kind: "tool_start", ToolUseID: "other", Name: "Agent", Detail: &proto.ToolDetail{Kind: "task"}, ParentToolUseID: "t"},
+	} {
+		a.Record(e)
+	}
+	got := statuses(a)
+	if got["a1"] != "ok "+timeline.WorkflowStopped || got["other"] != "running " {
+		t.Fatalf("got %v", got)
+	}
+}
+
 func statuses(a *Agent) map[string]string {
 	items, _ := a.Timeline.PageWithSubagents(0, 100)
 	got := map[string]string{}

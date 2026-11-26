@@ -52,7 +52,7 @@ type Subagents struct {
 	read    map[string]int64  // transcript → how far Spawned read it
 	runs    map[string]string // Workflow call → the run it launched
 	journal map[string]bool   // runs whose journal Tail follows
-	shown   map[string]string // workflow agent → the status of its call a restored timeline shows
+	settled map[string]bool   // workflow agent a restored timeline shows → whether it shows its result
 }
 
 // NewSubagents follows the sub-agents of the conversation at path.
@@ -65,7 +65,7 @@ func NewSubagents(path string) *Subagents {
 		read:    map[string]int64{},
 		runs:    map[string]string{},
 		journal: map[string]bool{},
-		shown:   map[string]string{},
+		settled: map[string]bool{},
 	}
 }
 
@@ -124,7 +124,7 @@ func (s *Subagents) Restored(shown []proto.Item, fn func([]timeline.Event)) {
 		}
 		if c := it.Call; c != nil && runs[it.ParentToolUseID] != "" {
 			s.mu.Lock()
-			s.shown[c.ToolUseID] = c.Status
+			s.settled[c.ToolUseID] = c.Status != "running" && (c.Output == nil || *c.Output != timeline.WorkflowStopped)
 			s.mu.Unlock()
 		}
 		if c := it.Call; c != nil && runs[c.ToolUseID] != "" {
@@ -217,13 +217,13 @@ func (s *Subagents) journaled(raw []byte, call string) []timeline.Event {
 		return nil
 	}
 	s.mu.Lock()
-	status, shown := s.shown[l.AgentID]
+	settled, shown := s.settled[l.AgentID]
 	s.mu.Unlock()
 	switch {
 	case l.Type == "started" && !shown:
 		detail := proto.ToolDetail{Kind: "task", Description: l.Label, Phase: l.Phase}
 		return []timeline.Event{{Kind: "tool_start", ToolUseID: l.AgentID, Name: "Agent", Detail: &detail, ParentToolUseID: call}}
-	case l.Type == "result" && (!shown || status == "running"):
+	case l.Type == "result" && !settled:
 		return []timeline.Event{{Kind: "tool_end", ToolUseID: l.AgentID, OK: true, Output: &l.Result, ParentToolUseID: call}}
 	}
 	return nil

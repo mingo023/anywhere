@@ -273,3 +273,34 @@ func TestARestoredWorkflowAddsOnlyTheAgentsItsTimelineDoesNotShow(t *testing.T) 
 		t.Fatalf("got %q want %q", added, want)
 	}
 }
+
+func TestARestoredAgentStoppedWithItsWorkflowTakesItsResultFromTheJournal(t *testing.T) {
+	transcript := writeWorkflow(t, t.TempDir())
+	tl := timeline.New()
+	for _, e := range []timeline.Event{
+		{Kind: "tool_start", ToolUseID: "toolu_wf", Name: "Workflow"},
+		{Kind: "tool_start", ToolUseID: "a1", Name: "Agent", Detail: &proto.ToolDetail{Kind: "task"}, ParentToolUseID: "toolu_wf"},
+		{Kind: "tool_end", ToolUseID: "a1", OK: true, Output: new(timeline.WorkflowStopped)},
+		{Kind: "tool_start", ToolUseID: "a2", Name: "Agent", Detail: &proto.ToolDetail{Kind: "task"}, ParentToolUseID: "toolu_wf"},
+	} {
+		tl.Apply(e, 1)
+	}
+	shown, _ := tl.PageWithSubagents(0, 100)
+	subs := NewSubagents(transcript)
+	var mu sync.Mutex
+	var got []timeline.Event
+	record := follow(subs, &got, &mu)
+	subs.Restored(shown, record)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	subs.Tail(ctx, nil, record)
+	var ends []string
+	for _, e := range got {
+		if e.Kind == "tool_end" {
+			ends = append(ends, e.ToolUseID+" "+*e.Output)
+		}
+	}
+	if want := []string{"a1 ok"}; !reflect.DeepEqual(ends, want) {
+		t.Fatalf("got %q want %q", ends, want)
+	}
+}

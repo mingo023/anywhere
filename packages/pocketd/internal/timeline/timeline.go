@@ -628,6 +628,17 @@ func (t *Timeline) Running() []string {
 	return ids
 }
 
+// WorkflowStopped is the output of a workflow's agent that was still running when its workflow ended.
+const WorkflowStopped = "Stopped when its workflow ended"
+
+// EndedWorkflow says whether call is a Workflow call that has ended.
+func (t *Timeline) EndedWorkflow(call string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n := t.call(call)
+	return n >= 0 && t.items[n].Call.Name == "Workflow" && t.items[n].Call.Status != "running"
+}
+
 // RunningUnder returns the tool use ids of the calls still running that call's sub-agent or workflow made.
 func (t *Timeline) RunningUnder(call string) []string {
 	t.mu.Lock()

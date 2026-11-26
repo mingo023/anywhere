@@ -141,7 +141,7 @@ fn reports(turn: &Turn) -> bool {
     let news = turn.blocks.iter().take_while(|b| matches!(b, Block::Notice { .. } | Block::Delivered(_))).any(|b| matches!(b, Block::Delivered(_)));
     let asks = turn.blocks.iter().any(|b| matches!(b, Block::HostLink { .. }) || matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Question(_))));
     let left = turn.blocks.iter().any(|b| match b {
-        Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_)) => true,
+        Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_) | ToolKind::Workflow(_)) => true,
         Block::Tool(c) if matches!(c.kind, ToolKind::Shell { .. }) => {
             ended_at(turn).is_some_and(|end| c.status == ToolStatus::Running || c.duration_ms.is_some_and(|d| c.at + d as i64 > end))
         }
@@ -379,7 +379,7 @@ pub fn reported(t: &Transcript, ix: usize) -> Vec<&ToolCall> {
     ended
         .flat_map(|(own, end)| {
             own.blocks.iter().filter_map(move |b| match b {
-                Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_) | ToolKind::Shell { .. }) && c.status != ToolStatus::Running => {
+                Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_) | ToolKind::Workflow(_) | ToolKind::Shell { .. }) && c.status != ToolStatus::Running => {
                     let done = c.at + c.duration_ms? as i64;
                     (done > end && done > since && done <= at).then_some(c)
                 }
@@ -916,8 +916,14 @@ mod tests {
         assert_eq!(reported(&t, 1).len(), 1);
         assert_eq!(ids_of(&t)[..2], ["u1", "u1#fold"]);
         assert!(ids_of(&t).contains(&"n1#notice".to_string()));
-        let waited = Transcript { turns: vec![ended(vec![sub(100, 500)]), own] };
+        let waited = Transcript { turns: vec![ended(vec![sub(100, 500)]), own.clone()] };
         assert!(reported(&waited, 1).is_empty(), "the turn waited for it, so it reported in that turn");
+        let workflow = |b: Block| match b {
+            Block::Tool(c) => Block::Tool(ToolCall { kind: ToolKind::Workflow(crate::workflow::Workflow::default()), ..c }),
+            b => b,
+        };
+        let t = Transcript { turns: vec![ended(vec![workflow(sub(100, 10_000))]), own.clone()] };
+        assert_eq!(reported(&t, 1).len(), 1, "a workflow reports as a sub-agent does");
     }
 
     #[test]
