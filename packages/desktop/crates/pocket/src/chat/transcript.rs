@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use theme::*;
 
+mod runs;
 mod sends;
 
 /// The transcript's reading width.
@@ -44,6 +45,8 @@ pub(crate) struct Side {
     pub(crate) send_now: bool,
     pub(crate) delegated_by: Option<(String, String)>,
     pub(crate) here: std::path::PathBuf,
+    /// Where a shell block runs: the agent's folder, when it's on this computer.
+    pub(crate) runs_in: Option<std::path::PathBuf>,
     pub(crate) pick_open: Option<String>,
     pub(crate) delegations: Vec<Delegation>,
     pub(crate) hosts: Option<(Vec<hosts::Host>, crate::fleet::Links)>,
@@ -63,6 +66,8 @@ pub(crate) enum ViewEvent {
     SendFix(Vec<String>, Vec<String>),
     Scrolled(bool),
     ReachedTop,
+    /// A run of a block failed and the user asks the agent to fix it, with this prompt.
+    AskFix(String),
 }
 
 impl EventEmitter<ViewEvent> for View {}
@@ -116,6 +121,7 @@ pub(crate) struct View {
     arrivals: crate::delegated::Arrivals,
     links_pr: bool,
     has_host_link: bool,
+    runs: runs::Runs,
 }
 
 impl View {
@@ -183,6 +189,7 @@ impl View {
             arrivals: Default::default(),
             links_pr: false,
             has_host_link: false,
+            runs: runs::Runs::default(),
         }
     }
 
@@ -1012,7 +1019,35 @@ impl View {
                         if start {
                             highlight = Some((lang.to_string(), code.to_string()));
                         }
-                        let block = div().child(markdown::code_block(&view.docs.code(&id, lang, &code, cx), colours));
+                        let doc = view.docs.code(&id, lang, &code, cx);
+                        let code_view = markdown::code_block(&doc, colours);
+                        let steps = view.side.runs_in.as_ref().and_then(|_| super::steps::runnable(lang, &code));
+                        let block = match steps {
+                            Some(steps) => {
+                                let now = Instant::now();
+                                let running = view.runs.get(&id).is_some_and(|r| r.running());
+                                let (risky, armed) = (steps.iter().any(|s| super::steps::risky(s)), view.runs.armed(&id, now));
+                                let (row, this) = (id.clone(), this.clone());
+                                let code_view = code_view.code_block_actions(move |_, _, _| {
+                                    let (row, this, steps) = (row.clone(), this.clone(), steps.clone());
+                                    super::run_card::button(&row.clone(), running, risky, armed, move |_, _, cx| {
+                                        _ = this.update(cx, |v, cx| v.press_run(&row, steps.clone(), cx));
+                                    })
+                                });
+                                let card = view.runs.get(&id).filter(|r| r.shown).map(|run| {
+                                    let key = format!("run:{id}");
+                                    let fix = run.fix_prompt().map(|_| {
+                                        let row = id.clone();
+                                        (format!("Ask {who} to fix"), cx.listener(move |this: &mut View, _: &ClickEvent, _, cx| this.ask_fix(&row, cx)))
+                                    });
+                                    let row = id.clone();
+                                    let hide = cx.listener(move |this: &mut View, _: &ClickEvent, _, cx| this.hide_run(&row, cx));
+                                    super::run_card::card(&id, run, copy(key.clone(), run.output().to_string(), cx), view.copied(&key), fix, hide, now)
+                                });
+                                div().flex().flex_col().child(code_view).children(card)
+                            }
+                            None => div().child(code_view),
+                        };
                         let block = match reveal {
                             Some(_) => div()
                                 .child(block.with_animation(SharedString::from(format!("code-in-{id}")), Animation::new(reveal::FADE), |b, t| b.opacity(t))),

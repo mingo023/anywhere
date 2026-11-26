@@ -1,0 +1,185 @@
+//! A shell block the agent printed, read as the commands it runs and whether any is risky to run unread.
+
+/// The steps a fenced block runs when it gets a Run button: a shell block with a command in it. A transcript (`console`)
+/// runs only its prompted lines, and a block with a `<placeholder>` left to fill in stays copy-only.
+pub(crate) fn runnable(lang: &str, code: &str) -> Option<Vec<String>> {
+    let transcript = matches!(lang, "console" | "shell-session");
+    let shell = transcript || matches!(lang, "sh" | "bash" | "zsh" | "shell");
+    let steps = steps(code);
+    let runs = shell && !steps.is_empty() && (!transcript || prompted(code)) && !steps.iter().any(|s| placeholder(s));
+    runs.then_some(steps)
+}
+
+fn prompted(code: &str) -> bool {
+    code.lines().any(|l| l.trim_start().starts_with("$ "))
+}
+
+fn placeholder(step: &str) -> bool {
+    step.split('<').skip(1).any(|rest| {
+        let name = rest.split('>').next().unwrap_or("");
+        rest.contains('>')
+            && name.trim_end() == name
+            && name.starts_with(|c: char| c.is_ascii_alphabetic())
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || "-_ /.@:".contains(c))
+    })
+}
+
+/// A loop, condition, function, heredoc or quote spans lines, so its block can't be split into a step per line.
+fn compound(code: &str) -> bool {
+    code.lines().map(str::trim).any(|l| {
+        let first = l.trim_start_matches("$ ").split_whitespace().next().unwrap_or("");
+        let open = |q: char| l.chars().filter(|&c| c == q).count() - l.matches(&format!("\\{q}")).count();
+        matches!(first, "for" | "while" | "until" | "if" | "case" | "select" | "function")
+            || l.contains("<<")
+            || l.ends_with('{')
+            || open('"') % 2 == 1
+            || open('\'') % 2 == 1
+    })
+}
+
+/// The commands in `code`, one per line, or the whole block when it spans lines: a trailing `\` joins the next line, blank lines and comments are left out. In a
+/// block with `$ ` prompts, only the prompted lines are commands and the rest is their output.
+pub(crate) fn steps(code: &str) -> Vec<String> {
+    let prompted = prompted(code);
+    if compound(code) && !prompted {
+        return vec![code.trim().to_string()];
+    }
+    let mut out = Vec::new();
+    let mut held = String::new();
+    for line in code.lines() {
+        let line = line.trim();
+        let line = match (held.is_empty(), line.strip_prefix("$ ")) {
+            (false, _) => line,
+            (true, Some(command)) => command,
+            (true, None) if prompted => continue,
+            (true, None) => line,
+        };
+        match line.strip_suffix('\\') {
+            Some(head) => {
+                held.push_str(head.trim_end());
+                held.push(' ');
+            }
+            None => {
+                held.push_str(line);
+                let step = std::mem::take(&mut held);
+                let step = step.trim();
+                if !step.is_empty() && !step.starts_with('#') {
+                    out.push(step.to_string());
+                }
+            }
+        }
+    }
+    let step = held.trim();
+    if !step.is_empty() && !step.starts_with('#') {
+        out.push(step.to_string());
+    }
+    out
+}
+
+/// Whether `step` deletes, overwrites or reaches past the project in a way worth a second press.
+pub(crate) fn risky(step: &str) -> bool {
+    let words: Vec<&str> = step.split_whitespace().collect();
+    let has = |w: &str| words.contains(&w);
+    let flags = |short: char| words.iter().any(|w| w.starts_with('-') && !w.starts_with("--") && w.contains(short));
+    let rm_recursive = has("rm") && (flags('r') || flags('R') || has("--recursive"));
+    let force_push = has("push") && (has("--force") || has("-f") || words.iter().any(|w| w.starts_with("--force-with-lease")));
+    let hard_reset = has("reset") && has("--hard");
+    let clean = has("clean") && flags('f');
+    let discard = has("checkout") && (has("--") || has(".")) || has("restore") || has("branch") && has("-D") || has("stash") && (has("drop") || has("clear"));
+    let piped_shell = step.split('|').skip(1).any(|to| matches!(to.split_whitespace().next(), Some("sh" | "bash" | "zsh")));
+    rm_recursive
+        || force_push
+        || hard_reset
+        || clean
+        || discard
+        || has("find") && has("-delete")
+        || piped_shell
+        || has("sudo")
+        || has("dd")
+        || words.iter().any(|w| w.starts_with("mkfs"))
+        || (has("chmod") || has("chown")) && flags('R')
+        || step.contains("> /dev/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_block_reads_as_one_step_per_command() {
+        let code = "# install\nnpm ci\n\ncargo test \\\n  -p pocket\n";
+        assert_eq!(steps(code), ["npm ci", "cargo test -p pocket"]);
+    }
+
+    #[test]
+    fn in_a_block_with_prompts_only_the_prompted_lines_run_and_the_rest_is_output() {
+        let code = "$ cargo test \\\n  -p chat\ntest a ... ok\n$ git status\nnothing to commit\n";
+        assert_eq!(steps(code), ["cargo test -p chat", "git status"]);
+    }
+
+    #[test]
+    fn a_continuation_at_the_end_still_makes_a_step() {
+        assert_eq!(steps("echo a \\"), ["echo a"]);
+    }
+
+    #[test]
+    fn deleting_force_pushing_and_root_are_risky() {
+        for step in [
+            "rm -rf target",
+            "rm -r -f build",
+            "git push --force",
+            "git push -f origin x",
+            "git reset --hard",
+            "git clean -fd",
+            "sudo make install",
+            "curl -fsSL x.sh | sh",
+            "chmod -R 777 .",
+            "git checkout -- .",
+            "git checkout .",
+            "git restore src",
+            "git branch -D old",
+            "git stash drop",
+            "find . -name '*.log' -delete",
+        ] {
+            assert!(risky(step), "{step}");
+        }
+    }
+
+    #[test]
+    fn everyday_commands_are_not_risky() {
+        for step in ["cargo test -p pocket", "rm notes.txt", "git push origin main", "ls -la", "git reset HEAD~1", "npm run build", "cat x | sha256sum"] {
+            assert!(!risky(step), "{step}");
+        }
+    }
+
+    #[test]
+    fn only_a_shell_block_with_a_command_runs() {
+        assert_eq!(runnable("bash", "# just a note\n"), None);
+        assert_eq!(runnable("rust", "fn main() {}"), None);
+        assert_eq!(runnable("sh", "ls"), Some(vec!["ls".to_string()]));
+    }
+
+    #[test]
+    fn a_placeholder_left_to_fill_in_keeps_a_block_copy_only() {
+        assert_eq!(runnable("sh", "git push -u origin <branch>"), None);
+        assert_eq!(runnable("sh", "gh repo clone <owner/repo>"), None);
+        assert_eq!(runnable("sh", "ssh <user@host>"), None);
+        assert!(runnable("sh", "sort < in.txt > out.txt").is_some());
+    }
+
+    #[test]
+    fn a_transcript_with_no_prompt_is_sample_output() {
+        assert_eq!(runnable("console", "running 14 tests\ntest result: ok"), None);
+        assert_eq!(runnable("console", "$ cargo test\nok"), Some(vec!["cargo test".to_string()]));
+    }
+
+    #[test]
+    fn a_loop_or_heredoc_runs_as_one_step() {
+        let code = "for f in a b; do\n  echo $f\ndone\n";
+        assert_eq!(steps(code), [code.trim()]);
+        let code = "cat <<EOF > notes.txt\n# kept\n\nEOF";
+        assert_eq!(steps(code), [code]);
+        let code = "git commit -m \"title\n\nbody\"";
+        assert_eq!(steps(code), [code]);
+    }
+}
