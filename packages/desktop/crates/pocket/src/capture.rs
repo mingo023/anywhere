@@ -36,7 +36,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 308] = [
+const STEPS: [(&str, Step); 312] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -966,14 +966,14 @@ const STEPS: [(&str, Step); 308] = [
     ("no-phones", |d, _, cx| d.settings.update(cx, |s, _| s.host.devices = Some(Vec::new()))),
     ("custom-shell", |d, window, cx| {
         (d.store.terminal.shell, d.store.terminal.shell_path) = (store::prefs::terminal::Shell::Custom, "/opt/homebrew/bin/fish".into());
-        if let Some(field) = d.settings.read(cx).fields.get("shell-args").cloned() {
+        if let Some(field) = d.settings.read(cx).fields.get("shell-args").map(|f| f.input.clone()) {
             field.update(cx, |f, cx| f.set_value("--login --private", window, cx));
         }
         d.settings.update(cx, |s, cx| s.edit_terminal_color(9, window, cx));
     }),
     ("custom-search", |d, window, cx| {
         d.store.browser.engine = store::prefs::browser::Engine::Custom;
-        if let Some(field) = d.settings.read(cx).fields.get("custom-search").cloned() {
+        if let Some(field) = d.settings.read(cx).fields.get("custom-search").map(|f| f.input.clone()) {
             field.update(cx, |f, cx| f.set_value("search.brave.com/search?q=", window, cx));
         }
     }),
@@ -1017,6 +1017,20 @@ const STEPS: [(&str, Step); 308] = [
         d.diff.relayout(true, cx);
     }),
     ("code-font-menu", |d, _, cx| d.settings.update(cx, |s, cx| s.set_menu(Some("code-font"), cx))),
+    ("settings-menu", |d, _, cx| d.settings.update(cx, |s, cx| s.set_menu(Some("close-window"), cx))),
+    ("settings-changed", |d, _, _| {
+        (d.store.general.auto_install, d.store.general.launch_layout) = (false, Some(store::Layout::Focus));
+    }),
+    ("settings-save-failed", |d, _, cx| {
+        let setting = crate::settings::catalog::find("open-at-login").expect("the login row");
+        let retry: crate::settings::Setter = std::rc::Rc::new(|s, _| s.general.open_at_login = true);
+        let message = "Couldn\u{2019}t save: macOS needs you to allow the login item in System Settings".to_string();
+        d.settings.update(cx, |s, cx| s.row_failed(setting, message, retry, cx));
+    }),
+    ("settings-undo-toast", |d, _, cx| {
+        let undo = crate::settings::toasts::Undo::new(|_, _, _| {});
+        d.settings_toast(crate::settings::toasts::Toast::undo("Moved Midnight Ink to the Trash", undo), cx);
+    }),
     ("creating", |d, _, cx| {
         let Some(p) = d.project.clone() else { return };
         let now = Instant::now();
