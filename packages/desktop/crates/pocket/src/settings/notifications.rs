@@ -2,7 +2,7 @@ mod permission;
 mod sounds;
 
 use super::catalog::{Control, Look, Setting};
-use super::{Section, Settings, action, focus_ring, group, row};
+use super::{DECOR, Decor, Section, Settings, action, focus_ring, group, row};
 use crate::desktop::Desktop;
 use crate::desktop::sounds::sound_name;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -117,6 +117,10 @@ impl Settings {
             .child(self.toggle_pill(sound, "volume", "Sound", sound_on, sound_free, cx));
         let changed = banner.is_changed(&self.store) || sound.is_changed(&self.store);
         let found = self.found.is_some_and(|f| f == event.banner || f == event.sound);
+        if let Some(failed) = [banner, sound].into_iter().find(|s| self.saves.error(s.id).is_some()) {
+            let hint = self.decor(failed, cx).hint;
+            DECOR.with_borrow_mut(|d| *d = Some(Decor { hint, ..Decor::default() }));
+        }
         row(banner.label, banner.hint, pills)
             .relative()
             .when(changed, |d| d.child(div().absolute().left(px(5.)).top_0().bottom_0().flex().items_center().child(ui::dot(5., TEXT))))

@@ -435,15 +435,18 @@ impl Settings {
         let r = &SHORTCUTS[row];
         let saved = model::save(&self.custom(), r);
         let had: Vec<(usize, model::Saved)> = from.iter().filter_map(|b| b.row).map(|h| (h, model::save(&self.custom(), &SHORTCUTS[h]))).collect();
-        self.edit_keys(cx, move |c| {
+        let take = move |c: &mut Custom| {
             for b in &from {
                 if let Some(holder) = b.row {
                     model::remove_key(c, &SHORTCUTS[holder], &b.key);
                 }
             }
             model::reset(c, &SHORTCUTS[row]);
-        });
-        let now = self.custom();
+        };
+        // The write lands later, so the state after it is worked out here.
+        let mut now = self.custom();
+        take(&mut now);
+        self.edit_keys(cx, take);
         let holders: Vec<_> = had.into_iter().map(|(h, had)| (h, had, model::save(&now, &SHORTCUTS[h]))).collect();
         let undo = Undo::new(move |d, _, cx| {
             let mut c = Custom::of(&d.store);

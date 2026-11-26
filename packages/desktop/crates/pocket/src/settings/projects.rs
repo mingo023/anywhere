@@ -105,7 +105,8 @@ pub(super) enum Line {
 }
 
 /// The lines to draw. With projects on one machine there are no headers; with several, each machine that holds a match gets
-/// one, with all its projects counted. A folded group opens while a filter has a match in it.
+/// one, with all its projects counted, and a machine with none that can take one gets an empty group to add it from. A
+/// folded group opens while a filter has a match in it.
 pub(super) fn lines(entries: &[Entry], machines: &[Machine], folded: &HashSet<Option<String>>, query: &str) -> Vec<Line> {
     let name_of =
         |host: Option<&str>| machines.iter().find(|m| m.host.as_deref() == host).map_or_else(|| host.unwrap_or_default().to_string(), |m| m.name.clone());
@@ -116,16 +117,16 @@ pub(super) fn lines(entries: &[Entry], machines: &[Machine], folded: &HashSet<Op
             hosts.push(e.host);
         }
     }
-    hosts.retain(|h| entries.iter().any(|e| e.host == *h));
-    if hosts.len() < 2 {
+    if hosts.iter().filter(|h| entries.iter().any(|e| e.host == **h)).count() < 2 {
         return entries.iter().enumerate().filter(|(_, e)| matches(e)).map(|(card, _)| Line::Project { card }).collect();
     }
     let searching = !query.trim().is_empty();
+    let addable = |host: Option<&str>| machines.iter().any(|m| m.host.as_deref() == host && foot(host, m.state) == Some(Foot::Add));
     let mut lines = Vec::new();
     for host in hosts {
         let held: Vec<usize> = entries.iter().enumerate().filter(|(_, e)| e.host == host).map(|(i, _)| i).collect();
         let shown: Vec<usize> = held.iter().copied().filter(|&i| matches(&entries[i])).collect();
-        if shown.is_empty() {
+        if shown.is_empty() && (searching || !held.is_empty() || !addable(host)) {
             continue;
         }
         let open = searching || !folded.contains(&host.map(str::to_string));
@@ -305,7 +306,7 @@ impl Settings {
         let key = host.clone().unwrap_or_default();
         let name = machine.map_or_else(|| key.clone(), |m| m.name.clone());
         let state = machine.map_or(MachineState::Offline, |m| m.state);
-        let row = div().px(px(14.)).py(px(8.)).flex().items_center().gap(px(12.)).bg(FILL_1);
+        let row = div().px(px(14.)).py(px(8.)).flex().items_center().gap(px(12.)).bg(FILL_1).rounded_b(px(12.));
         match foot(host.as_deref(), state)? {
             Foot::Add => {
                 let target = host.clone();
@@ -428,6 +429,7 @@ impl Settings {
             .items_center()
             .gap(px(12.))
             .bg(FILL_1)
+            .rounded_b(px(12.))
             .child(div().relative().child(add).children(menu.map(|m| ui::dropdown(30., m))))
             .child(clone)
     }
@@ -573,8 +575,16 @@ mod tests {
         let gone = [entry("a", "/a", None), entry("b", "/b", Some("old"))];
         assert_eq!(
             lines(&gone, &machines(), &HashSet::new(), ""),
-            [header(None, true, 1), Line::Project { card: 0 }, header(Some("old"), true, 1), Line::Project { card: 1 }]
+            [header(None, true, 1), Line::Project { card: 0 }, header(Some("build"), true, 0), header(Some("old"), true, 1), Line::Project { card: 1 }]
         );
+    }
+
+    #[test]
+    fn a_reachable_machine_with_no_projects_gets_an_empty_group_to_add_one_from_unless_filtering() {
+        let remote = [entry("api", "/srv/api", Some("build")), entry("web", "/Users/mini/web", Some("mini"))];
+        let shown = lines(&remote, &machines(), &HashSet::new(), "");
+        assert_eq!(shown[0], header(None, true, 0), "This Mac still offers Add and Clone");
+        assert!(!lines(&remote, &machines(), &HashSet::new(), "api").contains(&header(None, true, 0)));
     }
 
     #[test]
