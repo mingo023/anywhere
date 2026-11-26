@@ -4,6 +4,7 @@ mod appearance;
 mod automations;
 mod browser;
 pub(crate) mod catalog;
+mod deferred;
 mod diff;
 pub(crate) mod dropdown;
 pub(crate) mod fields;
@@ -18,6 +19,7 @@ mod notifications;
 mod phone;
 mod projects;
 pub(crate) mod provider;
+mod related;
 mod search;
 mod side;
 mod sidebar;
@@ -336,6 +338,8 @@ pub struct Settings {
     pub(crate) fields: HashMap<&'static str, TextField>,
     /// Every stepper's typed value, by row id.
     numbers: HashMap<&'static str, TextField>,
+    /// The automations' repeat interval, typed with its unit.
+    every: fields::NumberField,
     /// The dropdown row whose menu is open.
     menu: Option<&'static str>,
     /// The project whose GitHub account menu is open, while `menu` is `git::ACCOUNT_MENU`.
@@ -410,6 +414,8 @@ impl Settings {
         subs.extend(launch_subs);
         let (glass, glass_sub) = appearance::glass_slider(store, window, cx);
         subs.push(glass_sub);
+        let (every, every_sub) = automations::every_field(store, window, cx);
+        subs.push(every_sub);
         appearance::load_fonts(cx);
         Self {
             section: Section::General,
@@ -419,6 +425,7 @@ impl Settings {
             found: None,
             fields,
             numbers,
+            every,
             menu: None,
             account_menu: None,
             host,
@@ -582,6 +589,7 @@ impl Settings {
             };
             field.sync(&stored, window, cx);
         }
+        self.every.sync(i64::from(store.automations.every), window, cx);
     }
 
     /// The focus a row's control takes, made the first time it's asked for.
@@ -1154,7 +1162,14 @@ impl Settings {
         let open = self.advanced_open(section);
         let shown: Vec<&'static Setting> = section.rows().iter().filter(|r| r.group == title && r.allowed(&self.store) && (open || !r.advanced)).collect();
         let rows: Vec<Div> = shown.into_iter().map(|r| self.setting_row(r, cx)).collect();
-        (!rows.is_empty()).then(|| group(title, rows))
+        let related = related::of(section, title);
+        (!rows.is_empty()).then(|| {
+            let card = group(title, rows);
+            match related {
+                Some(r) => card.child(self.related_line(r, cx)),
+                None => card,
+            }
+        })
     }
 
     /// Every group of the section's rows, in order.

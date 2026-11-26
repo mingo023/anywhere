@@ -36,7 +36,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 312] = [
+const STEPS: [(&str, Step); 317] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -1027,6 +1027,11 @@ const STEPS: [(&str, Step); 312] = [
         let message = "Couldn\u{2019}t save: macOS needs you to allow the login item in System Settings".to_string();
         d.settings.update(cx, |s, cx| s.row_failed(setting, message, retry, cx));
     }),
+    ("settings-sounds-done-off", |d, _, _| d.store.sounds.done = false),
+    ("settings-banners-off", |d, _, _| d.store.notifications.banners = false),
+    ("settings-sound-menu", |d, _, cx| d.settings.update(cx, |s, cx| s.set_menu(Some("notification-sound"), cx))),
+    ("settings-custom-sound", |d, _, _| d.store.sounds.add("/tmp/anywhere-capture/Doorbell.mp3".into())),
+    ("settings-every-two-days", |d, _, _| d.store.automations.every = 2880),
     ("settings-undo-toast", |d, _, cx| {
         let undo = crate::settings::toasts::Undo::new(|_, _, _| {});
         d.settings_toast(crate::settings::toasts::Toast::undo("Moved Midnight Ink to the Trash", undo), cx);

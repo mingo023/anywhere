@@ -1,29 +1,46 @@
-use super::{ROWS, SOUND};
+use super::setting;
+use crate::desktop::Desktop;
 use crate::desktop::sounds::{BUILT_IN, play, sound_name};
-use crate::settings::{Settings, SettingsEvent, card};
-use gpui_kit::prelude::FluentBuilder as _;
+use crate::explorer::toast::unrestored;
+use crate::settings::catalog::Setting;
+use crate::settings::dropdown::{Choice as Pick, Row, dropdown, picks};
+use crate::settings::toasts::{Toast, Undo};
+use crate::settings::{Settings, SettingsEvent, action, deferred::with_window, group, row};
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
 use store::{Sound, Sounds, Store};
 use theme::*;
 
-/// A row of the sound list.
+/// The menu's last row: it opens a file picker instead of choosing a sound.
+const ADD: &str = "add";
+
+/// A sound the menu lists.
 struct Choice {
     sound: Sound,
-    emoji: &'static str,
     name: String,
-    length: Option<&'static str>,
-    hint: &'static str,
 }
 
 /// The app's sounds, then the user's.
 fn choices(sounds: &Sounds) -> Vec<Choice> {
-    let built = BUILT_IN.iter().map(|b| Choice { sound: b.sound.clone(), emoji: b.emoji, name: b.name.into(), length: Some(b.length), hint: b.hint });
+    let built = BUILT_IN.iter().map(|b| Choice { sound: b.sound.clone(), name: b.name.into() });
     let custom = sounds.custom.iter().map(|p| {
         let sound = Sound::Custom(p.clone());
-        Choice { name: sound_name(&sound), sound, emoji: "\u{1f3b5}", length: None, hint: "Custom audio" }
+        Choice { name: sound_name(&sound), sound }
     });
     built.chain(custom).collect()
+}
+
+/// The sound menu: each sound by its place in `choices`, then the way to add one.
+fn menu(sounds: &Sounds) -> Vec<Row> {
+    let list = choices(sounds);
+    let built = BUILT_IN.len();
+    let mut rows = picks(list.iter().take(built).enumerate().map(|(i, c)| (i.to_string(), c.name.clone())).collect());
+    if list.len() > built {
+        rows.push(Row::Heading("Custom".into()));
+        rows.extend(picks(list.iter().enumerate().skip(built).map(|(i, c)| (i.to_string(), c.name.clone())).collect()));
+    }
+    rows.push(Row::Pick(Pick { value: ADD.into(), label: "Add custom audio\u{2026}".into() }));
+    rows
 }
 
 /// Where added sounds are copied.
@@ -74,99 +91,64 @@ fn not_added(skipped: &[String], failed: &[String]) -> Option<String> {
 }
 
 impl Settings {
-    /// The sound list under a header holding its hint and the add button, as the group title can't.
+    /// The sound's dropdown with a preview beside it; custom audio is added from its menu.
+    pub(super) fn sound_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
+        let sounds = &self.store.sounds;
+        let list = choices(sounds);
+        let current = list.iter().position(|c| c.sound == sounds.sound).unwrap_or(0);
+        let label = list.get(current).map(|c| c.name.clone()).unwrap_or_default();
+        let trigger = action(setting.id, label).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
+        let snapshot = sounds.clone();
+        let menu = dropdown(
+            setting.id,
+            trigger,
+            &sounds.custom,
+            move || menu(&snapshot),
+            &current.to_string(),
+            self,
+            move |this, value, cx| {
+                if value == ADD {
+                    return with_window(cx, |s, window, cx| s.add_sounds(window, cx));
+                }
+                let picked = value.parse::<usize>().ok().and_then(|i| choices(&this.store.sounds).into_iter().nth(i)).map(|c| c.sound);
+                if let Some(sound) = picked {
+                    this.set(setting, cx, move |s| s.sounds.sound = sound.clone());
+                }
+            },
+            cx,
+        );
+        let preview = self.store.sounds.sound.clone();
+        let listen = preview_button("sound-play", 0, preview, cx);
+        row(setting.label, setting.hint, div().flex().items_center().gap(px(8.)).child(menu).child(listen))
+    }
+
+    /// The sound and the volume.
     pub(super) fn sound_group(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let setting = ROWS.iter().find(|r| r.group == SOUND)?;
-        if !setting.allowed(&self.store) {
+        let shown: Vec<&'static Setting> = ["notification-sound", "volume"].into_iter().filter_map(setting).filter(|s| s.allowed(&self.store)).collect();
+        let rows: Vec<Div> = shown.into_iter().map(|s| self.setting_row(s, cx)).collect();
+        (!rows.is_empty()).then(|| group("Sound & volume", rows))
+    }
+
+    /// The audio the user added, each with a preview and a way to delete it; nothing while there is none.
+    pub(super) fn custom_sounds_group(&mut self, cx: &mut Context<Self>) -> Option<Div> {
+        let sound = setting("notification-sound")?;
+        if !sound.allowed(&self.store) || self.store.sounds.custom.is_empty() {
             return None;
         }
-        let add = ui::button("sound-add", ui::Variant::Secondary, Some("plus"), "Add custom audio")
-            .h(px(28.))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_sounds(window, cx)));
-        let text = div()
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .gap(px(1.))
-            .child(div().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_2).child(SOUND))
-            .children(setting.hint.map(|h| div().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(h)));
-        let head = div().mb(px(7.)).ml(px(2.)).flex().items_end().gap(px(12.)).child(text).child(add);
-        Some(div().flex().flex_col().child(head).child(card(vec![self.setting_row(setting, cx)])))
+        let rows: Vec<Div> = self.store.sounds.custom.clone().into_iter().enumerate().map(|(i, path)| self.custom_row(i, path, cx)).collect();
+        Some(group("Custom audio", rows))
     }
 
-    pub(super) fn sound_list(&mut self, cx: &mut Context<Self>) -> Div {
-        let rows: Vec<_> = choices(&self.store.sounds).into_iter().enumerate().map(|(i, c)| self.sound_row(i, c, cx)).collect();
-        div().flex().flex_col().children(rows)
-    }
-
-    fn sound_row(&mut self, i: usize, choice: Choice, cx: &mut Context<Self>) -> Stateful<Div> {
-        let Choice { sound, emoji, name, length, hint } = choice;
-        let picked = self.store.sounds.sound == sound;
-        let title = div()
-            .flex()
-            .items_baseline()
-            .gap(px(6.))
-            .child(div().truncate().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(name))
-            .children(length.map(|l| div().flex_none().text_size(px(12.)).text_color(TEXT_4).child(l)));
-        let text = div()
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .gap(px(1.))
-            .child(title)
-            .child(div().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(hint));
-        let remove = match &sound {
-            Sound::Custom(path) => {
-                let path = path.clone();
-                Some(ui::icon_button_sized(("sound-remove", i), "trash", 24., TEXT_3).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    cx.stop_propagation();
-                    this.remove_sound(&path, cx);
-                })))
-            }
-            _ => None,
-        };
-        let preview = sound.clone();
-        let play_button = div()
-            .id(("sound-play", i))
-            .size(px(28.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .rounded_full()
-            .bg(SURFACE)
-            .shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)])
-            .cursor_pointer()
-            .hover(|d| d.bg(FILL_3))
-            .child(icon("play", 12., TEXT))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                cx.stop_propagation();
-                play(&preview, this.store.sounds.volume, cx);
-            }));
-        let tile = div().size(px(32.)).flex_none().flex().items_center().justify_center().rounded(px(8.)).bg(FILL_1).text_size(px(18.)).child(emoji);
-        div()
-            .id(("sound", i))
-            .px(px(14.))
-            .py(px(10.))
-            .flex()
-            .items_center()
-            .gap(px(12.))
-            .cursor_pointer()
-            .when(i > 0, |r| r.border_t(px(0.5)).border_color(SEPARATOR))
-            .map(|r| if picked { r.bg(FILL_2) } else { r.hover(|d| d.bg(FILL_1)) })
-            .child(tile)
-            .child(text)
-            .when(picked, |r| r.child(icon("check", 14., ACCENT_FILL)))
-            .children(remove)
-            .child(play_button)
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.write(None, cx, {
-                    let sound = sound.clone();
-                    move |s, _| s.sounds.sound = sound.clone()
-                })
-            }))
+    fn custom_row(&mut self, i: usize, path: String, cx: &mut Context<Self>) -> Div {
+        let name = sound_name(&Sound::Custom(path.clone()));
+        let remove = ui::icon_button_sized(("sound-remove", i), "trash", 24., TEXT_3)
+            .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new("Move to the Trash").build(window, cx));
+        let remove = remove.on_click(cx.listener({
+            let path = path.clone();
+            move |this, _: &ClickEvent, _, cx| this.remove_sound(&path, cx)
+        }));
+        let controls = div().flex().items_center().gap(px(8.)).child(preview_button("custom-sound-play", i, Sound::Custom(path), cx)).child(remove);
+        row(name, None, controls)
     }
 
     /// Copies the picked audio files into Pocket's folder, so moving the originals keeps them playing.
@@ -188,7 +170,7 @@ impl Settings {
                     if let Some(error) = not_added(&skipped, &failed) {
                         cx.emit(SettingsEvent::Error(error));
                     }
-                    s.write(None, cx, move |s, _| added.iter().for_each(|p| s.sounds.add(p.clone())));
+                    s.write(setting("notification-sound"), cx, move |s, _| added.iter().for_each(|p| s.sounds.add(p.clone())));
                 })
                 .ok();
             })
@@ -196,21 +178,103 @@ impl Settings {
         });
     }
 
+    /// Moves the audio file to the Trash and forgets it, with a toast whose Undo brings both back.
     fn remove_sound(&mut self, path: &str, cx: &mut Context<Self>) {
-        let owned = path.to_string();
-        self.write(None, cx, move |s, _| s.sounds.remove(&owned));
-        if Path::new(path).starts_with(sounds_dir(&self.store)) {
-            let path = path.to_string();
-            cx.background_executor().spawn(async move { std::fs::remove_file(path).ok() }).detach();
-        }
+        let sounds = &self.store.sounds;
+        let held = Held { at: sounds.custom.iter().position(|p| p == path).unwrap_or(0), picked: sounds.sound == Sound::Custom(path.into()) };
+        let (path, dir) = (path.to_string(), sounds_dir(&self.store));
+        cx.spawn(async move |this, cx| {
+            let file = path.clone();
+            let moved = cx.background_executor().spawn(async move { trash_file(&dir, &file) }).await;
+            this.update(cx, |s, cx| {
+                let name = sound_name(&Sound::Custom(path.clone()));
+                let Ok(landed) = moved else { return cx.emit(SettingsEvent::Error(format!("Couldn\u{2019}t move {name} to the Trash"))) };
+                let gone = path.clone();
+                s.write(None, cx, move |s, _| s.sounds.remove(&gone));
+                let undo = Undo::new(move |d, _, cx| d.restore_sound(path.clone(), landed.clone(), held, cx));
+                s.toast(Toast::undo(format!("Moved {name} to the Trash"), undo), cx);
+            })
+            .ok();
+        })
+        .detach();
     }
+}
+
+/// Where a removed sound stood, to put it back there.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Held {
+    at: usize,
+    picked: bool,
+}
+
+/// Lists `path` again where it was, and picks it again if it was picked and nothing else has been picked since.
+fn bring_back(sounds: &mut Sounds, path: &str, held: Held) {
+    if !sounds.custom.iter().any(|p| p == path) {
+        let at = held.at.min(sounds.custom.len());
+        sounds.custom.insert(at, path.into());
+    }
+    if held.picked && sounds.sound == Sound::default() {
+        sounds.sound = Sound::Custom(path.into());
+    }
+}
+
+/// Moves the file at `path` to the Trash if it is one the app copied into `dir`: where it landed, `None` when it isn't ours
+/// or is already gone, `Err` when the Trash refused it.
+fn trash_file(dir: &Path, path: &str) -> Result<Option<PathBuf>, ()> {
+    let path = Path::new(path);
+    if !path.starts_with(dir) || !path.exists() {
+        return Ok(None);
+    }
+    crate::util::trash(path).map(Some).ok_or(())
+}
+
+impl Desktop {
+    /// Brings a sound back from the Trash, unless something took its file's name meanwhile.
+    fn restore_sound(&mut self, path: String, trashed: Option<PathBuf>, held: Held, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let from = PathBuf::from(&path);
+            let restored = match trashed {
+                Some(to) => cx.background_spawn(async move { crate::explorer::files::restore(&to, &from) }).await,
+                None => Ok(()),
+            };
+            this.update(cx, |d, cx| match restored {
+                Ok(()) => {
+                    bring_back(&mut d.store.sounds, &path, held);
+                    d.changed(None, cx);
+                }
+                Err(e) => d.settings_toast(Toast::failed(unrestored(&e, &sound_name(&Sound::Custom(path.clone()))), None), cx),
+            })
+            .ok();
+        })
+        .detach();
+    }
+}
+
+/// A round ▶ that plays `sound` at the saved volume.
+fn preview_button(id: &'static str, i: usize, sound: Sound, cx: &mut Context<Settings>) -> Stateful<Div> {
+    let button = div()
+        .id((id, i))
+        .size(px(28.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(SURFACE)
+        .shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)])
+        .cursor_pointer()
+        .tab_index(0)
+        .hover(|d| d.bg(FILL_3))
+        .child(icon("play", 12., TEXT))
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| play(&sound, this.store.sounds.volume, cx)));
+    crate::settings::focus_ring(button)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{choices, copy_into, not_added, playable};
+    use super::{Held, Row, bring_back, choices, copy_into, menu, not_added, playable, trash_file};
     use std::path::{Path, PathBuf};
-    use store::Sounds;
+    use store::{Sound, Sounds};
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("pocket-sound-{name}-{}", std::process::id()));
@@ -259,5 +323,57 @@ mod tests {
             not_added(&s(&["a.flac", "b.txt"]), &s(&["c.mp3"])).as_deref(),
             Some("a.flac, b.txt isn\u{2019}t .mp3, .wav or .ogg. Couldn\u{2019}t add c.mp3")
         );
+    }
+
+    fn labels(rows: &[Row]) -> Vec<String> {
+        rows.iter()
+            .map(|r| match r {
+                Row::Heading(h) => format!("# {h}"),
+                Row::Pick(c) => format!("{} = {}", c.label, c.value),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_menu_ends_with_the_way_to_add_audio_and_heads_the_custom_ones() {
+        let none = labels(&menu(&Sounds::default()));
+        assert_eq!(
+            (none[0].as_str(), none[none.len() - 2].as_str(), none[none.len() - 1].as_str()),
+            ("Chime = 0", "Ding Dong = 5", "Add custom audio\u{2026} = add")
+        );
+        assert!(!none.iter().any(|l| l.starts_with('#')));
+        let sounds = Sounds { custom: vec!["/s/Gong.mp3".into()], ..Sounds::default() };
+        assert_eq!(labels(&menu(&sounds))[6..], ["# Custom", "Gong.mp3 = 6", "Add custom audio\u{2026} = add"]);
+    }
+
+    #[test]
+    fn undoing_a_removal_lists_the_sound_where_it_stood_and_picks_it_if_it_was_picked() {
+        let mut sounds = Sounds { custom: vec!["/s/a.mp3".into(), "/s/c.mp3".into()], ..Sounds::default() };
+        bring_back(&mut sounds, "/s/b.mp3", Held { at: 1, picked: true });
+        assert_eq!(
+            (sounds.custom.clone(), sounds.sound.clone()),
+            (vec!["/s/a.mp3".into(), "/s/b.mp3".into(), "/s/c.mp3".into()], Sound::Custom("/s/b.mp3".into()))
+        );
+        bring_back(&mut sounds, "/s/b.mp3", Held { at: 0, picked: false });
+        assert_eq!(sounds.custom.len(), 3, "already listed");
+    }
+
+    #[test]
+    fn undoing_a_removal_leaves_a_sound_picked_since() {
+        let mut sounds = Sounds { sound: Sound::Ping, ..Sounds::default() };
+        bring_back(&mut sounds, "/s/a.mp3", Held { at: 9, picked: true });
+        assert_eq!((sounds.custom, sounds.sound), (vec!["/s/a.mp3".to_string()], Sound::Ping));
+    }
+
+    #[test]
+    fn only_a_file_the_app_copied_goes_to_the_trash() {
+        let (dir, elsewhere) = (temp_dir("trash-own"), temp_dir("trash-other"));
+        let theirs = elsewhere.join("a.mp3");
+        std::fs::write(&theirs, b"a").unwrap();
+        assert_eq!(trash_file(&dir, &theirs.to_string_lossy()), Ok(None));
+        assert!(theirs.exists(), "a file outside the folder is left alone");
+        assert_eq!(trash_file(&dir, &dir.join("gone.mp3").to_string_lossy()), Ok(None));
+        std::fs::remove_dir_all(&dir).unwrap();
+        std::fs::remove_dir_all(&elsewhere).unwrap();
     }
 }
