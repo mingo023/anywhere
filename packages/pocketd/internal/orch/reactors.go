@@ -96,7 +96,11 @@ func (e *Engine) settleChild(c TurnChange) {
 		return
 	}
 	ts, err := e.store.Delegations(`child_id = ? AND status IN ('starting', 'working') ORDER BY created_at DESC LIMIT 1`, c.Session)
-	if err != nil || len(ts) == 0 {
+	if err != nil {
+		return
+	}
+	if len(ts) == 0 {
+		e.followUpThere(c)
 		return
 	}
 	t := ts[0]
@@ -123,6 +127,38 @@ func (e *Engine) settleChild(c TurnChange) {
 		e.awaitTurnEnd(c.Session)
 		p.Summary, p.Turn = e.store.LatestReply(c.Session), c.Turn
 		e.dispatch(NewCommand("", CmdDelegateSettle, t.ParentID, p))
+	}()
+}
+
+// promptedThere is the text of a prompt or wake in the timeline of a session's turn: a host takes a prompt sent to it
+// straight, so none from here marks the start of its child's turn.
+const promptedThere = `SELECT text FROM items WHERE session_id = ?1 AND kind = 'user' AND parent_tool = ''
+	AND COALESCE(json_extract(body, '$.origin'), '') IN ('', '` + OriginWake + `')
+	AND seq > COALESCE((SELECT seq FROM items WHERE session_id = ?1 AND kind = 'result' AND parent_tool = '' ORDER BY seq
+		LIMIT 1 OFFSET (SELECT results_before FROM turns WHERE id = ?2) - 1), 0)
+	ORDER BY seq LIMIT 1`
+
+// followUpThere opens a follow-up for a host's settled child whose turn, now ended, a prompt on the host started, and
+// settles it with that turn.
+func (e *Engine) followUpThere(c TurnChange) {
+	if c.To == "closed" || c.Turn == 0 {
+		return
+	}
+	ts, err := e.store.Delegations(`child_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, c.Session)
+	if err != nil || len(ts) == 0 || !ts[0].Terminal() || ts[0].Environment == "" {
+		return
+	}
+	e.running.Add(1)
+	go func() {
+		defer e.running.Done()
+		e.awaitTurnEnd(c.Session)
+		var brief string
+		if e.store.db.QueryRow(promptedThere, c.Session, c.Turn).Scan(&brief) != nil {
+			return
+		}
+		if _, err := e.Dispatch(NewCommand(fmt.Sprintf("follow_%s_%d", c.Session, c.Turn), CmdDelegateFollow, ts[0].ParentID, TaskPayload{TaskID: ts[0].TaskID, Brief: brief})); err == nil {
+			e.settleChild(c)
+		}
 	}()
 }
 
