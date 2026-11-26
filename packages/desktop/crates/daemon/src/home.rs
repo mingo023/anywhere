@@ -44,6 +44,12 @@ pub fn moved(user: &Path) -> Vec<(String, String)> {
     if !channel::is_release() {
         add(&[user.join(".coding-pocket-dev")], &default_home_for(user, false));
     }
+    // Git and agents record a worktree by its real path, as pocketd's `withRealPaths` mirrors.
+    if let Some(real) = std::fs::canonicalize(user).ok().filter(|real| real != user) {
+        let (user, real) = (user.to_string_lossy().into_owned(), real.to_string_lossy().into_owned());
+        let swap = |p: &str| p.replacen(&user, &real, 1);
+        out.extend(out.clone().iter().map(|(from, to)| (swap(from), swap(to))));
+    }
     out
 }
 
@@ -134,6 +140,21 @@ mod tests {
         }
         assert_eq!(accounts_dir(&user), user.join(".anywhere/accounts"), "accounts keep the path Claude's Keychain item is named by");
         std::fs::remove_dir_all(&user).unwrap();
+    }
+
+    #[test]
+    fn a_linked_user_folder_also_rehomes_its_real_paths() {
+        let real = user("real");
+        lay(&real, &[".zoes/", ".anywhere -> .zoes"]);
+        let link = real.with_file_name(format!("pocket-home-link-{}", std::process::id()));
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let moves = moved(&link);
+        let (r, l) = (real.to_string_lossy(), link.to_string_lossy());
+        assert_eq!(rehome(&moves, &format!("{r}/.anywhere/worktrees/a")), Some(format!("{r}/.zoes/worktrees/a")));
+        assert_eq!(rehome(&moves, &format!("{l}/.anywhere/worktrees/a")), Some(format!("{l}/.zoes/worktrees/a")));
+        std::fs::remove_file(&link).unwrap();
+        std::fs::remove_dir_all(&real).unwrap();
     }
 
     #[test]
