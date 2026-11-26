@@ -8,6 +8,7 @@ pub(crate) mod panel;
 pub(crate) mod project_picker;
 pub(crate) mod rail;
 pub(crate) mod rename;
+mod reorder;
 pub(crate) mod row_menu;
 mod scratch;
 pub(crate) mod sections;
@@ -31,6 +32,7 @@ use crate::sidebar::panel::{Panel, PanelRail};
 use crate::sidebar::project_picker::ProjectPicker;
 use crate::sidebar::rail::Rail;
 use crate::sidebar::rename::Rename;
+use crate::sidebar::reorder::Reorder;
 use crate::sidebar::sections::{Kind, Organize, TreeRow};
 use crate::sidebar::sessions::SessionList;
 use crate::sidebar::tree_card::Hover;
@@ -171,19 +173,6 @@ fn done_name(label: AnyElement, state: Option<ui::State>) -> AnyElement {
     }
 }
 
-#[derive(Clone)]
-struct DragProject {
-    path: String,
-    ix: usize,
-}
-
-#[derive(Clone)]
-struct DragTree {
-    project: String,
-    key: String,
-    ix: usize,
-}
-
 pub struct Sidebar {
     pub(crate) search: Entity<InputState>,
     pub(crate) sessions: Entity<SessionList>,
@@ -214,6 +203,7 @@ pub struct Sidebar {
     pub(crate) lead: Glide,
     /// How far the right-hand panel is open.
     pub(crate) panel: Glide,
+    reorder: Reorder,
 }
 
 impl Sidebar {
@@ -251,6 +241,7 @@ impl Sidebar {
             frame: None,
             lead: Glide::default(),
             panel: Glide::default(),
+            reorder: Reorder::default(),
         }
     }
 

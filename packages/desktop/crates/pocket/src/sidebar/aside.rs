@@ -1,8 +1,9 @@
 use super::fold;
+use super::reorder::{DragRow, List};
 use super::row_menu::{MenuEvent, MenuFrame, menu_button, open_on_right_click};
 use super::sections::{Section, emoji_mark, section_head};
 use super::tree_card::{self, WAIT};
-use super::{DragProject, DragTree, Kind, Sidebar, done_name, row_name, with_sub};
+use super::{Kind, Sidebar, done_name, row_name, with_sub};
 use crate::desktop::chrome::{Column, RowMenu, Screen, drag_area, id, seam_handle};
 use crate::spaces::{Heading, SLIDE_MS};
 use crate::star::Star;
@@ -206,12 +207,6 @@ const HEAD: &str = "aside-scratch-head";
 /// Past this the section scrolls, so a long list can't squeeze Projects out.
 const MAX_ROWS: f32 = 8.5;
 
-#[derive(Clone)]
-struct DragScratch {
-    path: String,
-    ix: usize,
-}
-
 impl Sidebar {
     pub(crate) fn set_frame(&mut self, frame: AsideFrame, cx: &mut Context<Self>) {
         if self.frame.as_ref() != Some(&frame) {
@@ -285,21 +280,6 @@ impl Sidebar {
         })
     }
 
-    /// Makes `row` draggable among its project's rows, except while renamed so its field's text stays selectable.
-    fn reorders(&self, row: Stateful<Div>, f: &TreeFrame, cx: &mut Context<Self>) -> Stateful<Div> {
-        if self.renaming(&f.key) {
-            return row;
-        }
-        let (project, over, to, ix) = (f.project.clone(), f.project.clone(), f.key.clone(), f.ix);
-        row.on_drag(DragTree { project: f.project.clone(), key: f.key.clone(), ix }, |_, _, _, cx| cx.new(|_| EmptyView))
-            .drag_over::<DragTree>(move |s, d, _, _| if d.project != over || d.ix == ix { s } else { s.shadow(ui::drop_line(d.ix < ix)) })
-            .on_drop(cx.listener(move |_, d: &DragTree, _, cx| {
-                if d.project == project {
-                    cx.emit(SidebarEvent::DropTree { project: project.clone(), from: d.key.clone(), to: to.clone() });
-                }
-            }))
-    }
-
     fn name(&self, f: &TreeFrame, rf: &AsideFrame, cx: &mut Context<Self>) -> AnyElement {
         match self.rename.as_ref().filter(|r| r.tree == f.key) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
@@ -316,7 +296,8 @@ impl Sidebar {
         }
     }
 
-    fn tree_row(&self, f: &TreeFrame, rf: &AsideFrame, cx: &mut Context<Self>) -> AnyElement {
+    /// `f`'s row; `at` its place among its project's rows, where it can be dragged to another, except while renamed so its field's text stays selectable.
+    fn tree_row(&self, f: &TreeFrame, at: Option<usize>, rf: &AsideFrame, cx: &mut Context<Self>) -> AnyElement {
         let worktree = f.kind == Kind::Worktree;
         let menu = if worktree {
             RowMenu::Tree { project: f.project.clone(), tree: f.key.clone() }
@@ -369,11 +350,15 @@ impl Sidebar {
             .when(f.sub.is_some(), |row| row.pl(px(6.)))
             .when(f.lit, |row| row.bg(FILL_3))
             .when(f.menus, |row| row.on_mouse_down(MouseButton::Right, open_on_right_click(menu, Self::send, cx)));
-        let row = if f.sub.is_some() { row } else { self.reorders(row, f, cx) };
+        let row = match at.filter(|_| f.sub.is_none() && !self.renaming(key)) {
+            Some(ix) => self.holds(row, List::Trees(f.project.clone()), ix, f.key.clone(), true, cx),
+            None => row,
+        };
         Self::with_card(row, key, self.card_for(f, rf.reduce_motion), cx).into_any_element()
     }
 
-    fn project_block(&self, p: &ProjectFrame, rf: &AsideFrame, cx: &mut Context<Self>) -> (AnyElement, f32) {
+    /// `p`'s block, item `at` of its section's.
+    fn project_block(&self, p: &ProjectFrame, at: usize, rf: &AsideFrame, cx: &mut Context<Self>) -> (AnyElement, f32) {
         let (i, path) = (p.ix, p.path.as_str());
         let chevron = p.git.then(|| ui::chevron(("aside-chevron", i), p.open));
         let menu = RowMenu::Project(path.to_string());
@@ -410,42 +395,43 @@ impl Sidebar {
                     cx.emit(SidebarEvent::SelectTree { project: target.clone(), tree: None, progress: false });
                 }
             }))
-            .on_mouse_down(MouseButton::Right, open_on_right_click(menu, Self::send, cx))
-            .on_drag(DragProject { path: path.to_string(), ix: i }, |_, _, _, cx| cx.new(|_| EmptyView));
-        let out: Vec<AnyElement> = p.rows.iter().map(|r| self.tree_row(r, rf, cx)).collect();
+            .on_mouse_down(MouseButton::Right, open_on_right_click(menu, Self::send, cx));
+        let (section, manual) = (p.section, p.manual);
+        let row = self.holds(row, List::Projects(section), at, path.to_string(), manual && section != Section::Pinned, cx);
+        let trees = List::Trees(path.to_string());
+        let out: Vec<AnyElement> = p.rows.iter().enumerate().map(|(ix, r)| self.placed(self.tree_row(r, Some(ix), rf, cx), &trees, ix)).collect();
         // The rows are fixed-height, so the open height is known without measuring: top pad, rows, gaps between them, bottom pad.
         let height = if out.is_empty() { 0. } else { 1. + fold::stacked(vec![ui::SIDEBAR_ROW_H; out.len()], 1.) + 6. };
         let rows = fold::springing(
             id(format!("aside-fold:{path}")),
             p.open,
             height,
-            div().flex().flex_col().gap(px(1.)).when(!out.is_empty(), |d| d.pt(px(1.)).pb(px(6.))).children(out),
+            div().child(self.tracks(trees, div().id("rows")).flex().flex_col().gap(px(1.)).when(!out.is_empty(), |d| d.pt(px(1.)).pb(px(6.))).children(out)),
         );
-        let (to, section, manual) = (path.to_string(), p.section, p.manual);
-        let block = div()
-            .flex()
-            .flex_col()
-            .child(row)
-            .child(rows)
-            .drag_over::<DragProject>(move |s, d, _, _| if d.ix == i || !manual { s } else { s.shadow(ui::drop_line(d.ix < i)) })
-            .on_drop(cx.listener(move |_, d: &DragProject, _, cx| {
-                cx.emit(SidebarEvent::DropProject { path: d.path.clone(), onto: to.clone(), section });
-            }));
-        (block.into_any_element(), ui::SIDEBAR_ROW_H + if p.open { height } else { 0. })
+        let to = path.to_string();
+        let block = div().flex().flex_col().child(row).child(rows).on_drop(cx.listener(move |_, d: &DragRow, _, cx| {
+            if moves_into(d, section) {
+                cx.emit(SidebarEvent::DropProject { path: d.key.clone(), onto: to.clone(), section });
+            }
+        }));
+        (self.placed(block.into_any_element(), &List::Projects(section), at), ui::SIDEBAR_ROW_H + if p.open { height } else { 0. })
     }
 
-    /// Takes a project dropped anywhere on `el` into `to`.
+    /// Takes a project from another section dropped anywhere on `el` into `to`.
     fn drops_into<E: InteractiveElement + StatefulInteractiveElement>(el: E, to: Section, cx: &mut Context<Self>) -> E {
-        el.drag_over::<DragProject>(|s, _, _, _| s.bg(FILL_2)).on_drop(cx.listener(move |_, d: &DragProject, _, cx| {
-            cx.emit(SidebarEvent::DropInto { path: d.path.clone(), section: to });
+        el.drag_over::<DragRow>(move |s, d, _, _| if moves_into(d, to) { s.bg(FILL_2) } else { s }).on_drop(cx.listener(move |_, d: &DragRow, _, cx| {
+            if moves_into(d, to) {
+                cx.emit(SidebarEvent::DropInto { path: d.key.clone(), section: to });
+            }
         }))
     }
 
     /// A section's rows under its head, springing to their height as it opens and shuts; `group_box`'s gap moves inside, so a shut section keeps its height.
-    fn section_body(id: impl Into<ElementId>, open: bool, rows: Vec<(AnyElement, f32)>) -> impl IntoElement {
+    fn section_body(&self, id: impl Into<ElementId>, open: bool, rows: Vec<(AnyElement, f32)>, section: Section) -> impl IntoElement {
         let height = if rows.is_empty() { 0. } else { 2. + fold::stacked(rows.iter().map(|r| r.1), 2.) };
-        let body = div().flex().flex_col().gap(px(2.)).when(!rows.is_empty(), |d| d.pt(px(2.))).children(rows.into_iter().map(|r| r.0));
-        fold::springing(id, open, height, body)
+        let body = self.tracks(List::Projects(section), div().id("rows"));
+        let body = body.flex().flex_col().gap(px(2.)).when(!rows.is_empty(), |d| d.pt(px(2.))).children(rows.into_iter().map(|r| r.0));
+        fold::springing(id, open, height, div().child(body))
     }
 
     fn sections(&self, s: &SectionsFrame, rf: &AsideFrame, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -457,17 +443,18 @@ impl Sidebar {
             let rows: Vec<(AnyElement, f32)> = pinned
                 .items
                 .iter()
-                .map(|item| match item {
-                    PinnedItem::Project(b) => self.project_block(b, rf, cx),
+                .enumerate()
+                .map(|(at, item)| match item {
+                    PinnedItem::Project(b) => self.project_block(b, at, rf, cx),
                     PinnedItem::Tree { key, row } => {
-                        let row = row.as_ref().map(|r| self.tree_row(r, rf, cx));
+                        let row = row.as_ref().map(|r| self.tree_row(r, None, rf, cx));
                         let open = row.is_some();
                         let height = if open { ui::SIDEBAR_ROW_H } else { 0. };
                         (fold::springing(id(format!("aside-pin-fold:{key}")), open, ui::SIDEBAR_ROW_H, div().children(row)).into_any_element(), height)
                     }
                 })
                 .collect();
-            let body = Self::section_body("aside-pinned-fold", open, rows);
+            let body = self.section_body("aside-pinned-fold", open, rows, Section::Pinned);
             out.push(Self::drops_into(ui::group_box().id("aside-pinned-box").gap_0().child(head).child(body), Section::Pinned, cx).into_any_element());
         }
         for g in &s.groups {
@@ -507,9 +494,9 @@ impl Sidebar {
                         .into_any_element(),
                     ui::SIDEBAR_ROW_H,
                 )],
-                GroupBody::Blocks(blocks) => blocks.iter().map(|b| self.project_block(b, rf, cx)).collect(),
+                GroupBody::Blocks(blocks) => blocks.iter().enumerate().map(|(at, b)| self.project_block(b, at, rf, cx)).collect(),
             };
-            let body = Self::section_body(("aside-group-fold", gid as usize), open, rows);
+            let body = self.section_body(("aside-group-fold", gid as usize), open, rows, Section::Group(gid));
             out.push(
                 Self::drops_into(ui::group_box().id(("aside-group-box", gid as usize)).gap_0().child(head).child(body), Section::Group(gid), cx)
                     .into_any_element(),
@@ -532,7 +519,7 @@ impl Sidebar {
             Tail::Other { blocks, headed } => (blocks, *headed),
         };
         let (blocks, headed) = blocks;
-        let rows: Vec<AnyElement> = blocks.iter().map(|b| self.project_block(b, rf, cx).0).collect();
+        let rows: Vec<AnyElement> = blocks.iter().enumerate().map(|(at, b)| self.project_block(b, at, rf, cx).0).collect();
         let other = div().id("aside-other").flex().flex_col().gap(px(1.)).when(headed && (!rows.is_empty() || cx.has_active_drag()), |d| {
             d.child(
                 div()
@@ -549,6 +536,7 @@ impl Sidebar {
                     .child(ui::group_count(rows.len())),
             )
         });
+        let rows = (!rows.is_empty()).then(|| self.tracks(List::Projects(Section::Other), div().id("rows")).flex().flex_col().gap(px(1.)).children(rows));
         out.push(Self::drops_into(other.children(rows), Section::Other, cx).into_any_element());
         out
     }
@@ -584,17 +572,30 @@ impl Sidebar {
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::NewScratch)));
         let head = section_head().pl(px(6.)).child(toggle).child(new);
         let height = fold::stacked((0..s.count).map(|_| ui::SIDEBAR_ROW_H), 1.).min(ui::SIDEBAR_ROW_H * MAX_ROWS);
-        let drawn: Vec<AnyElement> = s
-            .rows
-            .iter()
-            .map(|r| match r {
-                ScratchRow::Loose { path, title, folder, selected, state, was } => self.loose_row(path, title, folder, *selected, *state, was.as_ref(), rf, cx),
-                ScratchRow::Folder { ix, path, name, selected, state, was, renames } => {
-                    self.scratch_row(*ix, path, name, *selected, *state, was.as_ref(), *renames, rf, cx)
+        let (mut folders, mut loose) = (Vec::new(), Vec::new());
+        for r in &s.rows {
+            match r {
+                ScratchRow::Loose { path, title, folder, selected, state, was } => {
+                    loose.push(self.loose_row(path, title, folder, *selected, *state, was.as_ref(), rf, cx))
                 }
-            })
-            .collect();
-        let list = div().id("aside-scratch-rows").max_h(px(height)).overflow_y_scroll().flex().flex_col().gap(px(1.)).children(drawn);
+                ScratchRow::Folder { ix, path, name, selected, state, was, renames } => {
+                    let row = self.scratch_row(*ix, path, name, *selected, *state, was.as_ref(), *renames, rf, cx);
+                    folders.push(self.placed(row, &List::Threads, *ix));
+                }
+            }
+        }
+        // Folders come before loose threads, and only folders move.
+        let folders = (!folders.is_empty()).then(|| self.tracks(List::Threads, div().id("folders")).flex().flex_col().gap(px(1.)).children(folders));
+        let list = div()
+            .id("aside-scratch-rows")
+            .track_scroll(&self.reorder.threads)
+            .max_h(px(height))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .gap(px(1.))
+            .children(folders)
+            .children(loose);
         div().flex().flex_col().flex_none().child(head).child(fold::springing("aside-scratch-fold", open, height, div().child(list)))
     }
 
@@ -640,8 +641,8 @@ impl Sidebar {
         let menu = RowMenu::Scratch(path.to_string());
         let open = rf.menu.as_ref().is_some_and(|m| m.menu == menu);
         let trail = ui::row_trail(None, vec![menu_button(path, menu.clone(), rf.menu.as_ref(), Self::send, cx)], open);
-        let (key, to) = (path.to_string(), path.to_string());
-        ui::worktree_row(id(format!("aside-tree:{path}")), "folder", label, selected, mark)
+        let key = path.to_string();
+        let row = ui::worktree_row(id(format!("aside-tree:{path}")), "folder", label, selected, mark)
             .pl(px(6.))
             .child(trail)
             .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
@@ -654,11 +655,8 @@ impl Sidebar {
                 }
                 cx.emit(SidebarEvent::SelectTree { project: key.clone(), tree: None, progress: false });
             }))
-            .on_mouse_down(MouseButton::Right, open_on_right_click(menu, Self::send, cx))
-            .on_drag(DragScratch { path: path.to_string(), ix }, |_, _, _, cx| cx.new(|_| EmptyView))
-            .drag_over::<DragScratch>(move |s, d, _, _| if d.ix == ix { s } else { s.shadow(ui::drop_line(d.ix < ix)) })
-            .on_drop(cx.listener(move |_, d: &DragScratch, _, cx| cx.emit(SidebarEvent::DropScratch { from: d.path.clone(), to: to.clone() })))
-            .into_any_element()
+            .on_mouse_down(MouseButton::Right, open_on_right_click(menu, Self::send, cx));
+        self.holds(row, List::Threads, ix, path.to_string(), true, cx).into_any_element()
     }
 
     fn offline_card(&self, o: &OfflineFrame, cx: &mut Context<Self>) -> AnyElement {
@@ -831,7 +829,8 @@ impl Sidebar {
 }
 
 impl Render for Sidebar {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.slide_rows(window, cx);
         let root = div().size_full().flex().flex_col();
         let Some(f) = self.frame.as_ref() else { return root };
         let top = drag_area(div())
@@ -882,7 +881,7 @@ impl Render for Sidebar {
                 .into_any_element(),
             None => list.into_any_element(),
         };
-        let body = div().id("aside-repos").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().child(list);
+        let body = div().id("aside-repos").track_scroll(&self.reorder.projects).flex_1().min_h_0().overflow_y_scroll().flex().flex_col().child(list);
         let scratch = f.scratch.as_ref().map(|s| self.scratch_section(s, f, cx));
         let aside = ui::side(div())
             .bg(nav_fill())
@@ -902,7 +901,19 @@ impl Render for Sidebar {
             .child(body)
             .children(self.update_card(&f.update, cx).or_else(|| f.star.clone().map(|s| s.into_any_element())))
             .child(self.space_switcher(cx))
-            .on_scroll(cx.listener(|_, e: &ScrollEvent, _, cx| cx.emit(SidebarEvent::Swipe(e.clone()))));
+            .on_scroll(cx.listener(|_, e: &ScrollEvent, _, cx| cx.emit(SidebarEvent::Swipe(e.clone()))))
+            .on_drag_move(cx.listener(|this, e: &DragMoveEvent<DragRow>, _, cx| this.move_row(e, cx)))
+            .capture_any_mouse_up(cx.listener(|this, e: &MouseUpEvent, _, cx| {
+                if e.button == MouseButton::Left {
+                    this.release_row(cx);
+                }
+            }))
+            .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _: &MouseUpEvent, _, cx| this.release_row(cx)));
         root.child(self.resizable(aside, f.seam, cx))
     }
+}
+
+/// `d` carries a project from another section than `to`.
+fn moves_into(d: &DragRow, to: Section) -> bool {
+    matches!(d.list, List::Projects(from) if from != to)
 }

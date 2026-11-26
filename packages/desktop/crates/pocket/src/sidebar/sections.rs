@@ -29,7 +29,7 @@ pub(super) fn section_head() -> Div {
 }
 
 /// Where a project row sits, and so what dropping a project on it does.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Section {
     Pinned,
     Group(u32),
