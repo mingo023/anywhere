@@ -11,6 +11,13 @@ pub(crate) fn home() -> String {
     std::env::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
+/// The home every channel on this Mac shares, holding its worktrees and Scratch folders. Read once, since settings
+/// render it every frame; after pocketd moves it mid-session the old path still leads there.
+pub(crate) fn shared() -> String {
+    static SHARED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SHARED.get_or_init(|| daemon::home::shared_home(home().as_ref()).to_string_lossy().into_owned()).clone()
+}
+
 pub(crate) fn typed_or(input: &Entity<InputState>, fallback: impl FnOnce() -> String, cx: &App) -> String {
     let v = input.read(cx).value().trim().to_string();
     if v.is_empty() { fallback() } else { v }

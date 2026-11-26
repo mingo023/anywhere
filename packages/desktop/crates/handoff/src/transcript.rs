@@ -21,7 +21,7 @@ fn roots(provider: &str, home: &Path) -> Vec<PathBuf> {
         _ => (home.join(".codex"), "sessions"),
     };
     let mut list = vec![own.join(sub)];
-    if let Ok(accounts) = std::fs::read_dir(home.join(".anywhere/accounts").join(provider)) {
+    if let Ok(accounts) = std::fs::read_dir(daemon::home::accounts_dir(home).join(provider)) {
         list.extend(accounts.flatten().map(|a| a.path().join(sub)));
     }
     list

@@ -23,7 +23,7 @@ func legacyHome(h *Harness) {
 
 func (h *Harness) moved() {
 	h.t.Helper()
-	home := filepath.Join(h.UserHome(), ".anywhere", "dev")
+	home := filepath.Join(h.UserHome(), ".zoes", "dev")
 	if to, err := os.Readlink(h.Home); err != nil || to != home {
 		h.t.Fatalf("the legacy home is %q %v", to, err)
 	}

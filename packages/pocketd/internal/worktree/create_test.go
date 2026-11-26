@@ -52,15 +52,19 @@ func TestTakenNamesAreBranchesRemoteBranchesAndFolders(t *testing.T) {
 	}
 }
 
-func TestWorktreesGoUnderTheRootElseUnderAnywhereInHome(t *testing.T) {
+func TestWorktreesGoUnderTheRootElseUnderTheReleaseHome(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
+	if runtime.GOOS != "windows" {
+		os.Mkdir(filepath.Join(home, ".zoes"), 0o700)
+		os.Symlink(filepath.Join(home, ".zoes"), filepath.Join(home, ".anywhere"))
+	}
 	for _, c := range []struct {
 		repo registry.Repo
 		want string
 	}{
-		{registry.Repo{Name: "Pocket"}, filepath.Join(home, ".anywhere", "worktrees", "Pocket")},
-		{registry.Repo{}, filepath.Join(home, ".anywhere", "worktrees", "pocket")},
+		{registry.Repo{Name: "Pocket"}, filepath.Join(home, ".zoes", "worktrees", "Pocket")},
+		{registry.Repo{}, filepath.Join(home, ".zoes", "worktrees", "pocket")},
 	} {
 		if got := Dir(registered("/w/pocket", c.repo), "/w/pocket"); got != c.want {
 			t.Errorf("%+v: got %s", c.repo, got)
@@ -101,9 +105,10 @@ func TestCreateBranchesFromMainIntoItsWorktreesFolder(t *testing.T) {
 	}
 }
 
-func TestCreateTakesAnExplicitBaseAndDefaultsUnderAnywhereInHome(t *testing.T) {
+func TestCreateTakesAnExplicitBaseAndDefaultsUnderTheReleaseHomeNotYetMoved(t *testing.T) {
 	home, _ := filepath.EvalSymlinks(t.TempDir())
 	setHome(t, home)
+	os.Mkdir(filepath.Join(home, ".anywhere"), 0o700)
 	p := repo(t)
 	c, err := Create(registered(p, registry.Repo{}), p, "calm-otter", "main")
 	if want := filepath.Join(home, ".anywhere", "worktrees", "pocket", "calm-otter"); err != nil || c.Path != want || c.Base != "main" {

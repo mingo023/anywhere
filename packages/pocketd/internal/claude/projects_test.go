@@ -81,3 +81,36 @@ func TestSessionsAreFoundUnderTheResolvedFolderClaudeNamesThem(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestAMovedHomesSessionsAreFoundFromTheirNewCwd(t *testing.T) {
+	cfg := t.TempDir()
+	projects := filepath.Join(cfg, "projects")
+	for _, d := range []string{"-u--anywhere-worktrees-app-x", "-u--anywhere-worktrees-app-taken", "-u--zoes-worktrees-app-taken", "-u-code-app"} {
+		os.MkdirAll(filepath.Join(projects, d), 0o700)
+	}
+	os.WriteFile(filepath.Join(projects, "-u--anywhere-worktrees-app-x", "s1.jsonl"), nil, 0o600)
+	for range 2 {
+		if err := LinkMoved(projects, "/u/.anywhere", "/u/.zoes"); err != nil {
+			if runtime.GOOS == "windows" {
+				t.Skip("a symlink needs Developer Mode on Windows")
+			}
+			t.Fatal(err)
+		}
+	}
+	env := []string{"CLAUDE_CONFIG_DIR=" + cfg}
+	if got := Sessions("/u/.zoes/worktrees/app/x", env); len(got) != 1 || filepath.Base(got[0]) != "s1.jsonl" {
+		t.Fatalf("resuming at the new cwd: %v", got)
+	}
+	if fi, err := os.Lstat(filepath.Join(projects, "-u--zoes-worktrees-app-taken")); err != nil || !fi.IsDir() {
+		t.Error("a dir Claude already made at the new name was replaced", err)
+	}
+	if entries, _ := os.ReadDir(projects); len(entries) != 5 {
+		t.Errorf("%d entries, want one link added", len(entries))
+	}
+}
+
+func TestLinkMovedSkipsAMissingProjectsDir(t *testing.T) {
+	if err := LinkMoved(filepath.Join(t.TempDir(), "projects"), "/u/.anywhere", "/u/.zoes"); err != nil {
+		t.Fatal(err)
+	}
+}

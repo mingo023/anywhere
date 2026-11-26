@@ -1,6 +1,6 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Screen};
-use crate::modals::form::home;
+use crate::modals::form::shared;
 use crate::removal::dispose;
 use crate::sidebar::aside::{ScratchFrame, ScratchRow};
 use crate::sidebar::fold::Fold;
@@ -70,12 +70,12 @@ impl Desktop {
     pub(crate) fn make_scratch(&self, cx: &mut Context<Self>) -> Task<Result<String, String>> {
         let seed = now_ms() as usize;
         let Some(id) = self.space().host().map(str::to_string) else {
-            let root = project::scratch::root(&home());
+            let root = project::scratch::root(&shared());
             return cx.background_executor().spawn(async move { project::scratch::create(&root, seed) });
         };
         cx.background_executor().spawn(async move {
             let host = hosts::remote::connected(&id).ok_or_else(|| git::NotConnected::error().to_string())?;
-            let root = project::scratch::root(&host.home().map_err(|e| e.to_string())?);
+            let root = project::scratch::root(&host.shared_dir().map_err(|e| e.to_string())?);
             let path = project::scratch::create_on(
                 &git::Runner::Remote(host.clone()),
                 &root,
@@ -140,14 +140,14 @@ impl Desktop {
 fn dispose_scratch(key: &str, trash: bool) {
     match hosts::split(key) {
         (None, path) => {
-            if project::scratch::holds(&project::scratch::root(&home()), path) {
+            if project::scratch::holds(&project::scratch::root(&shared()), path) {
                 dispose(Path::new(path), trash);
             }
         }
         (Some(id), path) => {
             let Some(host) = hosts::remote::connected(id) else { return };
-            let Ok(home) = host.home() else { return };
-            if project::scratch::holds(&project::scratch::root(&home), path) && !(trash && host.trash(path).is_ok()) {
+            let Ok(shared) = host.shared_dir() else { return };
+            if project::scratch::holds(&project::scratch::root(&shared), path) && !(trash && host.trash(path).is_ok()) {
                 _ = host.remove(path, true);
             }
         }

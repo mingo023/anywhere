@@ -9,11 +9,11 @@ pub fn is_image(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| EXTENSIONS.iter().any(|x| e.eq_ignore_ascii_case(x)))
 }
 
-/// Copies `from` into `~/.anywhere/backgrounds/` (`home` is the user's home) under a fresh name and deletes `replaced`, the copy it takes over from.
+/// Copies `from` into `backgrounds/` in `shared`, the home every channel shares, under a fresh name and deletes `replaced`, the copy it takes over from.
 /// The fresh name keeps a re-pick of the current copy from truncating itself, and the image cache, keyed by path, from showing the old picture.
 /// Only `replaced` goes: Anywhere and Anywhere Dev share the folder, each with its own copy.
-pub fn keep(home: &Path, from: &Path, replaced: Option<&Path>) -> io::Result<PathBuf> {
-    let dir = home.join(".anywhere/backgrounds");
+pub fn keep(shared: &Path, from: &Path, replaced: Option<&Path>) -> io::Result<PathBuf> {
+    let dir = shared.join("backgrounds");
     std::fs::create_dir_all(&dir)?;
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
     let to = dir.join(format!("{stamp}-{}", from.file_name().unwrap_or_default().to_string_lossy()));
@@ -61,7 +61,7 @@ mod tests {
         let second = keep(&home, &first, Some(&first)).unwrap();
         assert_ne!(first, second);
         assert_eq!(std::fs::read(&second).unwrap(), b"sky");
-        assert!(second.starts_with(home.join(".anywhere/backgrounds")));
+        assert!(second.starts_with(home.join("backgrounds")));
         assert!(!first.exists() && other_app.exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }

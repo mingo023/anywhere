@@ -3,6 +3,7 @@ package hosts
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -195,8 +196,10 @@ func TestOnlyTheAppsOwnFolderGetsTheAppsServiceName(t *testing.T) {
 	if got := label(".coding-pocket-e2e"); got != config.HostLabel()+".coding-pocket-e2e" {
 		t.Errorf("%s", got)
 	}
-	if got := label(config.LegacyHomeName()); got != config.HostLabel() {
-		t.Errorf("an update on a host that hasn't moved its home names a second service: %s", got)
+	for _, l := range config.LegacyHomeNames() {
+		if got := label(l); got != config.HostLabel() {
+			t.Errorf("an update on a host that hasn't moved its home names a second service: %s", got)
+		}
 	}
 }
 
@@ -209,7 +212,7 @@ func TestAHostKeepsUsingTheLegacyFolderUntilItsPocketdMovesIt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "ssh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	m, err := openManager(t, Paths{Home: t.TempDir(), RemoteDir: ".anywhere", LegacyDir: ".coding-pocket"}, func() []string { return []string{"PATH=" + bin + ":/bin:/usr/bin"} }, "1.2.0", "Mac")
+	m, err := openManager(t, Paths{Home: t.TempDir(), RemoteDir: ".zoes", LegacyDirs: []string{".coding-pocket", ".anywhere"}}, func() []string { return []string{"PATH=" + bin + ":/bin:/usr/bin"} }, "1.2.0", "Mac")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,34 +220,33 @@ func TestAHostKeepsUsingTheLegacyFolderUntilItsPocketdMovesIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy, current := filepath.Join(home, ".coding-pocket"), filepath.Join(home, ".anywhere")
-	dir := func() string {
-		t.Helper()
-		d, err := m.remoteDir(context.Background(), e.Host, false)
-		if err != nil {
-			t.Fatal(err)
+	raw, err := os.ReadFile(filepath.Join("..", "config", "testdata", "homes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Name    string
+		Layout  []string
+		Release string
+	}
+	if err := json.Unmarshal(raw, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cases {
+		entries, _ := os.ReadDir(home)
+		for _, e := range entries {
+			os.RemoveAll(filepath.Join(home, e.Name()))
 		}
-		return d
-	}
-	if got := dir(); got != ".anywhere" {
-		t.Errorf("a new host: %s", got)
-	}
-	os.Mkdir(legacy, 0o700)
-	if got := dir(); got != ".coding-pocket" {
-		t.Errorf("a host that hasn't moved: %s", got)
-	}
-	os.Remove(legacy)
-	os.Mkdir(current, 0o700)
-	os.Symlink(current, legacy)
-	if got := dir(); got != ".anywhere" {
-		t.Errorf("a host that has moved: %s", got)
-	}
-	elsewhere := filepath.Join(home, "disk")
-	os.Mkdir(elsewhere, 0o700)
-	os.Remove(legacy)
-	os.Symlink(elsewhere, legacy)
-	if got := dir(); got != ".coding-pocket" {
-		t.Errorf("a legacy home the user linked to another disk: %s", got)
+		for _, l := range c.Layout {
+			if from, to, ok := strings.Cut(l, " -> "); ok {
+				os.Symlink(filepath.Join(home, to), filepath.Join(home, from))
+			} else {
+				os.MkdirAll(filepath.Join(home, l), 0o700)
+			}
+		}
+		if got, err := m.remoteDir(context.Background(), e.Host, false); err != nil || got != c.Release {
+			t.Errorf("%s: %s %v, want %s", c.Name, got, err, c.Release)
+		}
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -155,20 +156,21 @@ func Untag(id string) (host, theirs string) {
 
 func Tagged(id string) bool { return strings.Contains(id, "/") }
 
-// Paths is where a host's files live on this Mac and where its pocketd lives on the host: RemoteDir, or LegacyDir
-// on a host whose pocketd hasn't moved its home out of it yet.
+// Paths is where a host's files live on this Mac and where its pocketd lives on the host: RemoteDir, or one of
+// LegacyDirs, oldest first, on a host whose pocketd hasn't moved its home out of it yet.
 type Paths struct {
-	Home      string
-	RemoteDir string
-	LegacyDir string
+	Home       string
+	RemoteDir  string
+	LegacyDirs []string
 }
 
 // dirs are the folders under the host's home pocketd may live in, the current one first.
 func (p Paths) dirs() []string {
-	if p.LegacyDir == "" {
-		return []string{p.RemoteDir}
+	dirs := []string{p.RemoteDir}
+	for _, d := range slices.Backward(p.LegacyDirs) {
+		dirs = append(dirs, d)
 	}
-	return []string{p.RemoteDir, p.LegacyDir}
+	return dirs
 }
 
 func (p Paths) file(id, ext string) string { return filepath.Join(p.Home, "hosts", id+ext) }

@@ -1,11 +1,12 @@
 use git::Runner;
 use std::io::{self, ErrorKind};
 
-const DIR: &str = ".anywhere/sessions";
+const DIR: &str = "sessions";
 const TRIES: usize = 512;
 
-pub fn root(home: &str) -> String {
-    format!("{home}/{DIR}")
+/// The Scratch folders' root in `shared`, the home every channel on that machine shares.
+pub fn root(shared: &str) -> String {
+    format!("{shared}/{DIR}")
 }
 
 /// pocketd keeps a folder's title by path after the folder is gone, so a large word list keeps a new folder from drawing a deleted one's path.
@@ -53,9 +54,10 @@ pub fn holds(root: &str, path: &str) -> bool {
         .is_some_and(|name| !name.is_empty() && !name.contains(['/', '\\', ':']) && name != "." && name != "..")
 }
 
-/// Whether `key` names a folder `create` made, on whichever machine holds it: one directly in a `.anywhere/sessions` folder.
+/// Whether `key` names a folder `create` made, on whichever machine holds it: one directly in the `sessions` folder of
+/// a home every channel shares, from before or after the move.
 pub fn made(key: &str) -> bool {
-    key.rsplit_once('/').is_some_and(|(parent, _)| parent.ends_with(&format!("/{DIR}")) && holds(parent, key))
+    key.rsplit_once('/').is_some_and(|(parent, _)| [".anywhere", ".zoes"].iter().any(|h| parent.ends_with(&format!("/{h}/{DIR}"))) && holds(parent, key))
 }
 
 /// The folder's uncommitted files and the commits made since `create`'s own; `None` when git can't read it.
