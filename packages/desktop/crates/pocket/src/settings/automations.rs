@@ -168,21 +168,7 @@ impl Settings {
 
     fn every_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
         let pick = |_: &mut Settings, unit: usize, cx: &mut Context<Settings>| with_window(cx, move |s, window, cx| s.set_every_unit(unit, window, cx));
-        if let Some(error) = self.every.field.draft.error.clone() {
-            super::DECOR.with_borrow_mut(|d| {
-                if let Some(d) = d {
-                    d.hint = Some(div().text_size(px(11.5)).text_color(FAILED_TEXT).child(error).into_any_element());
-                }
-            });
-        }
-        if self.every.field.just_saved(Instant::now()) {
-            super::DECOR.with_borrow_mut(|d| {
-                if let Some(d) = d {
-                    let saved = div().flex().items_center().gap(px(3.)).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(SUCCESS);
-                    d.tags.push(saved.child(icon("check", 11., SUCCESS)).child("Saved").into_any_element());
-                }
-            });
-        }
+        self.every.field.decorate();
         row(setting.label, setting.hint, self.every.view("automation-every", pick, cx))
     }
 
@@ -246,7 +232,11 @@ impl Settings {
     }
 
     fn schedule_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
-        let time = field_box().w(px(64.)).child(Input::new(&self.host.time).appearance(false).p_0().font_family(MONO).text_size(px(12.)));
+        self.host.time_field.decorate();
+        let time = field_box()
+            .w(px(64.))
+            .when(self.host.time_field.draft.error.is_some(), |d| d.shadow(vec![ui::ring(FAILED, 1.)]))
+            .child(Input::new(&self.host.time).appearance(false).p_0().font_family(MONO).text_size(px(12.)));
         let days = WEEK.map(|(day, letter)| {
             let on = self.store.automations.days.contains(&day);
             div()

@@ -90,6 +90,20 @@ impl TextField {
     pub(crate) fn just_saved(&self, now: Instant) -> bool {
         self.saved.is_some_and(|at| now.duration_since(at) < SAVED_FOR)
     }
+
+    /// For a field a page draws itself: puts its reason under the row while invalid, and the Saved tick beside it.
+    pub(crate) fn decorate(&self) {
+        super::DECOR.with_borrow_mut(|d| {
+            let Some(d) = d else { return };
+            if let Some(error) = self.draft.error.clone() {
+                d.hint = Some(div().text_size(px(11.5)).text_color(FAILED_TEXT).child(error).into_any_element());
+            }
+            if self.just_saved(Instant::now()) {
+                let saved = div().flex().items_center().gap(px(3.)).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(SUCCESS);
+                d.tags.push(saved.child(super::icon("check", 11., SUCCESS)).child("Saved").into_any_element());
+            }
+        });
+    }
 }
 
 /// A unit a number can be typed in, and how many of the stored unit it holds: minutes in an hour is 60.

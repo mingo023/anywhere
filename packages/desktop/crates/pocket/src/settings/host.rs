@@ -1,5 +1,4 @@
 use super::fields::{Commit, TextField};
-use super::toasts::Toast;
 use super::{Settings, SettingsEvent};
 use crate::desktop::Desktop;
 use agents::automations::valid_time;
@@ -149,11 +148,7 @@ impl Settings {
                     self.write(None, cx, move |s, _| s.automations.time = time.clone());
                 }
             }
-            Commit::Invalid => {
-                let error = self.host.time_field.draft.error.clone().unwrap_or_default();
-                self.toast(Toast::tell(error), cx);
-            }
-            Commit::Same => {}
+            Commit::Invalid | Commit::Same => {}
         }
         cx.notify();
     }
@@ -165,8 +160,6 @@ impl Settings {
         let valid = |t: &str| parse_port(t, channel::phone_port()).map(|_| ()).map_err(str::to_string);
         let port = match self.host.port_field.commit(&port_field(before), valid, cx) {
             Commit::Invalid => {
-                let error = self.host.port_field.draft.error.clone().unwrap_or_default();
-                cx.emit(SettingsEvent::Error(error));
                 cx.notify();
                 return;
             }
