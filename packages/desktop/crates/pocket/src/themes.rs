@@ -1,4 +1,6 @@
 use crate::desktop::Desktop;
+use crate::explorer::toast::unrestored;
+use crate::settings::toasts::{Toast, Undo};
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -152,6 +154,41 @@ fn forget(a: &mut Appearance, id: &str, dark: bool) {
     }
 }
 
+/// Which of the appearance's slots held a theme before its removal took it off them.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Held {
+    theme: bool,
+    day: bool,
+    night: bool,
+}
+
+fn held(a: &Appearance, id: &str) -> Held {
+    let is = |slot: &Option<String>| slot.as_deref() == Some(id);
+    Held { theme: is(&a.theme), day: is(&a.day), night: is(&a.night) }
+}
+
+/// Puts the restored theme `id` back in the slots `forget` took it from, where they still hold what `forget` left:
+/// a slot the user has since set stays as they set it.
+fn bring_back(a: &mut Appearance, id: &str, dark: bool, held: Held) {
+    let graphite = if dark { GRAPHITE_DARK } else { GRAPHITE_LIGHT };
+    if held.theme && a.theme.as_deref() == Some(graphite) {
+        a.theme = Some(id.into());
+    }
+    for (was, slot) in [(held.day, &mut a.day), (held.night, &mut a.night)] {
+        if was && slot.is_none() {
+            *slot = Some(id.into());
+        }
+    }
+}
+
+/// Moves the theme file to the Trash: where it landed, `None` when it was already gone, `Err` when the Trash refused it.
+fn trash_file(path: &Path) -> Result<Option<PathBuf>, ()> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    crate::util::trash(path).map(Some).ok_or(())
+}
+
 impl Desktop {
     /// Paints the chosen theme and forces its appearance on the window.
     pub(crate) fn apply_theme(&mut self, cx: &mut Context<Self>) {
@@ -200,22 +237,46 @@ impl Desktop {
     }
 
     pub(crate) fn remove_theme(&mut self, slug: &str, cx: &mut Context<Self>) {
-        let Some(custom) = self.themes.custom.iter().find(|c| c.slug == slug) else { return };
-        let (home, slug, id, dark) = (self.store.home().to_path_buf(), slug.to_string(), custom.id(), custom.theme.dark);
+        let Some(custom) = self.themes.custom.iter().find(|c| c.slug == slug).cloned() else { return };
+        let (path, id, held) = (store::themes::file(self.store.home(), slug), custom.id(), held(&self.store.appearance, &custom.id()));
         cx.spawn(async move |this, cx| {
             // The file goes first: a reload that reads the folder after the theme left the list must not find it there.
-            let file = slug.clone();
-            let deleted = cx.background_spawn(async move { store::themes::remove(&home, &file) }).await;
+            let from = path.clone();
+            let moved = cx.background_spawn(async move { trash_file(&from) }).await;
             this.update(cx, |d, cx| {
-                if let Some(why) = deleted.err().filter(|e| e.kind() != std::io::ErrorKind::NotFound) {
-                    d.themes.error = Some(format!("Couldn't remove the theme: {why}").into());
+                let Ok(landed) = moved else {
+                    d.themes.error = Some(format!("Couldn\u{2019}t move \u{201c}{}\u{201d} to the Trash", custom.theme.name).into());
                     return cx.notify();
-                }
+                };
                 d.themes.error = None;
-                d.themes.remove(&slug);
-                forget(&mut d.store.appearance, &id, dark);
+                d.themes.remove(&custom.slug);
+                forget(&mut d.store.appearance, &id, custom.theme.dark);
                 d.save_soon(cx);
                 d.apply_theme(cx);
+                if let Some(to) = landed {
+                    let text = format!("Moved \u{201c}{}\u{201d} to the Trash", custom.theme.name);
+                    let undo = Undo::new(move |d, _, cx| d.restore_theme(custom.clone(), path.clone(), to.clone(), held, cx));
+                    d.settings_toast(Toast::undo(text, undo), cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Brings a theme back from the Trash, unless something took its file's name meanwhile.
+    fn restore_theme(&mut self, custom: Custom, from: PathBuf, to: PathBuf, held: Held, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let restored = cx.background_spawn(async move { crate::explorer::files::restore(&to, &from) }).await;
+            this.update(cx, |d, cx| match restored {
+                Ok(()) => {
+                    d.themes.error = None;
+                    bring_back(&mut d.store.appearance, &custom.id(), custom.theme.dark, held);
+                    d.themes.keep(custom);
+                    d.save_soon(cx);
+                    d.apply_theme(cx);
+                }
+                Err(e) => d.settings_toast(Toast::failed(unrestored(&e, &custom.theme.name), None), cx),
             })
             .ok();
         })
@@ -240,7 +301,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Custom, SYSTEM, Themes, active, choose, chosen, find, forced, forget, import, in_use, load, name, system_theme};
+    use super::{Custom, SYSTEM, Themes, active, bring_back, choose, chosen, find, forced, forget, held, import, in_use, load, name, system_theme, trash_file};
     use store::{Appearance, Mode};
     use theme::{GRAPHITE_DARK, GRAPHITE_LIGHT, TEXT, Theme};
 
@@ -332,6 +393,35 @@ mod tests {
         let mut a = appearance("dracula");
         forget(&mut a, "custom/mine", true);
         assert_eq!(a.theme.as_deref(), Some("dracula"));
+    }
+
+    #[test]
+    fn undoing_a_removal_puts_the_theme_back_where_it_was_unless_the_slot_was_set_since() {
+        let before = Appearance { day: Some("custom/mine".into()), night: Some("custom/moon".into()), ..appearance("custom/mine") };
+        let held = held(&before, "custom/mine");
+        let mut a = before.clone();
+        forget(&mut a, "custom/mine", false);
+        bring_back(&mut a, "custom/mine", false, held);
+        assert_eq!((a.theme, a.day, a.night), (before.theme.clone(), before.day.clone(), before.night.clone()));
+        let mut a = before.clone();
+        forget(&mut a, "custom/mine", false);
+        (a.theme, a.day) = (Some("dracula".into()), Some("github-light".into()));
+        bring_back(&mut a, "custom/mine", false, held);
+        assert_eq!((a.theme.as_deref(), a.day.as_deref()), (Some("dracula"), Some("github-light")));
+    }
+
+    #[test]
+    fn a_theme_that_held_no_slot_comes_back_to_none() {
+        let a = appearance("dracula");
+        assert_eq!(held(&a, "custom/mine"), super::Held::default());
+        let mut b = a.clone();
+        bring_back(&mut b, "custom/mine", true, super::Held::default());
+        assert_eq!(b, a);
+    }
+
+    #[test]
+    fn a_theme_file_that_is_already_gone_needs_no_trash() {
+        assert_eq!(trash_file(&home("gone").join("no-such.json")), Ok(None));
     }
 
     #[test]

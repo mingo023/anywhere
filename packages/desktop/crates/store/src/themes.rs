@@ -5,7 +5,8 @@ fn dir(home: &Path) -> PathBuf {
     home.join("themes")
 }
 
-fn file(home: &Path, slug: &str) -> PathBuf {
+/// Where the theme kept as `slug` lives.
+pub fn file(home: &Path, slug: &str) -> PathBuf {
     dir(home).join(format!("{slug}.json"))
 }
 
