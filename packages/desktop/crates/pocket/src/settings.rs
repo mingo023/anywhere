@@ -940,15 +940,13 @@ impl Settings {
         }
     }
 
-    /// An off row's control is drawn but takes neither presses (see `row`) nor focus.
+    /// An off row's control is drawn but takes no presses (see `row`), focus or typing. Its field's input still takes Tab,
+    /// since the input tracks a focus handle of its own.
     fn control(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> AnyElement {
         let off = setting.off_in(&self.store).is_some();
         let focus = self.control_focus(setting.id, cx).tab_stop(!off);
         if let Some(field) = self.fields.get(setting.id).or(self.numbers.get(setting.id)) {
-            field.input.update(cx, |input, cx| {
-                input.set_disabled(off, cx);
-                input.focus_handle(cx).tab_stop(!off);
-            });
+            field.input.update(cx, |input, cx| input.set_disabled(off, cx));
         }
         match setting.control {
             Control::Switch { get, .. } => {
