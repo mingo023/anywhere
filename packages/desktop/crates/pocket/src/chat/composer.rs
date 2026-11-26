@@ -818,7 +818,8 @@ impl Desktop {
             }
         }
         self.chats.copied.remove(&agent);
-        self.chats.composer.update(cx, |c, _| c.draft.clear());
+        let local = matches!(slash, Some((Kind::Local(_), ..)));
+        self.chats.composer.update(cx, |c, _| c.draft.sent(local));
         self.chats.input.update(cx, |s, cx| s.set_value("", window, cx));
         if let Some((Kind::Local(local), _, arg)) = slash {
             return self.chat_local(&agent, local, &arg, window, cx);

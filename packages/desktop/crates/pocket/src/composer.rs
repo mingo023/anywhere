@@ -383,6 +383,13 @@ impl Draft {
         question.trim().to_string()
     }
 
+    /// Empties the draft once sent. A command this app runs itself takes no quote, so the quote stays for the next prompt.
+    pub(crate) fn sent(&mut self, local_command: bool) {
+        let quote = self.quote.take().filter(|_| local_command);
+        self.clear();
+        self.quote = quote;
+    }
+
     pub(crate) fn sends_without_text(&self) -> bool {
         self.has_attachments() || self.quote.is_some()
     }
@@ -1032,6 +1039,16 @@ mod tests {
         assert_eq!(draft.add_quote(&a, " why? "), "why?");
         assert_eq!(draft.add_quote(&b, "and this?"), b.prompt("and this?"));
         assert_eq!(draft.quote, Some(a));
+    }
+
+    #[test]
+    fn a_command_the_app_runs_leaves_the_quote_for_the_next_prompt() {
+        let quote = crate::add_to_chat::Quote::code("a.rs", "x\n", 0..1).unwrap();
+        let mut draft = Draft { quote: Some(quote.clone()), files: vec!["/a".into()], ..Draft::default() };
+        draft.sent(true);
+        assert_eq!((draft.quote.clone(), draft.files.len()), (Some(quote), 0));
+        draft.sent(false);
+        assert_eq!(draft.quote, None);
     }
 
     #[test]
