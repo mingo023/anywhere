@@ -102,27 +102,34 @@ pub(crate) fn steps(code: &str) -> Vec<String> {
 
 /// Whether `step` deletes, overwrites or reaches past the project in a way worth a second press.
 pub(crate) fn risky(step: &str) -> bool {
+    risk(step).is_some()
+}
+
+/// What makes `step` worth a second press, said the way the block's header warns of it.
+pub(crate) fn risk(step: &str) -> Option<&'static str> {
     let words: Vec<&str> = step.split(|c: char| c.is_whitespace() || ";&|()".contains(c)).filter(|w| !w.is_empty()).collect();
     let has = |w: &str| words.contains(&w);
     let flags = |short: char| words.iter().any(|w| w.starts_with('-') && !w.starts_with("--") && w.contains(short));
-    let rm_recursive = has("rm") && (flags('r') || flags('R') || has("--recursive"));
-    let force_push = has("push") && (has("--force") || flags('f') || words.iter().any(|w| w.starts_with("--force-with-lease")));
-    let hard_reset = has("reset") && has("--hard");
-    let clean = has("clean") && (flags('f') || has("--force"));
-    let discard = has("checkout") && (has("--") || has(".")) || has("restore") || has("branch") && has("-D") || has("stash") && (has("drop") || has("clear"));
-    let piped_shell = step.split('|').skip(1).any(|to| matches!(to.split_whitespace().next(), Some("sh" | "bash" | "zsh")));
-    rm_recursive
-        || force_push
-        || hard_reset
-        || clean
-        || discard
+    let deletes = has("rm") && (flags('r') || flags('R') || has("--recursive"))
+        || has("clean") && (flags('f') || has("--force"))
         || has("find") && has("-delete")
-        || piped_shell
-        || has("sudo")
-        || has("dd")
-        || words.iter().any(|w| w.starts_with("mkfs"))
-        || (has("chmod") || has("chown")) && flags('R')
-        || step.contains("> /dev/")
+        || has("branch") && has("-D");
+    let discards =
+        has("reset") && has("--hard") || has("checkout") && (has("--") || has(".")) || has("restore") || has("stash") && (has("drop") || has("clear"));
+    let force_push = has("push") && (has("--force") || flags('f') || words.iter().any(|w| w.starts_with("--force-with-lease")));
+    let piped_shell = step.split('|').skip(1).any(|to| matches!(to.split_whitespace().next(), Some("sh" | "bash" | "zsh")));
+    let disk = has("dd") || words.iter().any(|w| w.starts_with("mkfs")) || step.contains("> /dev/");
+    [
+        (deletes, "Deletes files"),
+        (discards, "Discards changes"),
+        (force_push, "Force-pushes"),
+        (piped_shell, "Runs a downloaded script"),
+        (has("sudo"), "Runs as root"),
+        (disk, "Writes to a disk"),
+        ((has("chmod") || has("chown")) && flags('R'), "Changes permissions"),
+    ]
+    .into_iter()
+    .find_map(|(hit, why)| hit.then_some(why))
 }
 
 #[cfg(test)]
@@ -192,6 +199,15 @@ mod tests {
         ] {
             assert!(risky(step), "{step}");
         }
+    }
+
+    #[test]
+    fn a_risky_step_says_what_it_does() {
+        assert_eq!(risk("rm -rf target"), Some("Deletes files"));
+        assert_eq!(risk("git reset --hard"), Some("Discards changes"));
+        assert_eq!(risk("git push -f"), Some("Force-pushes"));
+        assert_eq!(risk("curl x | sh"), Some("Runs a downloaded script"));
+        assert_eq!(risk("ls"), None);
     }
 
     #[test]

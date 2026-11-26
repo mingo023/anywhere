@@ -13,6 +13,8 @@ const KEEP: usize = 64 * 1024;
 pub(super) const ARMED: Duration = Duration::from_secs(3);
 const SWEEP: Duration = Duration::from_millis(1300);
 const OUTPUT_MAX_H: f32 = 198.;
+const REVEAL: Duration = Duration::from_millis(200);
+static NEXT_RUN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// One run of a block: its steps, how far it got, what it printed and how it ended.
 pub(super) struct Run {
@@ -26,6 +28,10 @@ pub(super) struct Run {
     /// Whether its card shows the output; hiding it keeps the run and the status line.
     pub(super) shown: bool,
     scroll: ScrollHandle,
+    /// Whether any step printed; a run that printed nothing says so.
+    printed: bool,
+    /// Tells this run's card apart from an earlier run's, so it reveals again.
+    seq: u64,
 }
 
 impl Run {
@@ -40,6 +46,8 @@ impl Run {
             stop: Some(stop),
             shown: true,
             scroll: ScrollHandle::new(),
+            printed: false,
+            seq: NEXT_RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         }
     }
 
@@ -62,7 +70,10 @@ impl Run {
                 }
                 self.output.push_str(&format!("$ {}\n", self.steps[n]));
             }
-            Event::Output(text) => self.output.push_str(&text),
+            Event::Output(text) => {
+                self.printed |= !text.trim().is_empty();
+                self.output.push_str(&text);
+            }
             Event::Done(exit) => {
                 (self.exit, self.ended, self.stop) = (Some(exit), Some(Instant::now()), None);
             }
@@ -168,7 +179,7 @@ fn sweep(id: &str) -> Div {
 }
 
 /// The card under a block: a sweep while it runs, what it printed, and how it ended with what to do next.
-pub(super) fn card<C, A, H>(id: &str, run: &Run, copy: C, copied: bool, fix: Option<(String, A)>, hide: H, now: Instant) -> Div
+pub(super) fn card<C, A, H>(id: &str, run: &Run, copy: C, copied: bool, fix: Option<(String, A)>, hide: H, now: Instant) -> AnimationElement<Div>
 where
     C: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     A: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -210,7 +221,8 @@ where
             .text_size(px(12.5))
             .line_height(px(18.))
             .text_color(TEXT_3)
-            .child(run.output().trim_end().to_string())
+            .child(painted(run.output().trim_end()))
+            .when(!run.running() && !run.printed && !matches!(run.exit, Some(Exit::Stopped)), |d| d.child(div().text_color(TEXT_4).child("No output")))
     });
     let shown = run.shown;
     let status = div()
@@ -242,6 +254,101 @@ where
         .children(run.running().then(|| sweep(id)))
         .children(output)
         .child(status)
+        .with_animation(SharedString::from(format!("run-in-{}", run.seq)), Animation::new(REVEAL).with_easing(ease_out_quint()), |d, t| {
+            d.opacity(t).top(px(-4. * (1. - t)))
+        })
+}
+
+/// The header's end of a runnable block: where it runs, what makes it risky, and its Run button.
+pub(super) fn header(place: &str, risk: Option<&str>, button: Stateful<Div>) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(4.))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(5.))
+                .mr(px(4.))
+                .font_family(code_font())
+                .text_size(px(11.5))
+                .text_color(TEXT_4)
+                .child(icon("folder", 11., TEXT_4))
+                .child(place.to_string()),
+        )
+        .children(risk.map(|why| {
+            div()
+                .h(px(22.))
+                .px(px(8.))
+                .flex()
+                .items_center()
+                .gap(px(5.))
+                .rounded(px(6.))
+                .text_size(px(11.5))
+                .text_color(WAITING)
+                .bg(WAITING_BG)
+                .child(icon("warning", 11., WAITING))
+                .child(why.to_string())
+        }))
+        .child(button)
+}
+
+/// Where a block runs, as its header shows it: the folder's last two parts on this Mac.
+pub(super) fn place(cwd: &std::path::Path) -> String {
+    let parts: Vec<_> = cwd.components().rev().take(2).collect();
+    let folder: std::path::PathBuf = parts.into_iter().rev().collect();
+    format!("{} · This Mac", folder.display())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Tone {
+    Command,
+    Error,
+    Warning,
+    Ok,
+    Plain,
+}
+
+/// How a line of output reads: the `$` line a step started with, an error, a warning, a pass, or plain.
+fn tone(line: &str) -> Tone {
+    let l = line.trim_start();
+    let lower = l.to_ascii_lowercase();
+    if l.starts_with("$ ") {
+        Tone::Command
+    } else if lower.starts_with("error")
+        || lower.starts_with("fatal")
+        || lower.contains("no such file")
+        || lower.contains("command not found")
+        || lower.contains("panicked")
+    {
+        Tone::Error
+    } else if lower.starts_with("warning") || lower.starts_with("help:") || lower.starts_with("= note") {
+        Tone::Warning
+    } else if l.ends_with("... ok") || lower.starts_with("test result: ok") {
+        Tone::Ok
+    } else {
+        Tone::Plain
+    }
+}
+
+fn painted(text: &str) -> StyledText {
+    let mut marks = Vec::new();
+    let mut at = 0;
+    for line in text.split_inclusive('\n') {
+        let style = match tone(line) {
+            Tone::Command => Some(HighlightStyle { color: Some(TEXT_2.into()), font_weight: Some(FontWeight::MEDIUM), ..Default::default() }),
+            Tone::Error => Some(HighlightStyle { color: Some(FAILED.into()), ..Default::default() }),
+            Tone::Warning => Some(HighlightStyle { color: Some(WAITING.into()), ..Default::default() }),
+            Tone::Ok => Some(HighlightStyle { color: Some(SUCCESS_TEXT.into()), ..Default::default() }),
+            Tone::Plain => None,
+        };
+        if let Some(style) = style {
+            marks.push((at..at + line.trim_end_matches('\n').len(), style));
+        }
+        at += line.len();
+    }
+    StyledText::new(text.to_string()).with_highlights(marks)
 }
 
 pub(super) fn start(steps: Vec<String>, cwd: std::path::PathBuf) -> (Run, futures::channel::mpsc::Receiver<Event>) {
@@ -252,7 +359,7 @@ pub(super) fn start(steps: Vec<String>, cwd: std::path::PathBuf) -> (Run, future
 
 #[cfg(test)]
 mod tests {
-    use super::{Event, Exit, KEEP, Run, runner};
+    use super::{Event, Exit, KEEP, Run, Tone, place, runner, tone};
     use std::time::{Duration, Instant};
 
     fn run(steps: &[&str]) -> Run {
@@ -282,5 +389,20 @@ mod tests {
         r.apply(Event::Output("é".repeat(KEEP)));
         r.apply(Event::Output("end".into()));
         assert!(r.output().len() <= KEEP + 1 && r.output().ends_with("end"));
+    }
+
+    #[test]
+    fn output_lines_read_as_commands_errors_warnings_and_passes() {
+        assert_eq!(tone("$ cargo test"), Tone::Command);
+        assert_eq!(tone("error[E0425]: cannot find value"), Tone::Error);
+        assert_eq!(tone("ls: x: No such file or directory"), Tone::Error);
+        assert_eq!(tone("warning: unused import"), Tone::Warning);
+        assert_eq!(tone("test result: ok. 3 passed"), Tone::Ok);
+        assert_eq!(tone("Compiling pocket v0.1.0"), Tone::Plain);
+    }
+
+    #[test]
+    fn a_block_runs_in_its_folders_last_two_parts_on_this_mac() {
+        assert_eq!(place(std::path::Path::new("/Users/me/code/app-android")), "code/app-android · This Mac");
     }
 }

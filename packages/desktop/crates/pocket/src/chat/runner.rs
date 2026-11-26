@@ -67,22 +67,21 @@ pub(crate) fn start(steps: Vec<String>, cwd: PathBuf, tx: Sender<Event>) -> Stop
 }
 
 fn run(steps: &[String], cwd: &Path, stop: &AtomicBool, tx: &Sender<Event>) -> Exit {
-    let mut child = match shell(&script(steps)).current_dir(cwd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
+    // The script sends its steps' stderr to stdout; what's left on stderr is the login shell's own start-up talk.
+    let mut child = match shell(&script(steps)).current_dir(cwd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() {
         Ok(child) => child,
         Err(e) => return Exit::Unstarted(e.to_string()),
     };
     let step = Arc::new(AtomicUsize::new(0));
-    let readers: Vec<_> = [
-        child.stdout.take().map(|o| (Box::new(o) as Box<dyn Read + Send>, Some((step.clone(), steps.len())))),
-        child.stderr.take().map(|e| (Box::new(e) as _, None)),
-    ]
-    .into_iter()
-    .flatten()
-    .map(|(out, step)| {
-        let tx = tx.clone();
-        std::thread::spawn(move || stream(out, &tx, step.as_ref().map(|(at, of)| (&**at, *of))))
-    })
-    .collect();
+    let readers: Vec<_> = child
+        .stdout
+        .take()
+        .map(|out| {
+            let (tx, at, of) = (tx.clone(), step.clone(), steps.len());
+            std::thread::spawn(move || stream(Box::new(out), &tx, &at, of))
+        })
+        .into_iter()
+        .collect();
     let status = loop {
         if stop.load(Ordering::Relaxed) {
             kill(&mut child);
@@ -125,22 +124,29 @@ fn send(tx: &Sender<Event>, event: Event) -> Result<(), futures::channel::mpsc::
     futures::executor::block_on(tx.clone().send(event))
 }
 
-/// Streams what a shell prints to `tx`; on stdout, `step` is where the step marks go and how many steps there are.
-fn stream(mut out: Box<dyn Read + Send>, tx: &Sender<Event>, step: Option<(&AtomicUsize, usize)>) {
+/// Streams what the script prints to `tx`, noting in `at` which of its `of` steps it's on. What the login shell prints
+/// before the first step, like a profile's greeting, is left out.
+fn stream(mut out: Box<dyn Read + Send>, tx: &Sender<Event>, at: &AtomicUsize, of: usize) {
     let mut buf = [0u8; 4096];
     let mut held = Vec::new();
+    let mut begun = false;
     while let Ok(n @ 1..) = out.read(&mut buf) {
         held.extend_from_slice(&buf[..n]);
-        for event in take(&mut held, step.map_or(0, |(_, of)| of)) {
-            if let (Event::Step(n), Some((at, _))) = (&event, step) {
-                at.store(*n, Ordering::Relaxed);
+        for event in take(&mut held, of) {
+            match &event {
+                Event::Step(n) => {
+                    begun = true;
+                    at.store(*n, Ordering::Relaxed);
+                }
+                _ if !begun => continue,
+                _ => {}
             }
             if send(tx, event).is_err() {
                 return;
             }
         }
     }
-    if !held.is_empty() {
+    if begun && !held.is_empty() {
         _ = send(tx, Event::Output(String::from_utf8_lossy(&held).into_owned()));
     }
 }
@@ -341,6 +347,16 @@ mod tests {
         assert!(!e.contains(&Event::Step(99)));
         assert!(output(&e).contains("\x1e99"));
         assert_eq!(e.last(), Some(&Event::Done(Exit::Passed)));
+    }
+
+    #[test]
+    fn what_the_login_shell_prints_before_the_first_step_is_left_out() {
+        let (tx, rx) = mpsc::channel(64);
+        let at = AtomicUsize::new(0);
+        stream(Box::new(std::io::Cursor::new(b"Welcome to fish\n\x1e0\nhi\n".to_vec())), &tx, &at, 1);
+        drop(tx);
+        let e: Vec<Event> = futures::executor::block_on(rx.collect());
+        assert_eq!(e, [Event::Step(0), Event::Output("hi\n".into())]);
     }
 
     #[test]

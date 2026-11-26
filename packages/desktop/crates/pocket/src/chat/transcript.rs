@@ -1027,13 +1027,16 @@ impl View {
                             Some(steps) => {
                                 let now = Instant::now();
                                 let running = view.runs.get(&id).is_some_and(|r| r.running());
-                                let (risky, armed) = (steps.iter().any(|s| super::steps::risky(s)), view.runs.armed(&id, now));
+                                let risk = steps.iter().find_map(|s| super::steps::risk(s));
+                                let armed = view.runs.armed(&id, now);
+                                let place = view.side.runs_in.as_deref().map(super::run_card::place).unwrap_or_default();
                                 let (row, this) = (id.clone(), this.clone());
                                 let code_view = code_view.code_block_actions(move |_, _, _| {
                                     let (row, this, steps) = (row.clone(), this.clone(), steps.clone());
-                                    super::run_card::button(&row.clone(), running, risky, armed, move |_, _, cx| {
+                                    let button = super::run_card::button(&row.clone(), running, risk.is_some(), armed, move |_, _, cx| {
                                         _ = this.update(cx, |v, cx| v.press_run(&row, steps.clone(), cx));
-                                    })
+                                    });
+                                    super::run_card::header(&place, risk, button)
                                 });
                                 let card = view.runs.get(&id).map(|run| {
                                     let key = format!("run:{id}");
