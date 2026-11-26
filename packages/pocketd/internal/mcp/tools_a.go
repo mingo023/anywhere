@@ -417,6 +417,7 @@ func taskStatus(ctx context.Context, c *Call) (any, error) {
 		}
 	}
 	var out []taskView
+	var read []string
 	for _, id := range ids {
 		t, err := task(c, id)
 		if err != nil {
@@ -436,9 +437,13 @@ func taskStatus(ctx context.Context, c *Call) (any, error) {
 			}
 		}
 		if t.Terminal() && t.ParentID == c.Caller.ID && (t.Delivery == orch.DeliverPending || t.Delivery == orch.DeliverQueued || t.Delivery == orch.DeliverWaiting) {
-			c.Host.Engine().Dispatch(orch.NewCommand("", orch.CmdDelegateWaited, c.Caller.ID, orch.TaskPayload{TaskID: t.TaskID}))
+			read = append(read, t.TaskID)
 		}
 		out = append(out, v)
+	}
+	// Only a call that returns the results has them read.
+	for _, id := range read {
+		c.Host.Engine().Dispatch(orch.NewCommand("", orch.CmdDelegateWaited, c.Caller.ID, orch.TaskPayload{TaskID: id}))
 	}
 	return map[string]any{"tasks": out}, nil
 }

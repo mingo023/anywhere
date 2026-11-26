@@ -181,6 +181,9 @@ func TestATaskStatusThatReadsAResultCancelsTheWakeStillQueuedForIt(t *testing.T)
 		return n
 	}
 	eventually(t, "the wake to queue behind the parent's turn", func() bool { return wakes() == 1 })
+	if sc, isErr := f.call(t, "task_status", fmt.Sprintf(`{"taskIds":[%q,"task_unknown"]}`, task)); !isErr || wakes() != 1 {
+		t.Fatalf("a call that failed returned %v and left %d wakes", sc, wakes())
+	}
 	view := f.ok(t, "task_status", args)["tasks"].([]any)[0].(map[string]any)
 	if view["summary"] != "Tests written" {
 		t.Fatalf("task_status = %v", view)

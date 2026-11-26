@@ -50,16 +50,19 @@ pub(crate) fn standing<'a>(deliveries: impl Iterator<Item = &'a Delivered>, list
         }
     }
     if waiting {
-        let yet: Vec<Standing> = list
-            .iter()
-            .filter(|l| !l.phase().settled() && !out.iter().any(|o| o.child.id == l.child_id))
-            .map(|l| Standing {
+        // A session at work on a follow-up stands as that, not as the task it reported on.
+        for l in list.iter().filter(|l| !l.phase().settled()) {
+            let s = Standing {
                 child: Child { id: l.child_id.clone(), task_id: l.task_id.clone(), title: l.title.clone(), agent: l.agent.clone() },
                 phase: l.phase(),
                 question: l.question.clone(),
-            })
-            .collect();
-        out.extend(yet);
+            };
+            match out.iter_mut().find(|o| o.child.id == l.child_id) {
+                Some(o) if o.child.task_id != l.task_id => *o = s,
+                Some(_) => {}
+                None => out.push(s),
+            }
+        }
     }
     out
 }
@@ -266,6 +269,16 @@ mod tests {
         let list = [listed("a", "completed", "", 200), follow_up];
         let phases: Vec<Phase> = standing([told].iter(), &list, false).into_iter().map(|s| s.phase).collect();
         assert_eq!(phases, [Phase::Failed]);
+    }
+
+    #[test]
+    fn a_session_at_work_on_a_follow_up_stands_as_that_in_a_group_still_waiting() {
+        let deliveries = [news(Outcome::Done, &["a"])];
+        let follow_up = Delegation { task_id: "ta2".into(), question: "Which runner?".into(), ..listed("a", "working", "", 0) };
+        let list = [listed("a", "completed", "", 200), follow_up];
+        let got: Vec<(Phase, String)> = standing(deliveries.iter(), &list, true).into_iter().map(|s| (s.phase, s.question)).collect();
+        assert_eq!(got, [(Phase::Asking, "Which runner?".into())]);
+        assert_eq!(standing(deliveries.iter(), &list, false)[0].phase, Phase::Done);
     }
 
     #[test]

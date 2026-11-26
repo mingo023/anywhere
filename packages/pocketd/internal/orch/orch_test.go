@@ -860,8 +860,8 @@ func TestATurnTheChildStartsOnItsOwnLeavesItsSettledTaskAloneAndAPromptOpensAFol
 }
 
 // followUpsAfter sends a settled child msg, whose turn start answers with start, runs the child's next turn, and
-// returns the child's tasks after the one it settled.
-func followUpsAfter(t *testing.T, msg SendPayload, start func() (map[string]any, error)) []Delegation {
+// returns the child's tasks after the one it settled. sent, if set, runs once the turn start is done.
+func followUpsAfter(t *testing.T, msg SendPayload, start func() (map[string]any, error), sent func(*Store)) []Delegation {
 	t.Helper()
 	s := openTest(t)
 	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
@@ -901,6 +901,9 @@ func followUpsAfter(t *testing.T, msg SendPayload, start func() (map[string]any,
 		s.db.QueryRow(`SELECT COUNT(*) FROM outbox WHERE session_id = 'child-1' AND kind = ? AND state IN ('done', 'failed')`, EffTurnStart).Scan(&n)
 		return n == 1
 	})
+	if sent != nil {
+		sent(s)
+	}
 	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
 	k.Item("child-1", 1, proto.Item{ID: "i3", Seq: 3, Kind: "assistant", Text: "Next reply"})
 	k.Item("child-1", 1, proto.Item{ID: "i4", Seq: 4, Kind: "result", OK: true})
@@ -910,28 +913,37 @@ func followUpsAfter(t *testing.T, msg SendPayload, start func() (map[string]any,
 	return tasks()[1:]
 }
 
-func started() (map[string]any, error) { return nil, nil }
+func started() (map[string]any, error) { return map[string]any{"started": true}, nil }
+
+func TestAPromptSentBeforeTheSinkRecordedTheTurnBeforeAsEndedStillOpensAFollowUp(t *testing.T) {
+	late := func(s *Store) {
+		s.db.Exec(`UPDATE turns SET ended_at = (SELECT MAX(created_at) + 5 FROM outbox WHERE session_id = 'child-1') WHERE session_id = 'child-1'`)
+	}
+	if fs := followUpsAfter(t, SendPayload{Text: "Add a test"}, started, late); len(fs) != 1 || fs[0].Summary != "Next reply" {
+		t.Fatalf("follow-ups %+v", fs)
+	}
+}
 
 func TestAWakeToASettledChildOpensAFollowUp(t *testing.T) {
-	if fs := followUpsAfter(t, SendPayload{Text: "Delegated task t9 reached a terminal state.", Origin: OriginWake}, started); len(fs) != 1 || fs[0].Summary != "Next reply" {
+	if fs := followUpsAfter(t, SendPayload{Text: "Delegated task t9 reached a terminal state.", Origin: OriginWake}, started, nil); len(fs) != 1 || fs[0].Summary != "Next reply" {
 		t.Fatalf("follow-ups %+v", fs)
 	}
 }
 
 func TestAQuestionNoticeToASettledChildOpensNoFollowUp(t *testing.T) {
-	if fs := followUpsAfter(t, SendPayload{Text: "Delegated task t9 is blocked on a question.", Origin: OriginQuestion}, started); len(fs) != 0 {
+	if fs := followUpsAfter(t, SendPayload{Text: "Delegated task t9 is blocked on a question.", Origin: OriginQuestion}, started, nil); len(fs) != 0 {
 		t.Fatalf("follow-ups %+v", fs)
 	}
 }
 
 func TestAPromptTheChildRefusedOpensNoFollowUp(t *testing.T) {
-	if fs := followUpsAfter(t, SendPayload{Text: "Add a test"}, func() (map[string]any, error) { return nil, errors.New("the agent is gone") }); len(fs) != 0 {
+	if fs := followUpsAfter(t, SendPayload{Text: "Add a test"}, func() (map[string]any, error) { return nil, errors.New("the agent is gone") }, nil); len(fs) != 0 {
 		t.Fatalf("follow-ups %+v", fs)
 	}
 }
 
 func TestAPromptThatStartsNoTurnOpensNoFollowUp(t *testing.T) {
-	if fs := followUpsAfter(t, SendPayload{Text: "/goal pause"}, func() (map[string]any, error) { return map[string]any{"turnless": true}, nil }); len(fs) != 0 {
+	if fs := followUpsAfter(t, SendPayload{Text: "/goal pause"}, func() (map[string]any, error) { return map[string]any{"turnless": true}, nil }, nil); len(fs) != 0 {
 		t.Fatalf("follow-ups %+v", fs)
 	}
 }

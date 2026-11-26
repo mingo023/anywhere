@@ -62,14 +62,21 @@ func (e *Engine) dropChildren(parent string) {
 	}
 }
 
-// prompted is the text of the prompt pocketd sent a session between its turn before and the turn that began, which
-// started that turn; a turn the agent starts on its own, as on a background task's notice, has none. A wake counts: it is
-// how a child hears that its own children finished, and its turn may give the report it held back for them.
+// prompted is the text of the prompt pocketd sent a session that started the turn that began; a turn the agent starts
+// on its own, as on a background task's notice, has none. A wake counts: it is how a child hears that its own children
+// finished, and its turn may give the report it held back for them. A prompt sent to an idle agent waits, running, for
+// its turn and then says it started one; pocketd may send it before the sink records the turn before as ended. Without
+// that word, as from a host, only a prompt sent after that end and not turnless counts.
 const prompted = `SELECT json_extract(payload, '$.text') FROM outbox WHERE session_id = ?1 AND kind = '` + EffTurnStart + `'
-	AND state IN ('running', 'done') AND CASE WHEN result = '' THEN 1 ELSE COALESCE(json_extract(result, '$.turnless'), 0) = 0 END
 	AND json_extract(payload, '$.origin') IN ('` + OriginUser + `', '` + OriginWake + `')
-	AND created_at >= COALESCE((SELECT MAX(ended_at) FROM turns WHERE session_id = ?1 AND id < ?2), 0)
 	AND created_at <= (SELECT started_at FROM turns WHERE id = ?2)
+	AND CASE
+		WHEN state = 'running' THEN 1
+		WHEN state != 'done' THEN 0
+		WHEN json_extract(result, '$.started') THEN created_at > COALESCE((SELECT MAX(started_at) FROM turns WHERE session_id = ?1 AND id < ?2), 0)
+		ELSE COALESCE(json_extract(result, '$.turnless'), 0) = 0
+			AND created_at >= COALESCE((SELECT MAX(ended_at) FROM turns WHERE session_id = ?1 AND id < ?2), 0)
+	END
 	ORDER BY id DESC LIMIT 1`
 
 func (e *Engine) followUp(child string, turn int64) {
