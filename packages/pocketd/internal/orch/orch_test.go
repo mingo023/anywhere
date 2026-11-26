@@ -1845,3 +1845,98 @@ func TestASessionStaysImportableUntilItsImportWritesAnItem(t *testing.T) {
 		t.Fatal("a session whose import wrote its items would be imported again")
 	}
 }
+
+func TestAChildWhoseTurnEndsWithAPromptQueuedSettlesOnceAfterThatPrompt(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		if e.Kind == EffLaunch {
+			return map[string]any{"childId": "child-1"}, nil
+		}
+		return nil, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	r, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "fix the redirect", Title: "Fix redirect"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	get := func() Delegation {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return ts[0]
+	}
+	waitFor(t, func() bool { return get().Status == TaskWorking })
+	k := NewSink(s)
+	defer k.Close()
+	k.OnTurn = e.OnTurn
+	deliveries := func() int { return strings.Count(strings.Join(f.kinds(), " "), EffDelivery+"@p") }
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Item("child-1", 1, proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Waiting on the e2e run"})
+	k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
+	k.Flush()
+	if _, err := e.Dispatch(NewCommand("q1", CmdMessageSend, "child-1", SendPayload{Text: "Commit it as a new commit", Mode: "queue"})); err != nil {
+		t.Fatal(err)
+	}
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { return strings.Contains(strings.Join(f.kinds(), " "), EffTurnStart+"@child-1") })
+
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Item("child-1", 1, proto.Item{ID: "i3", Seq: 3, Kind: "user", Text: "Commit it as a new commit"})
+	k.Item("child-1", 1, proto.Item{ID: "i4", Seq: 4, Kind: "assistant", Text: "Committed as 2ed0c22f"})
+	k.Item("child-1", 1, proto.Item{ID: "i5", Seq: 5, Kind: "result", OK: true})
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { return get().Summary == "Committed as 2ed0c22f" })
+	time.Sleep(100 * time.Millisecond)
+	if n := deliveries(); n != 1 {
+		t.Fatalf("the parent was woken %d times, want once", n)
+	}
+}
+
+func TestAChildThatRefusesItsQueuedPromptSettlesItsTaskOnTheTurnThatEnded(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		switch e.Kind {
+		case EffLaunch:
+			return map[string]any{"childId": "child-1"}, nil
+		case EffTurnStart:
+			if e.Lane == "child-1" {
+				return nil, errors.New("the agent is gone")
+			}
+		}
+		return nil, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	r, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "fix the redirect", Title: "Fix redirect"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	get := func() Delegation {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return ts[0]
+	}
+	waitFor(t, func() bool { return get().Status == TaskWorking })
+	k := NewSink(s)
+	defer k.Close()
+	k.OnTurn = e.OnTurn
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Item("child-1", 1, proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Redirect fixed"})
+	k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
+	k.Flush()
+	if _, err := e.Dispatch(NewCommand("q1", CmdMessageSend, "child-1", SendPayload{Text: "Add a test", Mode: "queue"})); err != nil {
+		t.Fatal(err)
+	}
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { return get().Status == TaskCompleted })
+	if g := get(); g.Summary != "Redirect fixed" {
+		t.Fatalf("summary %q", g.Summary)
+	}
+}

@@ -738,6 +738,21 @@ func TestAMessagePocketdSendsShowsWithItsOriginAndTheUsersOwnWithNone(t *testing
 	}
 }
 
+func TestTwoIdenticalMessagesPocketdSendsBothShowWithTheirOrigin(t *testing.T) {
+	tl := New()
+	wake := "Delegated task t1 reached a terminal state."
+	tl.Expect(wake, "wake")
+	tl.Expect(wake, "wake")
+	tl.Expect(wake, "wake")
+	tl.Expect(wake, "")
+	first, _ := tl.Apply(Event{Kind: "user", Text: wake}, 1)
+	second, _ := tl.Apply(Event{Kind: "user", Text: wake}, 2)
+	typed, _ := tl.Apply(Event{Kind: "user", Text: wake}, 3)
+	if got := []string{first.Origin, second.Origin, typed.Origin}; !slices.Equal(got, []string{"wake", "wake", ""}) {
+		t.Fatalf("origins = %q", got)
+	}
+}
+
 func TestUnseenDropsANoteAStoredTimelineKeptAsThinking(t *testing.T) {
 	shown := []proto.Item{{Kind: "thinking", Text: "Reading the parser.", ParentToolUseID: "t1"}, {Kind: "tool", ParentToolUseID: "t1", Call: &proto.ToolCall{ToolUseID: "c1", Status: "ok"}}}
 	unseen := Unseen(shown)
