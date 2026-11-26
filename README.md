@@ -6,7 +6,7 @@ Watch and drive many coding agents (Claude Code, Codex, Cursor, Grok Build, Open
 
 <p>
   <a href="https://getanywhere.dev">Website</a> ·
-  <a href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a> ·
+  <a href="https://github.com/mingo023/anywhere/releases/latest/download/Zoes.dmg">Download</a> ·
   <a href="https://getanywhere.dev/docs">Docs</a> ·
   <a href="CHANGELOG.md">Changelog</a>
 </p>
@@ -28,9 +28,9 @@ Supported agents and how to install them: [getanywhere.dev/docs/agents](https://
 
 ## Install
 
-**macOS** (13 or later): download [Anywhere.dmg](https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg) and drag Anywhere to Applications.
+**macOS** (13 or later): download [Zoes.dmg](https://github.com/mingo023/anywhere/releases/latest/download/Zoes.dmg) and drag Anywhere to Applications.
 
-**Linux** (x86_64): download [Anywhere-linux-amd64.tar.gz](https://github.com/mingo023/anywhere/releases/latest/download/Anywhere-linux-amd64.tar.gz).
+**Linux** (x86_64): download [Zoes-linux-amd64.tar.gz](https://github.com/mingo023/anywhere/releases/latest/download/Zoes-linux-amd64.tar.gz).
 
 See the [install docs](https://getanywhere.dev/docs/install) to unpack the Linux archive and to install the `anywhere` command.
 

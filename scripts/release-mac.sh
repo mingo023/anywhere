@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds a signed, notarized and stapled Anywhere.dmg in packages/desktop/target/release-mac (ADR 0004).
+# Builds a signed, notarized and stapled Zoes.dmg in packages/desktop/target/release-mac (ADR 0004).
 # --publish also builds the standalone pocketd archives for hosts (scripts/package-pocketd.sh, package-pocketd-windows.sh) and uploads them with it.
 # Usage: scripts/release-mac.sh <version> [--publish]    e.g. 0.1.0
 # --publish needs CHANGELOG.md's section for the version, tag v<version> at HEAD, a clean tree, gh logged in
@@ -15,7 +15,7 @@ DESKTOP="$ROOT/packages/desktop"
 TARGET="${CARGO_TARGET_DIR:-$DESKTOP/target}"
 OUT="$DESKTOP/target/release-mac"
 APP="$OUT/Anywhere.app"
-DMG="$OUT/Anywhere.dmg"
+DMG="$OUT/Zoes.dmg"
 REPO=mingo023/anywhere
 # Sparkle's EdDSA public key (generate_keys -p). Every shipped build trusts it, so it never changes.
 SPARKLE_PUBLIC_KEY=/NXXAgxXzG2c2Z1qs9ZuJ4g+xu/qRV7JzAJeFWIp+GA=
@@ -146,8 +146,8 @@ notarize() {
 # This version's CHANGELOG section, for the GitHub release and the appcast. It runs first so a missing section fails before a long build.
 release_notes() {
   mkdir -p "$OUT"
-  awk -v v="## $VERSION" '$0 == v { on = 1; next } on && /^## / { exit } on' "$ROOT/CHANGELOG.md" 2>/dev/null | sed '/./,$!d' > "$OUT/Anywhere.md"
-  if [ ! -s "$OUT/Anywhere.md" ]; then
+  awk -v v="## $VERSION" '$0 == v { on = 1; next } on && /^## / { exit } on' "$ROOT/CHANGELOG.md" 2>/dev/null | sed '/./,$!d' > "$OUT/Zoes.md"
+  if [ ! -s "$OUT/Zoes.md" ]; then
     echo "release-mac: CHANGELOG.md has no ## $VERSION section; run scripts/changelog-draft.sh $VERSION and edit it" >&2
     exit 1
   fi
@@ -176,11 +176,11 @@ publish() {
   "$ROOT/scripts/package-pocketd-windows.sh" "$VERSION"
   hosts=$(find "$ROOT/packages/pocketd/dist" -name 'pocketd-*.tar.gz*' -o -name 'pocketd-windows-*.zip*')
   # A desktop updating a Mac host whose pocketd the app there runs checks the DMG against this (bootstrap.sh).
-  (cd "$OUT" && shasum -a 256 Anywhere.dmg > Anywhere.dmg.sha256)
+  (cd "$OUT" && shasum -a 256 Zoes.dmg > Zoes.dmg.sha256)
   case "$VERSION" in
     *-*)
       # shellcheck disable=SC2086
-      gh release create "$tag" "$DMG" "$DMG.sha256" $hosts --repo "$REPO" --verify-tag --prerelease --title "Anywhere $VERSION" --notes-file "$OUT/Anywhere.md"
+      gh release create "$tag" "$DMG" "$DMG.sha256" $hosts --repo "$REPO" --verify-tag --prerelease --title "Anywhere $VERSION" --notes-file "$OUT/Zoes.md"
       return
       ;;
   esac
@@ -191,8 +191,8 @@ publish() {
   if git -C "$ROOT" tag -l 'v*' | grep -v -- - | grep -vqx "$tag"; then
     gh release download --repo "$REPO" --pattern appcast.xml --dir "$feed"
   fi
-  cp "$DMG" "$feed/Anywhere.dmg"
-  cp "$OUT/Anywhere.md" "$feed/Anywhere.md"
+  cp "$DMG" "$feed/Zoes.dmg"
+  cp "$OUT/Zoes.md" "$feed/Zoes.md"
   set -- --download-url-prefix "https://github.com/$REPO/releases/download/$tag/" --embed-release-notes --maximum-deltas 0 --link "https://github.com/$REPO/releases"
   # CI passes the private key in the environment; on the maintainer's Mac it's in the login Keychain.
   if [ -n "${ANYWHERE_SPARKLE_KEY:-}" ]; then
@@ -201,7 +201,7 @@ publish() {
     "$ROOT/third_party/sparkle/bin/generate_appcast" "$@" "$feed"
   fi
   # shellcheck disable=SC2086
-  gh release create "$tag" "$DMG" "$DMG.sha256" "$feed/appcast.xml" $hosts --repo "$REPO" --verify-tag --latest --title "Anywhere $VERSION" --notes-file "$OUT/Anywhere.md"
+  gh release create "$tag" "$DMG" "$DMG.sha256" "$feed/appcast.xml" $hosts --repo "$REPO" --verify-tag --latest --title "Anywhere $VERSION" --notes-file "$OUT/Zoes.md"
 }
 
 main() {

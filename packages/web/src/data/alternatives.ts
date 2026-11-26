@@ -57,7 +57,7 @@ const app = {
 	offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
 	isAccessibleForFree: true,
 	license: "https://opensource.org/licenses/MIT",
-	downloadUrl: "https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg",
+	downloadUrl: "https://github.com/mingo023/anywhere/releases/latest/download/Zoes.dmg",
 	sameAs: ["https://github.com/mingo023/anywhere", "https://x.com/immint023"],
 };
 
