@@ -287,6 +287,26 @@ func TestDeletingAWorktreeClosesItsTerminalsForgetsItsNameAndMayDeleteItsBranch(
 	}
 }
 
+func TestAWorktreeHandedOffUnderAnotherMacsProjectNameCanBeDeleted(t *testing.T) {
+	var b bench
+	_, _, p := local(t, aPhone, withWorkspace(t, &b))
+	wt := filepath.Join(b.root, "coding-pocket", "feat")
+	gitOut(t, b.project, "worktree", "add", "-q", "-b", "feat", wt)
+	os.WriteFile(filepath.Join(gitOut(t, wt, "rev-parse", "--absolute-git-dir"), "anywhere"), nil, 0o644)
+	helloWith(p, proto.CapWorkspace, proto.CapWorktrees)
+	p.send(`{"type":"worktree.inspect","id":"wi","path":"` + wt + `"}`)
+	if m := p.reply("wi"); m["type"] != "worktree.inspect" {
+		t.Fatalf("inspect: %v", m)
+	}
+	p.send(`{"type":"worktree.delete","id":"wd","path":"` + wt + `"}`)
+	if m := p.reply("wd"); m["type"] != "ack" {
+		t.Fatalf("delete: %v", m)
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Fatalf("the folder stayed: %v", err)
+	}
+}
+
 func TestDeletingAWorktreeTakesTheOnesAnywhereMadeForItsSessionsSubagents(t *testing.T) {
 	var b bench
 	tree := func(name string) string { return filepath.Join(b.root, "pocket", name) }
