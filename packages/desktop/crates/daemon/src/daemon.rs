@@ -512,7 +512,7 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 #[derive(Clone)]
 pub struct Daemon {
     writer: Arc<Mutex<Option<UnixStream>>>,
-    /// The last `terminals` line on the current connection. Apart from `writer`, which a stuck send holds for seconds, so the reader never waits on it.
+    /// Not under `writer`: a stuck send holds that for seconds, and the reader must not wait on it.
     terminals: Arc<Mutex<Option<String>>>,
 }
 
