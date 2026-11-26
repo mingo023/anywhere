@@ -821,7 +821,7 @@ mod tests {
     #[test]
     fn a_result_needs_one_word_in_the_row_itself() {
         let ids = row_ids(&found("codex model", &Store::default(), &[]));
-        assert_eq!(ids, [(Section::Provider(1), "model")]);
+        assert_eq!(ids, [(Section::Provider(1), "codex-model")]);
         let by_name = row_ids(&found("codex", &Store::default(), &[]));
         assert!(by_name.iter().all(|(section, _)| !matches!(section, Section::Provider(_))), "a provider's page name alone finds none of its rows");
     }

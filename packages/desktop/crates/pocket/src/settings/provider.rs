@@ -23,12 +23,15 @@ const STATUS: &str = "Status";
 /// The Enabled card, drawn above the groups.
 const ENABLED: &str = "Enabled";
 
-/// Each provider's page, in `providers::ALL` order, and the ids of its label, model and effort rows: a field and an open
-/// menu are kept by row id, so those need one per provider. `MENU_IDS` are the ids of the ⋯ menus on the Agents list.
+/// Each provider's page, in `providers::ALL` order, and its rows' ids: a row's focus, field, hover and open menu are
+/// kept by row id, so each provider needs its own. `MENU_IDS` are the ids of the ⋯ menus on the Agents list.
 macro_rules! pages {
     ($($i:literal $id:literal),*) => {
         pub(super) const PAGES: [&[Setting]; providers::COUNT] = [$(&rows::<$i>()),*];
-        const ROW_IDS: [[&str; 3]; providers::COUNT] = [$([concat!($id, "-label"), concat!($id, "-model"), concat!($id, "-effort")]),*];
+        const ROW_IDS: [[&str; 9]; providers::COUNT] = [$([
+            concat!($id, "-enabled"), concat!($id, "-label"), concat!($id, "-model"), concat!($id, "-effort"), concat!($id, "-command"),
+            concat!($id, "-prompt-args"), concat!($id, "-resume-args"), concat!($id, "-fork-args"), concat!($id, "-status"),
+        ]),*];
         pub(super) const MENU_IDS: [&str; providers::COUNT] = [$(concat!($id, "-menu")),*];
     };
 }
@@ -36,17 +39,17 @@ pages!(0 "claude", 1 "codex", 2 "cursor", 3 "grok", 4 "opencode", 5 "pi", 6 "omp
 
 /// The id of the `i`th provider's model menu.
 pub(crate) fn model_menu(i: usize) -> &'static str {
-    ROW_IDS[i][1]
+    ROW_IDS[i][2]
 }
 
 const fn rows<const P: usize>() -> [Setting; 9] {
     [
-        Setting::custom("enabled", ENABLED, "Enabled", |d, s, cx| d.enabled_row(P, s, cx)).resets(
+        Setting::custom(ROW_IDS[P][0], ENABLED, "Enabled", |d, s, cx| d.enabled_row(P, s, cx)).resets(
             |s| if s.agents.disabled.contains(LaunchPick::PROVIDERS[P]) { "Off" } else { "On" }.into(),
             |s, _| s.agents.enable(LaunchPick::PROVIDERS[P]),
         ),
         Setting::text(
-            ROW_IDS[P][0],
+            ROW_IDS[P][1],
             DEFAULTS,
             "Label",
             PROVIDER_NAMES[P],
@@ -54,17 +57,17 @@ const fn rows<const P: usize>() -> [Setting; 9] {
             |s, v| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).label = v,
         )
         .hint("Replaces the built-in name everywhere in the app"),
-        Setting::custom("model", DEFAULTS, "Model", |d, s, cx| d.model_row(P, s, cx))
+        Setting::custom(ROW_IDS[P][2], DEFAULTS, "Model", |d, s, cx| d.model_row(P, s, cx))
             .resets(
                 |s| model_or_default(&s.agents.provider(LaunchPick::PROVIDERS[P]).model),
                 |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).model.clear(),
             )
             .hint("The list comes from the CLI"),
-        Setting::custom("effort", DEFAULTS, "Effort", |d, s, cx| d.effort_row(P, s, cx)).resets(
+        Setting::custom(ROW_IDS[P][3], DEFAULTS, "Effort", |d, s, cx| d.effort_row(P, s, cx)).resets(
             |s| effort_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).effort),
             |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).effort.clear(),
         ),
-        Setting::custom("command", LAUNCH, "Command", |d, s, _| d.launch_row(P, Launch::Command, s))
+        Setting::custom(ROW_IDS[P][4], LAUNCH, "Command", |d, s, _| d.launch_row(P, Launch::Command, s))
             .resets(
                 |s| command_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).command),
                 |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).command.clear(),
@@ -76,14 +79,14 @@ const fn rows<const P: usize>() -> [Setting; 9] {
         args_row::<P, 2>()
             .hint("Used to clone a previous session without changing it. Put {sessionId} where its id belongs, or leave empty if the agent can't fork")
             .under(|s| !Args::Fork.default_text(LaunchPick::PROVIDERS[P]).is_empty() || s.agents.provider(LaunchPick::PROVIDERS[P]).fork_args.is_some()),
-        Setting::custom("status", STATUS, "How Anywhere reads status", |_, s, _| row(s.label, Some(&status_source(LaunchPick::PROVIDERS[P])), div())),
+        Setting::custom(ROW_IDS[P][8], STATUS, "How Anywhere reads status", |_, s, _| row(s.label, Some(&status_source(LaunchPick::PROVIDERS[P])), div())),
     ]
 }
 
 /// The `A`th of `Args::ALL` for the `P`th provider, sent to pocketd like Command.
 const fn args_row<const P: usize, const A: usize>() -> Setting {
-    let (id, label) = [("prompt-args", "Prompt-only args"), ("resume-args", "Resume args"), ("fork-args", "Fork args")][A];
-    Setting::custom(id, LAUNCH, label, |d, s, _| d.launch_row(P, Launch::Args(Args::ALL[A]), s))
+    let label = ["Prompt-only args", "Resume args", "Fork args"][A];
+    Setting::custom(ROW_IDS[P][5 + A], LAUNCH, label, |d, s, _| d.launch_row(P, Launch::Args(Args::ALL[A]), s))
         .resets(
             |s| args_label(&s.agents.args(LaunchPick::PROVIDERS[P], Args::ALL[A])),
             |s, _| *s.agents.provider_mut(LaunchPick::PROVIDERS[P]).args_mut(Args::ALL[A]) = None,
@@ -303,7 +306,7 @@ impl Settings {
     fn model_row(&mut self, i: usize, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
         let p = LaunchPick::PROVIDERS[i];
         let model = self.store.agents.provider(p).model;
-        let (id, offered) = (ROW_IDS[i][1], self.offered_models(p));
+        let (id, offered) = (setting.id, self.offered_models(p));
         let trigger = action(id, "").child(listed_name(&model, offered)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
         let menu = dropdown(
             id,
@@ -325,7 +328,7 @@ impl Settings {
             return div();
         }
         let effort = self.store.agents.provider(p).effort;
-        let id = ROW_IDS[i][2];
+        let id = setting.id;
         let trigger = action(id, "").child(effort_label(&effort)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
         let menu = dropdown(
             id,
@@ -390,15 +393,17 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
-    use super::{MENU_IDS, PAGES, ROW_IDS, command_label};
+    use super::{MENU_IDS, PAGES, command_label};
     use crate::settings::catalog::{changed, reset};
     use store::Store;
 
     #[test]
     fn each_provider_s_rows_are_kept_under_its_own_ids() {
-        for (ids, provider) in ROW_IDS.iter().zip(agents::providers::IDS) {
-            assert_eq!(ids.map(String::from), ["label", "model", "effort"].map(|row| format!("{provider}-{row}")));
+        for (page, provider) in PAGES.iter().zip(agents::providers::IDS) {
+            assert!(page.iter().all(|row| row.id.starts_with(&format!("{provider}-"))), "{provider}");
         }
+        let ids: std::collections::HashSet<_> = PAGES.iter().flat_map(|page| page.iter().map(|row| row.id)).collect();
+        assert_eq!(ids.len(), PAGES.iter().map(|page| page.len()).sum::<usize>(), "no two rows share a focus or hover group");
     }
 
     #[test]
@@ -411,7 +416,7 @@ mod tests {
     #[test]
     fn an_agent_that_cannot_fork_has_no_fork_args_row_until_some_are_set() {
         let mut store = Store::default();
-        let fork = |page: usize, s: &Store| PAGES[page].iter().find(|r| r.id == "fork-args").unwrap().allowed(s);
+        let fork = |page: usize, s: &Store| PAGES[page].iter().find(|r| r.id.ends_with("-fork-args")).unwrap().allowed(s);
         assert_eq!([0, 1, 3, 5].map(|page| fork(page, &store)), [true, true, false, true], "claude, codex, grok, pi");
         store.agents.provider_mut("grok").fork_args = Some("--fork {sessionId}".into());
         store.agents.provider_mut("claude").fork_args = Some(String::new());
