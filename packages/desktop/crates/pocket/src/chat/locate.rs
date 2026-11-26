@@ -17,6 +17,7 @@ pub(super) fn touched(t: &Transcript) -> Vec<String> {
             match &call.kind {
                 ToolKind::Read { path } | ToolKind::Edit { path, .. } | ToolKind::Write { path, .. } => paths.push(path.clone()),
                 ToolKind::Agent(sub) => collect(&sub.transcript, paths),
+                ToolKind::Workflow(w) => collect(&w.transcript, paths),
                 _ => {}
             }
         }

@@ -833,6 +833,13 @@ func (a *Agent) record(e timeline.Event) {
 	if !sub && item.Kind == "result" {
 		a.ended(item.Error)
 	}
+	// Claude notes no end for the agents a workflow left running when it stopped.
+	if c := item.Call; e.Kind == "tool_end" && c != nil && c.Name == "Workflow" && c.Status != "running" {
+		out := "Stopped when its workflow ended"
+		for _, id := range a.Timeline.RunningUnder(c.ToolUseID) {
+			a.record(timeline.Event{Kind: "tool_end", ToolUseID: id, OK: true, Output: &out, ParentToolUseID: c.ToolUseID})
+		}
+	}
 	if e.Kind == "tool_end" && len(a.held) > 0 {
 		delete(a.held, e.ToolUseID)
 		delete(a.held, e.TaskID)

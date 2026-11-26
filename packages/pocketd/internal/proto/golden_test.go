@@ -103,6 +103,9 @@ var serverGolden = map[string]any{
 	"stream_subagent": NewAgentStream("a1", 1, Item{ID: "i7", Seq: 7, Ts: 16, Kind: "tool", ParentToolUseID: "t4", Call: &ToolCall{
 		ToolUseID: "t5", Name: "Read", Status: "running", Detail: ToolDetail{Kind: "read", Path: "a.go"},
 	}}),
+	"stream_workflow_agent": NewAgentStream("a1", 1, Item{ID: "i9", Seq: 9, Ts: 18, Kind: "tool", ParentToolUseID: "t6", Call: &ToolCall{
+		ToolUseID: "a7", Name: "Agent", Status: "running", Detail: ToolDetail{Kind: "task", Description: "probe-1", Model: "claude-haiku-4-5", Phase: "Probe"},
+	}}),
 	"stream_tasks":        NewAgentStream("a1", 1, Item{ID: "i4", Seq: 4, Ts: 13, Kind: "tasks", Tasks: []TaskItem{{Text: "x", Status: "in_progress"}}}),
 	"stream_compact":      NewAgentStream("a1", 1, Item{ID: "i5", Seq: 5, Ts: 14, Kind: "compact", Trigger: "manual"}),
 	"stream_result":       NewAgentStream("a1", 1, Item{ID: "i6", Seq: 6, Ts: 15, Kind: "result", OK: false, Error: "interrupted"}),

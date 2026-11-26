@@ -347,7 +347,9 @@ pub fn in_background(turns: &[Turn]) -> impl Iterator<Item = (usize, usize, &Too
     let over = turns.iter().rposition(|turn| turn.end.is_some()).map_or(0, |last| last + 1);
     turns[..over].iter().enumerate().flat_map(|(t, turn)| {
         turn.blocks.iter().enumerate().filter_map(move |(b, block)| match block {
-            Block::Tool(c) if c.status == ToolStatus::Running && matches!(c.kind, ToolKind::Agent(_) | ToolKind::Shell { .. }) => Some((t, b, c)),
+            Block::Tool(c) if c.status == ToolStatus::Running && matches!(c.kind, ToolKind::Agent(_) | ToolKind::Workflow(_) | ToolKind::Shell { .. }) => {
+                Some((t, b, c))
+            }
             _ => None,
         })
     })
@@ -404,9 +406,9 @@ fn ended_at(turn: &Turn) -> Option<i64> {
     }
 }
 
-/// Whether `b` is a sub-agent still at work.
+/// Whether `b` is a sub-agent or workflow still at work.
 pub fn running_agent(b: &Block) -> bool {
-    matches!(b, Block::Tool(c) if c.status == ToolStatus::Running && matches!(c.kind, ToolKind::Agent(_)))
+    matches!(b, Block::Tool(c) if c.status == ToolStatus::Running && matches!(c.kind, ToolKind::Agent(_) | ToolKind::Workflow(_)))
 }
 
 /// The turns of the reply `turn` closes, or None while a later turn carries it on. A reply is a turn and the steers
@@ -490,6 +492,9 @@ pub fn phase_title(blocks: &[Block], live: bool) -> String {
         0 => {}
         1 => parts.push(format!("{using} a subagent")),
         n => parts.push(format!("{using} {n} subagents")),
+    }
+    if let Some(w) = calls().find(|c| matches!(c.kind, ToolKind::Workflow(_))) {
+        parts.push(if w.status == ToolStatus::Running { "Using a workflow" } else { "Used a workflow" }.to_string());
     }
     match edited[..] {
         [] => {}
@@ -1157,5 +1162,16 @@ mod tests {
         assert_eq!(step_prompt(&rows, 12, true), Some(20));
         assert_eq!(step_prompt(&rows, 0, true), Some(2), "above every prompt, down goes to the first");
         assert_eq!(step_prompt(&rows, 20, true), None);
+    }
+
+    #[test]
+    fn a_running_workflow_works_on_in_the_background_like_a_sub_agent() {
+        let wf = |status| call(ToolKind::Workflow(crate::workflow::Workflow::default()), status);
+        assert!(running_agent(&wf(ToolStatus::Running)));
+        assert!(!running_agent(&wf(ToolStatus::Ok)));
+        assert_eq!(phase_title(&[wf(ToolStatus::Running)], true), "Using a workflow");
+        assert_eq!(phase_title(&[wf(ToolStatus::Ok)], false), "Used a workflow");
+        let turn = Turn { blocks: vec![wf(ToolStatus::Running)], end: Some(End::Done { duration_ms: 1, usage: None }), ..Turn::default() };
+        assert_eq!(in_background(&[turn]).count(), 1);
     }
 }

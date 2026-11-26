@@ -41,7 +41,7 @@ pub(crate) fn kind_icon(blocks: &[Block]) -> &'static str {
         Some(Block::Tool(c)) => match &c.kind {
             ToolKind::Edit { .. } | ToolKind::Write { .. } => "pencil",
             ToolKind::Shell { .. } => "terminal",
-            ToolKind::Agent(_) => "bot",
+            ToolKind::Agent(_) | ToolKind::Workflow(_) => "bot",
             ToolKind::Read { .. } | ToolKind::Search { .. } | ToolKind::Fetch { .. } => "search",
             _ => "tool",
         },
@@ -92,6 +92,7 @@ fn step_view(block: &Block, next: Option<i64>, live: bool, shared: bool, picks: 
     match block {
         Block::Thinking(m) => thought(&m.id, &m.text, thought_for(m.at, next), live && next.is_none(), tools, cx),
         Block::Tool(c @ chat::ToolCall { kind: ToolKind::Agent(a), .. }) => sub_agent::row(c, a, !shared, picks),
+        Block::Tool(c @ chat::ToolCall { kind: ToolKind::Workflow(w), .. }) => super::workflow::row(c, w, picks),
         Block::Tool(c) => tool_row::row(c, !live, tools, cx),
         _ => div(),
     }
@@ -117,7 +118,7 @@ pub(super) fn phase(
     let at = |i: usize| blocks.get(i).and_then(super::transcript::block_at);
     let next = |i: usize| (i + 1..blocks.len()).find_map(at).or(next_at);
     if let [(i, b)] = steps[..]
-        && !matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_)))
+        && !matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_) | ToolKind::Workflow(_)))
     {
         let icon_name = kind_icon(blocks);
         return div().flex().gap(px(6.)).child(div().mt(px(7.)).child(icon(icon_name, 14., TEXT_4))).child(div().flex_1().min_w_0().child(step_view(

@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"pocketd/internal/proto"
 	"slices"
 	"strings"
 	"testing"
@@ -272,6 +273,22 @@ func TestAStopOnATurnHeldForBackgroundAgentsStopsThemButNotItsCommands(t *testin
 	if s := h.Screen(term); strings.Contains(s, "stop_task: bg_") || strings.Contains(s, "interrupt") {
 		t.Fatalf("the stop reached past the background agent:\n%s", s)
 	}
+}
+
+func TestAWorkflowsAgentsReachThePhoneUnderItsCallAndAStopStopsIt(t *testing.T) {
+	h, phone, term, id := chatClaude(t)
+	desk := h.Owner(proto.CapSubagents)
+	phone.Prompt(id, "workflow probe:one")
+	m := desk.WaitFor("the workflow's agent", func(m Message) bool {
+		return m.Type == "agent.stream" && m.AgentID == id && m.Item.Call.Detail.Phase == "Probe"
+	})
+	if c := m.Item.Call; m.Item.ParentToolUseID == "" || c.Detail.Description != "probe:one" || c.Status != "running" {
+		t.Fatalf("the agent's call: %+v under %q", c, m.Item.ParentToolUseID)
+	}
+	phone.WaitStatus(id, "done")
+	phone.Send(map[string]any{"type": "agent.interrupt", "id": "i1", "agentId": id})
+	phone.WaitAll("the stop", func(m Message) bool { return m.Type == "ack" && m.ID == "i1" })
+	h.WaitScreen(term, "stop_task: wf_")
 }
 
 func TestAStopOnAnIdleChatAgentSendsClaudeNothing(t *testing.T) {

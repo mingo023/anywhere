@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -928,4 +929,50 @@ func TestAPromptSteeredIntoATurnLeavesItsOpenCallsToEnd(t *testing.T) {
 	if s := a.Summary(); s.Title != "one" || s.Epoch != 1 {
 		t.Fatalf("the steer started a run of its own: %+v", s)
 	}
+}
+
+func TestAWorkflowThatEndsEndsTheAgentsItLeftRunningAndOnlyThem(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("w", "/w", "claude", fakeDriver{})
+	agent := &proto.ToolDetail{Kind: "task", Description: "probe", Phase: "Probe"}
+	done := "ok"
+	for _, e := range []timeline.Event{
+		{Kind: "tool_start", ToolUseID: "wf", Name: "Workflow"},
+		{Kind: "tool_background", ToolUseID: "wf", TaskID: "w1"},
+		{Kind: "tool_start", ToolUseID: "a1", Name: "Agent", Detail: agent, ParentToolUseID: "wf"},
+		{Kind: "tool_start", ToolUseID: "a2", Name: "Agent", Detail: agent, ParentToolUseID: "wf"},
+		{Kind: "tool_start", ToolUseID: "other", Name: "Agent", Detail: agent},
+		{Kind: "tool_end", ToolUseID: "a1", OK: true, Output: &done, ParentToolUseID: "wf"},
+		{Kind: "tool_end", TaskID: "w1", OK: true},
+	} {
+		a.Record(e)
+	}
+	got := statuses(a)
+	want := map[string]string{"wf": "ok ", "a1": "ok ok", "a2": "ok Stopped when its workflow ended", "other": "running "}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	// The journal is tailed apart from the transcript, so an agent's result can land after its workflow's end.
+	late := "found it"
+	a.Record(timeline.Event{Kind: "tool_end", ToolUseID: "a2", OK: true, Output: &late, ParentToolUseID: "wf"})
+	if got := statuses(a)["a2"]; got != "ok found it" {
+		t.Fatalf("a late result: got %q", got)
+	}
+}
+
+func statuses(a *Agent) map[string]string {
+	items, _ := a.Timeline.PageWithSubagents(0, 100)
+	got := map[string]string{}
+	for _, it := range items {
+		if c := it.Call; c != nil {
+			got[c.ToolUseID] = c.Status + " " + deref(c.Output)
+		}
+	}
+	return got
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

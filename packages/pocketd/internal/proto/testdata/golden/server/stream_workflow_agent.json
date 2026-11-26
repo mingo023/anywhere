@@ -1,0 +1,23 @@
+{
+  "type": "agent.stream",
+  "agentId": "a1",
+  "epoch": 1,
+  "item": {
+    "kind": "tool",
+    "id": "i9",
+    "seq": 9,
+    "ts": 18,
+    "parentToolUseId": "t6",
+    "call": {
+      "toolUseId": "a7",
+      "name": "Agent",
+      "detail": {
+        "kind": "task",
+        "description": "probe-1",
+        "model": "claude-haiku-4-5",
+        "phase": "Probe"
+      },
+      "status": "running"
+    }
+  }
+}

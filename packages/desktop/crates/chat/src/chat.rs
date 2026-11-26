@@ -12,6 +12,7 @@ mod rows;
 mod session;
 mod spawned;
 mod timeline;
+pub mod workflow;
 
 pub use adapter::{Backend, Capabilities, capabilities, for_provider};
 pub use answers::answers;
@@ -154,6 +155,7 @@ pub enum ToolKind {
     },
     Question(Vec<Question>),
     Agent(SubAgent),
+    Workflow(workflow::Workflow),
     /// Any other tool; `input` is its JSON input, pretty-printed, and `description` what it is about in words, when known.
     Other {
         input: String,
@@ -170,6 +172,8 @@ pub struct SubAgent {
     pub model: String,
     /// The context it last answered from; 0 until it first replies.
     pub tokens: u64,
+    /// The phase of its workflow it runs in; empty outside one.
+    pub phase: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

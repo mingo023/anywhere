@@ -1,7 +1,7 @@
 mod access_pill;
 pub(crate) mod account_chip;
 pub(crate) mod attachments;
-mod background;
+pub(crate) mod background;
 pub(crate) mod btw;
 mod goal;
 pub(crate) mod model_pill;

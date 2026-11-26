@@ -105,6 +105,8 @@ pub struct Detail {
     pub model: String,
     /// A `task`'s: the context its sub-agent last answered from.
     pub tokens: u64,
+    /// A workflow agent's `task`: the phase of its workflow it runs in.
+    pub phase: String,
     pub name: String,
     pub diff: Option<FileDiff>,
     /// An `other` tool's whole input.

@@ -37,6 +37,8 @@ export const ToolDetail = Schema.Union(
     model: Schema.optional(Schema.String),
     /** The context its sub-agent last answered from. */
     tokens: Schema.optional(Schema.Number),
+    /** The workflow phase it runs in; its call sits under the Workflow call. */
+    phase: Schema.optional(Schema.String),
   }),
   Schema.Struct({
     kind: Schema.Literal("other"),

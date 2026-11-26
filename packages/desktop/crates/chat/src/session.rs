@@ -517,7 +517,8 @@ mod tests {
     }
 
     /// A long session as pocketd streams it: replies grow in place, calls finish later (some after the next prompt,
-    /// some as a new item), sub-agents two deep report into running calls, and now and then an item lands between older ones.
+    /// some as a new item), sub-agents two deep and workflows' agents report into running calls, and now and then an item
+    /// lands between older ones.
     fn generated(count: usize) -> Vec<Value> {
         let mut rng = 0x2545_f491_4f6c_dd1du64;
         let mut roll = move |n: usize| {
@@ -539,9 +540,10 @@ mod tests {
                         ("Bash", json!({"kind": "shell", "command": "make"})),
                         ("Read", json!({"kind": "read", "path": "a.rs"})),
                         ("Task", json!({"kind": "task", "description": "audit"})),
-                    ][roll(3)]
+                        ("Workflow", json!({"kind": "other", "name": "Workflow", "input": {"script": "export const meta = { name: 'w' }"}})),
+                    ][roll(4)]
                     .clone();
-                    if name == "Task" {
+                    if name == "Task" || name == "Workflow" {
                         agents.push(format!("tu{n}"));
                     }
                     json!({"kind": "tool", "call": {"toolUseId": format!("tu{n}"), "name": name, "status": "running", "detail": detail}})

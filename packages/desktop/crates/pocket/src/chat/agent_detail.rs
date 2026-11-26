@@ -283,6 +283,7 @@ mod tests {
             transcript: Transcript { turns: vec![Turn { id: "t".into(), prompt: None, blocks, end: None }] },
             model: model.into(),
             tokens,
+            ..Default::default()
         }
     }
 
