@@ -204,7 +204,7 @@ impl Inbox {
     }
 
     pub(crate) fn show_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
-        self.tab = tab;
+        (self.tab, self.replying) = (tab, None);
         cx.notify();
     }
 
@@ -384,7 +384,7 @@ impl Desktop {
                     provider: a.provider.clone(),
                     agent_name: self.agent_name(&a.provider),
                     title: status::title(a),
-                    delegated_by: self.agents.get(&a.parent).map(status::title),
+                    delegated_by: status::is_child(a).then(|| self.agents.get(&a.parent).map(status::title)).flatten(),
                     at: a.updated_at,
                     body: body(status, asks, &a.recap.said, self.chat_shown(&a.terminal_id), &a.error, retry),
                 })

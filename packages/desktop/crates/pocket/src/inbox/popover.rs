@@ -88,14 +88,6 @@ impl Render for Inbox {
             .flex_col()
             .occlude()
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| this.shut(cx)))
-            .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| {
-                if e.keystroke.key == "escape" {
-                    if !this.cancel_reply(cx) {
-                        this.shut(cx);
-                    }
-                    cx.stop_propagation();
-                }
-            }))
             .child(header)
             .child(list)
             .children(foot)

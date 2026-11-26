@@ -37,16 +37,6 @@ pub enum InboxSort {
     Oldest,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
-#[serde(rename_all = "camelCase")]
-pub enum InboxFilter {
-    #[default]
-    All,
-    NeedsYou,
-    Failed,
-    Done,
-}
-
 /// Sidebar and inbox.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(default)]
@@ -62,8 +52,6 @@ pub struct Sidebar {
     pub hint_delay_ms: u32,
     #[serde(deserialize_with = "crate::lenient")]
     pub inbox_sort: InboxSort,
-    #[serde(deserialize_with = "crate::lenient")]
-    pub inbox_filter: InboxFilter,
     /// The host whose space the sidebar shows; `None` is This Mac.
     #[serde(deserialize_with = "crate::lenient")]
     pub space: Option<String>,
@@ -89,7 +77,6 @@ impl Default for Sidebar {
             jump_hints: true,
             hint_delay_ms: 280,
             inbox_sort: InboxSort::default(),
-            inbox_filter: InboxFilter::default(),
             space: None,
             space_colours: HashMap::new(),
             space_names: HashMap::new(),
@@ -128,7 +115,7 @@ mod tests {
     #[test]
     fn an_unknown_sort_falls_back_alone() {
         let s: Sidebar = serde_json::from_str(r#"{"sort":"random","usage_card":false,"inbox_filter":"needsYou"}"#).unwrap();
-        assert_eq!((s.sort, s.usage_card, s.inbox_filter), (SessionSort::Newest, false, InboxFilter::NeedsYou));
+        assert_eq!((s.sort, s.usage_card), (SessionSort::Newest, false));
     }
 
     #[test]
