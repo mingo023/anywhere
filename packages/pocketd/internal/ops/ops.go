@@ -78,6 +78,11 @@ type Msg struct {
 	AutoSwitch *bool `json:"autoSwitch,omitempty"`
 	// Trees answers worktree.subagents.
 	Trees []Tree `json:"trees,omitempty"`
+	// Cached: the client holds this conn's last reply to the same request.
+	Cached bool `json:"cached,omitempty"`
+	// Unchanged: that reply still stands.
+	Unchanged bool `json:"unchanged,omitempty"`
+	key       *[32]byte
 }
 
 // Tree is a subagent's worktree, on this machine or, with Host, on a host it
@@ -94,10 +99,11 @@ type Conn struct {
 	conn net.Conn
 	enc  *json.Encoder
 	dec  *json.Decoder
+	sent *sentHashes
 }
 
 func newConn(c net.Conn) *Conn {
-	return &Conn{conn: c, enc: json.NewEncoder(c), dec: json.NewDecoder(bufio.NewReader(c))}
+	return &Conn{conn: c, enc: json.NewEncoder(c), dec: json.NewDecoder(bufio.NewReader(c)), sent: newSentHashes()}
 }
 
 func Dial(path string) (*Conn, error) {
@@ -115,9 +121,18 @@ func (c *Conn) Send(m Msg) error {
 }
 
 func (c *Conn) Recv() (Msg, error) {
+	var raw json.RawMessage
+	if err := c.dec.Decode(&raw); err != nil {
+		return Msg{}, err
+	}
 	var m Msg
-	err := c.dec.Decode(&m)
-	return m, err
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return m, err
+	}
+	if cacheable[m.Op] {
+		m.key = requestKey(raw)
+	}
+	return m, nil
 }
 
 func (c *Conn) Close() error { return c.conn.Close() }
@@ -284,7 +299,7 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 		}
 		switch m.Op {
 		case "list":
-			c.Send(Msg{Ev: "terminals", Items: s.Terminals.List()})
+			c.Reply(m, Msg{Ev: "terminals", Items: s.Terminals.List()})
 			continue
 		case "spawn":
 			t, err := s.spawn(m)
@@ -394,7 +409,10 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 				c.Send(Msg{Ev: m.Op, ID: m.ID, Trees: trees})
 			}()
 			continue
-		case "exec", "fs.list", "fs.stat", "fs.read", "fs.write", "fs.append", "fs.mkdir", "fs.rename", "fs.remove", "fs.trash":
+		case "exec", "fs.list", "fs.stat", "fs.read":
+			go func() { c.Reply(m, s.hostOp(ctx, m)) }()
+			continue
+		case "fs.write", "fs.append", "fs.mkdir", "fs.rename", "fs.remove", "fs.trash":
 			go func() { c.Send(s.hostOp(ctx, m)) }()
 			continue
 		}

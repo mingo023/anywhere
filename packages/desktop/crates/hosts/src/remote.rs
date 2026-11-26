@@ -6,7 +6,7 @@ use daemon::Endpoint;
 use daemon::UnixStream;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{self, BufRead, BufReader, ErrorKind, Write};
 use std::net::Shutdown;
 use std::path::PathBuf;
@@ -22,6 +22,7 @@ pub const NEEDS: [&str; 2] = ["exec.v1", "fs.v1"];
 const FS_TIMEOUT: Duration = Duration::from_secs(30);
 /// Added to an exec's own timeout, which pocketd enforces, for the reply's trip back.
 const REPLY_SLACK: Duration = Duration::from_secs(5);
+const HELD_BYTES: usize = 32 << 20;
 
 /// What a host's `status` says about the machine.
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
@@ -58,13 +59,101 @@ pub struct Entry {
     pub ignored: bool,
 }
 
-/// The calls awaiting replies; `None` once the connection closed.
-type Waiters = Arc<Mutex<Option<HashMap<String, Sender<Value>>>>>;
+/// What a connection awaits and holds; `None` once it closed.
+type Shared = Arc<Mutex<Option<State>>>;
+
+#[derive(Default)]
+struct State {
+    waiters: HashMap<String, Waiter>,
+    held: Held,
+}
+
+/// A call awaiting its reply by id. A call that gave up has no `tx`, but its reply still has to reach `held`.
+struct Waiter {
+    tx: Option<Sender<Value>>,
+    key: Option<String>,
+    cached: bool,
+}
+
+impl State {
+    /// What the call awaiting `reply` gets: the reply held for its request when pocketd says it's unchanged, else `reply`, which is then held.
+    fn settle(&mut self, key: Option<String>, mut reply: Value, size: usize) -> Value {
+        let Some(key) = key else { return reply };
+        if reply["unchanged"] == true {
+            let id = reply["id"].take();
+            return match self.held.get(&key) {
+                Some(held) => {
+                    let mut held = held.clone();
+                    held["id"] = id;
+                    held
+                }
+                None => json!({"ev": "error", "id": id, "error": "host answered unchanged to a reply this desktop doesn't hold"}),
+            };
+        }
+        if reply["ev"] != "error" {
+            let waiters = &self.waiters;
+            self.held.keep(key, reply.clone(), size, |k| waiters.values().any(|w| w.cached && w.key.as_deref() == Some(k)));
+        }
+        reply
+    }
+}
+
+#[derive(Default)]
+struct Held {
+    replies: HashMap<String, Kept>,
+    order: BTreeMap<u64, String>,
+    next: u64,
+    bytes: usize,
+}
+
+struct Kept {
+    at: u64,
+    size: usize,
+    reply: Value,
+}
+
+impl Held {
+    fn get(&self, key: &str) -> Option<&Value> {
+        self.replies.get(key).map(|k| &k.reply)
+    }
+
+    fn keep(&mut self, key: String, reply: Value, size: usize, pinned: impl Fn(&str) -> bool) {
+        self.forget(&key);
+        let at = self.next;
+        self.next += 1;
+        self.bytes += size;
+        self.order.insert(at, key.clone());
+        self.replies.insert(key, Kept { at, size, reply });
+        let mut over = self.bytes.saturating_sub(HELD_BYTES);
+        let mut oldest = Vec::new();
+        for k in self.order.values().filter(|k| !pinned(k)) {
+            if over == 0 {
+                break;
+            }
+            over = over.saturating_sub(self.replies[k].size);
+            oldest.push(k.clone());
+        }
+        oldest.iter().for_each(|k| self.forget(k));
+    }
+
+    fn forget(&mut self, key: &str) {
+        if let Some(kept) = self.replies.remove(key) {
+            self.order.remove(&kept.at);
+            self.bytes -= kept.size;
+        }
+    }
+}
+
+/// An exec with stdin isn't held, so input never stays in memory as a key.
+fn cache_key(op: &Value) -> Option<String> {
+    let held = matches!(op["op"].as_str(), Some("exec" | "fs.list" | "fs.stat" | "fs.read")) && op.get("stdin").is_none();
+    held.then(|| op.to_string())
+}
 
 /// One connection, shared by every call; a reader thread hands each reply to the call with its id.
 struct Conn {
     stream: UnixStream,
-    waiters: Waiters,
+    shared: Shared,
 }
 
 impl Conn {
@@ -74,7 +163,7 @@ impl Conn {
     }
 
     fn idle(&self) -> bool {
-        self.waiters.lock().expect("poisoned").as_ref().is_none_or(|w| w.is_empty())
+        self.shared.lock().expect("poisoned").as_ref().is_none_or(|s| s.waiters.values().all(|w| w.tx.is_none()))
     }
 }
 
@@ -137,31 +226,45 @@ impl Client {
     /// Sends `op` with a fresh id and waits up to `timeout` for the reply carrying it.
     fn call(&self, mut op: Value, timeout: Duration) -> io::Result<Value> {
         let id = self.next.fetch_add(1, Ordering::Relaxed).to_string();
+        let key = cache_key(&op);
         op["id"] = id.clone().into();
         let (tx, rx) = mpsc::channel();
-        let waiters = {
+        let shared = {
             let mut conn = self.conn.lock().expect("poisoned");
-            if conn.as_ref().is_some_and(|c| c.waiters.lock().expect("poisoned").is_none()) {
+            if conn.as_ref().is_some_and(|c| c.shared.lock().expect("poisoned").is_none()) {
                 *conn = None;
             }
             let open = match conn.as_mut() {
                 Some(c) => c,
                 None => conn.insert(open(&self.endpoint, FS_TIMEOUT)?),
             };
-            open.waiters.lock().expect("poisoned").get_or_insert_default().insert(id.clone(), tx);
+            {
+                let mut shared = open.shared.lock().expect("poisoned");
+                let state = shared.get_or_insert_default();
+                let cached = key.as_deref().is_some_and(|k| state.held.get(k).is_some());
+                if cached {
+                    op["cached"] = true.into();
+                }
+                state.waiters.insert(id.clone(), Waiter { tx: Some(tx), key, cached });
+            }
             if let Err(e) = writeln!(open.stream, "{op}") {
-                open.waiters.lock().expect("poisoned").as_mut().map(|w| w.remove(&id));
+                open.shared.lock().expect("poisoned").as_mut().map(|s| s.waiters.remove(&id));
                 self.retire(conn.take());
                 return Err(e);
             }
-            open.waiters.clone()
+            open.shared.clone()
         };
         let reply = rx.recv_timeout(timeout).map_err(|e| match e {
             mpsc::RecvTimeoutError::Timeout => io::Error::new(ErrorKind::TimedOut, "host did not answer in time"),
             mpsc::RecvTimeoutError::Disconnected => io::Error::new(ErrorKind::ConnectionAborted, "lost the host"),
         });
-        if reply.is_err() {
-            waiters.lock().expect("poisoned").as_mut().map(|w| w.remove(&id));
+        if reply.is_err()
+            && let Some(state) = shared.lock().expect("poisoned").as_mut()
+        {
+            match state.waiters.get_mut(&id) {
+                Some(w) if w.key.is_some() => w.tx = None,
+                _ => drop(state.waiters.remove(&id)),
+            }
         }
         self.retire(None);
         let reply = reply?;
@@ -279,21 +382,26 @@ fn pocket_dir(info: &HostInfo) -> String {
 fn open(endpoint: &Endpoint, write_timeout: Duration) -> io::Result<Conn> {
     let stream = endpoint.connect(FS_TIMEOUT).map_err(io::Error::other)?;
     stream.set_write_timeout(Some(write_timeout))?;
-    let waiters: Waiters = Arc::new(Mutex::new(Some(HashMap::new())));
+    let shared: Shared = Arc::new(Mutex::new(Some(State::default())));
     let reader = BufReader::new(stream.try_clone()?);
-    let shared = waiters.clone();
+    let reading = shared.clone();
     std::thread::spawn(move || {
         for line in reader.lines().map_while(Result::ok) {
             let Ok(reply) = serde_json::from_str::<Value>(&line) else { continue };
             let Some(id) = reply["id"].as_str() else { continue };
-            if let Some(tx) = shared.lock().expect("poisoned").as_mut().and_then(|w| w.remove(id)) {
+            let mut guard = reading.lock().expect("poisoned");
+            let Some(state) = guard.as_mut() else { continue };
+            let Some(waiter) = state.waiters.remove(id) else { continue };
+            let size = line.len() + waiter.key.as_ref().map_or(0, String::len);
+            let reply = state.settle(waiter.key, reply, size);
+            if let Some(tx) = waiter.tx {
                 let _ = tx.send(reply);
             }
         }
         // Dropping the senders fails every call still waiting.
-        shared.lock().expect("poisoned").take();
+        reading.lock().expect("poisoned").take();
     });
-    Ok(Conn { stream, waiters })
+    Ok(Conn { stream, shared })
 }
 
 fn bytes(v: &Value) -> io::Result<Vec<u8>> {
@@ -609,6 +717,115 @@ mod tests {
         let out = client.exec("", &["git", "--version"], None, Duration::from_secs(5)).unwrap();
         assert_eq!(String::from_utf8(out.stdout).unwrap(), "C:/Users/me");
         let _ = std::fs::remove_file(sock);
+    }
+
+    /// The request `m` is, without its id and cached, as pocketd tells requests apart.
+    fn request(m: &Value) -> String {
+        let mut m = m.clone();
+        m.as_object_mut().unwrap().retain(|k, _| k != "id" && k != "cached");
+        m.to_string()
+    }
+
+    /// A pocketd stand-in answering `answer`'s reply, or "unchanged" for a cached request when `unchanged` and the reply is the last one sent for it.
+    /// It waits `delay` ms before each reply and counts the "unchanged" ones.
+    fn serve_cached(sock: &PathBuf, unchanged: bool, delay: Arc<AtomicU64>, answer: impl Fn(&Value) -> Value + Send + 'static) -> Arc<AtomicU64> {
+        let listener = UnixListener::bind(sock).unwrap();
+        let count = Arc::new(AtomicU64::new(0));
+        let counted = count.clone();
+        std::thread::spawn(move || {
+            let Ok((stream, _)) = listener.accept() else { return };
+            let mut writer = stream.try_clone().unwrap();
+            let mut sent: HashMap<String, String> = HashMap::new();
+            for line in BufReader::new(stream).lines().map_while(Result::ok) {
+                let msg: Value = serde_json::from_str(&line).unwrap();
+                std::thread::sleep(Duration::from_millis(delay.load(Ordering::Relaxed)));
+                let mut reply = answer(&msg);
+                let mut out = reply.clone();
+                if reply["ev"] != "error" {
+                    reply.as_object_mut().unwrap().remove("id");
+                    let same = sent.insert(request(&msg), reply.to_string()).as_ref() == Some(&reply.to_string());
+                    if unchanged && same && msg["cached"] == true {
+                        counted.fetch_add(1, Ordering::Relaxed);
+                        out = json!({"ev": reply["ev"], "id": msg["id"], "unchanged": true});
+                    }
+                }
+                writeln!(writer, "{out}").unwrap();
+            }
+        });
+        count
+    }
+
+    /// Answers fs.read from `files`, and exec with its argv.
+    fn files_answer(files: Arc<Mutex<HashMap<String, String>>>) -> impl Fn(&Value) -> Value {
+        move |m| match m["op"].as_str() {
+            Some("fs.read") => match files.lock().unwrap().get(m["path"].as_str().unwrap()) {
+                Some(text) => json!({"ev": "fs.read", "id": m["id"], "data": STANDARD.encode(text), "size": text.len()}),
+                None => json!({"ev": "error", "id": m["id"], "error": "no such file"}),
+            },
+            _ => json!({"ev": "exec", "id": m["id"], "stdout": STANDARD.encode(m["argv"].to_string())}),
+        }
+    }
+
+    #[test]
+    fn every_call_gets_the_same_reply_from_a_pocketd_that_answers_unchanged_as_from_one_that_doesnt() {
+        let run = |unchanged: bool| {
+            let sock = temp_sock(if unchanged { "parity-new" } else { "parity-old" });
+            let files = Arc::new(Mutex::new(HashMap::from([("/a".to_string(), "one".to_string())])));
+            let count = serve_cached(&sock, unchanged, Arc::default(), files_answer(files.clone()));
+            let client = Client::new("devbox", sock.clone());
+            let mut got = Vec::new();
+            for step in 0..8 {
+                if step == 4 {
+                    files.lock().unwrap().insert("/a".into(), "two".into());
+                }
+                got.push(client.read("/a", 100).map_err(|e| e.to_string()));
+                got.push(client.read("/missing", 100).map_err(|e| e.to_string()));
+                got.push(client.exec("/", &["git", "status"], None, Duration::from_secs(5)).map(|o| o.stdout).map_err(|e| e.to_string()));
+            }
+            let _ = std::fs::remove_file(sock);
+            (got, count.load(Ordering::Relaxed))
+        };
+        let (new, unchanged) = run(true);
+        let (old, none) = run(false);
+        assert_eq!(new, old);
+        assert_eq!((unchanged, none), (13, 0));
+    }
+
+    #[test]
+    fn a_reply_to_a_call_that_gave_up_still_replaces_the_one_held() {
+        let sock = temp_sock("late");
+        let files = Arc::new(Mutex::new(HashMap::from([("/a".to_string(), "one".to_string())])));
+        let delay = Arc::new(AtomicU64::new(0));
+        serve_cached(&sock, true, delay.clone(), files_answer(files.clone()));
+        let client = Client::new("devbox", sock.clone());
+        assert_eq!(client.read("/a", 100).unwrap(), b"one");
+        files.lock().unwrap().insert("/a".into(), "two".into());
+        delay.store(300, Ordering::Relaxed);
+        let gave_up = client.call(json!({"op": "fs.read", "path": "/a", "max": 100}), Duration::from_millis(50)).unwrap_err();
+        assert_eq!(gave_up.kind(), ErrorKind::TimedOut);
+        let answered = || client.conn.lock().unwrap().as_ref().unwrap().shared.lock().unwrap().as_ref().unwrap().waiters.is_empty();
+        while !answered() {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        delay.store(0, Ordering::Relaxed);
+        assert_eq!(client.read("/a", 100).unwrap(), b"two");
+        let _ = std::fs::remove_file(sock);
+    }
+
+    #[test]
+    fn past_its_budget_held_drops_the_oldest_reply_but_never_one_a_call_waits_on() {
+        let mut held = Held::default();
+        let mib = |n: u8| (json!({"data": n}), 1 << 20);
+        let (reply, size) = mib(0);
+        held.keep("pinned".into(), reply, size, |k| k == "pinned");
+        for n in 1..=40 {
+            let (reply, size) = mib(n);
+            held.keep(n.to_string(), reply, size, |k| k == "pinned");
+        }
+        assert!(held.get("pinned").is_some());
+        assert!(held.get("1").is_none());
+        assert!(held.get("40").is_some());
+        assert!(held.bytes <= HELD_BYTES, "{} bytes", held.bytes);
     }
 
     #[test]
