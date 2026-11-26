@@ -1949,3 +1949,57 @@ func TestAChildThatRefusesItsQueuedPromptSettlesItsTaskOnTheTurnThatEnded(t *tes
 func TestAChildWhoseQueuedPromptStartsNoTurnSettlesItsTaskOnTheTurnThatEnded(t *testing.T) {
 	settlesOnTheTurnThatEnded(t, func() (map[string]any, error) { return map[string]any{"turnless": true}, nil })
 }
+
+func TestAQueuedTurnThatEndsBeforeItsPromptIsAcknowledgedSettlesTheTask(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	ack := make(chan struct{})
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		switch {
+		case e.Kind == EffLaunch:
+			return map[string]any{"childId": "child-1"}, nil
+		case e.Kind == EffTurnStart && e.Lane == "child-1":
+			<-ack
+		}
+		return nil, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	r, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "fix the redirect", Title: "Fix redirect"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	get := func() Delegation {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return ts[0]
+	}
+	waitFor(t, func() bool { return get().Status == TaskWorking })
+	k := NewSink(s)
+	defer k.Close()
+	defer close(ack)
+	k.OnTurn = e.OnTurn
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Item("child-1", 1, proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Redirect fixed"})
+	k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
+	k.Flush()
+	if _, err := e.Dispatch(NewCommand("q1", CmdMessageSend, "child-1", SendPayload{Text: "Add a test", Mode: "queue"})); err != nil {
+		t.Fatal(err)
+	}
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { return strings.Contains(strings.Join(f.kinds(), " "), EffTurnStart+"@child-1") })
+	time.Sleep(10 * time.Millisecond)
+
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Item("child-1", 1, proto.Item{ID: "i3", Seq: 3, Kind: "user", Text: "Add a test"})
+	k.Item("child-1", 1, proto.Item{ID: "i4", Seq: 4, Kind: "assistant", Text: "Test added"})
+	k.Item("child-1", 1, proto.Item{ID: "i5", Seq: 5, Kind: "result", OK: true})
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	k.Flush()
+	waitFor(t, func() bool { return get().Status == TaskCompleted })
+	if g := get(); g.Summary != "Test added" {
+		t.Fatalf("summary %q", g.Summary)
+	}
+}

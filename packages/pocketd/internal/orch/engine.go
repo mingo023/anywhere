@@ -362,6 +362,12 @@ func putDelegation(tx *Tx, t Delegation) error {
 	return err
 }
 
+// queuedAfter says whether a session has a prompt queued for a turn after the given one: still pending, or
+// sent since that turn began, as a prompt sent earlier is the one that started it.
+const queuedAfter = `SELECT EXISTS (SELECT 1 FROM queue q WHERE q.session_id = ?1 AND (q.state = 'pending' OR q.state IN ('sending', 'sent') AND EXISTS (
+	SELECT 1 FROM outbox o WHERE o.session_id = ?1 AND o.kind = '` + EffTurnStart + `' AND json_extract(o.payload, '$.key') = q.id
+		AND o.created_at > (SELECT started_at FROM turns WHERE id = ?2))))`
+
 func startedNoTurn(cmd Command) bool {
 	var p struct {
 		Turnless bool `json:"turnless"`
@@ -432,8 +438,14 @@ func (e *Engine) load(tx *Tx, cmd Command) (State, error) {
 			return st, err
 		}
 		if p.Turn != 0 {
-			if err := tx.QueryRow(`SELECT COALESCE(MAX(id), 0), EXISTS (SELECT 1 FROM queue WHERE session_id = ?1 AND state IN ('pending', 'sending')) FROM turns WHERE session_id = ?1`, st.Task.ChildID).Scan(&st.ChildTurn, &st.ChildQueued); err != nil {
+			if err := tx.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM turns WHERE session_id = ?`, st.Task.ChildID).Scan(&st.ChildTurn); err != nil {
 				return st, err
+			}
+			// A host's child refuses or ignores a prompt over there, which nothing here would hear of.
+			if st.Task.Environment == "" {
+				if err := tx.QueryRow(queuedAfter, st.Task.ChildID, p.Turn).Scan(&st.ChildQueued); err != nil {
+					return st, err
+				}
 			}
 		}
 		if cmd.Kind == CmdDelegateCancel {
