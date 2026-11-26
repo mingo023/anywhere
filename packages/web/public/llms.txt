@@ -1,6 +1,6 @@
-# Anywhere, coding agent workspace
+# Zoes, coding agent workspace
 
-> Anywhere (getanywhere.dev, github.com/mingo023/anywhere) is a coding agent workspace: a free, open source (MIT) desktop app for running and driving many coding agents at once in one app. It runs on macOS 13 or later, with an unsigned build for Linux (x86_64). The latest release does not include a Windows desktop build. There is no account, no cloud tier and no premium tier.
+> Zoes, formerly named Anywhere (zoes.dev, github.com/mingo023/anywhere) is a coding agent workspace: a free, open source (MIT) desktop app for running and driving many coding agents at once in one app. It runs on macOS 13 or later, with an unsigned build for Linux (x86_64). The latest release does not include a Windows desktop build. There is no account, no cloud tier and no premium tier.
 
 - The desktop app is Rust on GPUI. A Go daemon, pocketd, owns the terminals, so agents keep running after the window closes.
 - It runs ten agent CLIs that are already installed and signed in on the machine: Claude Code (`claude`), Codex (`codex`), Cursor (`cursor-agent`), Grok Build (`grok`), OpenCode (`opencode`), Pi (`pi`), omp (`omp`), fx (`fx`), Hermes Agent (`hermes`) and Antigravity (`agy`). It does not proxy models or resell tokens.
@@ -9,56 +9,56 @@
 - An orchestrator over MCP lets a chat delegate work to other sessions, each in its own worktree, on this Mac or an SSH host (Mac, Linux, Windows), and wakes the chat with their results.
 - A session can be handed to a connected host with its branch, uncommitted files and Claude Code or Codex conversation, or forked onto another agent (such as Claude Code onto Codex) with its conversation as context.
 - Activity shows every session across projects in columns by status. Board tickets and automations (on a schedule or a local webhook) run while the desktop is closed.
-- The `anywhere` command starts sessions, sends prompts, waits for results and edits Board tickets.
+- The `zoes` command starts sessions, sends prompts, waits for results and edits Board tickets.
 - An iPhone and iPad app that pairs with the Mac over Tailscale is coming soon.
 
 ## Docs
 
-- [Run your first agent](https://getanywhere.dev/docs/): Install Anywhere, start Claude Code on a project, watch its status, and review what it changed.
-- [Install](https://getanywhere.dev/docs/install): Install on macOS or Linux, and install the `anywhere` command line tool.
-- [The anywhere command](https://getanywhere.dev/docs/cli): Every subcommand, flag and exit code of the command line tool.
-- [Supported agents](https://getanywhere.dev/docs/agents): Each agent's command, install and sign-in steps, and the status it reports.
-- [Sessions and status](https://getanywhere.dev/docs/sessions): Chat and terminal sessions, access modes, and where each status shows.
-- [Worktrees](https://getanywhere.dev/docs/worktrees): Start agents in their own git worktrees, run setup commands, and choose where worktrees go.
-- [Review](https://getanywhere.dev/docs/review): Read diffs, compare a worktree with a branch, commit, and use the pull request card.
-- [Automations](https://getanywhere.dev/docs/automations): Run a prompt on a schedule, and answer a run that needs you.
-- [Board](https://getanywhere.dev/docs/board): Write tickets, start them in their own worktrees, and limit how many run at once.
-- [Delegation](https://getanywhere.dev/docs/delegation): How a chat hands work to other sessions through the orchestrator over MCP.
-- [Hosts](https://getanywhere.dev/docs/hosts): Add a Mac, Linux or Windows host over SSH and open projects on it.
-- [iPhone](https://getanywhere.dev/docs/iphone): Pair the iPhone app with a Mac over Tailscale and get push notifications.
-- [Architecture](https://getanywhere.dev/docs/architecture): What runs where: pocketd, the desktop app, the iPhone app, the protocol and the push relay.
+- [Run your first agent](https://zoes.dev/docs/): Install Zoes, start Claude Code on a project, watch its status, and review what it changed.
+- [Install](https://zoes.dev/docs/install): Install on macOS or Linux, and install the `zoes` command line tool.
+- [The zoes command](https://zoes.dev/docs/cli): Every subcommand, flag and exit code of the command line tool.
+- [Supported agents](https://zoes.dev/docs/agents): Each agent's command, install and sign-in steps, and the status it reports.
+- [Sessions and status](https://zoes.dev/docs/sessions): Chat and terminal sessions, access modes, and where each status shows.
+- [Worktrees](https://zoes.dev/docs/worktrees): Start agents in their own git worktrees, run setup commands, and choose where worktrees go.
+- [Review](https://zoes.dev/docs/review): Read diffs, compare a worktree with a branch, commit, and use the pull request card.
+- [Automations](https://zoes.dev/docs/automations): Run a prompt on a schedule, and answer a run that needs you.
+- [Board](https://zoes.dev/docs/board): Write tickets, start them in their own worktrees, and limit how many run at once.
+- [Delegation](https://zoes.dev/docs/delegation): How a chat hands work to other sessions through the orchestrator over MCP.
+- [Hosts](https://zoes.dev/docs/hosts): Add a Mac, Linux or Windows host over SSH and open projects on it.
+- [iPhone](https://zoes.dev/docs/iphone): Pair the iPhone app with a Mac over Tailscale and get push notifications.
+- [Architecture](https://zoes.dev/docs/architecture): What runs where: pocketd, the desktop app, the iPhone app, the protocol and the push relay.
 
 ## Blog
 
-- [Blog](https://getanywhere.dev/blog/): Guides and fair comparisons for running coding agents in parallel.
-- [Move a Claude Code session to a remote server](https://getanywhere.dev/blog/move-claude-code-session-to-remote-server): Move the branch, uncommitted files and the conversation from your Mac to a server over SSH, by hand with git and the transcript, or with Anywhere's Hand off to a host for Claude Code and Codex.
-- [Vibe Kanban alternative](https://getanywhere.dev/blog/vibe-kanban-alternative): What Vibe Kanban's shutdown changed, whether you need to switch, how Anywhere's Board starts each ticket in its own worktree, and when Vibe Kanban fits better.
-- [How to run multiple Claude Code agents in parallel](https://getanywhere.dev/blog/run-multiple-claude-code-agents-in-parallel): One git worktree per agent, by hand with git or in Anywhere, with status, diffs and sessions that keep running.
-- [Anywhere vs Conductor](https://getanywhere.dev/blog/conductor-alternative): An open-source Conductor alternative: license, price, platforms, agents and local sessions compared, and when Conductor fits better.
-- [Anywhere vs T3 Code](https://getanywhere.dev/blog/t3-code-alternative): A T3 Code alternative: two free MIT apps compared on platforms, agents, phone and web clients and closing the window, and when T3 Code fits better.
-- [Crystal is now Nimbalyst](https://getanywhere.dev/blog/crystal-alternative): Crystal was deprecated in February 2026 and replaced by Nimbalyst; options for parallel Claude Code and Codex sessions in git worktrees.
-- [Best tools to run multiple coding agents in parallel](https://getanywhere.dev/blog/best-tools-run-multiple-coding-agents): Anywhere, Conductor, Paradev, Synara, Orca, Zeron, MonoCode and T3 Code compared from their own sites, checked 18 November 2026.
-- [Keep coding agents running after you close the window](https://getanywhere.dev/blog/coding-agents-keep-running-after-closing-window): How pocketd keeps sessions and automations running when the window closes, and the other ways to keep agents alive.
-- [A free, open-source agent workspace with no paid tier](https://getanywhere.dev/blog/open-source-agent-workspace-no-paid-tier): What free means across Paradev, Synara, T3 Code and Anywhere, and what Anywhere includes at $0 with no account.
-- [Native, not Electron](https://getanywhere.dev/blog/native-mac-app-coding-agents-rust-gpui): Anywhere's stack, a Rust window on GPUI and a Go daemon, and other native-minded agent apps.
-- [Run multiple Codex CLI agents in git worktrees](https://getanywhere.dev/blog/run-multiple-codex-agents-git-worktrees): One worktree per Codex agent, in a terminal or as a chat, next to Claude Code on one repository.
-- [Script coding agents from your shell](https://getanywhere.dev/blog/script-claude-code-codex-from-cli): Start sessions, send prompts and branch on the exit codes of anywhere session wait, with recipes for tickets and cron.
-- [Clean up the git worktrees your coding agents leave behind](https://getanywhere.dev/blog/clean-up-coding-agent-worktrees): Find, measure and remove agent worktrees with git, what Claude Code, Codex and Cursor clean up on their own, and how Anywhere deletes them.
+- [Blog](https://zoes.dev/blog/): Guides and fair comparisons for running coding agents in parallel.
+- [Move a Claude Code session to a remote server](https://zoes.dev/blog/move-claude-code-session-to-remote-server): Move the branch, uncommitted files and the conversation from your Mac to a server over SSH, by hand with git and the transcript, or with Zoes's Hand off to a host for Claude Code and Codex.
+- [Vibe Kanban alternative](https://zoes.dev/blog/vibe-kanban-alternative): What Vibe Kanban's shutdown changed, whether you need to switch, how Zoes's Board starts each ticket in its own worktree, and when Vibe Kanban fits better.
+- [How to run multiple Claude Code agents in parallel](https://zoes.dev/blog/run-multiple-claude-code-agents-in-parallel): One git worktree per agent, by hand with git or in Zoes, with status, diffs and sessions that keep running.
+- [Zoes vs Conductor](https://zoes.dev/blog/conductor-alternative): An open-source Conductor alternative: license, price, platforms, agents and local sessions compared, and when Conductor fits better.
+- [Zoes vs T3 Code](https://zoes.dev/blog/t3-code-alternative): A T3 Code alternative: two free MIT apps compared on platforms, agents, phone and web clients and closing the window, and when T3 Code fits better.
+- [Crystal is now Nimbalyst](https://zoes.dev/blog/crystal-alternative): Crystal was deprecated in February 2026 and replaced by Nimbalyst; options for parallel Claude Code and Codex sessions in git worktrees.
+- [Best tools to run multiple coding agents in parallel](https://zoes.dev/blog/best-tools-run-multiple-coding-agents): Zoes, Conductor, Paradev, Synara, Orca, Zeron, MonoCode and T3 Code compared from their own sites, checked 18 November 2026.
+- [Keep coding agents running after you close the window](https://zoes.dev/blog/coding-agents-keep-running-after-closing-window): How pocketd keeps sessions and automations running when the window closes, and the other ways to keep agents alive.
+- [A free, open-source agent workspace with no paid tier](https://zoes.dev/blog/open-source-agent-workspace-no-paid-tier): What free means across Paradev, Synara, T3 Code and Zoes, and what Zoes includes at $0 with no account.
+- [Native, not Electron](https://zoes.dev/blog/native-mac-app-coding-agents-rust-gpui): Zoes's stack, a Rust window on GPUI and a Go daemon, and other native-minded agent apps.
+- [Run multiple Codex CLI agents in git worktrees](https://zoes.dev/blog/run-multiple-codex-agents-git-worktrees): One worktree per Codex agent, in a terminal or as a chat, next to Claude Code on one repository.
+- [Script coding agents from your shell](https://zoes.dev/blog/script-claude-code-codex-from-cli): Start sessions, send prompts and branch on the exit codes of zoes session wait, with recipes for tickets and cron.
+- [Clean up the git worktrees your coding agents leave behind](https://zoes.dev/blog/clean-up-coding-agent-worktrees): Find, measure and remove agent worktrees with git, what Claude Code, Codex and Cursor clean up on their own, and how Zoes deletes them.
 
 ## Comparisons
 
-- [Anywhere alternatives](https://getanywhere.dev/alternatives/): Anywhere compared with other apps for running coding agents, one page per tool, each with when the other tool fits better.
-- [Anywhere vs Conductor](https://getanywhere.dev/alternatives/conductor): Conductor alternative: Anywhere is an open-source coding agent workspace for Mac and Linux. License, agents, review, and what happens when you close the app.
-- [Anywhere vs Orca](https://getanywhere.dev/alternatives/orca): Orca alternative: Anywhere, the open-source coding agent workspace, vs Orca the agent IDE: scope, remote machines, agents, accounts and closing the window.
-- [Anywhere vs Paseo](https://getanywhere.dev/alternatives/paseo): Paseo alternative: Anywhere, the open-source coding agent workspace, vs Paseo on architecture, remote machines, phone and web clients, agents and automation.
-- [Anywhere vs T3 Code](https://getanywhere.dev/alternatives/t3-code): T3 Code alternative: Anywhere, the open-source coding agent workspace, vs T3 Code on closing the window, other machines, accounts, phone and web clients.
-- [Anywhere vs Vibe Kanban](https://getanywhere.dev/alternatives/vibe-kanban): Vibe Kanban alternative: Anywhere, the open-source coding agent workspace, has a native Board that gives each ticket a worktree and agent, vs a browser kanban.
-- [Anywhere vs Claude Squad](https://getanywhere.dev/alternatives/claude-squad): Claude Squad alternative: Anywhere, the open-source coding agent workspace, is a desktop app with a Needs you inbox and review, while Claude Squad uses tmux.
-- [Anywhere vs Crystal (now Nimbalyst)](https://getanywhere.dev/alternatives/crystal): Crystal is now Nimbalyst. Anywhere, the open-source coding agent workspace, keeps its idea: Claude Code, Codex and eight more agents, each in its own worktree.
-- [Anywhere vs MonoCode](https://getanywhere.dev/alternatives/monocode): MonoCode alternative: Anywhere, the open-source coding agent workspace, compared on session status, agents managing agents, schedules, hosts and platforms.
-- [Anywhere vs Paradev](https://getanywhere.dev/alternatives/paradev): Paradev alternative: Anywhere, the open-source coding agent workspace, vs Paradev (formerly Superset): what is free, automations, agents, remote and mobile.
-- [Anywhere vs Zeron](https://getanywhere.dev/alternatives/zeron): Zeron alternative: Anywhere, the open-source coding agent workspace, vs Zeron on accounts and sync, servers and cloud, customization, planning and agents.
-- [Anywhere vs Synara](https://getanywhere.dev/alternatives/synara): Synara alternative: Anywhere, the open-source coding agent workspace, vs Synara on pricing, alerts when an agent needs you, remote access, review and agents.
+- [Zoes alternatives](https://zoes.dev/alternatives/): Zoes compared with other apps for running coding agents, one page per tool, each with when the other tool fits better.
+- [Zoes vs Conductor](https://zoes.dev/alternatives/conductor): Conductor alternative: Zoes is an open-source coding agent workspace for Mac and Linux. License, agents, review, and what happens when you close the app.
+- [Zoes vs Orca](https://zoes.dev/alternatives/orca): Orca alternative: Zoes, the open-source coding agent workspace, vs Orca the agent IDE: scope, remote machines, agents, accounts and closing the window.
+- [Zoes vs Paseo](https://zoes.dev/alternatives/paseo): Paseo alternative: Zoes, the open-source coding agent workspace, vs Paseo on architecture, remote machines, phone and web clients, agents and automation.
+- [Zoes vs T3 Code](https://zoes.dev/alternatives/t3-code): T3 Code alternative: Zoes, the open-source coding agent workspace, vs T3 Code on closing the window, other machines, accounts, phone and web clients.
+- [Zoes vs Vibe Kanban](https://zoes.dev/alternatives/vibe-kanban): Vibe Kanban alternative: Zoes, the open-source coding agent workspace, has a native Board that gives each ticket a worktree and agent, vs a browser kanban.
+- [Zoes vs Claude Squad](https://zoes.dev/alternatives/claude-squad): Claude Squad alternative: Zoes, the open-source coding agent workspace, is a desktop app with a Needs you inbox and review, while Claude Squad uses tmux.
+- [Zoes vs Crystal (now Nimbalyst)](https://zoes.dev/alternatives/crystal): Crystal is now Nimbalyst. Zoes, the open-source coding agent workspace, keeps its idea: Claude Code, Codex and eight more agents, each in its own worktree.
+- [Zoes vs MonoCode](https://zoes.dev/alternatives/monocode): MonoCode alternative: Zoes, the open-source coding agent workspace, compared on session status, agents managing agents, schedules, hosts and platforms.
+- [Zoes vs Paradev](https://zoes.dev/alternatives/paradev): Paradev alternative: Zoes, the open-source coding agent workspace, vs Paradev (formerly Superset): what is free, automations, agents, remote and mobile.
+- [Zoes vs Zeron](https://zoes.dev/alternatives/zeron): Zeron alternative: Zoes, the open-source coding agent workspace, vs Zeron on accounts and sync, servers and cloud, customization, planning and agents.
+- [Zoes vs Synara](https://zoes.dev/alternatives/synara): Synara alternative: Zoes, the open-source coding agent workspace, vs Synara on pricing, alerts when an agent needs you, remote access, review and agents.
 
 ## Download
 
@@ -67,5 +67,5 @@
 
 ## Optional
 
-- [Privacy](https://getanywhere.dev/privacy): Privacy policy for the iPhone app and this site.
-- [Support](https://getanywhere.dev/support): Where to get help.
+- [Privacy](https://zoes.dev/privacy): Privacy policy for the iPhone app and this site.
+- [Support](https://zoes.dev/support): Where to get help.

@@ -1,28 +1,28 @@
 ---
 import Docs from "../../layouts/Docs.astro";
 ---
-<Docs title="Review and commit agent changes – Anywhere, coding agent workspace" description="Read diffs, compare a worktree with a branch, commit, and use the pull request card." path="/docs/review">
+<Docs title="Review and commit agent changes – Zoes, coding agent workspace" description="Read diffs, compare a worktree with a branch, commit, and use the pull request card." path="/docs/review">
 	<script is:inline slot="head" type="application/ld+json">
 {
 	"@context": "https://schema.org",
 	"@graph": [
 		{
 			"@type": "TechArticle",
-			"@id": "https://getanywhere.dev/docs/review#article",
+			"@id": "https://zoes.dev/docs/review#article",
 			"headline": "Review and commit an agent's changes",
 			"description": "Read diffs, compare a worktree with a branch, commit, and use the pull request card.",
 			"inLanguage": "en",
-			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
-			"image": "https://getanywhere.dev/assets/og.png",
-			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/docs/review" },
-			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+			"publisher": { "@type": "Organization", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/", "logo": { "@type": "ImageObject", "url": "https://zoes.dev/assets/icon.png" } },
+			"image": "https://zoes.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://zoes.dev/docs/review" },
+			"about": { "@type": "SoftwareApplication", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/" }
 		},
 		{
 			"@type": "BreadcrumbList",
 			"itemListElement": [
-				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
-				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://getanywhere.dev/docs/" },
-				{ "@type": "ListItem", "position": 3, "name": "Review and commit an agent's changes", "item": "https://getanywhere.dev/docs/review" }
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://zoes.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://zoes.dev/docs/" },
+				{ "@type": "ListItem", "position": 3, "name": "Review and commit an agent's changes", "item": "https://zoes.dev/docs/review" }
 			]
 		}
 	]
@@ -60,7 +60,7 @@ import Docs from "../../layouts/Docs.astro";
 				<p>If nothing is staged, the button reads <strong>Commit All</strong> and commits every changed file. To commit only staged files, set Settings › <strong>Git &amp; GitHub</strong> › <strong>If nothing is staged</strong> to <strong>Staged only</strong>.</p>
 				<p>The arrow next to the commit button has more choices: <strong>Commit &amp; Push</strong>, <strong>Commit, push and create PR</strong>, and <strong>Amend Last Commit</strong>.</p>
 				<div class="callout warning">
-					<p><span class="callout-title">Warning</span>Discarded changes can't be restored. Anywhere asks first, and says how many untracked files it will delete.</p>
+					<p><span class="callout-title">Warning</span>Discarded changes can't be restored. Zoes asks first, and says how many untracked files it will delete.</p>
 				</div>
 				<p>To have an agent write the commit message, turn on Settings › <strong>Git &amp; GitHub</strong> › <strong>Write commit messages with AI</strong>. A sparkle button then shows in the commit box.</p>
 

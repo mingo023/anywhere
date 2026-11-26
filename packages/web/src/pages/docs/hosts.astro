@@ -1,28 +1,28 @@
 ---
 import Docs from "../../layouts/Docs.astro";
 ---
-<Docs title="Run agents on remote hosts over SSH – Anywhere, coding agent workspace" description="Add a Mac, Linux, or Windows host over SSH and open projects on it." path="/docs/hosts">
+<Docs title="Run agents on remote hosts over SSH – Zoes, coding agent workspace" description="Add a Mac, Linux, or Windows host over SSH and open projects on it." path="/docs/hosts">
 	<script is:inline slot="head" type="application/ld+json">
 {
 	"@context": "https://schema.org",
 	"@graph": [
 		{
 			"@type": "TechArticle",
-			"@id": "https://getanywhere.dev/docs/hosts#article",
+			"@id": "https://zoes.dev/docs/hosts#article",
 			"headline": "Run agents on another machine over SSH",
 			"description": "Add a Mac, Linux, or Windows host over SSH and open projects on it.",
 			"inLanguage": "en",
-			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
-			"image": "https://getanywhere.dev/assets/og.png",
-			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/docs/hosts" },
-			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+			"publisher": { "@type": "Organization", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/", "logo": { "@type": "ImageObject", "url": "https://zoes.dev/assets/icon.png" } },
+			"image": "https://zoes.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://zoes.dev/docs/hosts" },
+			"about": { "@type": "SoftwareApplication", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/" }
 		},
 		{
 			"@type": "BreadcrumbList",
 			"itemListElement": [
-				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
-				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://getanywhere.dev/docs/" },
-				{ "@type": "ListItem", "position": 3, "name": "Run agents on another machine over SSH", "item": "https://getanywhere.dev/docs/hosts" }
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://zoes.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://zoes.dev/docs/" },
+				{ "@type": "ListItem", "position": 3, "name": "Run agents on another machine over SSH", "item": "https://zoes.dev/docs/hosts" }
 			]
 		}
 	]
@@ -31,7 +31,7 @@ import Docs from "../../layouts/Docs.astro";
 			<article>
 				<p class="eyebrow">How-to guide</p>
 				<h1>Run agents on another machine over SSH</h1>
-				<p class="lede">Add a Mac, Linux, or Windows machine as a host, and Anywhere installs pocketd on it over SSH. Projects on the host show in your sidebar, and their agents run on the host.</p>
+				<p class="lede">Add a Mac, Linux, or Windows machine as a host, and Zoes installs pocketd on it over SSH. Projects on the host show in your sidebar, and their agents run on the host.</p>
 
 				<h2 id="before-you-start">Before you start</h2>
 				<ul>
@@ -47,7 +47,7 @@ import Docs from "../../layouts/Docs.astro";
 					<li>Click <strong>Add host</strong>.</li>
 					<li>Do one of these:
 						<ul>
-							<li>If the machine has an entry in your <code>~/.ssh/config</code>, click its name under <strong>Suggested</strong>. Anywhere uses that entry's user, port, key, and jump host as they are.</li>
+							<li>If the machine has an entry in your <code>~/.ssh/config</code>, click its name under <strong>Suggested</strong>. Zoes uses that entry's user, port, key, and jump host as they are.</li>
 							<li>Otherwise, fill in <strong>Address</strong>, <strong>Port</strong>, and <strong>Username</strong>.</li>
 						</ul>
 					</li>
@@ -60,17 +60,17 @@ import Docs from "../../layouts/Docs.astro";
 					</li>
 					<li>Click <strong>Connect</strong>.</li>
 				</ol>
-				<p>Anywhere installs pocketd on the host and shows each step under <strong>Installing pocketd</strong>. When it finishes, the list says <strong>pocketd is installed</strong>, and the host's row says <strong>Connected</strong> with its version. If pocketd already runs on the host, Anywhere uses it.</p>
-				<p>Anywhere changes nothing in your <code>~/.ssh</code>. If you sign in with a password, Anywhere uses it once to add a key for the app to the host's <code>~/.ssh/authorized_keys</code>. It doesn't save the password.</p>
+				<p>Zoes installs pocketd on the host and shows each step under <strong>Installing pocketd</strong>. When it finishes, the list says <strong>pocketd is installed</strong>, and the host's row says <strong>Connected</strong> with its version. If pocketd already runs on the host, Zoes uses it.</p>
+				<p>Zoes changes nothing in your <code>~/.ssh</code>. If you sign in with a password, Zoes uses it once to add a key for the app to the host's <code>~/.ssh/authorized_keys</code>. It doesn't save the password.</p>
 
 				<h3>What the install puts on the host</h3>
 				<ul>
-					<li>The pocketd release for the host's system, downloaded by the host from the Anywhere GitHub releases and checked against its SHA-256 sum.</li>
-					<li>The program at <code>~/.anywhere/bin/pocketd</code>. A host set up by an older version keeps <code>~/.coding-pocket</code> until its pocketd moves it.</li>
+					<li>The pocketd release for the host's system, downloaded by the host from the Zoes GitHub releases and checked against its SHA-256 sum.</li>
+					<li>The program at <code>~/.zoes/bin/pocketd</code>. A host set up by an older version keeps <code>~/.anywhere</code> (or <code>~/.coding-pocket</code>) until its pocketd moves it.</li>
 					<li>A per-user service that starts pocketd: a LaunchAgent on macOS, a systemd user unit on Linux, or a Task Scheduler logon task on Windows.</li>
 				</ul>
 				<div class="callout">
-					<p><span class="callout-title">Note</span>On Linux, if lingering is off, pocketd stops when you log out of the host. Anywhere warns you and gives the command to turn it on, <code>sudo loginctl enable-linger &lt;user&gt;</code>.</p>
+					<p><span class="callout-title">Note</span>On Linux, if lingering is off, pocketd stops when you log out of the host. Zoes warns you and gives the command to turn it on, <code>sudo loginctl enable-linger &lt;user&gt;</code>.</p>
 				</div>
 
 				<h2 id="open-a-project-on-the-host">Open a project on the host</h2>
@@ -79,7 +79,7 @@ import Docs from "../../layouts/Docs.astro";
 					<li>Pick the host and the folder.</li>
 					<li>Click <strong>Add project</strong>.</li>
 				</ol>
-				<p>The project shows in the sidebar with a globe icon and a dot for the connection. Start sessions in it as in any project. New worktrees of a host's project go in the host's <code>~/.anywhere/worktrees</code>.</p>
+				<p>The project shows in the sidebar with a globe icon and a dot for the connection. Start sessions in it as in any project. New worktrees of a host's project go in the host's <code>~/.zoes/worktrees</code>.</p>
 
 				<h2 id="keep-a-host-up-to-date">Keep a host up to date</h2>
 				<p>When the host's pocketd is older than the app, its row in Settings › <strong>Hosts</strong> shows <strong>Update</strong>. Terminals on a Mac or Linux host stay open through the update.</p>

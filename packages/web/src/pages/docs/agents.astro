@@ -1,28 +1,28 @@
 ---
 import Docs from "../../layouts/Docs.astro";
 ---
-<Docs title="Supported agents – Anywhere, coding agent workspace" description="Each coding agent Anywhere runs: its command, install and sign-in commands, and what status it reports." path="/docs/agents">
+<Docs title="Supported agents – Zoes, coding agent workspace" description="Each coding agent Zoes runs: its command, install and sign-in commands, and what status it reports." path="/docs/agents">
 	<script is:inline slot="head" type="application/ld+json">
 {
 	"@context": "https://schema.org",
 	"@graph": [
 		{
 			"@type": "TechArticle",
-			"@id": "https://getanywhere.dev/docs/agents#article",
+			"@id": "https://zoes.dev/docs/agents#article",
 			"headline": "Supported agents",
-			"description": "Each coding agent Anywhere runs: its command, install and sign-in commands, and what status it reports.",
+			"description": "Each coding agent Zoes runs: its command, install and sign-in commands, and what status it reports.",
 			"inLanguage": "en",
-			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
-			"image": "https://getanywhere.dev/assets/og.png",
-			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/docs/agents" },
-			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+			"publisher": { "@type": "Organization", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/", "logo": { "@type": "ImageObject", "url": "https://zoes.dev/assets/icon.png" } },
+			"image": "https://zoes.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://zoes.dev/docs/agents" },
+			"about": { "@type": "SoftwareApplication", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/" }
 		},
 		{
 			"@type": "BreadcrumbList",
 			"itemListElement": [
-				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
-				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://getanywhere.dev/docs/" },
-				{ "@type": "ListItem", "position": 3, "name": "Supported agents", "item": "https://getanywhere.dev/docs/agents" }
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://zoes.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://zoes.dev/docs/" },
+				{ "@type": "ListItem", "position": 3, "name": "Supported agents", "item": "https://zoes.dev/docs/agents" }
 			]
 		}
 	]
@@ -31,7 +31,7 @@ import Docs from "../../layouts/Docs.astro";
 			<article>
 				<p class="eyebrow">Reference</p>
 				<h1>Supported agents</h1>
-				<p class="lede">Anywhere runs ten coding agents. It doesn't include any of them: it runs the agent command line tools it finds on your login <code>PATH</code>.</p>
+				<p class="lede">Zoes runs ten coding agents. It doesn't include any of them: it runs the agent command line tools it finds on your login <code>PATH</code>.</p>
 
 				<h2 id="install-and-sign-in">Install and sign in</h2>
 				<div class="table-wrap">
@@ -53,7 +53,7 @@ import Docs from "../../layouts/Docs.astro";
 					</tbody>
 				</table>
 				</div>
-				<p>If Anywhere doesn't find an agent, Settings › <strong>Agents</strong> says <code>&lt;Agent&gt; not found</code>, followed by its install command. If the agent is already installed, restart Anywhere.</p>
+				<p>If Zoes doesn't find an agent, Settings › <strong>Agents</strong> says <code>&lt;Agent&gt; not found</code>, followed by its install command. If the agent is already installed, restart Zoes.</p>
 				<p>Settings › <strong>Accounts</strong> can hold more than one account each for Claude Code and Codex, and shows their usage.</p>
 
 				<h2 id="chat-terminal-and-status">Chat, terminal, and status</h2>
@@ -77,7 +77,7 @@ import Docs from "../../layouts/Docs.astro";
 					</tbody>
 				</table>
 				</div>
-				<p>Where an agent reports its status, it shows all five: <span class="status needs-you">Needs you</span>, <span class="status failed">Failed</span>, <span class="status done">Done</span>, <span class="status working">Working</span>, and <span class="status">Idle</span>. In a terminal, an agent that doesn't report its status shows only terminal activity. The <code>&lt;agent&gt;</code> id is the value for <code>--provider</code> in <a href="/docs/cli">the anywhere command</a>.</p>
+				<p>Where an agent reports its status, it shows all five: <span class="status needs-you">Needs you</span>, <span class="status failed">Failed</span>, <span class="status done">Done</span>, <span class="status working">Working</span>, and <span class="status">Idle</span>. In a terminal, an agent that doesn't report its status shows only terminal activity. The <code>&lt;agent&gt;</code> id is the value for <code>--provider</code> in <a href="/docs/cli">the zoes command</a>.</p>
 				<p>The new session page starts Claude Code and Codex as a chat when Settings › <strong>Agents</strong> › <strong>Start as a chat</strong> is on, and in a terminal when it is off. It always starts the other agents as a chat. Every agent can run in a terminal from a tab's <strong>+</strong> menu.</p>
 
 				<h2 id="access-and-delegation">Access and delegation</h2>
@@ -93,12 +93,12 @@ import Docs from "../../layouts/Docs.astro";
 					<li><strong>Enabled</strong>: whether the agent shows in the default agent choice, the new session page, automations, and AI commit messages.</li>
 					<li><strong>Set as default</strong>: makes it the agent new sessions start with.</li>
 					<li><strong>Defaults</strong>: the label, model, and effort a new session starts with.</li>
-					<li><strong>Launch</strong>: the command Anywhere runs and the arguments it adds to send a prompt, resume, and fork.</li>
+					<li><strong>Launch</strong>: the command Zoes runs and the arguments it adds to send a prompt, resume, and fork.</li>
 				</ul>
 				<p>pocketd also takes the command as a setting: <code>pocketd config set &lt;agent&gt;.command &lt;command&gt;</code>.</p>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
 				<a class="prev" href="/docs/iphone"><span>Previous</span>Pair an iPhone</a>
-				<a class="next" href="/docs/cli"><span>Next</span>The anywhere command</a>
+				<a class="next" href="/docs/cli"><span>Next</span>The zoes command</a>
 			</nav>
 </Docs>

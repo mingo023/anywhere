@@ -1,42 +1,42 @@
 ---
 import Blog from "../../layouts/Blog.astro";
 ---
-<Blog title="Move a Claude Code session to a remote server – Anywhere, coding agent workspace" description="Move a running Claude Code or Codex session from your Mac to a Linux box over SSH, with the branch, uncommitted files and conversation. DIY and Anywhere." path="/blog/move-claude-code-session-to-remote-server" article={{author: "Minh Ngo", published: "2026-11-23", modified: "2026-11-23"}}>
+<Blog title="Move a Claude Code session to a remote server – Zoes, coding agent workspace" description="Move a running Claude Code or Codex session from your Mac to a Linux box over SSH, with the branch, uncommitted files and conversation. DIY and Zoes." path="/blog/move-claude-code-session-to-remote-server" article={{author: "Minh Ngo", published: "2026-11-23", modified: "2026-11-23"}}>
 	<script is:inline slot="head" type="application/ld+json">
 {
 	"@context": "https://schema.org",
 	"@graph": [
 		{
 			"@type": "BlogPosting",
-			"@id": "https://getanywhere.dev/blog/move-claude-code-session-to-remote-server#article",
+			"@id": "https://zoes.dev/blog/move-claude-code-session-to-remote-server#article",
 			"headline": "How to move a Claude Code session to a remote server, conversation included",
-			"description": "Move a running Claude Code or Codex session from your Mac to a Linux box over SSH, with the branch, uncommitted files and conversation. DIY and Anywhere.",
+			"description": "Move a running Claude Code or Codex session from your Mac to a Linux box over SSH, with the branch, uncommitted files and conversation. DIY and Zoes.",
 			"datePublished": "2026-11-23",
 			"dateModified": "2026-11-23",
 			"inLanguage": "en",
 			"keywords": "move claude code session to another machine, transfer claude code conversation to another computer, continue claude code session on remote server, run claude code on remote server from mac, hand off codex session to remote machine, claude --resume another machine",
 			"author": { "@type": "Person", "name": "Minh Ngo" },
-			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
-			"image": "https://getanywhere.dev/assets/og.png",
-			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/blog/move-claude-code-session-to-remote-server" },
-			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+			"publisher": { "@type": "Organization", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/", "logo": { "@type": "ImageObject", "url": "https://zoes.dev/assets/icon.png" } },
+			"image": "https://zoes.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://zoes.dev/blog/move-claude-code-session-to-remote-server" },
+			"about": { "@type": "SoftwareApplication", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/" }
 		},
 		{
 			"@type": "FAQPage",
 			"mainEntity": [
 				{ "@type": "Question", "name": "Does claude --resume work after copying the transcript?", "acceptedAnswer": { "@type": "Answer", "text": "Yes, if the transcript sits in the project folder Claude Code expects for the directory you run it in, and the paths inside it point at that directory. Run claude --resume <session-id> from the project folder on the new machine." } },
-				{ "@type": "Question", "name": "Do I need to commit before moving a session?", "acceptedAnswer": { "@type": "Answer", "text": "Not with Anywhere. It packs uncommitted and untracked files into a temporary commit, and lays them back on the host as uncommitted changes. Files your .gitignore excludes stay behind. By hand, you need some way to carry them: a WIP commit you undo on the server, or a copy of the files." } },
-				{ "@type": "Question", "name": "Does it work for Codex?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Codex keeps each conversation as a rollout JSONL file under ~/.codex/sessions. Anywhere carries Claude Code and Codex conversations. For other agents it moves the code and starts a fresh session from a summary." } },
-				{ "@type": "Question", "name": "Is the session on my Mac deleted?", "acceptedAnswer": { "@type": "Answer", "text": "No. Anywhere never closes the Mac session. Once the handoff is done, the host has its own copy of the conversation, and the Mac session reads as before. If a step fails, the Mac session is still there." } },
-				{ "@type": "Question", "name": "What OS can the host run?", "acceptedAnswer": { "@type": "Answer", "text": "Anywhere hosts can run macOS, Linux or Windows, on arm64 or amd64. The handoff runs git and sh on the host and builds Unix paths, so use a macOS or Linux host for it." } }
+				{ "@type": "Question", "name": "Do I need to commit before moving a session?", "acceptedAnswer": { "@type": "Answer", "text": "Not with Zoes. It packs uncommitted and untracked files into a temporary commit, and lays them back on the host as uncommitted changes. Files your .gitignore excludes stay behind. By hand, you need some way to carry them: a WIP commit you undo on the server, or a copy of the files." } },
+				{ "@type": "Question", "name": "Does it work for Codex?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Codex keeps each conversation as a rollout JSONL file under ~/.codex/sessions. Zoes carries Claude Code and Codex conversations. For other agents it moves the code and starts a fresh session from a summary." } },
+				{ "@type": "Question", "name": "Is the session on my Mac deleted?", "acceptedAnswer": { "@type": "Answer", "text": "No. Zoes never closes the Mac session. Once the handoff is done, the host has its own copy of the conversation, and the Mac session reads as before. If a step fails, the Mac session is still there." } },
+				{ "@type": "Question", "name": "What OS can the host run?", "acceptedAnswer": { "@type": "Answer", "text": "Zoes hosts can run macOS, Linux or Windows, on arm64 or amd64. The handoff runs git and sh on the host and builds Unix paths, so use a macOS or Linux host for it." } }
 			]
 		},
 		{
 			"@type": "BreadcrumbList",
 			"itemListElement": [
-				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
-				{ "@type": "ListItem", "position": 2, "name": "Blog", "item": "https://getanywhere.dev/blog/" },
-				{ "@type": "ListItem", "position": 3, "name": "How to move a Claude Code session to a remote server, conversation included", "item": "https://getanywhere.dev/blog/move-claude-code-session-to-remote-server" }
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://zoes.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Blog", "item": "https://zoes.dev/blog/" },
+				{ "@type": "ListItem", "position": 3, "name": "How to move a Claude Code session to a remote server, conversation included", "item": "https://zoes.dev/blog/move-claude-code-session-to-remote-server" }
 			]
 		}
 	]
@@ -48,7 +48,7 @@ import Blog from "../../layouts/Blog.astro";
 				<p class="eyebrow"><a href="/blog/">Blog</a> · Guide</p>
 				<h1>How to move a Claude Code session to a remote server, conversation included</h1>
 				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-23">23 November 2026</time> · Updated <time datetime="2026-11-23">23 November 2026</time></div>
-				<p class="lede">Claude Code keeps each conversation as a JSONL transcript under <code>~/.claude/projects/&lt;path-slug&gt;/</code>. Moving a session means moving the code (the branch and its uncommitted files) and that transcript, fixing the absolute paths inside it, then running <code>claude --resume</code> on the other machine. You can do it by hand or with a script. Anywhere does it from a menu, <strong>Hand off to a host…</strong>, for the Claude Code and Codex sessions it started.</p>
+				<p class="lede">Claude Code keeps each conversation as a JSONL transcript under <code>~/.claude/projects/&lt;path-slug&gt;/</code>. Moving a session means moving the code (the branch and its uncommitted files) and that transcript, fixing the absolute paths inside it, then running <code>claude --resume</code> on the other machine. You can do it by hand or with a script. Zoes does it from a menu, <strong>Hand off to a host…</strong>, for the Claude Code and Codex sessions it started.</p>
 				<p>This guide covers both ways, what each one needs on the server, and when you are better off starting on the server in the first place.</p>
 
 				<h2 id="why-move">Why move a session instead of starting fresh?</h2>
@@ -112,12 +112,12 @@ claude --resume &lt;session-id&gt;</code></pre>
 				<p>Codex works the same way with different paths. It keeps each conversation as a <code>rollout-…-&lt;id&gt;.jsonl</code> file under <code>~/.codex/sessions/</code>, in dated folders. Copy it to the same relative path under the server's <code>~/.codex/sessions</code>, rewrite the paths, sign in with <code>codex login</code>, and run <code>codex resume &lt;id&gt;</code> (see the <a href="https://developers.openai.com/codex/cli/features">Codex CLI features page</a>).</p>
 				<p>People have scripted this. <a href="https://github.com/SeiduTakizawa/Claude-hop">claude-hop</a> is one open-source tool for syncing Claude Code sessions between machines; read its README for what it covers and how. And if you only need the gist, not the full history, <code>/export</code> the conversation and paste the parts that matter into a fresh session on the server.</p>
 
-				<h2 id="in-anywhere">How does Anywhere hand off a session?</h2>
-				<p>Anywhere runs agents on other machines through pocketd, its daemon. Since 0.1.58 it can move a session from your Mac to one of those machines.</p>
+				<h2 id="in-anywhere">How does Zoes hand off a session?</h2>
+				<p>Zoes runs agents on other machines through pocketd, its daemon. Since 0.1.58 it can move a session from your Mac to one of those machines.</p>
 				<ol>
-					<li>Add the machine as a host in Settings › <strong>Hosts</strong>. Anywhere installs pocketd on it over SSH. See <a href="/docs/hosts">Run agents on another machine over SSH</a>.</li>
+					<li>Add the machine as a host in Settings › <strong>Hosts</strong>. Zoes installs pocketd on it over SSH. See <a href="/docs/hosts">Run agents on another machine over SSH</a>.</li>
 					<li>Open the session's menu in the sidebar, or its tab's menu, and click <strong>Hand off to a host…</strong>. From the command palette, the row reads <strong>Hand off “&lt;title&gt;” to a host…</strong>.</li>
-					<li>Pick a host. Anywhere checks each connected host and marks it <strong>Ready</strong>, <strong>Not ready</strong> or <strong>Summary only</strong>. Under <strong>What moves</strong>, the sheet lists the branch and its commits, the changed files, and the conversation.</li>
+					<li>Pick a host. Zoes checks each connected host and marks it <strong>Ready</strong>, <strong>Not ready</strong> or <strong>Summary only</strong>. Under <strong>What moves</strong>, the sheet lists the branch and its commits, the changed files, and the conversation.</li>
 					<li>Click <strong>Hand off</strong>.</li>
 				</ol>
 				<p>The progress sheet, <strong>Handing off to &lt;host&gt;</strong>, runs these steps:</p>
@@ -125,7 +125,7 @@ claude --resume &lt;session-id&gt;</code></pre>
 					<li><strong>Stop this turn</strong>, only if the agent is working.</li>
 					<li><strong>Pack the code</strong>: one git bundle with the branch, plus a commit of every uncommitted and untracked file. Your worktree and its index are left as they are, and the bundle leaves out commits origin already has.</li>
 					<li><strong>Send to &lt;host&gt;</strong>, with the bundle's size.</li>
-					<li><strong>Make the worktree</strong>: a new worktree on the host, in <code>~/.anywhere/worktrees/&lt;repo&gt;/</code>, on the same branch, with the uncommitted files laid back as uncommitted changes, not commits.</li>
+					<li><strong>Make the worktree</strong>: a new worktree on the host, in <code>~/.zoes/worktrees/&lt;repo&gt;/</code>, on the same branch, with the uncommitted files laid back as uncommitted changes, not commits.</li>
 					<li><strong>Bring the conversation</strong>: the transcript, with this Mac's paths rewritten to the host's, written where the agent on the host looks for it. A path that only starts the same, like <code>app2</code>, stays as it is.</li>
 					<li><strong>Start &lt;agent&gt;</strong>, with the same model and effort, continuing the moved conversation.</li>
 					<li><strong>Check the history</strong>: waits until the host's session is open on that conversation.</li>
@@ -135,13 +135,13 @@ claude --resume &lt;session-id&gt;</code></pre>
 				<h3>When something goes wrong</h3>
 				<ul>
 					<li>If the host goes offline, the sheet says <strong>&lt;host&gt; went offline</strong> and that it retries when the host is back. It does that on its own, or you click <strong>Retry now</strong>.</li>
-					<li>If making the worktree fails, Anywhere removes the worktree and the branch it added on the host. If you close a stopped handoff instead of retrying, it removes them too, unless the agent may already have started there.</li>
+					<li>If making the worktree fails, Zoes removes the worktree and the branch it added on the host. If you close a stopped handoff instead of retrying, it removes them too, unless the agent may already have started there.</li>
 					<li>The Mac session is not closed. A stopped handoff says <strong>Nothing changed on this Mac.</strong>, or that the session is still here and only its turn stopped.</li>
 				</ul>
 				<p>When it's done, the sheet says the agent made it to the host: <strong>It picks up where you left off. You can close this Mac.</strong> <strong>Open on &lt;host&gt;</strong> takes you to the session on the host. The Mac session stays, with its own copy of the conversation.</p>
 
 				<h2 id="host-needs">What does the host need first?</h2>
-				<p>Anywhere checks the host before it sends anything. Each problem comes with the command to run there, a <strong>Copy</strong> button and <strong>Open terminal</strong>, which opens a shell on the host. Then click <strong>Check again</strong>.</p>
+				<p>Zoes checks the host before it sends anything. Each problem comes with the command to run there, a <strong>Copy</strong> button and <strong>Open terminal</strong>, which opens a shell on the host. Then click <strong>Check again</strong>.</p>
 				<div class="table-wrap">
 				<table>
 					<thead>
@@ -155,17 +155,17 @@ claude --resume &lt;session-id&gt;</code></pre>
 					</tbody>
 				</table>
 				</div>
-				<p>Anywhere doesn't fix the host itself. It finds the host's clone by origin URL, so the folder can be anywhere among the host's projects or at <code>~/code/&lt;repo&gt;</code>. The session must be on a branch, not a detached HEAD. Files your <code>.gitignore</code> excludes, such as <code>.env</code> or <code>node_modules</code>, don't travel, and the project's setup script doesn't run on the host, so install dependencies there yourself.</p>
+				<p>Zoes doesn't fix the host itself. It finds the host's clone by origin URL, so the folder can be anywhere among the host's projects or at <code>~/code/&lt;repo&gt;</code>. The session must be on a branch, not a detached HEAD. Files your <code>.gitignore</code> excludes, such as <code>.env</code> or <code>node_modules</code>, don't travel, and the project's setup script doesn't run on the host, so install dependencies there yourself.</p>
 
 				<h2 id="other-agents">What about other agents?</h2>
-				<p>The conversation moves only for Claude Code and Codex, and only for sessions Anywhere started, since it needs the agent's own session id to find the transcript. For other agents, and for sessions Anywhere didn't start, the host reads <strong>Summary only</strong>. The code still moves the same way, but the conversation itself doesn't.</p>
-				<p>Instead, a fresh session starts on the host from a summary. Anywhere drafts it from the session's title, branch and changed files, your last request and the agent's last reply, and you edit it before <strong>Move code &amp; start</strong>. It becomes the new session's first prompt. When it's done, the sheet says a fresh agent is up on the host and that the Mac session stays open.</p>
+				<p>The conversation moves only for Claude Code and Codex, and only for sessions Zoes started, since it needs the agent's own session id to find the transcript. For other agents, and for sessions Zoes didn't start, the host reads <strong>Summary only</strong>. The code still moves the same way, but the conversation itself doesn't.</p>
+				<p>Instead, a fresh session starts on the host from a summary. Zoes drafts it from the session's title, branch and changed files, your last request and the agent's last reply, and you edit it before <strong>Move code &amp; start</strong>. It becomes the new session's first prompt. When it's done, the sheet says a fresh agent is up on the host and that the Mac session stays open.</p>
 
-				<h2 id="compared">By hand, tmux or Anywhere: how do they compare?</h2>
+				<h2 id="compared">By hand, tmux or Zoes: how do they compare?</h2>
 				<div class="table-wrap wide">
 				<table>
 					<thead>
-						<tr><th></th><th>By hand</th><th>ssh + tmux from the start</th><th>Anywhere hand off</th></tr>
+						<tr><th></th><th>By hand</th><th>ssh + tmux from the start</th><th>Zoes hand off</th></tr>
 					</thead>
 					<tbody>
 						<tr><td>Moves code, uncommitted files included</td><td>Yes, with a WIP commit or a copy</td><td>Nothing to move</td><td>Yes, untracked files included, ignored files left out</td></tr>
@@ -182,11 +182,11 @@ claude --resume &lt;session-id&gt;</code></pre>
 
 				<h2 id="when-tmux">When is plain ssh + tmux better?</h2>
 				<p>If you always work on the server, start there. A session that never moves has no paths to rewrite and no internal format to depend on. <code>ssh</code>, <code>tmux</code>, and the agent CLI are enough, and they work from any terminal.</p>
-				<p>Anywhere can work that way too. Press <kbd>⌘K</kbd>, choose <strong>Open folder on a host…</strong>, and the host's project shows in your sidebar; its sessions run on the host from the start (<a href="/docs/hosts#open-a-project-on-the-host">docs</a>). Sessions there keep running when you close the window, as <a href="/blog/coding-agents-keep-running-after-closing-window">Keep coding agents running after you close the window</a> explains. The handoff is for the session you started on your Mac before you knew it would need the server.</p>
+				<p>Zoes can work that way too. Press <kbd>⌘K</kbd>, choose <strong>Open folder on a host…</strong>, and the host's project shows in your sidebar; its sessions run on the host from the start (<a href="/docs/hosts#open-a-project-on-the-host">docs</a>). Sessions there keep running when you close the window, as <a href="/blog/coding-agents-keep-running-after-closing-window">Keep coding agents running after you close the window</a> explains. The handoff is for the session you started on your Mac before you knew it would need the server.</p>
 
 				<div class="cta">
-					<p>Anywhere is free and MIT licensed, and runs the Claude Code and Codex you already have.</p>
-					<a class="button primary" href="https://github.com/mingo023/anywhere">Star Anywhere on GitHub</a>
+					<p>Zoes is free and MIT licensed, and runs the Claude Code and Codex you already have.</p>
+					<a class="button primary" href="https://github.com/mingo023/anywhere">Star Zoes on GitHub</a>
 					<a class="button" href="https://github.com/mingo023/anywhere/releases/latest">Download for Mac</a>
 				</div>
 
@@ -195,13 +195,13 @@ claude --resume &lt;session-id&gt;</code></pre>
 					<h3>Does claude --resume work after copying the transcript?</h3>
 					<p>Yes, if the transcript sits in the project folder Claude Code expects for the directory you run it in, and the paths inside it point at that directory. Run claude --resume &lt;session-id&gt; from the project folder on the new machine.</p>
 					<h3>Do I need to commit before moving a session?</h3>
-					<p>Not with Anywhere. It packs uncommitted and untracked files into a temporary commit, and lays them back on the host as uncommitted changes. Files your .gitignore excludes stay behind. By hand, you need some way to carry them: a WIP commit you undo on the server, or a copy of the files.</p>
+					<p>Not with Zoes. It packs uncommitted and untracked files into a temporary commit, and lays them back on the host as uncommitted changes. Files your .gitignore excludes stay behind. By hand, you need some way to carry them: a WIP commit you undo on the server, or a copy of the files.</p>
 					<h3>Does it work for Codex?</h3>
-					<p>Yes. Codex keeps each conversation as a rollout JSONL file under ~/.codex/sessions. Anywhere carries Claude Code and Codex conversations. For other agents it moves the code and starts a fresh session from a summary.</p>
+					<p>Yes. Codex keeps each conversation as a rollout JSONL file under ~/.codex/sessions. Zoes carries Claude Code and Codex conversations. For other agents it moves the code and starts a fresh session from a summary.</p>
 					<h3>Is the session on my Mac deleted?</h3>
-					<p>No. Anywhere never closes the Mac session. Once the handoff is done, the host has its own copy of the conversation, and the Mac session reads as before. If a step fails, the Mac session is still there.</p>
+					<p>No. Zoes never closes the Mac session. Once the handoff is done, the host has its own copy of the conversation, and the Mac session reads as before. If a step fails, the Mac session is still there.</p>
 					<h3>What OS can the host run?</h3>
-					<p>Anywhere hosts can run macOS, Linux or Windows, on arm64 or amd64. The handoff runs git and sh on the host and builds Unix paths, so use a macOS or Linux host for it.</p>
+					<p>Zoes hosts can run macOS, Linux or Windows, on arm64 or amd64. The handoff runs git and sh on the host and builds Unix paths, so use a macOS or Linux host for it.</p>
 				</section>
 			</article>
 			<nav class="pager" aria-label="Previous and next">

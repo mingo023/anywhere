@@ -1,25 +1,25 @@
 ---
 import Blog from "../../layouts/Blog.astro";
 ---
-<Blog title="Clean up leftover agent worktrees – Anywhere, coding agent workspace" description="Find, measure and remove the worktrees Claude Code, Codex and Cursor leave on disk, what each tool cleans up on its own, and how Anywhere deletes them." path="/blog/clean-up-coding-agent-worktrees" article={{author: "Minh Ngo", published: "2026-11-19", modified: "2026-11-19"}}>
+<Blog title="Clean up leftover agent worktrees – Zoes, coding agent workspace" description="Find, measure and remove the worktrees Claude Code, Codex and Cursor leave on disk, what each tool cleans up on its own, and how Zoes deletes them." path="/blog/clean-up-coding-agent-worktrees" article={{author: "Minh Ngo", published: "2026-11-19", modified: "2026-11-19"}}>
 	<script is:inline slot="head" type="application/ld+json">
 {
 	"@context": "https://schema.org",
 	"@graph": [
 		{
 			"@type": "BlogPosting",
-			"@id": "https://getanywhere.dev/blog/clean-up-coding-agent-worktrees#article",
+			"@id": "https://zoes.dev/blog/clean-up-coding-agent-worktrees#article",
 			"headline": "How to clean up the git worktrees your coding agents leave behind",
-			"description": "Find, measure and remove the worktrees Claude Code, Codex and Cursor leave on disk, what each tool cleans up on its own, and how Anywhere deletes them.",
+			"description": "Find, measure and remove the worktrees Claude Code, Codex and Cursor leave on disk, what each tool cleans up on its own, and how Zoes deletes them.",
 			"datePublished": "2026-11-19",
 			"dateModified": "2026-11-19",
 			"inLanguage": "en",
 			"keywords": "clean up claude code worktrees, how to clean up git worktrees from coding agents, git worktree prune vs remove, delete old git worktrees disk space, codex worktrees disk space, cursor worktree cleanup settings, agent worktrees node_modules disk, git worktree remove locked",
 			"author": { "@type": "Person", "name": "Minh Ngo" },
-			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
-			"image": "https://getanywhere.dev/assets/og.png",
-			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/blog/clean-up-coding-agent-worktrees" },
-			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+			"publisher": { "@type": "Organization", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/", "logo": { "@type": "ImageObject", "url": "https://zoes.dev/assets/icon.png" } },
+			"image": "https://zoes.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://zoes.dev/blog/clean-up-coding-agent-worktrees" },
+			"about": { "@type": "SoftwareApplication", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/" }
 		},
 		{
 			"@type": "HowTo",
@@ -40,15 +40,15 @@ import Blog from "../../layouts/Blog.astro";
 				{ "@type": "Question", "name": "How do I remove a locked worktree?", "acceptedAnswer": { "@type": "Answer", "text": "Run git worktree unlock <path>, then git worktree remove <path>. You can also pass --force twice to remove a locked worktree, but first check why it is locked. Claude Code, for one, locks a worktree while its agent runs." } },
 				{ "@type": "Question", "name": "Does Claude Code delete worktrees automatically?", "acceptedAnswer": { "@type": "Answer", "text": "Partly. When you exit an interactive --worktree session, Claude Code removes a clean unnamed worktree and its branch, and asks about the rest. Worktrees from -p runs are never cleaned up on exit. A periodic sweep removes subagent and background-session worktrees older than cleanupPeriodDays, but skips any with changes, untracked files or unpushed commits, and skips worktrees you made with git worktree add." } },
 				{ "@type": "Question", "name": "How many worktrees does Codex keep?", "acceptedAnswer": { "@type": "Answer", "text": "The Codex app keeps the 15 most recent worktrees it manages by default. You can change the limit or turn cleanup off in its settings. It doesn't delete a worktree that a pinned or running chat uses, or a permanent worktree, and it saves a snapshot before it deletes one." } },
-				{ "@type": "Question", "name": "Will deleting a worktree delete my branch?", "acceptedAnswer": { "@type": "Answer", "text": "With git, no: git worktree remove leaves the branch, and you delete it with git branch -d. In Anywhere, only if you select Also delete branch, and even then main, master and remote branches stay." } }
+				{ "@type": "Question", "name": "Will deleting a worktree delete my branch?", "acceptedAnswer": { "@type": "Answer", "text": "With git, no: git worktree remove leaves the branch, and you delete it with git branch -d. In Zoes, only if you select Also delete branch, and even then main, master and remote branches stay." } }
 			]
 		},
 		{
 			"@type": "BreadcrumbList",
 			"itemListElement": [
-				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
-				{ "@type": "ListItem", "position": 2, "name": "Blog", "item": "https://getanywhere.dev/blog/" },
-				{ "@type": "ListItem", "position": 3, "name": "How to clean up the git worktrees your coding agents leave behind", "item": "https://getanywhere.dev/blog/clean-up-coding-agent-worktrees" }
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://zoes.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Blog", "item": "https://zoes.dev/blog/" },
+				{ "@type": "ListItem", "position": 3, "name": "How to clean up the git worktrees your coding agents leave behind", "item": "https://zoes.dev/blog/clean-up-coding-agent-worktrees" }
 			]
 		}
 	]
@@ -86,7 +86,7 @@ git worktree list --porcelain   # one field per line, with branch and lock state
 						<tr><td>Claude Code</td><td><code>.claude/worktrees/&lt;name&gt;</code> inside the repository (<a href="https://code.claude.com/docs/en/worktrees">docs</a>)</td></tr>
 						<tr><td>Codex</td><td><code>$CODEX_HOME/worktrees</code> (<a href="https://learn.chatgpt.com/docs/environments/git-worktrees">docs</a>)</td></tr>
 						<tr><td>Cursor</td><td>Its own worktree root; the <a href="https://cursor.com/docs/configuration/worktrees">docs</a> don't name the path, but <code>git worktree list</code> shows it</td></tr>
-						<tr><td>Anywhere</td><td><code>~/.anywhere/worktrees/&lt;project&gt;/&lt;name&gt;</code> (<a href="/docs/worktrees#choose-where-worktrees-go">docs</a>)</td></tr>
+						<tr><td>Zoes</td><td><code>~/.zoes/worktrees/&lt;project&gt;/&lt;name&gt;</code> (<a href="/docs/worktrees#choose-where-worktrees-go">docs</a>)</td></tr>
 					</tbody>
 				</table>
 				</div>
@@ -132,26 +132,26 @@ git worktree list --porcelain   # one field per line, with branch and lock state
 						<tr><td><a href="https://code.claude.com/docs/en/worktrees">Claude Code</a></td><td>On exit of an interactive <code>--worktree</code> session: a clean unnamed worktree goes, with its branch; a named one prompts; one with work asks keep or remove. A periodic sweep removes subagent and background-session worktrees older than <code>cleanupPeriodDays</code>.</td><td>The sweep skips worktrees with changes, untracked files or unpushed commits, and worktrees you made with <code>git worktree add</code>. <code>-p</code> runs get no exit prompt and are never cleaned up; their lock stays until a later session's stale-lock sweep.</td></tr>
 						<tr><td><a href="https://learn.chatgpt.com/docs/environments/git-worktrees">Codex app</a></td><td>When you archive a chat, or when there are more than the 15 most recent Codex-managed worktrees (the default; change it or turn it off in settings).</td><td>Never while a pinned chat uses the worktree or a chat is in progress. Permanent worktrees stay. It saves a snapshot first and offers to restore it when you reopen the chat. Its worktrees are on a detached HEAD, with no branch.</td></tr>
 						<tr><td><a href="https://cursor.com/docs/configuration/worktrees">Cursor 3.5+</a></td><td>Every <code>cursor.worktreeCleanupIntervalHours</code> (default 6), keeping the newest up to <code>cursor.worktreeMaxCount</code> (default 25) per machine, across all workspaces.</td><td>Only the newest worktrees up to the cap. Worktrees in its root that it didn't make, for example with <code>git worktree add</code>, count and can be removed too.</td></tr>
-						<tr><td><a href="/docs/worktrees#delete-a-worktree">Anywhere</a></td><td>Only when you delete one: from the sidebar, or after merging its pull request. No sweep by age or count.</td><td>The confirm tells you what you'd lose. Details below.</td></tr>
+						<tr><td><a href="/docs/worktrees#delete-a-worktree">Zoes</a></td><td>Only when you delete one: from the sidebar, or after merging its pull request. No sweep by age or count.</td><td>The confirm tells you what you'd lose. Details below.</td></tr>
 						<tr><td><a href="https://git-scm.com/docs/git-worktree">Plain git</a></td><td>Never. Worktree folders stay until you remove them.</td><td><code>git worktree remove</code> refuses unclean or locked worktrees without <code>--force</code>.</td></tr>
 					</tbody>
 				</table>
 				</div>
 				<p>If you run more than one of these tools on a repository, none of them sees the others' worktrees as its own. <code>git worktree list</code> is still the one place that shows all of them.</p>
 
-				<h2 id="in-anywhere">How does Anywhere handle worktree cleanup?</h2>
-				<p>Anywhere makes new worktrees in <code>~/.anywhere/worktrees/&lt;project&gt;/&lt;name&gt;</code>. To use another folder, open Settings › <strong>Projects</strong> and change <strong>Worktree folder</strong> under <strong>Locations</strong>.</p>
+				<h2 id="in-anywhere">How does Zoes handle worktree cleanup?</h2>
+				<p>Zoes makes new worktrees in <code>~/.zoes/worktrees/&lt;project&gt;/&lt;name&gt;</code>. To use another folder, open Settings › <strong>Projects</strong> and change <strong>Worktree folder</strong> under <strong>Locations</strong>.</p>
 
 				<h3>Deleting a worktree</h3>
 				<p>Right-click the worktree in the sidebar, or open its <strong>···</strong> menu, and click <strong>Delete worktree…</strong>. The confirm names the folder it deletes and the terminals it closes, and warns how many uncommitted files and how many commits on no other branch would be lost.</p>
 				<ul>
 					<li><strong>Also delete branch</strong> removes the local branch too. <code>main</code>, <code>master</code> and a detached HEAD never go, and remote branches are never deleted.</li>
 					<li>The project's main worktree can't be deleted.</li>
-					<li>When you merge a pull request from Anywhere's pull request card, <strong>Delete the worktree after merging</strong> (on by default) removes the worktree once the merge lands and keeps the branch. A merged pull request whose worktree is still there offers <strong>Keep</strong> or <strong>Delete worktree</strong>. If the worktree has uncommitted files, Anywhere asks first.</li>
+					<li>When you merge a pull request from Zoes's pull request card, <strong>Delete the worktree after merging</strong> (on by default) removes the worktree once the merge lands and keeps the branch. A merged pull request whose worktree is still there offers <strong>Keep</strong> or <strong>Delete worktree</strong>. If the worktree has uncommitted files, Zoes asks first.</li>
 				</ul>
 
 				<h3>Teardown before the folder goes</h3>
-				<p>Before it removes a worktree, Anywhere runs a teardown, the first it finds of: <strong>When one is deleted</strong> in the project's settings, the <code>teardown</code> list in <code>.anywhere/config.json</code>, or <code>.anywhere/teardown.sh</code>. It runs in the worktree folder, so a <code>docker compose down</code> still finds its files. It gets <code>ANYWHERE_ROOT_PATH</code>, <code>ANYWHERE_WORKSPACE_PATH</code> and <code>ANYWHERE_WORKSPACE_NAME</code>. If it fails, Anywhere shows <strong>Couldn't tear down &lt;name&gt;</strong> with the end of its output and a <strong>Delete anyway</strong> button.</p>
+				<p>Before it removes a worktree, Zoes runs a teardown, the first it finds of: <strong>When one is deleted</strong> in the project's settings, the <code>teardown</code> list in <code>.zoes/config.json</code>, or <code>.zoes/teardown.sh</code>. It runs in the worktree folder, so a <code>docker compose down</code> still finds its files. It gets <code>ZOES_ROOT_PATH</code>, <code>ZOES_WORKSPACE_PATH</code> and <code>ZOES_WORKSPACE_NAME</code>. If it fails, Zoes shows <strong>Couldn't tear down &lt;name&gt;</strong> with the end of its output and a <strong>Delete anyway</strong> button.</p>
 				<p>Settings › <strong>Projects</strong> › <strong>Deleting a worktree</strong> holds three settings:</p>
 				<ul>
 					<li><strong>Also delete its branch</strong>, for the local branch only.</li>
@@ -163,17 +163,17 @@ git worktree list --porcelain   # one field per line, with branch and lock state
 				<p>If git has worktrees of the project that the sidebar doesn't list, such as ones an agent made on its own, the project's menu offers <strong>Import <var>n</var> worktrees</strong>. A worktree you delete outside the app is forgotten once both git and the disk have lost it.</p>
 
 				<h3>Making each worktree cheaper</h3>
-				<p>Setup commands in <code>.anywhere/config.json</code> or <code>.anywhere/setup.sh</code> run when Anywhere makes a worktree, and teardown runs when it deletes one:</p>
+				<p>Setup commands in <code>.zoes/config.json</code> or <code>.zoes/setup.sh</code> run when Zoes makes a worktree, and teardown runs when it deletes one:</p>
 				<pre><code is:raw>{
 	"setup": ["pnpm install"],
 	"teardown": ["docker compose down"]
 }</code></pre>
-				<p>Anywhere's own repository uses a <a href="https://github.com/mingo023/anywhere/blob/main/.anywhere/setup.sh"><code>.anywhere/setup.sh</code></a> that clones <code>target/</code> with APFS copy-on-write (<code>cp -c</code>) and symlinks the gitignored <code>third_party/</code>, so a new worktree doesn't rebuild every dependency.</p>
-				<p>What Anywhere doesn't do: it doesn't measure disk use, and it doesn't delete worktrees by age or count. For that, use the commands above. The full reference is <a href="/docs/worktrees">Start an agent in a new worktree</a>.</p>
+				<p>Zoes's own repository uses a <a href="https://github.com/mingo023/anywhere/blob/main/.anywhere/setup.sh"><code>.anywhere/setup.sh</code></a> that clones <code>target/</code> with APFS copy-on-write (<code>cp -c</code>) and symlinks the gitignored <code>third_party/</code>, so a new worktree doesn't rebuild every dependency.</p>
+				<p>What Zoes doesn't do: it doesn't measure disk use, and it doesn't delete worktrees by age or count. For that, use the commands above. The full reference is <a href="/docs/worktrees">Start an agent in a new worktree</a>.</p>
 
 				<div class="cta">
-					<p>Anywhere is free and MIT licensed, and runs the Claude Code and Codex you already have.</p>
-					<a class="button primary" href="https://github.com/mingo023/anywhere">Star Anywhere on GitHub</a>
+					<p>Zoes is free and MIT licensed, and runs the Claude Code and Codex you already have.</p>
+					<a class="button primary" href="https://github.com/mingo023/anywhere">Star Zoes on GitHub</a>
 					<a class="button" href="https://github.com/mingo023/anywhere/releases/latest">Download for Mac</a>
 				</div>
 
@@ -188,7 +188,7 @@ git worktree list --porcelain   # one field per line, with branch and lock state
 					<h3>How many worktrees does Codex keep?</h3>
 					<p>The Codex app keeps the 15 most recent worktrees it manages by default. You can change the limit or turn cleanup off in its settings. It doesn't delete a worktree that a pinned or running chat uses, or a permanent worktree, and it saves a snapshot before it deletes one.</p>
 					<h3>Will deleting a worktree delete my branch?</h3>
-					<p>With git, no: git worktree remove leaves the branch, and you delete it with git branch -d. In Anywhere, only if you select Also delete branch, and even then main, master and remote branches stay.</p>
+					<p>With git, no: git worktree remove leaves the branch, and you delete it with git branch -d. In Zoes, only if you select Also delete branch, and even then main, master and remote branches stay.</p>
 				</section>
 			</article>
 			<nav class="pager" aria-label="Previous and next">

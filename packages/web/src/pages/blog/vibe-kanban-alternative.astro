@@ -1,42 +1,42 @@
 ---
 import Blog from "../../layouts/Blog.astro";
 ---
-<Blog title="Vibe Kanban alternative: a local Board – Anywhere, coding agent workspace" description="Vibe Kanban is community maintained and runs locally. A free MIT app whose Board starts each ticket in its own git worktree is Anywhere." path="/blog/vibe-kanban-alternative" article={{author: "Minh Ngo", published: "2026-11-21", modified: "2026-11-21"}}>
+<Blog title="Vibe Kanban alternative: a local Board – Zoes, coding agent workspace" description="Vibe Kanban is community maintained and runs locally. A free MIT app whose Board starts each ticket in its own git worktree is Zoes." path="/blog/vibe-kanban-alternative" article={{author: "Minh Ngo", published: "2026-11-21", modified: "2026-11-21"}}>
 	<script is:inline slot="head" type="application/ld+json">
 {
 	"@context": "https://schema.org",
 	"@graph": [
 		{
 			"@type": "BlogPosting",
-			"@id": "https://getanywhere.dev/blog/vibe-kanban-alternative#article",
+			"@id": "https://zoes.dev/blog/vibe-kanban-alternative#article",
 			"headline": "Vibe Kanban alternative: a local Board for coding agents",
-			"description": "Vibe Kanban is community maintained and runs locally. A free MIT app whose Board starts each ticket in its own git worktree is Anywhere.",
+			"description": "Vibe Kanban is community maintained and runs locally. A free MIT app whose Board starts each ticket in its own git worktree is Zoes.",
 			"datePublished": "2026-11-21",
 			"dateModified": "2026-11-21",
 			"inLanguage": "en",
-			"keywords": "vibe kanban alternative, vibe kanban sunset, vibe kanban replacement, kanban for coding agents, anywhere vs vibe kanban",
+			"keywords": "vibe kanban alternative, vibe kanban sunset, vibe kanban replacement, kanban for coding agents, zoes vs vibe kanban",
 			"author": { "@type": "Person", "name": "Minh Ngo" },
-			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
-			"image": "https://getanywhere.dev/assets/og.png",
-			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/blog/vibe-kanban-alternative" },
-			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+			"publisher": { "@type": "Organization", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/", "logo": { "@type": "ImageObject", "url": "https://zoes.dev/assets/icon.png" } },
+			"image": "https://zoes.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://zoes.dev/blog/vibe-kanban-alternative" },
+			"about": { "@type": "SoftwareApplication", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/" }
 		},
 		{
 			"@type": "FAQPage",
 			"mainEntity": [
-				{ "@type": "Question", "name": "What is a good Vibe Kanban alternative?", "acceptedAnswer": { "@type": "Answer", "text": "First check whether you need one: Vibe Kanban is open source, community maintained and still released, and its local workspaces keep working. If you want a native desktop app instead, Anywhere is a free, MIT-licensed option with a Board where each started ticket gets its own git worktree and agent session. It has no web UI, inline diff comments or preview browser." } },
+				{ "@type": "Question", "name": "What is a good Vibe Kanban alternative?", "acceptedAnswer": { "@type": "Answer", "text": "First check whether you need one: Vibe Kanban is open source, community maintained and still released, and its local workspaces keep working. If you want a native desktop app instead, Zoes is a free, MIT-licensed option with a Board where each started ticket gets its own git worktree and agent session. It has no web UI, inline diff comments or preview browser." } },
 				{ "@type": "Question", "name": "Is Vibe Kanban still maintained?", "acceptedAnswer": { "@type": "Answer", "text": "Yes, by its community. bloop, the company behind it, shut down on 10 April 2026 and said the project will live on, open source and community maintained. Remote services such as kanban issues, comments, projects and organisations were removed after 30 days, and local workspaces keep working. Version 0.1.46 was published on GitHub on 15 November 2026." } },
-				{ "@type": "Question", "name": "Does Anywhere have a kanban board for coding agents?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. The Board holds tickets for every project. A ticket has a title, a prompt, an agent, a project and a base branch, and optionally a priority and a label. A started ticket waits in Queued until a slot is free, then gets its own worktree and session. It runs up to 4 tickets at once by default, adjustable from 1 to 8." } },
-				{ "@type": "Question", "name": "Which agents does Anywhere support?", "acceptedAnswer": { "@type": "Answer", "text": "Ten agent CLIs that you install and sign in to yourself: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. A ticket can use any of them." } },
-				{ "@type": "Question", "name": "Is Anywhere free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Anywhere is MIT licensed, with no account, no cloud tier and no premium tier. It runs the agent CLIs you already use." } }
+				{ "@type": "Question", "name": "Does Zoes have a kanban board for coding agents?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. The Board holds tickets for every project. A ticket has a title, a prompt, an agent, a project and a base branch, and optionally a priority and a label. A started ticket waits in Queued until a slot is free, then gets its own worktree and session. It runs up to 4 tickets at once by default, adjustable from 1 to 8." } },
+				{ "@type": "Question", "name": "Which agents does Zoes support?", "acceptedAnswer": { "@type": "Answer", "text": "Ten agent CLIs that you install and sign in to yourself: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. A ticket can use any of them." } },
+				{ "@type": "Question", "name": "Is Zoes free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Zoes is MIT licensed, with no account, no cloud tier and no premium tier. It runs the agent CLIs you already use." } }
 			]
 		},
 		{
 			"@type": "BreadcrumbList",
 			"itemListElement": [
-				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
-				{ "@type": "ListItem", "position": 2, "name": "Blog", "item": "https://getanywhere.dev/blog/" },
-				{ "@type": "ListItem", "position": 3, "name": "Vibe Kanban alternative: a local Board for coding agents", "item": "https://getanywhere.dev/blog/vibe-kanban-alternative" }
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://zoes.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Blog", "item": "https://zoes.dev/blog/" },
+				{ "@type": "ListItem", "position": 3, "name": "Vibe Kanban alternative: a local Board for coding agents", "item": "https://zoes.dev/blog/vibe-kanban-alternative" }
 			]
 		}
 	]
@@ -48,9 +48,9 @@ import Blog from "../../layouts/Blog.astro";
 				<p class="eyebrow"><a href="/blog/">Blog</a> · Comparison</p>
 				<h1>Vibe Kanban alternative: a local Board for coding agents</h1>
 				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-21">21 November 2026</time> · Updated <time datetime="2026-11-21">21 November 2026</time></div>
-				<p class="lede">You may not need one: Vibe Kanban is open source, community maintained and still released, and its local workspaces keep working after the company behind it shut down. If you want a native desktop app instead, Anywhere is one option: free, MIT licensed, no account, with a Board where each started ticket gets its own git worktree and agent session. It lacks some things Vibe Kanban has, such as a web UI, inline diff comments and a preview browser.</p>
+				<p class="lede">You may not need one: Vibe Kanban is open source, community maintained and still released, and its local workspaces keep working after the company behind it shut down. If you want a native desktop app instead, Zoes is one option: free, MIT licensed, no account, with a Board where each started ticket gets its own git worktree and agent session. It lacks some things Vibe Kanban has, such as a web UI, inline diff comments and a preview browser.</p>
 				<div class="callout">
-					<p><span class="callout-title">Disclosure</span>The Anywhere team wrote this. Vibe Kanban facts come from its <a href="https://github.com/BloopAI/vibe-kanban">GitHub README</a>, <a href="https://github.com/BloopAI/vibe-kanban/releases">releases</a>, <a href="https://vibekanban.com/docs/getting-started">docs</a> and <a href="https://vibekanban.com/blog/shutdown">shutdown post</a>, checked on 21 November 2026. If something here is out of date, <a href="https://github.com/mingo023/anywhere/issues">open an issue</a>.</p>
+					<p><span class="callout-title">Disclosure</span>The Zoes team wrote this. Vibe Kanban facts come from its <a href="https://github.com/BloopAI/vibe-kanban">GitHub README</a>, <a href="https://github.com/BloopAI/vibe-kanban/releases">releases</a>, <a href="https://vibekanban.com/docs/getting-started">docs</a> and <a href="https://vibekanban.com/blog/shutdown">shutdown post</a>, checked on 21 November 2026. If something here is out of date, <a href="https://github.com/mingo023/anywhere/issues">open an issue</a>.</p>
 				</div>
 
 				<h2 id="what-happened">What happened to Vibe Kanban?</h2>
@@ -69,8 +69,8 @@ import Blog from "../../layouts/Blog.astro";
 					<li><strong>Review.</strong> The diff next to the session that made it, and a path to a pull request and a merge.</li>
 				</ul>
 
-				<h2 id="anywhere-board">How does Anywhere's Board work?</h2>
-				<p>Anywhere is a desktop app for running many coding agents at once. A background service, pocketd, owns the terminals and sessions, and it runs the Board. The <a href="/docs/board">Board</a> holds tickets for every project in one place.</p>
+				<h2 id="anywhere-board">How does Zoes's Board work?</h2>
+				<p>Zoes is a desktop app for running many coding agents at once. A background service, pocketd, owns the terminals and sessions, and it runs the Board. The <a href="/docs/board">Board</a> holds tickets for every project in one place.</p>
 
 				<h3>Write a ticket</h3>
 				<p>Click <strong>Board</strong> in the sidebar, then the composer, or press <kbd>N</kbd>. The first line you type becomes the title and the whole text becomes the prompt. Chips set the project, the agent, the base branch, and optionally a priority and a label. Only git repositories can hold tickets.</p>
@@ -86,19 +86,19 @@ import Blog from "../../layouts/Blog.astro";
 				<p>Review happens beside the session: <a href="/docs/review">Changes</a> shows the diff, can compare the worktree with its base branch as a pull request would, and commits, pushes and opens the pull request. The pull request card shows checks, reviews and merge state, and its <strong>Send</strong> buttons hand a failed check or a GitHub review comment to the agent.</p>
 
 				<h2 id="cli">Can you add tickets from the command line?</h2>
-				<p>Yes. The <a href="/docs/cli"><code>anywhere</code> command</a> adds, reads, edits and deletes Board tickets:</p>
-				<pre><code>anywhere ticket create --project app --provider codex --base main --start "Fix the flaky login test"
-anywhere ticket list
-anywhere ticket read &lt;id&gt;
-anywhere ticket update --prompt "Also cover the logout path" &lt;id&gt;
-anywhere ticket delete &lt;id&gt;</code></pre>
+				<p>Yes. The <a href="/docs/cli"><code>zoes</code> command</a> adds, reads, edits and deletes Board tickets:</p>
+				<pre><code>zoes ticket create --project app --provider codex --base main --start "Fix the flaky login test"
+zoes ticket list
+zoes ticket read &lt;id&gt;
+zoes ticket update --prompt "Also cover the logout path" &lt;id&gt;
+zoes ticket delete &lt;id&gt;</code></pre>
 				<p><code>--start</code> starts the ticket at once; it waits in Queued until a slot is free. Pass <code>-</code> as the prompt to read it from standard input. The command has no flags for priority or label; set those on the Board. On the Mac, install the command from <strong>Settings › General</strong>. For scripting sessions as well as tickets, see <a href="/blog/script-claude-code-codex-from-cli">Script coding agents from your shell</a>.</p>
 
-				<h2 id="side-by-side">How do Vibe Kanban and Anywhere compare?</h2>
+				<h2 id="side-by-side">How do Vibe Kanban and Zoes compare?</h2>
 				<div class="table-wrap">
 				<table>
 					<thead>
-						<tr><th></th><th>Anywhere</th><th>Vibe Kanban</th></tr>
+						<tr><th></th><th>Zoes</th><th>Vibe Kanban</th></tr>
 					</thead>
 					<tbody>
 						<tr><td>Install</td><td>Download the macOS app (macOS 13 or later). Linux and Windows builds exist. Install and sign in to each agent CLI yourself</td><td><code>npx vibe-kanban</code>, after signing in to your coding agent</td></tr>
@@ -120,7 +120,7 @@ anywhere ticket delete &lt;id&gt;</code></pre>
 
 				<div class="cta">
 					<p>Read the source, then try the Board on your own repository.</p>
-					<a class="button primary" href="https://github.com/mingo023/anywhere">Star Anywhere on GitHub</a>
+					<a class="button primary" href="https://github.com/mingo023/anywhere">Star Zoes on GitHub</a>
 					<a class="button" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download for Mac</a>
 				</div>
 
@@ -132,7 +132,7 @@ anywhere ticket delete &lt;id&gt;</code></pre>
 						<li><a href="https://vibekanban.com/docs/reviewing-code">Inline comments on diff lines</a> sent back to the agent.</li>
 						<li>A <a href="https://vibekanban.com/docs/browser-testing">built-in preview browser</a> with devtools and device modes.</li>
 						<li>Workspaces that span <a href="https://vibekanban.com/docs/workspaces">several repositories</a>.</li>
-						<li>Agents Anywhere doesn't run, such as Gemini CLI, GitHub Copilot, Amp, Droid or Qwen Code (<a href="https://vibekanban.com/docs/supported-coding-agents">supported agents</a>).</li>
+						<li>Agents Zoes doesn't run, such as Gemini CLI, GitHub Copilot, Amp, Droid or Qwen Code (<a href="https://vibekanban.com/docs/supported-coding-agents">supported agents</a>).</li>
 						<li><a href="https://vibekanban.com/docs/remote-access">Remote access</a> from another device, or a <a href="https://vibekanban.com/docs/self-hosting/deploy-docker">self-hosted</a> instance.</li>
 						<li>To keep a setup that already works. Its local workspaces still run.</li>
 					</ul>
@@ -141,24 +141,24 @@ anywhere ticket delete &lt;id&gt;</code></pre>
 				<h2 id="moving-over">How do you move a workflow over?</h2>
 				<ol>
 					<li>Install and sign in to your agent CLIs, for example <code>claude auth login</code> or <code>codex login</code>. The full list is in <a href="/docs/agents">Supported agents</a>.</li>
-					<li>Install Anywhere and add each repository as a project.</li>
-					<li>Move setup scripts, such as <code>npm install</code>, into <code>.anywhere/config.json</code> or <code>.anywhere/setup.sh</code>, so new <a href="/docs/worktrees">worktrees</a> are ready before the agent starts.</li>
-					<li>Recreate open issues as tickets. There is no importer, so add them on the Board or with <code>anywhere ticket create</code>.</li>
+					<li>Install Zoes and add each repository as a project.</li>
+					<li>Move setup scripts, such as <code>npm install</code>, into <code>.zoes/config.json</code> or <code>.zoes/setup.sh</code>, so new <a href="/docs/worktrees">worktrees</a> are ready before the agent starts.</li>
+					<li>Recreate open issues as tickets. There is no importer, so add them on the Board or with <code>zoes ticket create</code>.</li>
 				</ol>
-				<p>For the wider field, see <a href="/blog/best-tools-run-multiple-coding-agents">the best tools to run multiple coding agents in parallel</a> and <a href="/blog/conductor-alternative">Anywhere vs Conductor</a>.</p>
+				<p>For the wider field, see <a href="/blog/best-tools-run-multiple-coding-agents">the best tools to run multiple coding agents in parallel</a> and <a href="/blog/conductor-alternative">Zoes vs Conductor</a>.</p>
 
 				<section class="faq" aria-labelledby="faq">
 					<h2 id="faq">FAQ</h2>
 					<h3>What is a good Vibe Kanban alternative?</h3>
-					<p>First check whether you need one: Vibe Kanban is open source, community maintained and still released, and its local workspaces keep working. If you want a native desktop app instead, Anywhere is a free, MIT-licensed option with a Board where each started ticket gets its own git worktree and agent session. It has no web UI, inline diff comments or preview browser.</p>
+					<p>First check whether you need one: Vibe Kanban is open source, community maintained and still released, and its local workspaces keep working. If you want a native desktop app instead, Zoes is a free, MIT-licensed option with a Board where each started ticket gets its own git worktree and agent session. It has no web UI, inline diff comments or preview browser.</p>
 					<h3>Is Vibe Kanban still maintained?</h3>
 					<p>Yes, by its community. bloop, the company behind it, shut down on 10 April 2026 and said the project will live on, open source and community maintained. Remote services such as kanban issues, comments, projects and organisations were removed after 30 days, and local workspaces keep working. Version 0.1.46 was published on GitHub on 15 November 2026.</p>
-					<h3>Does Anywhere have a kanban board for coding agents?</h3>
+					<h3>Does Zoes have a kanban board for coding agents?</h3>
 					<p>Yes. The Board holds tickets for every project. A ticket has a title, a prompt, an agent, a project and a base branch, and optionally a priority and a label. A started ticket waits in Queued until a slot is free, then gets its own worktree and session. It runs up to 4 tickets at once by default, adjustable from 1 to 8.</p>
-					<h3>Which agents does Anywhere support?</h3>
+					<h3>Which agents does Zoes support?</h3>
 					<p>Ten agent CLIs that you install and sign in to yourself: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. A ticket can use any of them.</p>
-					<h3>Is Anywhere free?</h3>
-					<p>Yes. Anywhere is MIT licensed, with no account, no cloud tier and no premium tier. It runs the agent CLIs you already use.</p>
+					<h3>Is Zoes free?</h3>
+					<p>Yes. Zoes is MIT licensed, with no account, no cloud tier and no premium tier. It runs the agent CLIs you already use.</p>
 				</section>
 			</article>
 			<nav class="pager" aria-label="Previous and next">

@@ -1,27 +1,27 @@
 ---
 import Docs from "../../layouts/Docs.astro";
 ---
-<Docs title="Run your first agent – Anywhere, coding agent workspace" description="Install Anywhere, start Claude Code on a project, watch its status, and review what it changed." path="/docs/">
+<Docs title="Run your first agent – Zoes, coding agent workspace" description="Install Zoes, start Claude Code on a project, watch its status, and review what it changed." path="/docs/">
 	<script is:inline slot="head" type="application/ld+json">
 {
 	"@context": "https://schema.org",
 	"@graph": [
 		{
 			"@type": "TechArticle",
-			"@id": "https://getanywhere.dev/docs/#article",
-			"headline": "Run your first agent in Anywhere",
-			"description": "Install Anywhere, start Claude Code on a project, watch its status, and review what it changed.",
+			"@id": "https://zoes.dev/docs/#article",
+			"headline": "Run your first agent in Zoes",
+			"description": "Install Zoes, start Claude Code on a project, watch its status, and review what it changed.",
 			"inLanguage": "en",
-			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
-			"image": "https://getanywhere.dev/assets/og.png",
-			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/docs/" },
-			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+			"publisher": { "@type": "Organization", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/", "logo": { "@type": "ImageObject", "url": "https://zoes.dev/assets/icon.png" } },
+			"image": "https://zoes.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://zoes.dev/docs/" },
+			"about": { "@type": "SoftwareApplication", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/" }
 		},
 		{
 			"@type": "BreadcrumbList",
 			"itemListElement": [
-				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
-				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://getanywhere.dev/docs/" }
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://zoes.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://zoes.dev/docs/" }
 			]
 		}
 	]
@@ -29,28 +29,28 @@ import Docs from "../../layouts/Docs.astro";
 	</script>
 			<article>
 				<p class="eyebrow">Tutorial</p>
-				<h1>Run your first agent in Anywhere</h1>
-				<p class="lede">In this tutorial, we install Anywhere on a Mac, start Claude Code on one of your git repositories, watch it work, and review and commit the change it makes.</p>
-				<p>You need a Mac with macOS 13 or later and a git repository on it. On Linux or Windows, follow <a href="/docs/install">Install Anywhere</a> for the first step, then continue here.</p>
+				<h1>Run your first agent in Zoes</h1>
+				<p class="lede">In this tutorial, we install Zoes on a Mac, start Claude Code on one of your git repositories, watch it work, and review and commit the change it makes.</p>
+				<p>You need a Mac with macOS 13 or later and a git repository on it. On Linux or Windows, follow <a href="/docs/install">Install Zoes</a> for the first step, then continue here.</p>
 
-				<h2 id="install-anywhere">Install Anywhere</h2>
+				<h2 id="install-anywhere">Install Zoes</h2>
 				<ol>
 					<li>Download <a href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Anywhere.dmg</a>.</li>
-					<li>Open the file and drag <strong>Anywhere</strong> to <strong>Applications</strong>.</li>
+					<li>Open the file and drag <strong>Zoes</strong> to <strong>Applications</strong>.</li>
 				</ol>
-				<p>Don't open Anywhere yet. We install an agent first, so Anywhere finds it on first launch.</p>
+				<p>Don't open Zoes yet. We install an agent first, so Zoes finds it on first launch.</p>
 
 				<h2 id="install-claude-code-and-sign-in">Install Claude Code and sign in</h2>
-				<p>Anywhere runs the agent command line tools that it finds on your Mac. We use Claude Code in this tutorial. If Claude Code is already installed and signed in, open Anywhere and go to the next step.</p>
+				<p>Zoes runs the agent command line tools that it finds on your Mac. We use Claude Code in this tutorial. If Claude Code is already installed and signed in, open Zoes and go to the next step.</p>
 				<ol>
 					<li>Install Claude Code with the instructions on <a href="https://claude.com/product/claude-code">the Claude Code page</a>.</li>
 					<li>In Terminal, sign in:
 				<pre><code>claude auth login</code></pre>
 					</li>
-					<li>Open Anywhere from <strong>Applications</strong>.</li>
+					<li>Open Zoes from <strong>Applications</strong>.</li>
 				</ol>
-				<p>The Anywhere window opens with the sidebar on the left. On first launch, the app registers its background service, pocketd, as a login item. pocketd runs the agents, so they keep working after you close the window.</p>
-				<p>To confirm that Anywhere found Claude Code, open Settings with <kbd>⌘,</kbd> and select <strong>Agents</strong>. Claude Code is in the <strong>Providers</strong> list. If you see <code>Claude Code not found</code> instead, check that <code>claude</code> runs in a new Terminal window, then restart Anywhere.</p>
+				<p>The Zoes window opens with the sidebar on the left. On first launch, the app registers its background service, pocketd, as a login item. pocketd runs the agents, so they keep working after you close the window.</p>
+				<p>To confirm that Zoes found Claude Code, open Settings with <kbd>⌘,</kbd> and select <strong>Agents</strong>. Claude Code is in the <strong>Providers</strong> list. If you see <code>Claude Code not found</code> instead, check that <code>claude</code> runs in a new Terminal window, then restart Zoes.</p>
 				<p>To use another agent, see <a href="/docs/agents">Supported agents</a>.</p>
 
 				<h2 id="add-a-project">Add a project</h2>
@@ -75,7 +75,7 @@ import Docs from "../../layouts/Docs.astro";
 				<h2 id="watch-its-status">Watch its status</h2>
 				<p>The session's row in the sidebar shows its status. While Claude Code runs a turn, the row shows a spinner. That status is <span class="status working">Working</span>.</p>
 				<p>If Claude Code asks for permission, for example to run a command, the status changes to <span class="status needs-you">Needs you</span>. The row shows an amber dot, and the session goes into the Inbox. Answer in the chat to let it continue.</p>
-				<p>Now switch to another app and wait for the turn to end. When it ends, Anywhere shows a banner, and the row shows a green dot and its title in bold. That status is <span class="status done">Done</span>. It means that a turn ended and nobody has seen it yet. If you watch the chat while the turn ends, the session goes straight to Idle instead.</p>
+				<p>Now switch to another app and wait for the turn to end. When it ends, Zoes shows a banner, and the row shows a green dot and its title in bold. That status is <span class="status done">Done</span>. It means that a turn ended and nobody has seen it yet. If you watch the chat while the turn ends, the session goes straight to Idle instead.</p>
 				<p>Click the bell at the top of the sidebar to open the <strong>Inbox</strong>. It lists the sessions that need you, and the Done and Failed ones you haven't seen. For every status and where it shows, see <a href="/docs/sessions">Sessions and status</a>.</p>
 
 				<h2 id="review-its-changes">Review its changes</h2>
@@ -84,7 +84,7 @@ import Docs from "../../layouts/Docs.astro";
 					<li>Under <strong>Changes</strong>, click <code>README.md</code>. Its diff opens.</li>
 					<li>Read the diff. If you want a different result, ask Claude Code for changes in the chat.</li>
 					<li>In the commit box, type a message, such as <code>Explain how to run the tests</code>.</li>
-					<li>Click <strong>Commit All</strong>, or press <kbd>⌘↩</kbd>. With nothing staged, Anywhere commits every changed file.</li>
+					<li>Click <strong>Commit All</strong>, or press <kbd>⌘↩</kbd>. With nothing staged, Zoes commits every changed file.</li>
 				</ol>
 				<p>The file leaves the list, and the panel shows <strong>No changes.</strong> You have run an agent, followed its status, and committed its work.</p>
 
@@ -92,12 +92,12 @@ import Docs from "../../layouts/Docs.astro";
 				<ul>
 					<li><a href="/docs/worktrees">Start an agent in a new worktree</a>, so several agents work at once without touching your branch.</li>
 					<li><a href="/docs/review">Review and commit an agent's changes</a>, including pull requests.</li>
-					<li><a href="/docs/install#install-the-anywhere-command">Install the <code>anywhere</code> command</a> to start sessions from scripts.</li>
-					<li><a href="/docs/architecture">About how Anywhere runs on your machines</a>.</li>
+					<li><a href="/docs/install#install-the-anywhere-command">Install the <code>zoes</code> command</a> to start sessions from scripts.</li>
+					<li><a href="/docs/architecture">About how Zoes runs on your machines</a>.</li>
 				</ul>
 				<p>Longer guides are on the blog: <a href="/blog/run-multiple-claude-code-agents-in-parallel">run several Claude Code agents in parallel</a>, <a href="/blog/run-multiple-codex-agents-git-worktrees">run several Codex agents in git worktrees</a>, and <a href="/blog/script-claude-code-codex-from-cli">script agents from your shell</a>.</p>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="next" href="/docs/install"><span>Next</span>Install Anywhere</a>
+				<a class="next" href="/docs/install"><span>Next</span>Install Zoes</a>
 			</nav>
 </Docs>

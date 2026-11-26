@@ -1,28 +1,28 @@
 ---
 import Docs from "../../layouts/Docs.astro";
 ---
-<Docs title="Pair an iPhone – Anywhere, coding agent workspace" description="Pair the Anywhere iPhone app with your Mac over Tailscale and get push notifications." path="/docs/iphone">
+<Docs title="Pair an iPhone – Zoes, coding agent workspace" description="Pair the Zoes iPhone app with your Mac over Tailscale and get push notifications." path="/docs/iphone">
 	<script is:inline slot="head" type="application/ld+json">
 {
 	"@context": "https://schema.org",
 	"@graph": [
 		{
 			"@type": "TechArticle",
-			"@id": "https://getanywhere.dev/docs/iphone#article",
+			"@id": "https://zoes.dev/docs/iphone#article",
 			"headline": "Pair an iPhone",
-			"description": "Pair the Anywhere iPhone app with your Mac over Tailscale and get push notifications.",
+			"description": "Pair the Zoes iPhone app with your Mac over Tailscale and get push notifications.",
 			"inLanguage": "en",
-			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
-			"image": "https://getanywhere.dev/assets/og.png",
-			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/docs/iphone" },
-			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+			"publisher": { "@type": "Organization", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/", "logo": { "@type": "ImageObject", "url": "https://zoes.dev/assets/icon.png" } },
+			"image": "https://zoes.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://zoes.dev/docs/iphone" },
+			"about": { "@type": "SoftwareApplication", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/" }
 		},
 		{
 			"@type": "BreadcrumbList",
 			"itemListElement": [
-				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
-				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://getanywhere.dev/docs/" },
-				{ "@type": "ListItem", "position": 3, "name": "Pair an iPhone", "item": "https://getanywhere.dev/docs/iphone" }
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://zoes.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://zoes.dev/docs/" },
+				{ "@type": "ListItem", "position": 3, "name": "Pair an iPhone", "item": "https://zoes.dev/docs/iphone" }
 			]
 		}
 	]
@@ -31,7 +31,7 @@ import Docs from "../../layouts/Docs.astro";
 			<article>
 				<p class="eyebrow">How-to guide</p>
 				<h1>Pair an iPhone <span class="badge-soon">Coming soon</span></h1>
-				<p class="lede">The Anywhere iPhone app shows your sessions, lets you answer agents that need you, and sends push notifications. It connects straight to the Mac over Tailscale.</p>
+				<p class="lede">The Zoes iPhone app shows your sessions, lets you answer agents that need you, and sends push notifications. It connects straight to the Mac over Tailscale.</p>
 				<div class="callout warning">
 					<p><span class="callout-title">Coming soon</span>The iPhone app isn't publicly available yet. This page describes how pairing works so you are ready when it is.</p>
 				</div>
@@ -46,7 +46,7 @@ import Docs from "../../layouts/Docs.astro";
 				<ol>
 					<li>On the Mac, open Settings with <kbd>⌘,</kbd> and select <strong>Phone &amp; Remote</strong>.</li>
 					<li>Click <strong>Pair a phone</strong>. The <strong>Pair phone</strong> dialog shows a QR code and a code. Both expire after 5 minutes.</li>
-					<li>On the iPhone, open the Anywhere app and tap <strong>Scan pairing code</strong>. Point the camera at the QR code.</li>
+					<li>On the iPhone, open the Zoes app and tap <strong>Scan pairing code</strong>. Point the camera at the QR code.</li>
 					<li>Confirm the pairing on the iPhone.</li>
 				</ol>
 				<p>The Mac's dialog says <strong>Paired</strong> and closes. The phone shows in the <strong>Paired phones</strong> list.</p>
@@ -64,7 +64,7 @@ import Docs from "../../layouts/Docs.astro";
 
 				<h2 id="get-push-notifications">Get push notifications</h2>
 				<p>The iPhone can get a notification when a session needs you, fails, or is done, and when an automation run ends. Turn each kind on or off in the app's notification settings.</p>
-				<p>Notifications go from pocketd through the Anywhere push relay at <code>https://push.getanywhere.dev</code> to Apple. pocketd encrypts each alert so only your phone can read it. The relay stores no device tokens: the phone gives pocketd a sealed handle that only the relay can open. Live Activity updates are the exception: they pass through Apple unencrypted.</p>
+				<p>Notifications go from pocketd through the Zoes push relay at <code>https://push.getanywhere.dev</code> to Apple. pocketd encrypts each alert so only your phone can read it. The relay stores no device tokens: the phone gives pocketd a sealed handle that only the relay can open. Live Activity updates are the exception: they pass through Apple unencrypted.</p>
 				<p>To send pocketd's pushes through a relay you run yourself, see <a href="/docs/architecture#the-push-relay">The push relay</a>.</p>
 
 				<h2 id="remove-a-phone">Remove a phone</h2>

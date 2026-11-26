@@ -109,7 +109,7 @@ const hostLine = (h) => {
   const link = {
     online: `Connected · version ${h.version} · up ${h.up}`,
     connecting: 'Connecting…',
-    stopped: `Anywhere is stopped on ${h.name}. Trying again…`,
+    stopped: `Zoes is stopped on ${h.name}. Trying again…`,
   }[h.link];
   return h.where ? `${h.where} · ${link}` : link;
 };
@@ -288,7 +288,7 @@ function dialog() {
   if (!confirm) return '';
   const h = hosts.find((x) => x.id === confirm);
   return `<div class="sscrim"><div class="sdlg"><b>Remove ${esc(h.name)}?</b>
-    <ul><li>It disconnects now</li><li>Projects and files on ${esc(h.name)} aren't touched</li><li>Uninstall and remove also stops Anywhere's service there</li></ul>
+    <ul><li>It disconnects now</li><li>Projects and files on ${esc(h.name)} aren't touched</li><li>Uninstall and remove also stops Zoes's service there</li></ul>
     <div class="dbtn"><button class="hbtn danger" data-act="rm-go" data-v="${h.id}">Remove from this Mac</button><button class="hbtn danger" data-act="rm-go" data-v="${h.id}">Uninstall and remove</button><button class="hbtn scnd" data-act="rm-no">Cancel</button></div></div></div>`;
 }
 
