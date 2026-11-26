@@ -150,8 +150,8 @@ func (e *Engine) Dispatch(cmd Command) (Receipt, error) {
 	if cmd.Kind == CmdDelegateStarted && len(d.Delegations) == 1 {
 		e.catchUp(d.Delegations[0].ChildID)
 	}
-	// A turn's end left its task to the queued prompt, which the child refused.
-	if cmd.Kind == CmdQueueUnsent {
+	// A turn's end left its task to the queued prompt, which the child refused or which started no turn.
+	if cmd.Kind == CmdQueueUnsent || cmd.Kind == CmdQueueSent && startedNoTurn(cmd) {
 		e.catchUp(cmd.Session)
 	}
 	for _, ev := range d.Events {
@@ -360,6 +360,14 @@ func putDelegation(tx *Tx, t Delegation) error {
 		t.TaskID, t.ParentID, t.ParentTurn, t.ChildID, t.Title, t.Role, t.Agent, t.Model, t.Effort, t.Brief, t.Isolation, t.Mode, t.Status, t.WorkState, t.Summary, t.Error, t.Access, t.SteppedDown,
 		t.CompletionWake, t.Delivery, t.PendingQuestion, t.ClientRequestID, t.Environment, t.HostProject, t.CreatedAt, t.SettledAt)
 	return err
+}
+
+func startedNoTurn(cmd Command) bool {
+	var p struct {
+		Turnless bool `json:"turnless"`
+	}
+	json.Unmarshal(cmd.Payload, &p)
+	return p.Turnless
 }
 
 type peek struct {

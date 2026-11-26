@@ -115,7 +115,13 @@ func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
 	case orch.EffTurnStart:
 		var p orch.TurnPayload
 		json.Unmarshal(e.Payload, &p)
-		return nil, prompt(ctx, a, p)
+		if err := prompt(ctx, a, p); err != nil {
+			return nil, err
+		}
+		if t, ok := a.Driver().(agent.Turnless); ok && t.Turnless(p.Text) {
+			return map[string]any{"turnless": true}, nil
+		}
+		return nil, nil
 	case orch.EffInterrupt:
 		return nil, a.Driver().Interrupt()
 	case orch.EffSendNow:

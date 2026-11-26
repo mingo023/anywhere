@@ -1896,17 +1896,18 @@ func TestAChildWhoseTurnEndsWithAPromptQueuedSettlesOnceAfterThatPrompt(t *testi
 	}
 }
 
-func TestAChildThatRefusesItsQueuedPromptSettlesItsTaskOnTheTurnThatEnded(t *testing.T) {
+// settlesOnTheTurnThatEnded ends a child's turn with a prompt queued, which the child's turn start
+// answers with startQueued, and waits for the task to settle on that turn's reply.
+func settlesOnTheTurnThatEnded(t *testing.T, startQueued func() (map[string]any, error)) {
+	t.Helper()
 	s := openTest(t)
 	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
 	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
-		switch e.Kind {
-		case EffLaunch:
+		switch {
+		case e.Kind == EffLaunch:
 			return map[string]any{"childId": "child-1"}, nil
-		case EffTurnStart:
-			if e.Lane == "child-1" {
-				return nil, errors.New("the agent is gone")
-			}
+		case e.Kind == EffTurnStart && e.Lane == "child-1":
+			return startQueued()
 		}
 		return nil, nil
 	}}
@@ -1930,7 +1931,7 @@ func TestAChildThatRefusesItsQueuedPromptSettlesItsTaskOnTheTurnThatEnded(t *tes
 	k.Item("child-1", 1, proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Redirect fixed"})
 	k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
 	k.Flush()
-	if _, err := e.Dispatch(NewCommand("q1", CmdMessageSend, "child-1", SendPayload{Text: "Add a test", Mode: "queue"})); err != nil {
+	if _, err := e.Dispatch(NewCommand("q1", CmdMessageSend, "child-1", SendPayload{Text: "/goal pause", Mode: "queue"})); err != nil {
 		t.Fatal(err)
 	}
 	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
@@ -1939,4 +1940,12 @@ func TestAChildThatRefusesItsQueuedPromptSettlesItsTaskOnTheTurnThatEnded(t *tes
 	if g := get(); g.Summary != "Redirect fixed" {
 		t.Fatalf("summary %q", g.Summary)
 	}
+}
+
+func TestAChildThatRefusesItsQueuedPromptSettlesItsTaskOnTheTurnThatEnded(t *testing.T) {
+	settlesOnTheTurnThatEnded(t, func() (map[string]any, error) { return nil, errors.New("the agent is gone") })
+}
+
+func TestAChildWhoseQueuedPromptStartsNoTurnSettlesItsTaskOnTheTurnThatEnded(t *testing.T) {
+	settlesOnTheTurnThatEnded(t, func() (map[string]any, error) { return map[string]any{"turnless": true}, nil })
 }
