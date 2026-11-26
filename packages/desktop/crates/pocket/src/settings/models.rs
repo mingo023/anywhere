@@ -18,14 +18,9 @@ pub(crate) fn effort_options(efforts: &[String], none: &str) -> Vec<(String, Str
     std::iter::once((String::new(), none.to_string())).chain(efforts.iter().map(|e| (e.clone(), effort_label(e)))).collect()
 }
 
-/// "12 models available", as Settings says of an installed agent.
-pub(crate) fn count_line(models: usize) -> String {
-    format!("{models} {} available", if models == 1 { "model" } else { "models" })
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Choice, ListedModel, Row, count_line, effort_options, model_rows};
+    use super::{Choice, ListedModel, Row, effort_options, model_rows};
     use crate::models::Models;
 
     fn listed(value: &str, name: &str) -> ListedModel {
@@ -69,14 +64,6 @@ mod tests {
         let models = Models::default();
         let rows = model_rows("hermes", models.offered("hermes", true), "");
         assert_eq!(rows, [Row::Pick(Choice { value: String::new(), label: "Agent default".into() })], "an agent with no list already offers it");
-    }
-
-    #[test]
-    fn an_installed_agent_counts_its_models() {
-        assert_eq!(
-            (count_line(1), count_line(0), count_line(181)),
-            ("1 model available".to_string(), "0 models available".to_string(), "181 models available".to_string())
-        );
     }
 
     #[test]

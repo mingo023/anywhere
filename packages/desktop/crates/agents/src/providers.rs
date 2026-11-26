@@ -114,6 +114,8 @@ pub struct Builtin {
     pub resume_args: &'static str,
     pub fork_args: &'static str,
     pub status_via: &'static str,
+    /// `status_via` in a word or two, for a list row: "Hooks", "Chat only".
+    pub status_source: &'static str,
     pub unattached: &'static str,
     pub pastes_code: bool,
     /// pocketd keeps more accounts of it beside its own login, so Settings › Accounts offers Add account.
@@ -163,6 +165,7 @@ const CHAT_ONLY_DEFAULTS: Builtin = Builtin {
     resume_args: "",
     fork_args: "",
     status_via: "in a chat only, reads its events",
+    status_source: "Chat only",
     unattached: "This agent reports status in a chat only, so Anywhere sees this terminal's activity but not its status.",
     pastes_code: false,
     adds_accounts: false,
@@ -325,6 +328,7 @@ pub const ALL: [Builtin; 10] = [
         resume_args: "--resume",
         fork_args: "--resume {sessionId} --fork-session",
         status_via: "uses Claude Code hooks",
+        status_source: "Hooks",
         unattached: "Claude skips hooks in folders it doesn't trust. Trust this folder in Claude to see status.",
         pastes_code: true,
         adds_accounts: true,
@@ -349,6 +353,7 @@ pub const ALL: [Builtin; 10] = [
         resume_args: "resume",
         fork_args: "fork {sessionId}",
         status_via: "reads Codex session events",
+        status_source: "Session events",
         unattached: "This codex runs without the app-server, so Anywhere can't see its status.",
         pastes_code: false,
         adds_accounts: true,
@@ -580,6 +585,13 @@ mod tests {
         for id in ["grok", "fx", "antigravity"] {
             assert_eq!(args(id), ("", "", ""), "{id}");
         }
+    }
+
+    #[test]
+    fn an_agent_s_short_status_source_follows_how_it_reports() {
+        let said: Vec<_> = ALL.iter().map(|b| (b.id, b.status_source)).filter(|(_, s)| *s != "Chat only").collect();
+        assert_eq!(said, [("claude", "Hooks"), ("codex", "Session events")]);
+        assert!(ALL.iter().all(|b| b.chat_only_status == (b.status_source == "Chat only")));
     }
 
     #[test]

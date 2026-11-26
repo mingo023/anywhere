@@ -324,6 +324,7 @@ pub(crate) enum AccountsAct {
     Rename { key: crate::accounts::Key, name: String },
     Cancel { host: crate::accounts::Host, provider: String },
     ToggleOutput { host: crate::accounts::Host, provider: String },
+    SendCode { host: crate::accounts::Host, provider: String },
 }
 
 /// The section on show, the search, the row a result pointed at, and whether Keyboard's fixed keys are unfolded.
@@ -357,6 +358,8 @@ pub struct Settings {
     pub(crate) menu_rows: crate::pick_menu::Memo<Vec<dropdown::Row>>,
     pub(crate) menu_scroll: UniformListScrollHandle,
     launch: provider::LaunchFields,
+    /// What the Agents page remembers of itself.
+    agents_view: agents::View,
     /// When Start service was clicked.
     pub(crate) starting: Option<std::time::Instant>,
     pub(crate) glass: Entity<SliderState>,
@@ -437,6 +440,7 @@ impl Settings {
             menu_rows: Default::default(),
             menu_scroll: Default::default(),
             launch,
+            agents_view: Default::default(),
             starting: None,
             glass,
             store: Arc::new(store.settings_view()),
@@ -1180,15 +1184,15 @@ impl Settings {
     /// The line under the toolbar's title.
     fn subtitle(&self, section: Section) -> Option<SharedString> {
         match section {
-            Section::Provider(_) => None,
+            Section::Provider(i) => Some(self.provider_subtitle(i).into()),
             s => Some(s.subtitle().into()),
         }
     }
 
     /// Buttons a page puts in the toolbar, before Advanced.
-    #[expect(clippy::match_single_binding, reason = "each page that has toolbar buttons adds its arm")]
-    fn page_actions(&mut self, section: Section, _cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn page_actions(&mut self, section: Section, cx: &mut Context<Self>) -> Vec<AnyElement> {
         match section {
+            Section::Provider(i) => self.provider_actions(i, cx),
             _ => Vec::new(),
         }
     }
@@ -1550,6 +1554,7 @@ impl Desktop {
                 }
                 cx.notify();
             }
+            AccountsAct::SendCode { host, provider } => self.send_sign_in_code(host, provider, window, cx),
         }
     }
 
