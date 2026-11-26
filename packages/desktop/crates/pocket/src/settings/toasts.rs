@@ -236,7 +236,7 @@ impl Settings {
                     .cursor_pointer()
                     .tab_index(0)
                     .hover(|d| d.bg(rgba(0xffffff1f)))
-                    .focus_visible(|d| d.shadow(vec![ui::ring(rgba(0xffffffcc), 2.)]))
+                    .focus_visible(|d| d.shadow(vec![ui::ring(rgba(0xffffffcc), 2.).inset()]))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(label)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.press_toast(id, cx)))

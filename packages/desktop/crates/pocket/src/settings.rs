@@ -742,8 +742,19 @@ fn row(title: impl IntoElement, hint: Option<&str>, control: impl IntoElement) -
 }
 
 /// The ring a focused control shows when focus came from the keyboard.
+/// Inset, since a drop shadow fills the whole box under a control without a background of its own.
 pub(crate) fn focus_ring<E: InteractiveElement>(e: E) -> E {
-    e.focus_visible(|s| s.shadow(vec![ui::ring(ACCENT_GLOW, 2.)]))
+    e.focus_visible(|s| s.shadow(vec![ring()]))
+}
+
+fn ring() -> BoxShadow {
+    ui::ring(ACCENT_GLOW, 2.).inset()
+}
+
+/// `focus_ring` around a control its child fills edge to edge: the 2 px the ring takes come out of the margin, so the
+/// ring lands just outside the child and nothing moves.
+fn ring_around<E: InteractiveElement + Styled>(e: E, radius: f32) -> E {
+    focus_ring(e.p(px(2.)).m(px(-2.)).rounded(px(radius + 2.)))
 }
 
 /// The title of a row that belongs to the one above it.
@@ -798,7 +809,7 @@ fn action(id: impl Into<ElementId>, label: impl IntoElement) -> Stateful<Div> {
 
 /// A link inside a hint: a fix for a row that can't apply, or Retry.
 fn hint_link(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Stateful<Div> {
-    focus_ring(ui::link(id, label).text_size(px(12.)).tab_index(0).rounded(px(3.)))
+    ring_around(ui::link(id, label).text_size(px(12.)).tab_index(0), 3.)
 }
 
 /// A small grey tag after a row's title: "Advanced".
@@ -834,7 +845,6 @@ pub(crate) fn segmented_control(
     let group = div()
         .id(id)
         .tab_index(0)
-        .rounded(px(11.))
         .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, _, cx| {
             if let Some(i) = segment_step(&ev.keystroke.key, chosen, last) {
                 pick(this, i, cx);
@@ -842,7 +852,7 @@ pub(crate) fn segmented_control(
             }
         }))
         .child(ui::segmented(items, chosen, true, false, move |this: &mut Settings, i, cx| on(this, i, cx), cx));
-    focus_ring(group)
+    ring_around(group, 11.)
 }
 
 /// Where ← or → moves a segmented choice from `chosen`; `None` for another key or at an end.
@@ -947,11 +957,10 @@ impl Settings {
                     .id(setting.id)
                     .track_focus(&focus)
                     .flex_none()
-                    .rounded(px(9.))
                     .cursor_pointer()
                     .child(ui::toggle("switch", on))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_switch(setting, !on, cx)));
-                focus_ring(switch).into_any_element()
+                ring_around(switch, 9.).into_any_element()
             }
             Control::Choice { options, look: Look::Segmented, get, .. } => {
                 let labels = options.iter().map(|o| SharedString::from(*o)).collect();
@@ -1109,7 +1118,7 @@ impl Settings {
                 .opacity(0.)
                 .group_hover(group, |s| s.opacity(1.))
                 .hover(|s| s.bg(FILL_3))
-                .focus_visible(|s| s.opacity(1.).shadow(vec![ui::ring(ACCENT_GLOW, 2.)]))
+                .focus_visible(|s| s.opacity(1.).shadow(vec![ring()]))
                 .child(icon("discard", 13., TEXT_3))
                 .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.reset_row(setting, cx)));
@@ -1184,7 +1193,6 @@ impl Settings {
             .flex_none()
             .items_center()
             .gap(px(8.))
-            .rounded(px(9.))
             .cursor_pointer()
             .tab_index(0)
             .text_size(px(12.))
@@ -1193,7 +1201,7 @@ impl Settings {
             .child(div().text_color(TEXT_4).child(n.to_string()))
             .child(ui::toggle("settings-advanced-switch", open))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_advanced(section, !open, cx)));
-        Some(focus_ring(toggle))
+        Some(ring_around(toggle, 9.))
     }
 
     /// The breadcrumb, with the page one level up as a link, then the page's subtitle on one line.
