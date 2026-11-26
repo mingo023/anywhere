@@ -74,7 +74,7 @@ impl ChatComposer {
             .text_color(TEXT)
             .child(icon("comment", 14., TEXT_2))
             .child("Add to chat")
-            .child(ui::kbd("⌘L"))
+            .children(crate::settings::hint(&crate::actions::AddToChat, cx).map(|k| ui::kbd(&k)))
             .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {

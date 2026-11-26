@@ -73,10 +73,10 @@ impl TerminalPane {
             }
             prev = Some(group(item));
             let row = match item {
-                Item::Copy => ui::menu_row("term-menu-copy", "copy", "Copy", Some(if cfg!(target_os = "macos") { "⌘C" } else { "⌘⇧C" })),
-                Item::Paste => ui::menu_row("term-menu-paste", "compose", "Paste", Some(if cfg!(target_os = "macos") { "⌘V" } else { "⌘⇧V" })),
+                Item::Copy => ui::menu_row("term-menu-copy", "copy", "Copy", crate::settings::hint(&crate::actions::CopySelection, cx).as_deref()),
+                Item::Paste => ui::menu_row("term-menu-paste", "compose", "Paste", crate::settings::hint(&crate::actions::Paste, cx).as_deref()),
                 Item::Clear => ui::menu_row("term-menu-clear", "discard", "Clear", None),
-                Item::Close => ui::menu_row("term-menu-close", "x", "Close terminal", Some("⌘W")),
+                Item::Close => ui::menu_row("term-menu-close", "x", "Close terminal", crate::settings::hint(&crate::actions::CloseTab, cx).as_deref()),
                 Item::Kill => ui::danger_row("term-menu-kill", "stop", "Kill session"),
             };
             menu = menu.child(row.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(PaneEvent::Pick(item)))));

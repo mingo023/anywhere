@@ -744,7 +744,7 @@ impl Desktop {
                 |d| {
                     d.child(
                         ui::button("blank-new", ui::Variant::Primary, Some("sparkle"), "New session")
-                            .child(ui::button_kbd("⌘N"))
+                            .children(crate::settings::hint(&crate::actions::StartSession, cx).map(|k| ui::button_kbd(&k)))
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_session(None, false, window, cx))),
                     )
                 },

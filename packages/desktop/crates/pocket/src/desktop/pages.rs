@@ -13,18 +13,22 @@ pub(crate) struct Page {
     /// The action a shortcut binds to go there.
     pub action: &'static str,
     pub icon: &'static str,
-    /// The shortcut the palette shows beside it.
-    pub keys: Option<&'static str>,
     offered: fn(&Agents) -> bool,
 }
 
 /// Declares each page's action, its entry in `PAGES` and the listener the action goes through, so a page is one line.
 macro_rules! page_list {
-    ($($action:ident => $screen:ident, $name:literal, $icon:literal, $keys:expr, $offered:expr;)*) => {
+    ($($action:ident => $screen:ident, $name:literal, $icon:literal, $offered:expr;)*) => {
         actions!(desktop, [$($action),*]);
 
         /// In the order the sidebar, the rail and the palette list them.
-        const PAGES: [Page; [$(stringify!($action)),*].len()] = [$(Page { screen: Screen::$screen, name: $name, title: concat!("Go to ", $name), action: stringify!($action), icon: $icon, keys: $keys, offered: $offered }),*];
+        const PAGES: [Page; [$(stringify!($action)),*].len()] = [$(Page { screen: Screen::$screen, name: $name, title: concat!("Go to ", $name), action: stringify!($action), icon: $icon, offered: $offered }),*];
+
+        /// The action that goes to `screen`, for the palette to show its shortcut.
+        pub(crate) fn action_to(screen: Screen) -> Option<Box<dyn Action>> {
+            $(if screen == Screen::$screen { return Some(Box::new($action)); })*
+            None
+        }
 
         /// `root` taking each page's action, as a shortcut sends it.
         pub(crate) fn on_actions<E: InteractiveElement>(root: E, cx: &mut Context<Desktop>) -> E {
@@ -34,9 +38,9 @@ macro_rules! page_list {
 }
 
 page_list! {
-    OpenActivity => Activity, "Activity", "activity", None, |_| true;
-    OpenBoard => Board, "Board", "blocks", None, Agents::board_offered;
-    OpenAutomations => Automations, "Automations", "bolt", Some("⌘ ⇧ A"), Agents::automations_offered;
+    OpenActivity => Activity, "Activity", "activity", |_| true;
+    OpenBoard => Board, "Board", "blocks", Agents::board_offered;
+    OpenAutomations => Automations, "Automations", "bolt", Agents::automations_offered;
 }
 
 /// The page an action named `action` goes to.

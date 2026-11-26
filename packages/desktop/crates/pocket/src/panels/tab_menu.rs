@@ -64,15 +64,28 @@ impl Panels {
                     .child("New tab in ")
                     .child(div().font_family(MONO).font_weight(FontWeight::MEDIUM).child(branch)),
             )
-            .child(item("tab-menu-shell".into(), icon("prompt", 14., TEXT_2).into_any_element(), "New shell".into(), None, Some("⌘T")).on_click(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
+            .child(
+                item(
+                    "tab-menu-shell".into(),
+                    icon("prompt", 14., TEXT_2).into_any_element(),
+                    "New shell".into(),
+                    None,
+                    crate::settings::hint(&crate::actions::NewTab, cx).as_deref(),
+                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.menu = None;
                     cx.emit(PanelsEvent::NewShell(place));
-                },
-            )))
+                })),
+            )
             .child(
-                item("tab-menu-browser".into(), icon("globe", 14., TEXT_2).into_any_element(), "New browser".into(), None, Some("⌘⇧B"))
-                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(PanelsEvent::OpenBrowser(place)))),
+                item(
+                    "tab-menu-browser".into(),
+                    icon("globe", 14., TEXT_2).into_any_element(),
+                    "New browser".into(),
+                    None,
+                    crate::settings::hint(&crate::actions::NewBrowser, cx).as_deref(),
+                )
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(PanelsEvent::OpenBrowser(place)))),
             )
             .child(item("tab-menu-chat".into(), icon("comment", 14., TEXT_2).into_any_element(), "New chat".into(), None, None).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {

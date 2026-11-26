@@ -29,6 +29,7 @@ mod themes;
 pub(crate) mod toasts;
 
 pub(crate) use appearance::{reduce_motion, show_background};
+pub(crate) use keybindings::hint;
 pub(crate) use side::Side;
 
 use crate::actions::OpenSettings;
