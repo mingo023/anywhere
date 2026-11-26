@@ -36,7 +36,7 @@ impl FindBar {
 impl Desktop {
     /// Opens the find bar over the shown chat, or selects what it holds when it's open there already.
     pub(crate) fn chat_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(agent) = self.session().and_then(|t| self.summary(t)).map(|s| s.id.clone()) else { return cx.propagate() };
+        let Some(agent) = self.session().map(str::to_string) else { return cx.propagate() };
         if !self.chats.views.contains_key(&agent) {
             return cx.propagate();
         }
@@ -66,7 +66,7 @@ impl Desktop {
     pub(crate) fn chat_close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(agent) = self.chats.find.agent.take() else { return false };
         let view = self.chats.views.get(&agent).cloned();
-        let shown = view.is_some() && self.session().and_then(|t| self.summary(t)).is_some_and(|s| s.id == agent);
+        let shown = view.is_some() && self.session() == Some(agent.as_str());
         if let Some(view) = view {
             view.update(cx, |v, cx| v.end_find(cx));
         }

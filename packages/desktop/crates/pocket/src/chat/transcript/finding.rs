@@ -126,6 +126,11 @@ impl View {
         }
         // A prompt held at the top, or a glide to the end, would scroll the list off the match.
         (self.pin, self.glide, self.seek) = (None, None, None);
+        // A long prompt shows its first lines only, which may not hold the match.
+        let prompt = matches!(self.session.rows.get(row), Some(Row::Prompt { .. }));
+        if let Some(id) = self.session.ids.get(row).filter(|id| prompt && !self.expanded.contains(*id)).cloned() {
+            self.toggle_expanded(&id, cx);
+        }
         self.reveal(row, cx);
         cx.notify();
     }
@@ -136,8 +141,11 @@ pub(super) fn paint(finding: &mut Option<Finding>, ix: usize, id: &str, code: bo
     let Some(f) = finding else { return };
     let rendered = doc.read(cx).rendered_text();
     if rendered.is_empty() {
-        // Its text hasn't parsed yet.
-        return window.request_animation_frame();
+        // Not parsed yet, unless it parsed to nothing, like a lone rule.
+        if rendered.source().is_empty() {
+            window.request_animation_frame();
+        }
+        return;
     }
     let now = Instant::now();
     let here = f.find.current().is_some_and(|h| h.row == ix);
