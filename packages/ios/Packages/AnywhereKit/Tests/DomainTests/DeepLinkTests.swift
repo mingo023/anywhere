@@ -17,6 +17,14 @@ struct DeepLinkTests {
         #expect(link?.routes == [.sessions(mac: "Mingo's Mac"), .chat(mac: "Mingo's Mac", agentId: "a1")])
     }
 
+    @Test("a zoes link opens what the same anywhere link opens")
+    func zoes() {
+        #expect(DeepLink.parse("zoes://mac/mac-1") == .mac("mac-1"))
+        #expect(DeepLink.parse("ZOES://mac/m1/agent/a1") == .agent(mac: "m1", agentId: "a1"))
+        let pair = "zoes://pair?v=1&h=100.64.0.1:4517&c=abcdefghijklmnopqrstuv"
+        #expect(DeepLink.parse(pair) == .pair(URL(string: pair)!))
+    }
+
     @Test("a pair link goes to pairing with the whole link")
     func pair() {
         let link = "anywhere://pair?v=1&h=100.64.0.1:4517&c=abcdefghijklmnopqrstuv"
@@ -25,7 +33,7 @@ struct DeepLinkTests {
     }
 
     @Test("links to anything else are refused", arguments: [
-        "https://mac/m1", "anywhere://mac", "anywhere://mac/m1/agent", "anywhere://mac/m1/terminal/t1", "anywhere://session/a1",
+        "https://mac/m1", "http://pair?v=1", "zoez://mac/m1", "zoes://mac", "zoes://mac/m1/terminal/t1", "anywhere://mac", "anywhere://mac/m1/agent", "anywhere://mac/m1/terminal/t1", "anywhere://session/a1",
         "anywhere://mac/m1/agent/a1/more",
     ])
     func refuses(_ link: String) {

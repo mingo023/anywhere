@@ -1,6 +1,6 @@
 import Foundation
 
-/// `anywhere://pair?v=1&h=<host:port>&c=<code>&n=<Mac name>`, from the Mac's QR code.
+/// `anywhere://pair?v=1&h=<host:port>&c=<code>&n=<Mac name>`, from the Mac's QR code; `zoes://` reads the same.
 public struct PairingLink: Hashable, Sendable {
     public var host: String
     public var code: String
@@ -13,10 +13,10 @@ public struct PairingLink: Hashable, Sendable {
         self.name = name
     }
 
-    static let prefix = "anywhere://pair?"
+    static let prefixes = ["anywhere://pair?", "zoes://pair?"]
 
     public static func parse(_ link: String) -> PairingLink? {
-        guard link.hasPrefix(prefix), let params = query(String(link.dropFirst(prefix.count))) else { return nil }
+        guard let prefix = prefixes.first(where: link.hasPrefix), let params = query(String(link.dropFirst(prefix.count))) else { return nil }
         let host = params["h"] ?? ""
         let code = params["c"] ?? ""
         guard params["v"] == "1", isCode(code), isHost(host) else { return nil }

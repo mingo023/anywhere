@@ -28,6 +28,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>anywhere</string>
+				<string>zoes</string>
 			</array>
 		</dict>
 	</array>
