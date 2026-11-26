@@ -182,7 +182,8 @@ window.AnywhereDesktop = {
   api,
 };
 
-new ResizeObserver(([e]) => win.style.setProperty('--s', e.contentRect.width / 1440)).observe(win);
+// The app keeps its own width (1440pt, narrower on a phone) and scales to the window's.
+new ResizeObserver(([e]) => win.style.setProperty('--s', e.contentRect.width / app.offsetWidth)).observe(win);
 win.append(app);
 win.classList.add('live');
 // `#demo=<screen>` shows only the window, unscaled, on that screen: the harness that compares it with the app's captures.

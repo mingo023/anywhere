@@ -6,7 +6,9 @@
 - It runs ten agent CLIs that are already installed and signed in on the machine: Claude Code (`claude`), Codex (`codex`), Cursor (`cursor-agent`), Grok Build (`grok`), OpenCode (`opencode`), Pi (`pi`), omp (`omp`), fx (`fx`), Hermes Agent (`hermes`) and Antigravity (`agy`). It does not proxy models or resell tokens.
 - Sessions sit under a project and a git worktree. Each is Working, Needs you, Done, Failed or Idle; Needs you, Failed and Done show in the sidebar, the inbox, the Dock badge and notifications.
 - Diffs, commits and a pull request card sit beside the session. Worktrees are created from a branch, with optional setup commands.
-- Board tickets, scheduled automations that run while the desktop is closed, delegated work through an orchestrator over MCP, and SSH hosts (Mac, Linux, Windows).
+- An orchestrator over MCP lets a chat delegate work to other sessions, each in its own worktree, on this Mac or an SSH host (Mac, Linux, Windows), and wakes the chat with their results.
+- A session can be handed to a connected host with its branch, uncommitted files and Claude Code or Codex conversation, or forked onto another agent (such as Claude Code onto Codex) with its conversation as context.
+- Activity shows every session across projects in columns by status. Board tickets and automations (on a schedule or a local webhook) run while the desktop is closed.
 - The `anywhere` command starts sessions, sends prompts, waits for results and edits Board tickets.
 - An iPhone and iPad app that pairs with the Mac over Tailscale is coming soon.
 

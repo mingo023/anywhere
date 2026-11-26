@@ -98,7 +98,10 @@ const hosts = [
   { id: 'h1', name: 'devbox', link: 'online', version: '1.4.2', up: '3d' },
   { id: 'h2', name: 'win-build', where: 'dev@10.0.4.12:2222', link: 'stopped' },
 ];
+const seedHosts = hosts.map((h) => ({ ...h }));
 const installs = {};
+// Bumped on every entry, so an install still ticking from an earlier visit doesn't touch the next one's host.
+let visit = 0;
 const form = { open: false, picked: null, address: '', port: '', user: '', password: '', keyFile: null, error: '' };
 const SUGGESTIONS = ['staging', 'build-box', 'nas'];
 
@@ -114,9 +117,10 @@ const dotColor = { online: 'var(--success)', connecting: 'var(--waiting)', stopp
 
 function startInstall(h) {
   installs[h.id] = { step: 0, outcome: null };
+  const mine = visit;
   const tick = () => {
     const i = installs[h.id];
-    if (!i) return;
+    if (!i || mine !== visit) return;
     if (i.step < STEPS.length) { i.step++; redraw(); setTimeout(tick, 650); return; }
     i.outcome = 'done';
     Object.assign(h, { link: 'online', version: '1.4.2', up: '0m' });
@@ -139,7 +143,8 @@ function connect() {
   const h = { id: `h${serial++}`, name: f.picked ?? address, where: !f.picked && f.user.trim() ? `${f.user.trim()}@${address}${f.port.trim() ? `:${f.port.trim()}` : ''}` : f.picked ? '' : '', link: 'connecting' };
   hosts.push(h);
   Object.assign(form, { open: false, picked: null, address: '', port: '', user: '', password: '', keyFile: null, error: '' });
-  setTimeout(() => { h.link = 'stopped'; startInstall(h); redraw(); }, 900);
+  const mine = visit;
+  setTimeout(() => { if (mine !== visit) return; h.link = 'stopped'; startInstall(h); redraw(); }, 900);
 }
 
 function redraw() { if (api().state.screen === 'hosts') api().draw(); }
@@ -334,7 +339,14 @@ D.register('hosts', {
   render,
   mount,
   act,
-  enter() { section = 'hosts'; query = ''; menu = null; confirm = null; focus = null; form.open = false; },
+  enter() {
+    visit++;
+    hosts.splice(0, hosts.length, ...seedHosts.map((h) => ({ ...h })));
+    Object.keys(installs).forEach((id) => delete installs[id]);
+    serial = 3;
+    Object.assign(form, { open: false, picked: null, address: '', port: '', user: '', password: '', keyFile: null, error: '' });
+    section = 'hosts'; query = ''; menu = null; confirm = null; focus = null;
+  },
   input(e) {
     const f = e.target.dataset.f;
     if (!f) return;
@@ -353,4 +365,17 @@ D.register('hosts', {
     }
   },
 });
+
+AnywhereTour.define('hosts', [
+  ['wait', 1800],
+  ['click', '[data-act="addhost"]'],
+  ['wait', 500],
+  ['type', '.addf [data-f="address"]', 'buildbox.local'],
+  ['type', '.addf [data-f="user"]', 'dev'],
+  ['wait', 500],
+  ['click', '[data-act="connect"]'],
+  ['wait', 7300],
+  ['click', '[data-act="inst-done"]'],
+  ['wait', 1800],
+]);
 })();

@@ -275,6 +275,7 @@
 /* The chat beside a panel: narrower than the full-width column */
 .app .rv-main .chat .col { width: auto; max-width: 878px; margin: 0 28px; }
 .app .rv-main .dock { width: auto; max-width: 904px; margin: 0 24px; }
+@media (max-width: 720px) { .stage .app .rv-main .dock { margin-inline: 0; } }
 .app .rv-main .chat .col, .app .rv-main .dock { align-self: stretch; }
 .app .rv-comp .note span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app .rv-comp .note .lnk { flex: none; }

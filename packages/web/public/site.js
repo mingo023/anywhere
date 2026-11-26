@@ -7,7 +7,7 @@ const stage = document.querySelector('.stage');
 document.querySelectorAll('[data-icon]').forEach((el) => { el.innerHTML = AW.ic(el.dataset.icon, 16); });
 
 // Reveal blocks as they scroll in; siblings stagger.
-const REVEAL = '.intro, .tour-tabs > li, .tour-cards > .card, .native-stack > .layer, .native-stats > .metric, .iphone-copy, .phone-stage, .term-window, .oss-inner > :not(.oss-bento), .oss-bento > *, .download-grid, .closing > :not(.butterfly)';
+const REVEAL = '.intro, .tour-cards > .card, .handoff-grid > .card, .faq-inner, .iphone-copy, .phone-stage, .term-window, .oss-inner > *, .download-grid, .closing > :not(.butterfly)';
 const seen = new IntersectionObserver((entries) => entries.forEach((e) => {
   if (!e.isIntersecting) return;
   e.target.classList.add('in');
@@ -51,36 +51,85 @@ const items = AGENT_NAMES.map(([icon, name]) => `<span class="agent-item">${AW.i
 track.innerHTML = still ? items : `${items}<span class="agent-dup" aria-hidden="true" style="display:contents">${items}</span>`;
 if (!still) track.parentElement.classList.add('moving');
 
-// Tour tabs drive the desktop demo; the demo reports back when the user navigates inside it.
-const tabs = [...document.querySelectorAll('.tour-tabs [data-go], .strip [data-go]')];
-const select = (id) => {
+// The feature list drives the desktop demo: choosing one shows its screen and plays its tour. The window itself only
+// plays; the visitor watches it. Autoplay walks the three stories; the rest play when picked.
+const features = document.querySelector('.features');
+const tabs = [...features.querySelectorAll('[data-go]')];
+const stories = tabs.filter((t) => t.classList.contains('story'));
+const storyPosition = features.querySelector('[data-story-position]');
+// The list is a column beside the window, and a row under it on narrow screens.
+const narrow = matchMedia('(max-width: 960px)');
+const orient = () => features.setAttribute('aria-orientation', narrow.matches ? 'horizontal' : 'vertical');
+narrow.addEventListener('change', orient);
+orient();
+const caption = stage.querySelector('.caption');
+const playButton = stage.querySelector('[data-play]');
+// A screen that plays itself has a dwell; a scripted one lasts its script, then holds the end a moment.
+const dwell = (tab) => Number(tab.dataset.dwell) * 1000 || (window.AnywhereTour?.length(tab.dataset.go) ?? 6000) + 2500;
+let auto = !still;
+let onScreen = false;
+let current = tabs[0].dataset.go;
+let timer = 0;
+// Until something has played, the window's first time on screen plays its scene, even with autoplay off.
+let played = false;
+caption.textContent = tabs[0].querySelector('span').textContent;
+playButton.setAttribute('aria-pressed', String(auto));
+
+function show(id) {
+  current = id;
+  played = true;
   tabs.forEach((t) => {
     t.setAttribute('aria-selected', String(t.dataset.go === id));
-    t.tabIndex = t.dataset.go === id || (!tabs.some((tab) => tab.dataset.go === id) && t.dataset.go === 'sessions') ? 0 : -1;
+    t.tabIndex = t.dataset.go === id ? 0 : -1;
   });
-  document.getElementById('desktop-preview').setAttribute('aria-label', tabs.find((t) => t.dataset.go === id)?.textContent || id);
-  slide();
-};
-// The strip's highlight slides under the selected tab.
-const strip = document.querySelector('.strip');
-const slide = () => {
-  const on = strip.querySelector('[aria-selected="true"]');
-  strip.classList.toggle('picked', !!on);
-  if (!on) return;
-  strip.style.setProperty('--x', `${on.offsetLeft}px`);
-  strip.style.setProperty('--w', `${on.offsetWidth}px`);
-};
-addEventListener('resize', slide);
-slide();
-document.fonts?.ready.then(slide);
+  const tab = tabs.find((t) => t.dataset.go === id);
+  document.getElementById('desktop-preview').setAttribute('aria-label', tab.querySelector('b').textContent);
+  caption.textContent = tab.querySelector('span').textContent;
+  storyPosition.textContent = stories.includes(tab) ? `${stories.indexOf(tab) + 1} / ${stories.length}` : `${stories.length} stories`;
+  window.AnywhereDesktop?.go(id);
+  window.AnywhereTour?.play(id);
+  schedule();
+}
+
+// Until the visitor picks one, each feature plays and hands on to the next, only while the window is on screen.
+function schedule() {
+  clearTimeout(timer);
+  stories.forEach((t) => t.classList.remove('is-playing'));
+  playButton.setAttribute('aria-pressed', String(auto));
+  if (!auto || !onScreen) return;
+  const tab = tabs.find((t) => t.dataset.go === current);
+  const ms = dwell(tab);
+  if (!still && stories.includes(tab)) {
+    tab.style.setProperty('--dwell', `${ms}ms`);
+    // Reflow so the bar starts over when the dwell does, as on Replay.
+    void tab.offsetWidth;
+    tab.classList.add('is-playing');
+  }
+  const next = stories[(stories.indexOf(tab) + 1) % stories.length];
+  timer = setTimeout(() => show(next.dataset.go), ms);
+}
+new IntersectionObserver(([e]) => {
+  const back = e.isIntersecting && !onScreen;
+  onScreen = e.isIntersecting;
+  if (back && (auto || !played)) show(current);
+  else schedule();
+}, { threshold: 0.4 }).observe(frame);
+
 tabs.forEach((t) => t.addEventListener('click', () => {
-  window.AnywhereDesktop?.go(t.dataset.go);
-  select(t.dataset.go);
-  if (t.closest('.strip')) return;
-  const top = stage.getBoundingClientRect().top;
-  if (top < 0 || top > innerHeight * 0.5) stage.scrollIntoView({ block: 'start' });
+  auto = false;
+  show(t.dataset.go);
 }));
-document.addEventListener('desktop:screen', (e) => select(e.detail));
+playButton.addEventListener('click', () => {
+  auto = !auto;
+  if (auto && !stories.some((t) => t.dataset.go === current)) show(stories[0].dataset.go);
+  else schedule();
+});
+stage.querySelector('[data-replay]').addEventListener('click', () => show(current));
+document.querySelectorAll('[data-watch]').forEach((b) => b.addEventListener('click', () => {
+  auto = false;
+  show(b.dataset.watch);
+  stage.scrollIntoView({ block: 'start', behavior: still ? 'auto' : 'smooth' });
+}));
 
 const phoneTabs = [...document.querySelectorAll('.phone-tabs [data-phone]')];
 phoneTabs.forEach((t) => t.addEventListener('click', () => {
@@ -124,6 +173,7 @@ document.querySelectorAll('[role="tablist"]').forEach((list) => {
       e.preventDefault();
       buttons[index].click();
       buttons[index].focus({ preventScroll: true });
+      buttons[index].scrollIntoView({ block: 'nearest', inline: 'nearest' });
     });
   });
 });

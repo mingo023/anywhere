@@ -624,8 +624,6 @@ function diffView(r, s) {
   return `${bar}<div class="scroll rv-diff${split ? ' split' : ''}" data-ext="${e}">${rows}<div class="dend"></div></div>`;
 }
 
-const md = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`(.+?)`/g, '<code>$1</code>');
-
 function chat(api, r) {
   if (!r.chat) return `<div class="scroll chat"><div class="col"></div></div>`;
   const out = [];
@@ -633,7 +631,7 @@ function chat(api, r) {
   for (const [kind, a, b] of r.log) {
     if (kind === 'you') { reply = null; out.push(`<div class="you"><div class="bubble">${esc(a)}</div></div>`); continue; }
     if (!reply) { reply = []; out.push(reply); }
-    if (kind === 'say') reply.push(`<p>${md(a)}</p>`);
+    if (kind === 'say') reply.push(`<div class="md">${api.richText(a)}</div>`);
     else if (kind === 'tool') reply.push(`<div class="tool">${ic('tool', 14)}<b>${a}</b><code>${esc(b)}</code></div>`);
     else reply.push(`<div class="tool ${kind === 'err' ? 'err' : 'out'}">${ic(kind === 'err' ? 'circle-x' : 'corner-down-right', 14)}<span>${esc(a)}</span></div>`);
   }
@@ -840,6 +838,18 @@ D.register('review', {
   tour: 'review',
   keepScroll: true,
   enter(api) {
+    // Chosen from the feature list, not from a rail button: the dark-mode session starts over, so the tour can play
+    // again. Found by branch, since Board adds sessions ahead of it.
+    if (!lastRail) {
+      const first = api.all().find((r) => r.label === 'feat/dark-mode');
+      states.delete(first.id);
+      delete first.pr;
+      api.state.sel = first;
+      panel = 'changes';
+      split = false;
+      draft = false;
+      toast = null;
+    }
     if (lastRail === 'prs') panel = 'prs';
     else if (lastRail === 'changes' || !panel) panel = 'changes';
     lastRail = null;
@@ -888,6 +898,24 @@ D.register('review', {
     if (e.target.matches('[data-msg]') && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); act('commit', '', e.target, api, e); }
   },
 });
+
+AnywhereTour.define('review', [
+  ['wait', 500],
+  ['click', '[data-act="close-doc"]'],
+  ['wait', 600],
+  ['click', '.rv-row[data-v="hooks/useTheme.ts"]'],
+  ['wait', 1500],
+  ['click', '[data-act="stage-all"]'],
+  ['wait', 600],
+  ['click', '[data-act="write"]'],
+  ['wait', 1000],
+  ['click', '.rv-split[data-id="commit"] .chev'],
+  ['wait', 700],
+  ['click', '[data-act="commit-ship"]'],
+  ['wait', 2300],
+  ['click', '[data-act="create-pr"]'],
+  ['wait', 4400],
+]);
 
 // A rail click on the sessions screen only says "review"; the last rail button pressed says which panel.
 document.addEventListener('click', (e) => {

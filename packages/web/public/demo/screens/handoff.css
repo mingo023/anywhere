@@ -1,0 +1,134 @@
+/* Handoff: the tab's menu, the sheet (Pick, steps, Done with the mascot), a pointer, and the chat around them. */
+
+/* A layer on the window rather than part of a draw, so a redraw never restarts what it shows. */
+.app.ho-layer { z-index: 2; display: block; background: none; pointer-events: none; }
+.ho-layer [hidden] { display: none !important; }
+.ho-layer button { cursor: pointer; }
+
+.app[data-screen="handoff"] .tool, .app[data-screen="handoff"] .reply p { animation: none; }
+.ho-pane .bar .sp { flex: 1; }
+.ho-pane .reply + .you { margin-top: 18px; }
+.ho-pane .shimmer { animation: ho-shim 1.6s linear infinite; }
+@keyframes ho-shim { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.composer.locked textarea { color: var(--t4); cursor: default; }
+.composer.locked textarea::placeholder { color: var(--t3); }
+.composer.locked .send { background: #ebebeb1f; color: var(--t4); }
+
+/* The space the session is in; it stands for the sidebar's space switcher. */
+.ho-space { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px 0 8px; border-radius: 13px; background: var(--f2); color: var(--t2); font-size: 12.5px; white-space: nowrap; }
+.ho-space > svg { color: var(--t3); }
+.ho-space .ho-tile { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 5px; background: #3d7be0; color: #fff; }
+.ho-space .ho-dot { position: static; width: 6px; height: 6px; margin-left: 1px; box-shadow: none; }
+.app .ho-replay { gap: 6px; height: 26px; padding: 0 11px 0 9px; border-radius: 13px; background: var(--f3); color: var(--t1); font-size: 12.5px; }
+.app .ho-replay:hover { background: var(--f4); }
+
+/* The pointer */
+.ho-cursor { position: absolute; top: 0; left: 0; z-index: 5; width: 20px; height: 20px; opacity: 0; transition: transform 600ms cubic-bezier(0.45, 0, 0.2, 1), opacity 200ms; will-change: transform; }
+.ho-cursor svg { display: block; filter: drop-shadow(0 1px 2px #00000080); transform-origin: 3px 2px; }
+.ho-cursor i { position: absolute; top: 2px; left: 3px; width: 28px; height: 28px; border-radius: 50%; background: #ffffff59; opacity: 0; }
+
+/* The tab's menu: ui::pop with two menu rows. */
+.ho-menu, .ho-sheet { background: #262626f2; box-shadow: inset 0 0.5px 0 #ffffff0f, 0 0 0 0.5px var(--sep), 0 18px 50px #00000080, 0 2px 6px #0000000f; -webkit-backdrop-filter: blur(24px) saturate(160%); backdrop-filter: blur(24px) saturate(160%); pointer-events: auto; }
+.ho-menu { position: absolute; z-index: 3; display: flex; flex-direction: column; width: 220px; padding: 6px; border-radius: 12px; }
+.app .ho-mi { gap: 9px; height: 30px; padding: 0 9px; border-radius: 7px; color: var(--t1); font-size: 13.5px; white-space: nowrap; }
+.ho-mi svg { color: var(--t2); }
+.app .ho-mi:hover, .app .ho-mi.hov { background: var(--f3); }
+
+/* The sheet: view.rs's, 520 wide, 108 from the top. */
+.ho-scrim { position: absolute; inset: 0; background: #00000066; pointer-events: auto; }
+.ho-sheet { position: absolute; top: 108px; left: 50%; z-index: 4; display: flex; flex-direction: column; gap: 16px; width: 520px; padding: 22px 24px 20px; border-radius: 16px; transform: translateX(-50%); font-size: 13px; }
+.ho-h { display: flex; align-items: flex-start; gap: 12px; }
+.ho-h h2, .ho-cheer h2 { margin: 0; font-size: 20px; font-weight: 700; line-height: 26px; letter-spacing: 0; }
+.ho-h h2 { flex: 1; }
+.app .ho-x { justify-content: center; flex: none; width: 28px; height: 28px; margin: -1px -4px 0 0; border-radius: 14px; color: var(--t3); }
+.app .ho-x:hover { background: var(--f3); }
+.ho-top { display: flex; justify-content: flex-end; margin-bottom: -14px; }
+.ho-sub { margin: -8px 0 0; color: var(--t2); font-size: 13.5px; line-height: 20px; }
+.ho-lab { margin: 0 2px -8px; color: var(--t2); font-size: 12px; font-weight: 600; }
+.ho-box { overflow: hidden; border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 0.5px var(--sep2), 0 1px 2px #0000000a; }
+.ho-box > * + * { border-top: 0.5px solid var(--sep); }
+.ho-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.app .ho-btn { height: 36px; padding: 0 18px; border-radius: 18px; font-size: 14px; font-weight: 500; white-space: nowrap; transition: opacity 160ms, background 120ms; }
+.app .ho-btn.ghost:hover, .app .ho-btn.ghost.hov { background: var(--f3); }
+.app .ho-btn.sec { background: var(--f3); }
+.app .ho-btn.sec:hover { background: var(--f4); }
+.app .ho-btn.primary { background: var(--t1); color: #171717; font-weight: 600; }
+.app .ho-btn.primary:hover, .app .ho-btn.primary.hov { opacity: 0.88; }
+.app .ho-btn.primary.wait { opacity: 0.4; cursor: default; }
+
+/* The host row of the picker */
+.ho-host { display: flex; align-items: center; gap: 11px; padding: 9px 12px; background: var(--f2); }
+.ho-radio { display: grid; place-items: center; width: 16px; height: 16px; flex: none; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--t5); }
+.ho-radio.on { background: var(--t1); box-shadow: none; }
+.ho-radio.on::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #171717; }
+.ho-htile { position: relative; display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 8px; background: #3d7be0; color: #fff; }
+.ho-dot { position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 1.5px #2b2b2b; }
+.ho-hx { display: flex; flex: 1; flex-direction: column; gap: 1px; min-width: 0; }
+.ho-hx .n { font-size: 13px; font-weight: 500; }
+.ho-hx .a { overflow: hidden; color: var(--t3); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.ho-tag { display: flex; align-items: center; gap: 5px; font-size: 12px; white-space: nowrap; }
+.ho-tag.ok { color: var(--success-text); }
+.ho-tag.mute { color: var(--t3); }
+
+/* What moves */
+.ho-mv { display: flex; align-items: center; gap: 10px; padding: 9px 12px; font-size: 13px; }
+.ho-mv > svg { width: 14px; color: var(--t3); }
+.ho-mv .tx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ho-mv .tx.mono { font: 12.5px var(--mono); }
+.ho-mv .mt { color: var(--t3); font-size: 12px; white-space: nowrap; }
+.ho-mv .mt.stat { display: flex; gap: 6px; font: 400 12px var(--mono); }
+
+/* The steps */
+.ho-steps { display: flex; flex-direction: column; padding: 4px 0; }
+.ho-st { display: flex; align-items: flex-start; gap: 11px; padding: 7px 12px; font-size: 13px; }
+.ho-st .mk { display: grid; place-items: center; flex: none; width: 16px; height: 18px; color: var(--t2); }
+.ho-st .mk.ok { color: var(--success); }
+.ho-st .tx { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+.ho-st .tx > b { font-weight: 400; }
+.ho-st .tx > span { color: var(--t3); font-size: 12px; }
+.ho-st.now .tx > b { font-weight: 500; }
+.ho-st.todo { color: var(--t4); }
+.ho-st.todo .tx > span { color: var(--t5); }
+.ho-ring { display: block; width: 12px; height: 12px; border: 1.5px solid #ebebeb33; border-top-color: var(--t2); border-radius: 50%; animation: ho-spin 0.8s linear infinite; }
+.ho-ring.sm { width: 10px; height: 10px; border-top-color: var(--t3); }
+@keyframes ho-spin { to { transform: rotate(360deg); } }
+.ho-todo { display: block; width: 12px; height: 12px; border: 1.5px solid var(--t5); border-radius: 50%; }
+.ho-st .tx > .ho-bar { display: block; width: 100%; height: 4px; margin-top: 4px; overflow: hidden; border-radius: 2px; background: var(--f4); }
+.ho-bar i { display: block; height: 100%; border-radius: 2px; background: var(--t2); transition: width 240ms linear; }
+.ho-safe { display: flex; align-items: center; gap: 8px; color: var(--t2); font-size: 12.5px; }
+.ho-safe svg { color: var(--t3); }
+
+/* Done: the mascot drops in (hops on a click) and throws confetti. */
+.ho-cheer { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 4px 0 2px; text-align: center; }
+.ho-cheer h2 { margin-top: 4px; }
+.ho-cheer p { max-width: 380px; margin: 0; color: var(--t2); font-size: 13.5px; line-height: 20px; }
+.app .ho-stage { position: relative; display: block; width: 200px; height: 150px; }
+.ho-stage .glow { position: absolute; top: 12px; left: 25px; width: 150px; height: 150px; border-radius: 50%; box-shadow: 0 0 60px #7a68bf66; }
+.ho-stage .shadow { position: absolute; bottom: 14px; left: 58px; width: 84px; height: 6px; border-radius: 3px; box-shadow: 0 6px 6px #00000040; }
+.ho-mas { position: absolute; bottom: 8px; left: 30px; display: block; width: 140px; height: 140px; transform-origin: 50% 84%; }
+.ho-mas svg { display: block; }
+.ho-mas.drop { animation: ho-drop 1250ms both; }
+.ho-mas.hop-a { animation: ho-hop-a 600ms both; }
+.ho-mas.hop-b { animation: ho-hop-b 600ms both; }
+@keyframes ho-drop {
+  0% { opacity: 0; transform: translateY(-64px) scale(0.92, 1.1); }
+  10% { opacity: 1; }
+  30% { transform: translateY(0) scale(1.14, 0.8); }
+  46% { transform: translateY(-26px) scale(0.96, 1.05); }
+  58% { transform: translateY(0) scale(1.06, 0.93); }
+  70% { transform: translateY(0) scale(0.98, 1.02); }
+  88%, 100% { opacity: 1; transform: none; }
+}
+@keyframes ho-hop-a { 0% { transform: scale(1.12, 0.84); } 35% { transform: translateY(-34px) scale(0.94, 1.08); } 70% { transform: scale(1.08, 0.92); } 100% { transform: none; } }
+@keyframes ho-hop-b { 0% { transform: scale(1.12, 0.84); } 35% { transform: translateY(-34px) scale(0.94, 1.08); } 70% { transform: scale(1.08, 0.92); } 100% { transform: none; } }
+.ho-stage .confetti i { position: absolute; top: 62px; left: 96px; width: 7px; height: 7px; border-radius: 2px; opacity: 0; animation: ho-confetti 1250ms cubic-bezier(0.215, 0.61, 0.355, 1) both; }
+@keyframes ho-confetti {
+  0% { opacity: 1; transform: translate(0, 0); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--x), var(--y)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ho-pane .shimmer, .ho-ring { animation-duration: 3s; }
+  .ho-bar i { transition: none; }
+}
