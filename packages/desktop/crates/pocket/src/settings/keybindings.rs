@@ -31,13 +31,8 @@ fn changed(s: &store::Store) -> String {
 }
 
 /// Keys handled outside the keymap, so no binding lists them.
-const FIXED: [(&str, &[&str]); 5] = [
-    ("Close a menu, then recording, then search, then Settings", &["Esc"]),
-    ("Move in the palette", &["↑", "↓"]),
-    ("Open from the palette", &["↩"]),
-    ("Next in Inbox", &["J", "↓"]),
-    ("Previous in Inbox", &["K", "↑"]),
-];
+const FIXED: [(&str, &[&str]); 3] =
+    [("Close a menu, then recording, then search, then Settings", &["Esc"]), ("Move in the palette", &["↑", "↓"]), ("Open from the palette", &["↩"])];
 
 /// `k` as this OS's menus print it, one glyph or name per key: "⌘ ⇧ J" on macOS, "Ctrl Shift J" elsewhere.
 fn glyphs(k: &Keystroke) -> String {

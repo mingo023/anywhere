@@ -15,7 +15,6 @@ use workspace::tree::Axis;
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Screen {
     Sessions,
-    Inbox,
     Activity,
     Automations,
     Board,
@@ -472,7 +471,7 @@ mod tests {
 
     #[test]
     fn compact_bars_clear_the_traffic_lights_only_where_nothing_sits_between_them_and_the_rail() {
-        let got = [(Layout::Compact, Screen::Sessions, RAIL), (Layout::Compact, Screen::Inbox, RAIL), (Layout::Sidebars, Screen::Sessions, 272.)]
+        let got = [(Layout::Compact, Screen::Sessions, RAIL), (Layout::Compact, Screen::Automations, RAIL), (Layout::Sidebars, Screen::Sessions, 272.)]
             .map(|(l, s, lead)| bar_pad(l, s, lead, 10., 1.));
         assert_eq!(got, [35., 10., 10.]);
     }

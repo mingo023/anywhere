@@ -1,6 +1,6 @@
 use crate::actions::{self, native};
 use crate::desktop::pages;
-use crate::{browser, inbox, settings};
+use crate::{browser, settings};
 use gpui_kit::{KeyBinding, Keystroke};
 use std::collections::BTreeMap;
 
@@ -26,7 +26,6 @@ pub(crate) fn label(action: &str) -> Option<(&'static str, Topic)> {
     Some(match action {
         "StartSession" => ("New session", Sessions),
         "NewWorktree" => ("New worktree", Sessions),
-        "OpenSession" => ("Open session", Sessions),
         "NextNeedsYou" => ("Next Needs you", Sessions),
         "GoToUpNext" => ("Go to Up next", Sessions),
         "NextSession" => ("Next session", Sessions),
@@ -73,14 +72,13 @@ pub(crate) fn label(action: &str) -> Option<(&'static str, Topic)> {
     })
 }
 
-/// Where `b` works: `Some(None)` everywhere, `Some(Some(place))` in a terminal, browser, the Inbox or Settings, `None`
+/// Where `b` works: `Some(None)` everywhere, `Some(Some(place))` in a terminal, browser or Settings, `None`
 /// somewhere the list leaves out.
 pub(crate) fn place(b: &KeyBinding) -> Option<Option<&'static str>> {
     match b.predicate().map(|p| p.to_string()).as_deref() {
         None => Some(None),
         Some(keys::CONTEXT) => Some(Some("Terminal")),
         Some(browser::CONTEXT) => Some(Some("Browser")),
-        Some(inbox::CONTEXT) => Some(Some("Inbox")),
         Some(settings::CONTEXT) => Some(Some("Settings")),
         Some(_) => None,
     }
@@ -414,9 +412,9 @@ mod tests {
     }
 
     #[test]
-    fn terminal_browser_and_inbox_shortcuts_are_marked_with_where_they_work() {
+    fn terminal_and_browser_shortcuts_are_marked_with_where_they_work() {
         let at = |l: &str| row(l).place;
-        assert_eq!([at("Copy"), at("Reload"), at("Open session"), at("Settings")], [Some("Terminal"), Some("Browser"), Some("Inbox"), None]);
+        assert_eq!([at("Copy"), at("Reload"), at("Settings")], [Some("Terminal"), Some("Browser"), None]);
     }
 
     #[test]

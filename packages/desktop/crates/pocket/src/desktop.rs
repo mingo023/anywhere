@@ -37,7 +37,6 @@ use crate::git_ui::graph::Graph;
 use crate::git_ui::pull_request::PrSide;
 use crate::git_ui::pull_requests::PullRequests;
 use crate::host_agents::HostAgents;
-use crate::inbox::Inbox;
 use crate::modals::pair_phone::PairPhone;
 use crate::modals::{add_project, clone_project, new_session};
 use crate::models::Models;
@@ -112,7 +111,6 @@ pub struct Desktop {
     pub(crate) explorer: Entity<Explorer>,
     pub(crate) git_run: u64,
     pub(crate) git_done: u64,
-    pub(crate) inbox: Entity<Inbox>,
     pub(crate) activity: Entity<Activity>,
     pub(crate) handoff: Entity<crate::handoff::HandoffState>,
     pub(crate) automations: Entity<Automations>,
@@ -229,8 +227,6 @@ impl Desktop {
         let open_in = cx.new(|cx| OpenIn::new(&home, cx));
         let open_in_subs = cx.subscribe_in(&open_in, window, Self::on_open_in_event);
         let creates_subs = cx.subscribe_in(&creates, window, Self::on_creates_event);
-        let inbox = cx.new(Inbox::new);
-        let inbox_subs = cx.subscribe_in(&inbox, window, Self::on_inbox_event);
         let terminals = cx.new(|_| Terminals::new(crate::terminals::sessions::config(&store.terminal)));
         let terminals_subs = [
             cx.subscribe(&terminals, |this, _, ev: &crate::terminals::TerminalsEvent, cx| this.on_terminals_event(ev, cx)),
@@ -266,7 +262,6 @@ impl Desktop {
         _subs.push(graph_subs);
         _subs.push(star_subs);
         _subs.push(open_in_subs);
-        _subs.push(inbox_subs);
         _subs.push(creates_subs);
         _subs.extend(sidebar_subs);
         _subs.extend(settings_subs);
@@ -337,7 +332,6 @@ impl Desktop {
             panels,
             open_in,
             browsers,
-            inbox,
             activity,
             handoff,
             automations,
@@ -670,7 +664,7 @@ impl Desktop {
             Some(tree) => self.panels_view(&tree, window, cx),
             None if self.terminals.read(cx).link.is_down() || self.terminals.read(cx).link.update(now).is_some() => self.link_page(cx),
             None if self.new_form.read(cx).shown() && self.screen == Screen::Sessions => self.new_session_page(cx),
-            None => match self.screen_view(window, cx) {
+            None => match self.screen_view(cx) {
                 Some(page) => page,
                 None => self.blank_page(cx),
             },
@@ -802,7 +796,6 @@ impl Render for Desktop {
             .font_family(ui_font())
             .line_height(relative(1.2))
             .text_color(TEXT)
-            .when(self.screen == Screen::Inbox, |d| d.key_context(crate::inbox::CONTEXT))
             .when(self.screen == Screen::Settings, |d| d.key_context(crate::settings::CONTEXT))
             .when(self.explorer.read(cx).menu_open(), |d| d.key_context(crate::explorer::menu::CONTEXT))
             .track_focus(&self.root)
@@ -830,6 +823,7 @@ impl Render for Desktop {
                     || this.sidebar.update(cx, |s, cx| s.cancel_rename(cx))
                     || this.new_form.update(cx, |f, cx| f.close_picker(cx))
                     || this.escape_composer_menu(cx)
+                    || this.inbox(cx).update(cx, |i, cx| i.cancel_reply(cx))
                     || this.close_menus(cx)
                     || this.chat_escape_dock(cx)
                     || this.delegated_escape(window, cx)
@@ -894,7 +888,6 @@ impl Render for Desktop {
                 .on_action(cx.listener(Self::zoom_pane))
                 .on_action(cx.listener(Self::equalize_panes))
                 .on_action(cx.listener(Self::save))
-                .on_action(cx.listener(Self::open_selected))
                 .on_action(cx.listener(Self::add_to_chat))
                 .on_action(cx.listener(Self::tree_menu_item))
                 .on_action(cx.listener(Self::tree_menu_arrow))

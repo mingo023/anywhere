@@ -1,7 +1,6 @@
 use crate::automations::Automations;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Column, SEAM, Screen, seam_handle};
-use crate::inbox::Inbox;
+use crate::desktop::chrome::{Column, SEAM, seam_handle};
 use git::Repo;
 use gpui_kit::*;
 use theme::*;
@@ -23,16 +22,10 @@ pub(crate) fn changes_badge(n: usize) -> Div {
 }
 
 #[derive(PartialEq)]
-pub(crate) enum ColumnBody {
-    Inbox(Entity<Inbox>),
-    Automations(Entity<Automations>),
-}
-
-#[derive(PartialEq)]
 pub(crate) struct ColumnFrame {
     pub(crate) width: f32,
     pub(crate) seam: bool,
-    pub(crate) body: ColumnBody,
+    pub(crate) automations: Entity<Automations>,
 }
 
 pub(crate) enum ColumnEvent {
@@ -59,10 +52,7 @@ impl ColumnView {
 impl Render for ColumnView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(f) = self.frame.as_ref() else { return div() };
-        let list = match &f.body {
-            ColumnBody::Automations(a) => a.update(cx, |a, cx| a.column(cx)).w(px(f.width)),
-            ColumnBody::Inbox(i) => div().h_full().flex_none().child(i.clone()),
-        };
+        let list = f.automations.update(cx, |a, cx| a.column(cx)).w(px(f.width));
         if !f.seam {
             return list;
         }
@@ -84,17 +74,12 @@ impl Render for ColumnView {
 }
 
 impl Desktop {
-    /// The inbox or Automations list left of the page.
+    /// The Automations list left of the page.
     pub(crate) fn column_view(&mut self, cx: &mut Context<Self>) -> Entity<ColumnView> {
         let width = self.width(Column::Sessions, 348.);
-        let body = if self.screen == Screen::Automations {
-            let side = self.automations_side(cx);
-            self.automations.update(cx, |a, _| a.set(side));
-            ColumnBody::Automations(self.automations.clone())
-        } else {
-            ColumnBody::Inbox(self.inbox_list(width, cx))
-        };
-        let frame = ColumnFrame { width, seam: self.overlay.is_none(), body };
+        let side = self.automations_side(cx);
+        self.automations.update(cx, |a, _| a.set(side));
+        let frame = ColumnFrame { width, seam: self.overlay.is_none(), automations: self.automations.clone() };
         let view = self.sidebar.read(cx).column.clone();
         view.update(cx, |v, cx| v.set(frame, cx));
         view

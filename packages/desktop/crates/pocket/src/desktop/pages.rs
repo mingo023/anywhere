@@ -60,7 +60,6 @@ impl Desktop {
             Screen::Activity => self.open_activity(window, cx),
             Screen::Board => self.open_board(window, cx),
             Screen::Automations => self.open_automations(window, cx),
-            Screen::Inbox => self.open_inbox(window, cx),
             Screen::Settings => self.open_settings(&OpenSettings, window, cx),
             Screen::Sessions => {
                 self.screen = Screen::Sessions;
@@ -77,14 +76,13 @@ impl Desktop {
         match screen {
             Screen::Board => self.leave_board(window, cx),
             Screen::Activity => self.leave_activity(cx),
-            Screen::Sessions | Screen::Inbox | Screen::Automations | Screen::Settings => self.go_to_screen(Screen::Sessions, window, cx),
+            Screen::Sessions | Screen::Automations | Screen::Settings => self.go_to_screen(Screen::Sessions, window, cx),
         }
     }
 
     /// The page on screen's body; `None` for the sessions and Settings, which draw their own.
-    pub(crate) fn screen_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<Div> {
+    pub(crate) fn screen_view(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         match self.screen {
-            Screen::Inbox => Some(self.inbox_detail(window, cx)),
             Screen::Activity => Some(self.activity_page(cx)),
             Screen::Automations => Some(self.automations_page(cx)),
             Screen::Board => Some(self.board_page(cx)),
@@ -99,7 +97,7 @@ impl Desktop {
             Screen::Activity => self.escape_activity(window, cx),
             Screen::Automations => self.escape_automations(cx),
             Screen::Board => self.escape_board(window, cx),
-            Screen::Sessions | Screen::Inbox => return false,
+            Screen::Sessions => return false,
         }
         true
     }
@@ -109,7 +107,7 @@ impl Desktop {
         match self.screen {
             Screen::Board => self.board_key(key, window, cx),
             Screen::Activity => self.activity_key(key, window, cx),
-            Screen::Sessions | Screen::Inbox | Screen::Automations | Screen::Settings => false,
+            Screen::Sessions | Screen::Automations | Screen::Settings => false,
         }
     }
 }

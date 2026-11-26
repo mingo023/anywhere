@@ -1,6 +1,7 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{HEADER, Overlay, RAIL, Screen, drag_area};
+use crate::desktop::chrome::{HEADER, Layout, Overlay, RAIL, Screen, drag_area};
 use crate::desktop::pages;
+use crate::inbox::{Inbox, hung};
 use crate::sidebar::project_picker::ProjectPicker;
 use crate::spaces::switcher::Switcher;
 use crate::terminal_view::context;
@@ -31,6 +32,7 @@ pub(crate) enum RailEvent {
     Expand,
     Projects,
     Palette,
+    Inbox,
     Page(Screen),
     Settings,
 }
@@ -43,6 +45,7 @@ pub(crate) struct RailFrame {
     pub(crate) spaces: Option<Entity<Switcher>>,
     pub(crate) palette: bool,
     pub(crate) unseen: usize,
+    pub(crate) inbox: Option<Entity<Inbox>>,
     pub(crate) screen: Screen,
     pub(crate) pages: Vec<(&'static str, &'static str, Screen)>,
     pub(crate) usage: Vec<(&'static str, u64, Level)>,
@@ -81,9 +84,13 @@ impl Render for Rail {
         let project =
             div().relative().child(button).when(open, |d| d.child(ui::dropdown(36., ui::menu_in("projects-menu-in", div().child(self.picker.clone())))));
         let search = rail_button("nav-search", "search", f.palette).on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(RailEvent::Palette)));
-        let inbox = rail_button("nav-inbox", "inbox", f.screen == Screen::Inbox)
-            .when(f.unseen > 0, |d| d.child(ui::count_badge(f.unseen).top(px(-3.)).right(px(-3.))))
-            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(RailEvent::Page(Screen::Inbox))));
+        let open = f.inbox.is_some();
+        let bell = ui::popover_trigger(
+            rail_button("nav-inbox", "inbox", open).when(f.unseen > 0, |d| d.child(ui::count_badge(f.unseen).top(px(-3.)).right(px(-3.)))),
+            open,
+            cx.listener(|_, _: &MouseDownEvent, _, cx| cx.emit(RailEvent::Inbox)),
+        );
+        let inbox = div().relative().child(bell).children(f.inbox.clone().map(|inbox| hung(-8., 42., inbox)));
         let pages: Vec<_> = f
             .pages
             .iter()
@@ -143,6 +150,7 @@ impl Desktop {
             spaces: (order.len() > 1).then(|| self.rail_spaces(&order, &current, cx)),
             palette: self.overlay == Some(Overlay::Palette),
             unseen: crate::inbox::count(&self.agents),
+            inbox: Inbox::hung_from(&self.sidebar.read(cx).inbox, self.layout, Layout::Compact, cx),
             screen: self.screen,
             pages: pages::offered(&self.agents).map(|p| (p.name, p.icon, p.screen)).collect(),
             usage: self.usage(),
@@ -155,6 +163,7 @@ impl Desktop {
             RailEvent::Expand => self.toggle_sidebar(&crate::actions::ToggleSidebar, window, cx),
             RailEvent::Projects => self.toggle_project_picker(window, cx),
             RailEvent::Palette => self.open(Overlay::Palette, window, cx),
+            RailEvent::Inbox => self.toggle_inbox(cx),
             RailEvent::Page(screen) => self.toggle_screen(*screen, window, cx),
             RailEvent::Settings => self.open_settings(&crate::actions::OpenSettings, window, cx),
         }

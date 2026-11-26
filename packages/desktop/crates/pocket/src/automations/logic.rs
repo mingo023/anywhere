@@ -738,7 +738,7 @@ mod tests {
     fn automations_is_left_only_when_pocketd_stops_offering_it() {
         assert_eq!(reachable(Screen::Automations, false), Screen::Sessions);
         assert_eq!(reachable(Screen::Automations, true), Screen::Automations);
-        assert_eq!(reachable(Screen::Inbox, false), Screen::Inbox);
+        assert_eq!(reachable(Screen::Board, false), Screen::Board);
     }
 
     #[test]

@@ -153,7 +153,7 @@ fn path_in(code: &str) -> Option<bool> {
 }
 
 /// Opens what a click in a markdown block points at, a link's URL or a path as written, or the menu over it.
-pub(super) type Open = Arc<dyn Fn(&str, Press, &mut Window, &mut App) + Send + Sync>;
+pub(crate) type Open = Arc<dyn Fn(&str, Press, &mut Window, &mut App) + Send + Sync>;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Press {
@@ -301,7 +301,7 @@ fn style() -> TextViewStyle {
 }
 
 /// One markdown block of an assistant message. Its links and file chips go to `open`.
-pub(super) fn block(view: TextView, open: Open) -> TextView {
+pub(crate) fn block(view: TextView, open: Open) -> TextView {
     view.style(style())
         .plugin(Paths(open.clone()))
         .on_link_click(move |url, event, window, cx| open(url, press(event), window, cx))

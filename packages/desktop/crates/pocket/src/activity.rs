@@ -251,12 +251,12 @@ impl Desktop {
     }
 
     /// The prompt that started the session's last turn, when it can be sent again.
-    fn activity_last_prompt(&self, id: &str) -> Option<String> {
+    pub(crate) fn activity_last_prompt(&self, id: &str) -> Option<String> {
         retry_prompt(&self.agents.get(id)?.recap).map(String::from)
     }
 
     /// Sends the failed turn's prompt again.
-    fn retry_turn(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(crate) fn retry_turn(&mut self, id: &str, cx: &mut Context<Self>) {
         if let Some(prompt) = self.activity_last_prompt(id) {
             self.outbox.prompt(id, &prompt);
         }

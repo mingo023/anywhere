@@ -14,7 +14,7 @@ use theme::*;
 use ui::Variant;
 
 /// How long a single-select pick shows before the wizard moves on.
-pub(super) const AUTO_ADVANCE: Duration = Duration::from_millis(220);
+pub(crate) const AUTO_ADVANCE: Duration = Duration::from_millis(220);
 pub(super) const PLACEHOLDER: &str = "Something else…";
 const PLACEHOLDER_PICKED: &str = "Something else, or leave blank to use your pick";
 /// Past this the question's body scrolls, so the options stay in view.
@@ -46,7 +46,7 @@ fn tracked_upper(text: &str) -> String {
 }
 
 /// A question's first line as its title, and the rest, if any, as markdown under it.
-fn title_and_body(question: &str) -> (&str, Option<&str>) {
+pub(crate) fn title_and_body(question: &str) -> (&str, Option<&str>) {
     let (title, body) = question.trim().split_once('\n').unwrap_or((question.trim(), ""));
     let body = body.trim();
     (title.trim(), (!body.is_empty()).then_some(body))

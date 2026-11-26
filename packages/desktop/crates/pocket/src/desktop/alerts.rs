@@ -1,6 +1,5 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
-use crate::inbox;
 use crate::renames::Feed;
 use crate::status::{self, Alert, Status};
 use crate::terminals::link;
@@ -226,11 +225,6 @@ impl Desktop {
         }
         let agents = &self.agents;
         self.terminals.update(cx, |t, _| t.setups.retain(|term, _| !agents.list.iter().any(|a| &a.terminal_id == term)));
-        if self.screen == Screen::Inbox {
-            let (selected, focused) = inbox::reselect(&self.shown_notes(cx), self.terminal.focused.as_deref(), self.inbox.read(cx).selected);
-            self.inbox.update(cx, |i, cx| i.select(selected, cx));
-            self.terminal.focused = focused;
-        }
         if automations {
             self.automations_changed(cx);
         }

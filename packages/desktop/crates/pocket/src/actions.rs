@@ -1,6 +1,6 @@
 use crate::desktop::pages::{OpenActivity, OpenAutomations, OpenBoard};
 use crate::explorer::menu::{self, Arrow, Item};
-use crate::{browser, inbox, settings};
+use crate::{browser, settings};
 use gpui_kit::*;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -11,7 +11,6 @@ actions!(
     [
         OpenPalette,
         GoToFile,
-        OpenSession,
         StartSession,
         NextNeedsYou,
         GoToUpNext,
@@ -146,8 +145,6 @@ pub fn bindings() -> Vec<KeyBinding> {
         bind("cmd-0", ResetZoom, None),
         // gpui-base's `Input` binds ⌘F to its own search, so only the Settings page claims it.
         bind("cmd-f", FocusSearch, Some(settings::CONTEXT)),
-        // Unscoped, it ties with a text field's own ⌘↵ in depth and, bound later, wins.
-        bind("cmd-enter", OpenSession, Some(inbox::CONTEXT)),
         bind("cmd-c", CopySelection, Some(keys::CONTEXT)),
         bind("cmd-a", SelectAll, Some(keys::CONTEXT)),
         bind("cmd-v", Paste, Some(keys::CONTEXT)),
@@ -311,7 +308,6 @@ pub fn rebind(keys: &BTreeMap<String, String>, added: &[(String, String)], cx: &
 #[cfg(test)]
 mod tests {
     use super::{CopySelection, NewTab, SplitDown, SplitRight, binding_id, bindings, keymap, native, off_mac, spots, terminal_aliases};
-    use crate::inbox;
     use gpui_kit::{KeyBinding, KeyBindingContextPredicate, KeyContext, Keymap, Keystroke, actions};
     use std::collections::BTreeMap;
     use std::collections::HashSet;
@@ -368,25 +364,6 @@ mod tests {
     #[test]
     fn cmd_ctrl_n_switches_to_a_space() {
         assert_eq!([bound("cmd-ctrl-1"), bound("cmd-ctrl-9")], [["desktop::SwitchSpace"], ["desktop::SwitchSpace"]]);
-    }
-
-    #[test]
-    fn cmd_enter_opens_a_session_only_from_the_inbox() {
-        let mut keymap = Keymap::default();
-        keymap.add_bindings([KeyBinding::load_for_os(
-            "secondary-enter",
-            Box::new(Submit),
-            KeyBindingContextPredicate::parse("Input").ok().map(Rc::new),
-            keys::OS,
-        )
-        .unwrap()]);
-        keymap.add_bindings(bindings());
-        let action = |stack: &[&str]| {
-            let stack: Vec<KeyContext> = stack.iter().map(|c| KeyContext::parse(c).unwrap()).collect();
-            keymap.bindings_for_input(&[Keystroke::parse_with_os("secondary-enter", keys::OS).unwrap()], &stack).0.first().map(|b| b.action().name())
-        };
-        assert_eq!(action(&["Root", inbox::CONTEXT, "Input"]), Some("test::Submit"));
-        assert_eq!(action(&["Root", inbox::CONTEXT]), Some("desktop::OpenSession"));
     }
 
     #[test]

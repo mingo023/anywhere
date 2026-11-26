@@ -5,7 +5,7 @@ use workspace::Place;
 use workspace::tree::Edge;
 
 impl Desktop {
-    /// The worktree whose panels a shortcut acts on; none behind a modal or the page of a worktree being created, while pocketd is unreachable, or on the Inbox.
+    /// The worktree whose panels a shortcut acts on; none behind a modal or the page of a worktree being created, while pocketd is unreachable.
     fn panel_tree(&self, cx: &App) -> Option<String> {
         self.session_tree(cx).filter(|_| self.overlay.is_none() && self.shown_create(cx).is_none())
     }
