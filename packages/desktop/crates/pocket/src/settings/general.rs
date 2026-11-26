@@ -186,9 +186,12 @@ impl Desktop {
             let result = cx.background_executor().spawn(async move { daemon::service::open_at_login(on) }).await;
             this.update(cx, |d, cx| {
                 if let Err(e) = result {
-                    d.fail(format!("Couldn't change opening at login: {e}"), cx);
                     d.store.general.open_at_login = !on;
                     d.save_soon(cx);
+                    if let Some(setting) = ROWS.iter().find(|r| r.id == "open-at-login") {
+                        let retry: super::Setter = std::rc::Rc::new(move |s, _| s.general.open_at_login = on);
+                        d.settings.update(cx, |s, cx| s.row_failed(setting, format!("Couldn\u{2019}t save: {e}"), retry, cx));
+                    }
                     cx.notify();
                 }
             })

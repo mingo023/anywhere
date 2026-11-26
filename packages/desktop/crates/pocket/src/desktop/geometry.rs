@@ -52,12 +52,12 @@ impl Geometry {
             }),
             cx.on_release(|this, cx| {
                 if let Some((path, raw)) = this.remember_chrome(cx) {
-                    store::write(&path, &raw);
+                    store::write(&path, &raw).ok();
                 }
             }),
             cx.on_app_quit(|this, cx| {
                 if let Some((path, raw)) = this.remember_chrome(cx) {
-                    store::write(&path, &raw);
+                    store::write(&path, &raw).ok();
                 }
                 async {}
             }),
@@ -74,7 +74,17 @@ impl Desktop {
         self.geometry.save = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SAVE_DELAY).await;
             let Ok(Some((path, raw))) = this.update(cx, |d, cx| d.remember_chrome(cx)) else { return };
-            cx.background_executor().spawn(async move { store::write(&path, &raw) }).await;
+            let written = cx.background_executor().spawn(async move { store::write(&path, &raw) }).await;
+            this.update(cx, |d, cx| match written {
+                Ok(()) => d.settings.update(cx, |s, cx| s.saved(cx)),
+                // A failure no setting waits on, such as the window moving, still gets said.
+                Err(e) => {
+                    if !d.settings.update(cx, |s, cx| s.save_failed(e.to_string(), cx)) {
+                        d.fail(format!("Couldn\u{2019}t save settings: {e}"), cx);
+                    }
+                }
+            })
+            .ok();
         }));
     }
 

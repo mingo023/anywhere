@@ -36,7 +36,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 310] = [
+const STEPS: [(&str, Step); 345] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -793,7 +793,8 @@ const STEPS: [(&str, Step); 310] = [
             t.sessions.items.push(crate::terminals::sessions::Session {
                 info: daemon::Info { id: id.clone(), ..Default::default() },
                 term: Some(crate::terminals::sessions::Grid::new(term)),
-                exit: None,
+                // The fake pocketd doesn't list this terminal, and a session list drops what it doesn't name unless it exited.
+                exit: Some(0),
             })
         });
         let mut signin = d.new_sign_in(crate::accounts::Key { host: None, provider: "claude".into(), id: String::new() }, window, cx);
@@ -803,6 +804,18 @@ const STEPS: [(&str, Step); 310] = [
     ("account-menu", |d, _, _| {
         d.accounts.menu = Some(crate::accounts::Key { host: None, provider: "claude".into(), id: "work".into() });
     }),
+    ("account-code", |d, window, cx| {
+        if let Some(s) = d.accounts.signins.first() {
+            s.code.update(cx, |c, cx| c.set_value("a8Kq2-Lm9x", window, cx));
+        }
+    }),
+    ("account-flash", |d, _, _| {
+        let key = crate::accounts::Key { host: None, provider: "claude".into(), id: "work".into() };
+        d.accounts.flash.ring(key, std::time::Instant::now());
+    }),
+    ("agents-menu", |d, _, cx| d.settings.update(cx, |s, cx| s.set_menu(Some("claude-menu"), cx))),
+    ("agents-unfold", |d, _, cx| d.settings.update(cx, |s, cx| s.unfold_providers(cx))),
+    ("settings-codex-page", |d, window, cx| d.settings.update(cx, |s, cx| s.open_provider(1, window, cx))),
     ("accounts-auto", |d, _, _| _ = d.accounts.auto_switch.insert(None, true)),
     ("account-usage", |d, _, cx| {
         d.chats.composer.update(cx, |c, cx| c.open_menu(Menu::Usage { back: false }, cx));
@@ -894,6 +907,28 @@ const STEPS: [(&str, Step); 310] = [
         let search = d.settings.read(cx).search.clone();
         search.update(cx, |s, cx| s.set_value("shell", window, cx))
     }),
+    ("settings-search-volume-off", |d, window, cx| {
+        d.store.sounds.all = false;
+        let search = d.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.set_value("volume", window, cx))
+    }),
+    ("settings-search-codex-model", |d, window, cx| {
+        let search = d.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.set_value("codex model", window, cx))
+    }),
+    ("settings-search-palette", |d, window, cx| {
+        let search = d.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.set_value("palette", window, cx))
+    }),
+    ("settings-search-theme", |d, window, cx| {
+        let search = d.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.set_value("dracula", window, cx))
+    }),
+    ("settings-search-scrollback", |d, window, cx| {
+        let search = d.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.set_value("scrollback", window, cx))
+    }),
+    ("settings-search-enter", |d, window, cx| d.settings.update(cx, |s, cx| s.open_first_result(window, cx))),
     ("settings-advanced", |d, _, cx| {
         let id = d.settings.read(cx).section().id();
         d.store.advanced.insert(id.into());
@@ -966,14 +1001,14 @@ const STEPS: [(&str, Step); 310] = [
     ("no-phones", |d, _, cx| d.settings.update(cx, |s, _| s.host.devices = Some(Vec::new()))),
     ("custom-shell", |d, window, cx| {
         (d.store.terminal.shell, d.store.terminal.shell_path) = (store::prefs::terminal::Shell::Custom, "/opt/homebrew/bin/fish".into());
-        if let Some(field) = d.settings.read(cx).fields.get("shell-args").cloned() {
+        if let Some(field) = d.settings.read(cx).fields.get("shell-args").map(|f| f.input.clone()) {
             field.update(cx, |f, cx| f.set_value("--login --private", window, cx));
         }
         d.settings.update(cx, |s, cx| s.edit_terminal_color(9, window, cx));
     }),
     ("custom-search", |d, window, cx| {
         d.store.browser.engine = store::prefs::browser::Engine::Custom;
-        if let Some(field) = d.settings.read(cx).fields.get("custom-search").cloned() {
+        if let Some(field) = d.settings.read(cx).fields.get("custom-search").map(|f| f.input.clone()) {
             field.update(cx, |f, cx| f.set_value("search.brave.com/search?q=", window, cx));
         }
     }),
@@ -990,7 +1025,27 @@ const STEPS: [(&str, Step); 310] = [
     ("custom-keys", |d, _, _| {
         d.store.keys.insert("desktop::NextNeedsYou".into(), "cmd-shift-u".into());
     }),
-    ("key-clash", |d, _, cx| d.settings.update(cx, |s, _| s.keyboard.recording = Some(("desktop::NewWorktree".into(), Some("cmd-k".into()))))),
+    ("key-clash", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("New worktree", false, Some("cmd-k"), window, cx))),
+    ("key-recording", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("New worktree", false, None, window, cx))),
+    ("key-browser-takes", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("Toggle sidebar", true, Some("cmd-r"), window, cx))),
+    ("key-browser-keeps", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("Focus mode", false, Some("cmd-r"), window, cx))),
+    ("key-text-fields", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("Toggle sidebar", true, Some("cmd-z"), window, cx))),
+    ("key-prompt", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("Toggle rail", false, Some("cmd-i"), window, cx))),
+    ("key-terminal", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("Next session", false, Some("ctrl-r"), window, cx))),
+    ("key-macos", |d, window, cx| d.settings.update(cx, |s, cx| s.try_shortcut("Toggle sidebar", true, Some("cmd-h"), window, cx))),
+    ("key-find", |d, _, cx| d.settings.update(cx, |s, cx| s.find_keys("cmd-c", cx))),
+    ("key-unassigned", |d, _, cx| d.settings.update(cx, |s, cx| s.show_unassigned(cx))),
+    ("key-mixed", |d, _, _| {
+        d.store.keys.insert("desktop::JumpTo(1)".into(), "alt-cmd-1".into());
+    }),
+    ("custom-keys-added", |d, _, _| {
+        d.store.keys.insert("desktop::NextNeedsYou".into(), "cmd-shift-u".into());
+        for n in 1..=9 {
+            d.store.keys.insert(format!("desktop::JumpTo({n})"), format!("alt-cmd-{n}"));
+        }
+        d.store.added.push(("desktop::OpenActivity".into(), "cmd-shift-y".into()));
+        d.store.added.push(("desktop::OpenPalette".into(), "cmd-shift-p".into()));
+    }),
     ("dark", |d, window, cx| d.set_appearance(WindowAppearance::Dark, window, cx)),
     ("glass", |_, _, _| theme::set_glass(60)),
     // `CAPTURE_BACKGROUND` is the picture's path.
@@ -1023,6 +1078,41 @@ const STEPS: [(&str, Step); 310] = [
         d.diff.relayout(true, cx);
     }),
     ("code-font-menu", |d, _, cx| d.settings.update(cx, |s, cx| s.set_menu(Some("code-font"), cx))),
+    ("settings-menu", |d, _, cx| d.settings.update(cx, |s, cx| s.set_menu(Some("close-window"), cx))),
+    ("settings-projects-fold", |d, _, cx| {
+        d.settings.update(cx, |s, cx| {
+            s.projects.toggle(None);
+            cx.notify();
+        })
+    }),
+    ("settings-projects-filter", |d, window, cx| {
+        d.settings.update(cx, |s, cx| s.projects.filter.update(cx, |f, cx| f.set_value("ios", window, cx)));
+    }),
+    ("settings-projects-add-menu", |d, _, cx| d.settings.update(cx, |s, cx| s.set_menu(Some("add-project"), cx))),
+    ("settings-hosts-menu", |d, _, cx| {
+        d.settings.update(cx, |s, cx| {
+            s.projects.host_menu = Some("devbox".into());
+            s.set_menu(Some("host-actions"), cx);
+        });
+    }),
+    ("settings-changed", |d, _, _| {
+        (d.store.general.auto_install, d.store.general.launch_layout) = (false, Some(store::Layout::Focus));
+    }),
+    ("settings-save-failed", |d, _, cx| {
+        let setting = crate::settings::catalog::find("open-at-login").expect("the login row");
+        let retry: crate::settings::Setter = std::rc::Rc::new(|s, _| s.general.open_at_login = true);
+        let message = "Couldn\u{2019}t save: macOS needs you to allow the login item in System Settings".to_string();
+        d.settings.update(cx, |s, cx| s.row_failed(setting, message, retry, cx));
+    }),
+    ("settings-sounds-done-off", |d, _, _| d.store.sounds.done = false),
+    ("settings-banners-off", |d, _, _| d.store.notifications.banners = false),
+    ("settings-sound-menu", |d, _, cx| d.settings.update(cx, |s, cx| s.set_menu(Some("notification-sound"), cx))),
+    ("settings-custom-sound", |d, _, _| d.store.sounds.add("/tmp/anywhere-capture/Doorbell.mp3".into())),
+    ("settings-every-two-days", |d, _, _| d.store.automations.every = 2880),
+    ("settings-undo-toast", |d, _, cx| {
+        let undo = crate::settings::toasts::Undo::new(|_, _, _| {});
+        d.settings_toast(crate::settings::toasts::Toast::undo("Moved Midnight Ink to the Trash", undo), cx);
+    }),
     ("creating", |d, _, cx| {
         let Some(p) = d.project.clone() else { return };
         let now = Instant::now();
@@ -1306,7 +1396,10 @@ const STEPS: [(&str, Step); 310] = [
 const INPUT_STEPS: [(&str, Step); 25] = [
     ("key", |_, window, cx| {
         let Some(k) = next_arg("CAPTURE_KEYS", ';').and_then(|k| Keystroke::parse_with_os(&k, keys::OS).ok()) else { return };
-        window.defer(cx, move |window, cx| _ = window.dispatch_keystroke(k, cx));
+        window.defer(cx, move |window, cx| {
+            window.dispatch_keystroke(k.clone(), cx);
+            window.dispatch_event(PlatformInput::KeyUp(KeyUpEvent { keystroke: k }), cx);
+        });
     }),
     ("type", |_, window, cx| {
         let Some(text) = next_arg("CAPTURE_TYPE", '|') else { return };

@@ -19,6 +19,17 @@ pub(crate) type Offers = fn(&Store, &agents::Agents, usize) -> bool;
 /// The option a dropdown shows as chosen.
 pub(crate) type Shows = fn(&Store, &agents::Agents) -> usize;
 
+/// Why a row can't apply right now, shown as its hint while its control is off, and a fix to offer.
+#[derive(Clone, Debug)]
+pub(crate) struct Off {
+    pub reason: String,
+    /// A link after the reason that makes the row apply: "Use Graphite Dark".
+    pub fix: Option<(String, Fix)>,
+}
+
+/// What an `Off` row's fix writes.
+pub(crate) type Fix = fn(&mut Store);
+
 /// What a row's control reads and writes in the store.
 #[derive(Clone, Copy)]
 pub(crate) enum Control {
@@ -79,11 +90,30 @@ pub(crate) struct Setting {
     pub control: Control,
     pub effect: Option<Apply>,
     pub resets: Option<Resets>,
+    /// Why the row can't apply in this store; its control is off while it says so.
+    pub off: Option<fn(&Store) -> Option<Off>>,
+    /// Draws its own cards, so its group isn't wrapped in one.
+    pub bare: bool,
 }
 
 impl Setting {
     const fn new(id: &'static str, group: &'static str, label: &'static str, control: Control) -> Self {
-        Self { id, group, label, hint: None, note: None, advanced: false, parent: None, offers: None, shows: None, control, effect: None, resets: None }
+        Self {
+            id,
+            group,
+            label,
+            hint: None,
+            note: None,
+            advanced: false,
+            parent: None,
+            offers: None,
+            shows: None,
+            control,
+            effect: None,
+            resets: None,
+            off: None,
+            bare: false,
+        }
     }
 
     pub const fn switch(id: &'static str, group: &'static str, label: &'static str, get: fn(&Store) -> bool, set: fn(&mut Store, bool)) -> Self {
@@ -148,6 +178,11 @@ impl Setting {
         self
     }
 
+    pub const fn bare(mut self) -> Self {
+        self.bare = true;
+        self
+    }
+
     pub const fn under(mut self, parent: fn(&Store) -> bool) -> Self {
         self.parent = Some(parent);
         self
@@ -171,6 +206,48 @@ impl Setting {
     pub const fn resets(mut self, value: fn(&Store) -> String, reset: fn(&mut Store, &Store)) -> Self {
         self.resets = Some((value, reset));
         self
+    }
+
+    /// Turns the row off while `off` says why. A catalog control then takes no presses or focus (a text field still takes
+    /// Tab but no typing); a custom draw has to keep its own controls out of the tab order.
+    pub const fn off(mut self, off: fn(&Store) -> Option<Off>) -> Self {
+        self.off = Some(off);
+        self
+    }
+
+    /// Why it can't apply in `store`, if it can't.
+    pub fn off_in(&self, store: &Store) -> Option<Off> {
+        self.off.and_then(|off| off(store))
+    }
+
+    /// Whether its stored value differs from its default. Read every frame, so it compares values before formatting any.
+    pub fn is_changed(&self, store: &Store) -> bool {
+        let d = defaults();
+        match self.control {
+            Control::Switch { get, .. } => get(store) != get(d),
+            Control::Choice { get, .. } => get(store) != get(d),
+            Control::Stepper { get, .. } => get(store) != get(d),
+            Control::Text { get, .. } | Control::Path { get, .. } => get(store) != get(d),
+            Control::Custom(_) => self.resets.is_some_and(|(value, _)| value(store) != value(d)),
+        }
+    }
+
+    /// Its default as the row's reset names it: "On", "Daily".
+    pub fn default_value(&self) -> Option<String> {
+        self.value(defaults())
+    }
+
+    /// Puts it back to its default.
+    pub fn reset_to_default(&self, store: &mut Store) {
+        self.reset(store, defaults());
+    }
+
+    /// Puts back the value it had in `from`, as Undo after a reset does.
+    pub fn restore(&self, store: &mut Store, from: &Store) {
+        match self.control {
+            Control::Path { get, set } => set(store, get(from)),
+            _ => self.reset(store, from),
+        }
     }
 
     /// The value as the reset sheet names it; `None` for a custom row Reset leaves alone.
@@ -241,6 +318,7 @@ pub(crate) fn step(value: i32, by: i32, min: i32, max: i32) -> i32 {
 /// A row whose value differs from its default.
 #[derive(Debug, PartialEq)]
 pub(crate) struct Change {
+    pub id: &'static str,
     pub label: &'static str,
     pub from: String,
     pub to: String,
@@ -256,7 +334,7 @@ pub(crate) fn changed(rows: &[Setting], store: &Store) -> Vec<Change> {
     let defaults = defaults();
     rows.iter()
         .filter_map(|r| match (r.value(store), r.value(defaults)) {
-            (Some(from), Some(to)) if from != to => Some(Change { label: r.label, from, to }),
+            (Some(from), Some(to)) if from != to => Some(Change { id: r.id, label: r.label, from, to }),
             _ => None,
         })
         .collect()
@@ -270,6 +348,16 @@ pub(crate) fn reset(rows: &'static [Setting], store: &mut Store) -> Vec<&'static
         r.reset(store, defaults);
     }
     moved
+}
+
+/// How many of `rows` differ from their default, for the nav's dot and the change bar.
+pub(crate) fn changed_count(rows: &[Setting], store: &Store) -> usize {
+    rows.iter().filter(|r| r.is_changed(store)).count()
+}
+
+/// The row with `id` on any page, provider pages included.
+pub(crate) fn find(id: &str) -> Option<&'static Setting> {
+    Section::ALL.into_iter().chain((0..agents::providers::COUNT).map(Section::Provider)).flat_map(|s| s.rows()).find(|r| r.id == id)
 }
 
 pub(crate) fn advanced_count(rows: &[Setting]) -> usize {
@@ -337,7 +425,10 @@ mod tests {
         (store.sounds.all, store.appearance.mode) = (false, store::Mode::Dark);
         assert_eq!(
             changed(ROWS, &store),
-            [Change { label: "Play sounds", from: "Off".into(), to: "On".into() }, Change { label: "Appearance", from: "Dark".into(), to: "System".into() }]
+            [
+                Change { id: "sounds", label: "Play sounds", from: "Off".into(), to: "On".into() },
+                Change { id: "mode", label: "Appearance", from: "Dark".into(), to: "System".into() }
+            ]
         );
     }
 
@@ -358,7 +449,7 @@ mod tests {
         let mut store = Store::default();
         let default = store.git.remote.clone();
         store.git.remote = "upstream".into();
-        assert_eq!(changed(REMOTE, &store), [Change { label: "Default remote", from: "upstream".into(), to: default.clone() }]);
+        assert_eq!(changed(REMOTE, &store), [Change { id: "remote", label: "Default remote", from: "upstream".into(), to: default.clone() }]);
         assert_eq!(reset(REMOTE, &mut store).len(), 1);
         assert_eq!(store.git.remote, default);
     }
@@ -394,6 +485,59 @@ mod tests {
         assert_eq!(hit("macos"), ["banners"]);
         assert_eq!(hit("sounds"), ["sounds", "done"]);
         assert_eq!(hit("dark theme"), ["mode"]);
+    }
+
+    #[test]
+    fn a_row_is_changed_only_while_its_value_differs_from_the_default() {
+        let mut store = Store::default();
+        assert_eq!(changed_count(ROWS, &store), 0);
+        (store.sounds.all, store.appearance.mode) = (false, store::Mode::Dark);
+        assert!(ROWS[1].is_changed(&store) && ROWS[3].is_changed(&store) && !ROWS[0].is_changed(&store));
+        assert_eq!(changed_count(ROWS, &store), 2);
+        assert_eq!(ROWS[1].default_value().as_deref(), Some("On"));
+        ROWS[1].reset_to_default(&mut store);
+        assert_eq!(changed_count(ROWS, &store), 1);
+    }
+
+    #[test]
+    fn a_custom_row_counts_as_changed_only_when_it_resets() {
+        const ROWS: &[Setting] = &[
+            Setting::custom("remote", "Repository", "Default remote", |_, _, _| div())
+                .resets(|s| s.git.remote.clone(), |s, d| s.git.remote = d.git.remote.clone()),
+            Setting::custom("update", "Software update", "Software update", |_, _, _| div()),
+        ];
+        let mut store = Store::default();
+        store.git.remote = "upstream".into();
+        assert!(ROWS[0].is_changed(&store) && !ROWS[1].is_changed(&store));
+    }
+
+    #[test]
+    fn undo_restores_what_a_row_held_before_a_reset() {
+        let mut before = Store::default();
+        before.sounds.all = false;
+        let mut store = Store::default();
+        ROWS[1].restore(&mut store, &before);
+        assert!(!store.sounds.all);
+    }
+
+    #[test]
+    fn a_row_that_cant_apply_says_why() {
+        const GLASS: Setting = Setting::switch("glass", "Theme", "Window opacity", |s| s.sounds.all, |s, on| s.sounds.all = on).off(|s| {
+            (!s.sounds.done).then(|| Off { reason: "Dark themes only".into(), fix: Some(("Use Graphite Dark".into(), |s: &mut Store| s.sounds.done = true)) })
+        });
+        let mut store = Store::default();
+        assert!(GLASS.off_in(&store).is_none());
+        store.sounds.done = false;
+        let off = GLASS.off_in(&store).expect("off in this store");
+        assert_eq!(off.reason, "Dark themes only");
+        (off.fix.expect("a fix").1)(&mut store);
+        assert!(GLASS.off_in(&store).is_none());
+    }
+
+    #[test]
+    fn every_row_is_found_by_its_id() {
+        assert_eq!(find("auto-install").map(|r| r.label), Some("Install updates automatically"));
+        assert!(find("no-such-row").is_none());
     }
 
     #[test]

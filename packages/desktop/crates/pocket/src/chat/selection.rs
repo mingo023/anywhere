@@ -129,7 +129,7 @@ impl Select {
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(TEXT)
                     .child("Add to chat")
-                    .child(ui::kbd("⌘L"))
+                    .children(crate::settings::hint(&crate::actions::AddToChat, cx).map(|k| ui::kbd(&k)))
                     .occlude()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.pick(Item::AddToChat, cx)))
@@ -154,7 +154,9 @@ impl Select {
                         Item::OpenLink => ui::menu_row("chat-select-open-link", "external", "Open link", None),
                         Item::CopyLink => ui::menu_row("chat-select-copy-link", "copy", "Copy link address", None),
                         Item::Copy => ui::menu_row("chat-select-copy", "copy", "Copy", Some("⌘C")),
-                        Item::AddToChat => ui::menu_row("chat-select-add", "comment", "Add to chat", Some("⌘L")),
+                        Item::AddToChat => {
+                            ui::menu_row("chat-select-add", "comment", "Add to chat", crate::settings::hint(&crate::actions::AddToChat, cx).as_deref())
+                        }
                     };
                     menu = menu.child(row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick(item, cx))));
                 }

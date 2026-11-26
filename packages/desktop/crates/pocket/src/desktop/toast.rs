@@ -150,7 +150,12 @@ impl Render for Toasts {
 }
 
 impl Desktop {
+    /// Shows `message` as an error toast; inside Settings, in Settings' own stack, since the main view's isn't on screen there.
     pub(crate) fn fail(&self, message: impl Into<String>, cx: &mut Context<Self>) {
+        if self.screen == crate::desktop::chrome::Screen::Settings {
+            let toast = crate::settings::toasts::Toast::failed(message, None);
+            return self.settings.update(cx, |s, cx| s.toast(toast, cx));
+        }
         self.toasts.update(cx, |t, cx| t.fail(message.into(), cx));
     }
 

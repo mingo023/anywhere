@@ -402,6 +402,7 @@ macro_rules! settings_fields {
             git,
             diff,
             keys,
+            added,
             sections,
             path
         )
@@ -472,9 +473,13 @@ pub struct Store {
     pub git: prefs::Git,
     #[serde(deserialize_with = "lenient")]
     pub diff: prefs::Diff,
-    /// Shortcuts changed on the Keyboard page: the new keys by binding id, empty for none.
+    /// Shortcuts changed on the Keyboard page: the key in each changed binding's built-in spot, by binding id, empty once
+    /// removed.
     #[serde(deserialize_with = "lenient")]
     pub keys: BTreeMap<String, String>,
+    /// Keys added on the Keyboard page beyond the built-in spots, as (binding id, key) in the order they were added.
+    #[serde(deserialize_with = "lenient")]
+    pub added: Vec<(String, String)>,
     /// The SSH hosts an older desktop saved, kept as written for one release: pocketd imports them once and links
     /// them since.
     #[serde(deserialize_with = "lenient")]
@@ -511,7 +516,7 @@ impl Store {
 
     pub fn save(&self) {
         if let Some((path, raw)) = self.encode() {
-            write(&path, &raw);
+            write(&path, &raw).ok();
         }
     }
 
@@ -660,10 +665,10 @@ pub(crate) fn lenient<'de, D: serde::Deserializer<'de>, T: serde::de::Deserializ
 }
 
 /// Replaces `path` in one rename, owner-only, so pocketd never reads half a file.
-pub fn write(path: &Path, raw: &[u8]) {
+pub fn write(path: &Path, raw: &[u8]) -> std::io::Result<()> {
     static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _held = WRITING.lock();
-    let _ = write_private(path, raw);
+    write_private(path, raw)
 }
 
 fn write_private(path: &Path, raw: &[u8]) -> std::io::Result<()> {
@@ -683,6 +688,15 @@ fn write_private(path: &Path, raw: &[u8]) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_write_that_cant_land_says_why() {
+        let dir = std::env::temp_dir().join(format!("store-write-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(write(&dir.join("desktop.json"), b"{}").is_ok());
+        assert!(write(&dir.join("missing").join("desktop.json"), b"{}").is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn the_settings_view_keeps_what_settings_shows_and_drops_the_rest() {
@@ -708,6 +722,9 @@ mod tests {
         store.keys.insert("desktop::NewTab".into(), "cmd-t".into());
         assert!(!store.settings_unchanged(&view));
         assert!(store.settings_unchanged(&store.settings_view()));
+        let view = store.settings_view();
+        store.added.push(("desktop::NewTab".into(), "cmd-alt-t".into()));
+        assert!(!store.settings_unchanged(&view));
         store.git.remote = "upstream".into();
         assert!(!store.settings_unchanged(&view));
     }
@@ -1078,9 +1095,16 @@ mod tests {
         s.worktree.root = "/wt".into();
         (s.agents.close_on_exit, s.agents.chat_to) = (true, "ask".into());
         s.keys = BTreeMap::from([("desktop::OpenPalette".into(), "cmd-shift-p".into()), ("desktop::Reload in Browser".into(), String::new())]);
+        s.added = vec![("desktop::OpenActivity".into(), "cmd-shift-y".into()), ("desktop::OpenPalette".into(), "cmd-alt-p".into())];
         s.save();
         assert_eq!(Store::load(&dir), s);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_from_before_added_keys_loads_with_none() {
+        let s: Store = serde_json::from_str(r#"{"keys":{"desktop::OpenPalette":"cmd-shift-p"}}"#).unwrap();
+        assert_eq!((s.keys.len(), s.added.len()), (1, 0));
     }
 
     #[test]

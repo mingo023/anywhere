@@ -75,7 +75,12 @@ impl Settings {
     }
 
     fn port_row(&mut self, setting: &'static Setting) -> Div {
-        row(setting.label, setting.hint, field_box().w(px(72.)).child(Input::new(&self.host.port).appearance(false).p_0().font_family(MONO).text_size(px(12.))))
+        self.host.port_field.decorate();
+        let field = field_box()
+            .w(px(72.))
+            .when(self.host.port_field.draft.error.is_some(), |d| d.shadow(vec![ui::ring(FAILED, 1.)]))
+            .child(Input::new(&self.host.port).appearance(false).p_0().font_family(MONO).text_size(px(12.)));
+        row(setting.label, setting.hint, field)
     }
 
     fn devices_rows(&mut self, cx: &mut Context<Self>) -> Div {

@@ -325,7 +325,7 @@ impl Explorer {
     }
 
     fn render_tree(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let go = ui::trigger_field("go-to-file", "search", "Go to file…", "⌘P")
+        let go = ui::trigger_field("go-to-file", "search", "Go to file…", &crate::settings::hint(&crate::actions::GoToFile, cx).unwrap_or_default())
             .mx(px(8.))
             .mt(px(8.))
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ExplorerEvent::GoToFile)));

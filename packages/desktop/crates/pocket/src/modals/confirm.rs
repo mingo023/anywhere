@@ -237,7 +237,12 @@ fn enter_confirms(key: &Keystroke, confirm: &Confirm) -> bool {
 
 pub(crate) enum Sheet {
     Alert(ConfirmText),
-    Reset { title: String, lead: String, lines: Vec<(String, String)> },
+    /// Each line is a setting, the value it has, and the default it goes back to.
+    Reset {
+        title: String,
+        lead: String,
+        lines: Vec<(String, String, String)>,
+    },
 }
 
 #[derive(Default)]
@@ -285,24 +290,24 @@ impl ConfirmSheet {
         cx.emit(self.confirm.take().map_or(ConfirmEvent::Cancelled, ConfirmEvent::Alternate));
     }
 
-    fn reset(title: &str, lead: &str, lines: &[(String, String)], cx: &mut Context<Self>) -> Div {
-        let lines = lines.iter().map(|(label, change)| {
+    fn reset(title: &str, lead: &str, lines: &[(String, String, String)], cx: &mut Context<Self>) -> Div {
+        let rows = lines.iter().map(|(label, from, to)| {
             div()
-                .py(px(5.))
+                .px(px(12.))
+                .py(px(6.))
                 .flex()
-                .justify_between()
-                .gap(px(12.))
-                .border_b(px(0.5))
-                .border_color(SEPARATOR)
+                .gap(px(10.))
                 .text_size(px(12.5))
-                .child(div().text_color(TEXT).child(label.clone()))
-                .child(div().flex_none().text_color(TEXT_3).child(change.clone()))
-                .into_any_element()
+                .child(div().flex_1().min_w_0().text_color(TEXT).child(label.clone()))
+                .child(div().flex_none().text_color(TEXT_3).line_through().child(from.clone()))
+                .child(div().flex_none().text_color(TEXT).child(format!("\u{2192} {to}")))
         });
-        let body = std::iter::once(div().text_size(px(12.5)).line_height(px(18.)).text_color(TEXT_2).child(lead.to_string()).into_any_element()).chain(lines);
+        let list = (!lines.is_empty()).then(|| div().py(px(4.)).rounded(px(9.)).bg(FILL_2).flex().flex_col().children(rows).into_any_element());
+        let body = std::iter::once(div().text_size(px(12.5)).line_height(px(18.)).text_color(TEXT_2).child(lead.to_string()).into_any_element()).chain(list);
         let cancel =
             ui::button("confirm-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ConfirmEvent::Cancelled)));
-        let reset = ui::button("confirm-go", Variant::Primary, None, "Reset").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.accept(cx)));
+        let label = if lines.is_empty() { "Reset".to_string() } else { format!("Reset {}", lines.len()) };
+        let reset = ui::button("confirm-go", Variant::Primary, None, label).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.accept(cx)));
         ui::dialog(title, body, [cancel, reset])
     }
 }

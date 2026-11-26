@@ -1,4 +1,5 @@
 use super::Section;
+use super::projects::{MachineState, machine_state};
 use crate::accounts::Key;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Overlay;
@@ -24,6 +25,7 @@ pub(crate) struct Side {
     pub(crate) theme_edits: usize,
     pub(crate) theme_error: Option<SharedString>,
     pub(crate) projects: Vec<ProjectCard>,
+    pub(crate) machines: Vec<Machine>,
     pub(crate) models: Models,
     pub(crate) hosts: HostsSide,
     pub(crate) accounts: AccountsSide,
@@ -46,6 +48,7 @@ impl Default for Side {
             theme_edits: 0,
             theme_error: None,
             projects: Vec::new(),
+            machines: Vec::new(),
             models: Models::default(),
             hosts: HostsSide::default(),
             accounts: AccountsSide::default(),
@@ -60,6 +63,8 @@ impl Default for Side {
 
 pub(crate) struct ProjectCard {
     pub(crate) path: String,
+    /// The host's id; none is this Mac.
+    pub(crate) host: Option<String>,
     pub(crate) name: String,
     pub(crate) mark: ui::Mark,
     pub(crate) color: u32,
@@ -71,6 +76,15 @@ impl ProjectCard {
     pub(crate) fn tile(&self, size: f32) -> Div {
         ui::colour_tile(&self.mark, self.color, size, size / 4.)
     }
+}
+
+/// A machine projects can live on, as Projects groups them.
+pub(crate) struct Machine {
+    pub(crate) host: Option<String>,
+    pub(crate) name: String,
+    pub(crate) glyph: &'static str,
+    pub(crate) colour: Option<u32>,
+    pub(crate) state: MachineState,
 }
 
 #[derive(Default)]
@@ -134,6 +148,8 @@ pub(crate) struct AccountsSide {
     pub(crate) menu: Option<Key>,
     pub(crate) rename: Option<(Key, Entity<InputState>)>,
     pub(crate) machines: Vec<MachineSide>,
+    /// The account a finished sign-in just made, rung for a moment.
+    pub(crate) flash: Option<Key>,
 }
 
 pub(crate) struct MachineSide {
@@ -174,6 +190,7 @@ impl Desktop {
             theme_edits: self.themes.edits,
             theme_error: self.themes.error.clone(),
             projects: projects.iter().map(|p| self.project_card(p, cx)).collect(),
+            machines: if on(Section::Projects) { self.machines(&projects) } else { Vec::new() },
             models: self.models.clone(),
             hosts: if on(Section::Hosts) { self.hosts_side() } else { HostsSide::default() },
             accounts: if on(Section::Accounts) { self.accounts_side(cx) } else { AccountsSide::default() },
@@ -195,12 +212,36 @@ impl Desktop {
             .unwrap_or_default();
         ProjectCard {
             path: path.to_string(),
+            host: crate::accounts::host_of(Some(path)),
             mark: self.project_mark(path, initials(&name)),
             name,
             color: self.repo_color(path, cx),
             worktrees: self.worktrees.get(path).map(Vec::len),
             picks,
         }
+    }
+
+    /// This Mac, then each host pocketd links, then any host a project names that pocketd no longer lists.
+    fn machines(&self, projects: &[String]) -> Vec<Machine> {
+        let order = self.space_order();
+        let here = Machine { host: None, name: "This Mac".into(), glyph: crate::util::LOCAL_ICON, colour: None, state: MachineState::Local };
+        let linked = self.fleet.hosts.list.iter().map(|h| {
+            let space = crate::spaces::Space::Host(h.id.clone());
+            Machine {
+                host: Some(h.id.clone()),
+                name: self.host_name(&h.id),
+                glyph: self.space_glyph(&space),
+                colour: self.space_colour(&space, &order),
+                state: machine_state(self.fleet.hosts.links.get(&h.id)),
+            }
+        });
+        let mut machines: Vec<Machine> = std::iter::once(here).chain(linked).collect();
+        for host in projects.iter().filter_map(|p| crate::accounts::host_of(Some(p))) {
+            if !machines.iter().any(|m| m.host.as_ref() == Some(&host)) {
+                machines.push(Machine { name: host.clone(), host: Some(host), glyph: "server", colour: None, state: MachineState::Offline });
+            }
+        }
+        machines
     }
 
     fn gh_side(&self, projects: &[String], cx: &App) -> GhSide {
@@ -292,6 +333,7 @@ impl Desktop {
             menu: accounts.menu.clone(),
             rename: accounts.rename.as_ref().map(|r| (r.key.clone(), r.input.clone())),
             machines,
+            flash: accounts.flash.on(std::time::Instant::now()).cloned(),
         }
     }
 

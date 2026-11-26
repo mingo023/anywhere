@@ -78,7 +78,7 @@ impl Desktop {
             .enumerate()
             .map(|(i, space)| {
                 let link = space.host().and_then(|id| self.fleet.hosts.links.get(id));
-                let keys = if i < 9 { format!(" \u{b7} \u{2303}\u{2318}{}", i + 1) } else { String::new() };
+                let keys = crate::settings::hint(&crate::actions::SwitchSpace(i + 1), cx).map(|k| format!(" \u{b7} {k}")).unwrap_or_default();
                 let off = if self.space_reach(space) == Reach::Offline { " (offline)" } else { "" };
                 Button {
                     space: space.clone(),
