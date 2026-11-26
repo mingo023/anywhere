@@ -354,6 +354,9 @@ func serve(sock, handed string) error {
 		clients = holder.Find(d.Terminals.Holder.Dir)
 	}
 	reap(clients)
+	for _, c := range clients {
+		c.Cwd = config.Rehome(moves, c.Cwd)
+	}
 	var ptys []state.Terminal
 	for i := range inherited.Terminals {
 		e := &inherited.Terminals[i]

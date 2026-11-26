@@ -98,6 +98,9 @@ impl Desktop {
         };
         if !moves.is_empty() {
             self.store.rehome(|path| daemon::home::rehome(&moves, path));
+            if host.is_none() {
+                crate::modals::form::reshare();
+            }
             self.registry.rehomed.insert(machine);
         }
     }
