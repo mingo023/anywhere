@@ -83,7 +83,7 @@ fn same_origin(a: &str, b: &str) -> bool {
     norm(a) == norm(b)
 }
 
-fn basename(path: &str) -> &str {
+pub(crate) fn basename(path: &str) -> &str {
     path.trim_end_matches('/').rsplit('/').next().unwrap_or(path)
 }
 

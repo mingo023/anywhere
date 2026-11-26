@@ -404,7 +404,7 @@ type linkedTree struct {
 
 func findTree(f registry.File, path string) (linkedTree, error) {
 	path = filepath.Clean(path)
-	project, ok := worktree.Containing(f, path)
+	project, ok := worktree.Resolve(f, path)
 	if !ok || !filepath.IsAbs(path) {
 		return linkedTree{}, worktree.ErrUnknownWorktree
 	}
@@ -468,7 +468,7 @@ func (c *conn) subagentTrees(f registry.File, path string) ([]linkedTree, []orch
 		if real, err := filepath.EvalSymlinks(cwd); err == nil {
 			cwd = real
 		}
-		project, ok := worktree.Containing(f, cwd)
+		project, ok := worktree.Resolve(f, cwd)
 		if !ok {
 			return ""
 		}
