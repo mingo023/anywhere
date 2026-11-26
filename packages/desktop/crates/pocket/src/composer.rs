@@ -374,6 +374,15 @@ impl Draft {
         !self.images.is_empty() || !self.files.is_empty() || !self.elements.is_empty()
     }
 
+    /// Holds `quote` unless one is already held, and returns what to type: the question, or the whole quote when it can't be held.
+    pub(crate) fn add_quote(&mut self, quote: &crate::add_to_chat::Quote, question: &str) -> String {
+        if self.quote.is_some() {
+            return quote.prompt(question);
+        }
+        self.quote = Some(quote.clone());
+        question.trim().to_string()
+    }
+
     pub(crate) fn sends_without_text(&self) -> bool {
         self.has_attachments() || self.quote.is_some()
     }
@@ -1014,6 +1023,15 @@ mod tests {
         assert_eq!(draft.prompt(" why? "), format!("{}\n\nwhy?", quote.payload()));
         assert_eq!(draft.prompt("/review"), format!("/review\n\n{}", quote.payload()));
         assert!(draft.sends_without_text() && !Draft::default().sends_without_text());
+    }
+
+    #[test]
+    fn a_second_quote_goes_into_the_text_so_the_first_isnt_lost() {
+        let (a, b) = (crate::add_to_chat::Quote::code("a.rs", "x\n", 0..1).unwrap(), crate::add_to_chat::Quote::code("b.rs", "y\n", 0..1).unwrap());
+        let mut draft = Draft::default();
+        assert_eq!(draft.add_quote(&a, " why? "), "why?");
+        assert_eq!(draft.add_quote(&b, "and this?"), b.prompt("and this?"));
+        assert_eq!(draft.quote, Some(a));
     }
 
     #[test]

@@ -153,13 +153,13 @@ fn fenced_quote<'a>(head: &str, after: &'a str) -> Option<(Quote, &'a str)> {
     let (lead, diff) = head.strip_suffix(", uncommitted change").map_or((head, false), |l| (l, true));
     let (lead, removed) = lead.strip_suffix(" (before)").map_or((lead, false), |l| (l, true));
     let (path, lines) = lead.rsplit_once(':')?;
-    let lines = match lines.split_once('-') {
+    let lines: (usize, usize) = match lines.split_once('-') {
         Some((lo, hi)) => (lo.parse().ok()?, hi.parse().ok()?),
         None => (lines.parse().ok()?, lines.parse().ok()?),
     };
     let (fence, body) = after.split_once('\n')?;
     let language = fence.strip_prefix("```")?;
-    let (text, rest) = fenced(body)?;
+    let (text, rest) = if diff { fenced(body)? } else { counted(body, lines.1.checked_sub(lines.0)? + 1)? };
     let text = text.to_string();
     let body = match diff {
         true if language == "diff" => Body::Diff { lines, removed, text },
@@ -179,6 +179,13 @@ fn fenced(body: &str) -> Option<(&str, &str)> {
         from = at + 4;
     }
     None
+}
+
+/// Code can hold a fence of its own, so its end is found by the line count in its header.
+fn counted(body: &str, lines: usize) -> Option<(&str, &str)> {
+    let end = body.match_indices('\n').nth(lines - 1).map(|(at, _)| at)?;
+    let after = body[end..].strip_prefix("\n```")?;
+    closes_quote(after).then(|| (&body[..end], after))
 }
 
 fn names_a_file(path: &str) -> bool {
@@ -490,9 +497,9 @@ impl Desktop {
         match self.route(&terminal, cx) {
             Route::Chat if self.store.agents.send_now => self.chat_command(&target, chat::Command::Send(quote.prompt(&question)), cx),
             Route::Chat => {
-                self.chat_draft_edit(&target, cx, |d| d.quote = Some(quote.clone()));
-                if !question.trim().is_empty() {
-                    self.chat_add_text(&target, question.trim(), window, cx);
+                let text = self.chat_draft_edit(&target, cx, |d| d.add_quote(&quote, &question));
+                if !text.is_empty() {
+                    self.chat_add_text(&target, &text, window, cx);
                 }
                 cx.notify();
             }
@@ -704,6 +711,13 @@ mod tests {
     #[test]
     fn a_quoted_fence_inside_the_code_stays_in_the_code() {
         let q = Quote::code("README.md", "```sh\nnpm i\n```\n", 0..16).unwrap();
+        assert_eq!(split_quote(&q.prompt("ok")), Some((q, "ok")));
+    }
+
+    #[test]
+    fn a_quoted_fence_followed_by_a_blank_line_stays_in_the_code() {
+        let source = "```sh\nnpm i\n```\n\nThen run it.\n";
+        let q = Quote::code("README.md", source, 0..source.len()).unwrap();
         assert_eq!(split_quote(&q.prompt("ok")), Some((q, "ok")));
     }
 

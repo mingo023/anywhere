@@ -76,7 +76,7 @@ fn span((lo, hi): (usize, usize)) -> String {
 
 fn shown_lines(text: &str) -> Vec<String> {
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).take(SHOWN_LINES).collect();
-    let indent = lines.iter().map(|l| l.len() - l.trim_start().len()).min().unwrap_or(0);
+    let indent = lines.iter().map(|l| l.len() - l.trim_start_matches([' ', '\t']).len()).min().unwrap_or(0);
     lines.iter().map(|l| l[indent..].to_string()).collect()
 }
 
@@ -87,6 +87,11 @@ mod tests {
     #[test]
     fn a_card_shows_the_first_two_lines_with_text_without_their_shared_indent() {
         assert_eq!(shown_lines("\n    pub fn a() {\n        b();\n    }"), ["pub fn a() {", "    b();"]);
+    }
+
+    #[test]
+    fn lines_indented_with_different_whitespace_keep_it() {
+        assert_eq!(shown_lines(" x\n\u{3000}y"), [" x", "\u{3000}y"]);
     }
 
     #[test]
