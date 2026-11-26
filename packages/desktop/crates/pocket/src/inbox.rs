@@ -1,248 +1,419 @@
-mod detail;
-mod list;
+mod card;
+mod popover;
+mod question;
 
-use crate::actions::OpenSession;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Screen, past_lights};
-use crate::status::Status;
-use crate::util::{basename, first_line};
-use agents::{Agents, Summary};
+use crate::desktop::chrome::Layout;
+use crate::status::{self, Status};
+use crate::util::basename;
+use agents::{Agents, Decision, Permission, Question, Summary};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
+pub(crate) use popover::hung;
+use question::Wizard;
 use std::cmp::Reverse;
-use store::prefs::sidebar::{InboxFilter, InboxSort};
-
-pub(crate) const CONTEXT: &str = "Inbox";
-
-pub struct Note {
-    pub agent: String,
-    pub terminal: String,
-    pub status: Status,
-    pub title: String,
-    pub subtitle: String,
-    pub at: i64,
-}
+use std::collections::{HashMap, HashSet};
+use store::prefs::sidebar::InboxSort;
 
 pub(crate) fn noted(a: &Summary) -> Option<Status> {
     crate::status::alert_status(a).filter(Status::alerting)
-}
-
-/// Agents that need you, then the failed and done ones nobody has seen yet, each oldest transition first.
-pub fn notes(agents: &Agents) -> Vec<Note> {
-    let mut out: Vec<Note> = agents
-        .list
-        .iter()
-        .filter_map(|a| {
-            let status = noted(a)?;
-            let (title, subtitle) = match (status, agents.pending.iter().find(|p| p.agent_id == a.id)) {
-                (Status::NeedsYou, Some(p)) => (p.ask(), a.title.clone()),
-                (Status::Failed, _) => (format!("{} failed", a.title), first_line(&a.error)),
-                _ => (a.title.clone(), first_line(&a.recap.said)),
-            };
-            Some(Note { agent: a.id.clone(), terminal: a.terminal_id.clone(), status, title, subtitle, at: a.updated_at })
-        })
-        .collect();
-    out.sort_by_key(|n| (n.status, n.at));
-    out
-}
-
-pub(crate) const FILTERS: [(InboxFilter, &str); 4] =
-    [(InboxFilter::All, "All"), (InboxFilter::NeedsYou, "Needs you"), (InboxFilter::Failed, "Failed"), (InboxFilter::Done, "Done")];
-
-/// The notes `filter` keeps, in `sort`'s order; Most urgent first is the order `notes` gives.
-pub fn arrange(mut notes: Vec<Note>, sort: InboxSort, filter: InboxFilter) -> Vec<Note> {
-    notes.retain(|n| match filter {
-        InboxFilter::All => true,
-        InboxFilter::NeedsYou => n.status == Status::NeedsYou,
-        InboxFilter::Failed => n.status == Status::Failed,
-        InboxFilter::Done => n.status == Status::Done,
-    });
-    match sort {
-        InboxSort::Urgent => {}
-        InboxSort::Newest => notes.sort_by_key(|n| Reverse(n.at)),
-        InboxSort::Oldest => notes.sort_by_key(|n| n.at),
-    }
-    notes
-}
-
-/// The heading above note `i` when it opens its status's section: "NEEDS YOU", "FAILED" or "DONE", and the section's size.
-pub fn heading(notes: &[Note], i: usize) -> Option<(String, usize)> {
-    let status = notes.get(i)?.status;
-    if i > 0 && notes[i - 1].status == status {
-        return None;
-    }
-    Some((status.label().to_uppercase(), notes.iter().filter(|n| n.status == status).count()))
 }
 
 pub fn count(agents: &Agents) -> usize {
     agents.list.iter().filter(|a| noted(a).is_some()).count()
 }
 
-/// Keeps the selection on the focused note as the list changes. If that note left, drops focus
-/// so keystrokes never reach a terminal the user didn't pick.
-pub fn reselect(notes: &[Note], focused: Option<&str>, i: usize) -> (usize, Option<String>) {
-    match notes.iter().position(|n| focused == Some(n.terminal.as_str())) {
-        Some(j) => (j, Some(notes[j].terminal.clone())),
-        None => (i.min(notes.len().saturating_sub(1)), None),
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Tab {
+    NeedsYou,
+    Updates,
+}
+
+impl Tab {
+    fn of(status: Status) -> Self {
+        if status == Status::Done { Tab::Updates } else { Tab::NeedsYou }
     }
 }
 
-/// Asks stay until answered, so they are never marked seen.
-fn asks(note: &Note) -> bool {
-    note.status == Status::NeedsYou
-}
-
-/// The agents "Mark all seen" marks seen.
-fn readable(notes: Vec<Note>) -> Vec<String> {
-    notes.into_iter().filter(|n| !asks(n)).map(|n| n.agent).collect()
-}
-
-/// Note `i`, clamped to the list, and the terminal to focus for it.
-fn select(notes: &[Note], i: usize) -> (usize, Option<String>) {
-    let i = i.min(notes.len().saturating_sub(1));
-    (i, notes.get(i).map(|n| n.terminal.clone()))
-}
-
-/// The note `key` moves the selection to, if it navigates.
-fn step(key: &str, selected: usize) -> Option<usize> {
-    match key {
-        "j" | "down" => Some(selected + 1),
-        "k" | "up" => Some(selected.saturating_sub(1)),
-        _ => None,
-    }
-}
-
-pub(crate) struct Row {
-    pub(crate) note: Note,
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) struct Card {
+    pub(crate) agent: String,
+    pub(crate) status: Status,
     pub(crate) project: String,
+    pub(crate) mark: ui::Mark,
     pub(crate) provider: String,
-    pub(crate) heading: Option<(String, usize)>,
+    pub(crate) agent_name: String,
+    pub(crate) title: String,
+    pub(crate) delegated_by: Option<String>,
+    pub(crate) at: i64,
+    pub(crate) body: Body,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) enum Body {
+    Asks(Vec<Permission>),
+    Said { text: String, chat: bool },
+    Failed { error: String, retry: bool },
+    Done,
+}
+
+pub(crate) fn body(status: Status, asks: Vec<Permission>, said: &str, chat: bool, error: &str, retry: bool) -> Body {
+    match status {
+        Status::NeedsYou if !asks.is_empty() => Body::Asks(asks),
+        Status::NeedsYou => Body::Said { text: said.trim().to_string(), chat },
+        Status::Failed => Body::Failed { error: error.trim().to_string(), retry },
+        _ => Body::Done,
+    }
+}
+
+pub(crate) fn order(cards: &mut [Card], sort: InboxSort) {
+    match sort {
+        InboxSort::Urgent => cards.sort_by_key(|c| (c.status, c.at)),
+        InboxSort::Newest => cards.sort_by_key(|c| Reverse(c.at)),
+        InboxSort::Oldest => cards.sort_by_key(|c| c.at),
+    }
+}
+
+fn opening_tab(cards: &[Card]) -> Tab {
+    if !cards.iter().any(|c| Tab::of(c.status) == Tab::NeedsYou) && cards.iter().any(|c| Tab::of(c.status) == Tab::Updates) {
+        Tab::Updates
+    } else {
+        Tab::NeedsYou
+    }
+}
+
+fn mark_all_seen(cards: &[Card]) -> Vec<String> {
+    cards.iter().filter(|c| Tab::of(c.status) == Tab::Updates).map(|c| c.agent.clone()).collect()
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) enum Replying {
+    Deny(String),
+    Other(String),
+    Prompt(String),
+}
+
+/// What the cards were told, kept until pocketd's next word drops the ask or the session.
+#[derive(Default)]
+pub(crate) struct Answers {
+    sent: HashMap<String, String>,
+    wizards: HashMap<String, Wizard>,
+    expanded: HashSet<String>,
+}
+
+impl Answers {
+    pub(crate) fn shown<'a>(&self, asks: &'a [Permission]) -> Option<(usize, &'a Permission)> {
+        asks.iter().enumerate().find(|(_, p)| !self.sent.contains_key(&p.request_id))
+    }
+
+    pub(crate) fn settled(&self, card: &Card) -> Option<&str> {
+        match &card.body {
+            Body::Asks(asks) if self.shown(asks).is_none() => asks.last().and_then(|p| self.sent.get(&p.request_id)).map(String::as_str),
+            Body::Asks(_) => None,
+            _ => self.sent.get(&card.agent).map(String::as_str),
+        }
+    }
+
+    /// Records `key` as answered; false when it already was, so nothing goes out twice.
+    fn send(&mut self, key: &str, line: String) -> bool {
+        if self.sent.contains_key(key) {
+            return false;
+        }
+        self.sent.insert(key.to_string(), line);
+        true
+    }
+
+    fn forget_gone(&mut self, cards: &[Card]) {
+        let live: HashSet<&str> = cards
+            .iter()
+            .flat_map(|c| {
+                let asks = match &c.body {
+                    Body::Asks(asks) => asks.iter().map(|p| p.request_id.as_str()).collect(),
+                    _ => Vec::new(),
+                };
+                asks.into_iter().chain(std::iter::once(c.agent.as_str()))
+            })
+            .collect();
+        self.sent.retain(|k, _| live.contains(k.as_str()));
+        self.wizards.retain(|k, _| live.contains(k.as_str()));
+        self.expanded.retain(|k| live.contains(k.as_str()));
+    }
+
+    pub(crate) fn wizard(&self, request: &str) -> Option<&Wizard> {
+        self.wizards.get(request)
+    }
+
+    pub(crate) fn expanded(&self, request: &str) -> bool {
+        self.expanded.contains(request)
+    }
 }
 
 pub(crate) enum InboxEvent {
-    Select(usize),
-    MarkAllSeen,
-    Open { agent: String, mark_seen: bool },
+    Open(String),
+    Decide { request: String, decision: Decision },
+    Reply { request: String, text: String },
+    Answer { request: String, answers: HashMap<String, String> },
+    Prompt { agent: String, text: String },
+    Retry(String),
+    Seen(Vec<String>),
 }
 
 pub struct Inbox {
-    pub(crate) selected: usize,
-    pub(crate) focus: FocusHandle,
-    pub(crate) filter: InboxFilter,
-    filter_open: bool,
-    rows: Vec<Row>,
-    /// What `Desktop` hands down each time it draws the list: the left padding past the window's lights and the column's width.
-    lead: f32,
-    width: f32,
+    pub(crate) open: bool,
+    tab: Tab,
+    cards: Vec<Card>,
+    observe_only: bool,
+    answers: Answers,
+    replying: Option<Replying>,
+    reply: Entity<InputState>,
+    _sub: Subscription,
 }
 
 impl EventEmitter<InboxEvent> for Inbox {}
 
 impl Inbox {
-    pub fn new(cx: &mut Context<Self>) -> Self {
-        Self { selected: 0, focus: cx.focus_handle(), filter: InboxFilter::All, filter_open: false, rows: Vec::new(), lead: 0., width: 0. }
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let reply = cx.new(|cx| InputState::new(window, cx));
+        let _sub = cx.subscribe_in(&reply, window, |this, _, e: &InputEvent, window, cx| {
+            if let InputEvent::PressEnter { .. } = e {
+                this.send_reply(window, cx);
+            }
+        });
+        Self { open: false, tab: Tab::NeedsYou, cards: Vec::new(), observe_only: false, answers: Answers::default(), replying: None, reply, _sub }
     }
 
-    pub(crate) fn set(&mut self, rows: Vec<Row>, lead: f32, width: f32) {
-        (self.rows, self.lead, self.width) = (rows, lead, width);
+    pub(crate) fn show(&mut self, cards: Vec<Card>, observe_only: bool, cx: &mut Context<Self>) {
+        (self.open, self.tab, self.replying) = (true, opening_tab(&cards), None);
+        self.set(cards, observe_only, cx);
     }
 
-    pub(crate) fn open(&mut self, filter: InboxFilter) {
-        (self.filter, self.filter_open) = (filter, false);
+    pub(crate) fn set(&mut self, cards: Vec<Card>, observe_only: bool, cx: &mut Context<Self>) {
+        if self.cards != cards || self.observe_only != observe_only {
+            self.answers.forget_gone(&cards);
+            (self.cards, self.observe_only) = (cards, observe_only);
+            cx.notify();
+        }
     }
 
-    pub(crate) fn select(&mut self, i: usize, cx: &mut Context<Self>) {
-        self.selected = i;
+    pub(crate) fn show_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
+        self.tab = tab;
+        cx.notify();
+    }
+
+    pub(crate) fn shut(&mut self, cx: &mut Context<Self>) {
+        if self.open {
+            (self.open, self.replying) = (false, None);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn hung_from(this: &Entity<Self>, layout: Layout, bell: Layout, cx: &App) -> Option<Entity<Self>> {
+        (this.read(cx).open && layout == bell).then(|| this.clone())
+    }
+
+    fn card(&self, agent: &str) -> Option<&Card> {
+        self.cards.iter().find(|c| c.agent == agent)
+    }
+
+    fn decide(&mut self, request: &str, decision: Decision, cx: &mut Context<Self>) {
+        let line = if decision == Decision::Allow { "Allowed once · agent resumed" } else { "Denied · agent stopped that step" };
+        if self.answers.send(request, line.into()) {
+            cx.emit(InboxEvent::Decide { request: request.to_string(), decision });
+        }
+        cx.notify();
+    }
+
+    fn retry(&mut self, agent: &str, cx: &mut Context<Self>) {
+        if self.answers.send(agent, "Retrying · back to Working".into()) {
+            cx.emit(InboxEvent::Retry(agent.to_string()));
+        }
+        cx.notify();
+    }
+
+    fn expand(&mut self, request: &str, cx: &mut Context<Self>) {
+        self.answers.expanded.insert(request.to_string());
+        cx.notify();
+    }
+
+    fn start_reply(&mut self, replying: Replying, placeholder: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.replying = Some(replying);
+        self.reply.update(cx, |s, cx| {
+            s.set_value("", window, cx);
+            s.set_placeholder(placeholder, window, cx);
+            s.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    fn cancel_reply(&mut self, cx: &mut Context<Self>) {
+        self.replying = None;
+        cx.notify();
+    }
+
+    fn send_reply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.reply.read(cx).value().trim().to_string();
+        let Some(replying) = self.replying.clone().filter(|_| !text.is_empty()) else { return };
+        self.replying = None;
+        self.reply.update(cx, |s, cx| s.set_value("", window, cx));
+        match replying {
+            Replying::Deny(request) => {
+                if self.answers.send(&request, "Denied with your note".into()) {
+                    cx.emit(InboxEvent::Reply { request, text });
+                }
+            }
+            Replying::Other(request) => {
+                if let Some(qs) = self.questions(&request) {
+                    let w = self.answers.wizards.entry(request.clone()).or_insert_with(|| Wizard::new(qs.len()));
+                    w.type_answer(text);
+                    self.next_page(&request, cx);
+                }
+            }
+            Replying::Prompt(agent) => {
+                let line = format!("Sent to {}", self.card(&agent).map(|c| c.agent_name.as_str()).unwrap_or("the agent"));
+                if self.answers.send(&agent, line) {
+                    cx.emit(InboxEvent::Prompt { agent, text });
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    fn questions(&self, request: &str) -> Option<Vec<Question>> {
+        self.cards.iter().find_map(|c| match &c.body {
+            Body::Asks(asks) => asks.iter().find(|p| p.request_id == request).map(Permission::questions),
+            _ => None,
+        })
+    }
+
+    fn pick(&mut self, request: &str, option: usize, cx: &mut Context<Self>) {
+        let Some(qs) = self.questions(request) else { return };
+        let w = self.answers.wizards.entry(request.to_string()).or_insert_with(|| Wizard::new(qs.len()));
+        let page = w.page();
+        if w.pick(&qs, option) {
+            let request = request.to_string();
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(crate::chat::question::AUTO_ADVANCE).await;
+                this.update(cx, |this, cx| {
+                    if this.answers.wizards.get(&request).is_some_and(|w| w.still_picked(page, option)) {
+                        this.next_page(&request, cx);
+                    }
+                })
+                .ok();
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
+    fn next_page(&mut self, request: &str, cx: &mut Context<Self>) {
+        let Some(qs) = self.questions(request) else { return };
+        let Some(w) = self.answers.wizards.get_mut(request) else { return };
+        if let Some((answers, line)) = w.next(&qs)
+            && self.answers.send(request, line)
+        {
+            cx.emit(InboxEvent::Answer { request: request.to_string(), answers });
+        }
+        cx.notify();
+    }
+
+    fn back(&mut self, request: &str, cx: &mut Context<Self>) {
+        if let Some(w) = self.answers.wizards.get_mut(request) {
+            w.back();
+        }
         cx.notify();
     }
 }
 
 impl Desktop {
-    pub fn open_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.screen = Screen::Inbox;
-        let filter = self.store.sidebar.inbox_filter;
-        self.inbox.update(cx, |i, _| i.open(filter));
-        self.select_note(0, cx);
-        let focus = self.inbox.read(cx).focus.clone();
-        window.focus(&focus, cx);
+    pub(crate) fn inbox(&self, cx: &App) -> Entity<Inbox> {
+        self.sidebar.read(cx).inbox.clone()
     }
 
-    fn select_note(&mut self, i: usize, cx: &mut Context<Self>) {
-        let (i, terminal) = select(&self.shown_notes(cx), i);
-        self.inbox.update(cx, |ib, cx| ib.select(i, cx));
-        self.terminal.focused = terminal;
+    pub(crate) fn toggle_inbox(&mut self, cx: &mut Context<Self>) {
+        let inbox = self.inbox(cx);
+        let open = !inbox.read(cx).open;
+        self.close_menus(cx);
+        if open {
+            let (cards, observe_only) = (self.inbox_cards(cx), self.agents.observe_only());
+            inbox.update(cx, |i, cx| i.show(cards, observe_only, cx));
+        }
         cx.notify();
     }
 
-    /// The notes the inbox lists, as the filter and Sort inbox by say.
-    pub(crate) fn shown_notes(&self, cx: &App) -> Vec<Note> {
-        arrange(notes(&self.agents), self.store.sidebar.inbox_sort, self.inbox.read(cx).filter)
-    }
-
-    pub(crate) fn inbox_list(&self, width: f32, cx: &mut Context<Self>) -> Entity<Inbox> {
-        let notes = self.shown_notes(cx);
-        let urgent = self.store.sidebar.inbox_sort == InboxSort::Urgent;
-        let headings: Vec<_> = (0..notes.len()).map(|i| heading(&notes, i).filter(|_| urgent)).collect();
-        let rows = notes
-            .into_iter()
-            .zip(headings)
-            .map(|(note, heading)| Row {
-                project: self.project_name(&note.agent, cx),
-                provider: self.agents.get(&note.agent).map_or_else(|| "Shell".into(), |a| self.agent_name(&a.provider)),
-                note,
-                heading,
-            })
-            .collect();
-        let lead = past_lights(self.store.appearance.zoom_factor(), self.lead_width(cx), 16.);
-        self.inbox.update(cx, |i, _| i.set(rows, lead, width));
-        self.inbox.clone()
-    }
-
-    pub(crate) fn on_inbox_event(&mut self, _: &Entity<Inbox>, ev: &InboxEvent, window: &mut Window, cx: &mut Context<Self>) {
-        match ev {
-            InboxEvent::Select(i) => self.select_note(*i, cx),
-            InboxEvent::MarkAllSeen => {
-                let ids = readable(notes(&self.agents));
-                if !ids.is_empty() {
-                    self.outbox.seen(&ids);
-                }
-                self.select_note(0, cx);
-            }
-            InboxEvent::Open { agent, mark_seen } => {
-                if *mark_seen {
-                    self.outbox.seen(std::slice::from_ref(agent));
-                }
-                self.focus_agent(agent, window, cx);
-            }
+    /// Focus shows no bell to hang the inbox from, so it shuts there.
+    pub(crate) fn sync_inbox(&self, cx: &mut App) {
+        let inbox = self.inbox(cx);
+        if self.layout == Layout::Focus {
+            inbox.update(cx, |i, cx| i.shut(cx));
+        } else if inbox.read(cx).open {
+            let (cards, observe_only) = (self.inbox_cards(cx), self.agents.observe_only());
+            inbox.update(cx, |i, cx| i.set(cards, observe_only, cx));
         }
     }
 
-    fn project_name(&self, agent: &str, cx: &App) -> String {
-        basename(&self.project_path(agent, cx))
+    fn inbox_cards(&self, cx: &App) -> Vec<Card> {
+        let mut cards: Vec<Card> = self
+            .agents
+            .list
+            .iter()
+            .filter_map(|a| {
+                let status = noted(a)?;
+                let asks = self.agents.pending.iter().filter(|p| p.agent_id == a.id).cloned().collect();
+                let path = self.project_path(&a.id, cx);
+                let project = basename(&path);
+                let retry = status == Status::Failed && self.activity_last_prompt(&a.id).is_some();
+                Some(Card {
+                    agent: a.id.clone(),
+                    status,
+                    mark: self.project_mark(&path, ui::mark_letter(&project)),
+                    project,
+                    provider: a.provider.clone(),
+                    agent_name: self.agent_name(&a.provider),
+                    title: status::title(a),
+                    delegated_by: self.agents.get(&a.parent).map(status::title),
+                    at: a.updated_at,
+                    body: body(status, asks, &a.recap.said, self.chat_shown(&a.terminal_id), &a.error, retry),
+                })
+            })
+            .collect();
+        order(&mut cards, self.store.sidebar.inbox_sort);
+        cards
     }
 
-    /// The project the agent works in, else its own folder.
     fn project_path(&self, agent: &str, cx: &App) -> String {
         let projects = self.projects(cx);
         let cwd = self.cwd_of(agent, cx).unwrap_or_default();
         self.project_of(&cwd, &projects).cloned().unwrap_or(cwd)
     }
 
-    pub(crate) fn open_selected(&mut self, _: &OpenSession, window: &mut Window, cx: &mut Context<Self>) {
-        if self.screen != Screen::Inbox {
-            return;
+    pub(crate) fn on_inbox_event(&mut self, _: &Entity<Inbox>, ev: &InboxEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let pending = |request: &str| self.agents.pending.iter().any(|p| p.request_id == request);
+        let answers = !self.agents.observe_only();
+        match ev {
+            InboxEvent::Open(agent) => {
+                if self.agents.get(agent).and_then(noted) != Some(Status::NeedsYou) {
+                    self.outbox.seen(std::slice::from_ref(agent));
+                }
+                self.inbox(cx).update(cx, |i, cx| i.shut(cx));
+                self.focus_agent(agent, window, cx);
+            }
+            InboxEvent::Decide { request, decision } if answers => self.answer_pending(request, *decision, cx),
+            InboxEvent::Reply { request, text } if answers && pending(request) => self.outbox.reply(request, text),
+            InboxEvent::Answer { request, answers: a } if answers && pending(request) => self.outbox.answer(request, a),
+            InboxEvent::Prompt { agent, text } if answers => _ = self.outbox.prompt(agent, text),
+            InboxEvent::Retry(agent) if answers => self.retry_turn(agent, cx),
+            InboxEvent::Seen(ids) => self.outbox.seen(ids),
+            _ => {}
         }
-        if let Some(n) = self.shown_notes(cx).into_iter().nth(self.inbox.read(cx).selected) {
-            self.focus_agent(&n.agent, window, cx);
-        }
+        cx.notify();
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Note, arrange, count, heading, notes, readable, reselect, select, step};
-    use crate::status::Status;
-    use agents::{Agents, Item, Permission, Summary};
-    use store::prefs::sidebar::{InboxFilter, InboxSort};
+    use super::{Answers, Body, Card, Status, Tab, body, count, mark_all_seen, opening_tab, order};
+    use agents::{Agents, Permission, Summary};
+    use store::prefs::sidebar::InboxSort;
 
     fn agent(id: &str, status: &str, at: i64) -> Summary {
         Summary {
@@ -256,52 +427,23 @@ mod tests {
         }
     }
 
-    fn said(agents: &mut Agents, id: &str, text: &str) {
-        agents.list.iter_mut().find(|a| a.id == id).unwrap().recap.said = text.into();
+    fn card(agent: &str, status: Status, at: i64) -> Card {
+        Card {
+            agent: agent.into(),
+            status,
+            project: String::new(),
+            mark: ui::Mark::Letters("A".into()),
+            provider: String::new(),
+            agent_name: "Claude".into(),
+            title: String::new(),
+            delegated_by: None,
+            at,
+            body: Body::Done,
+        }
     }
 
-    #[test]
-    fn selection_follows_the_focused_note_else_clamps_and_drops_focus() {
-        let note = |t: &str| Note { agent: t.into(), terminal: t.into(), status: Status::NeedsYou, title: String::new(), subtitle: String::new(), at: 0 };
-        assert_eq!(reselect(&[note("new"), note("a"), note("b")], Some("a"), 0), (1, Some("a".to_string())));
-        assert_eq!(reselect(&[note("a"), note("b")], Some("c"), 2), (1, None));
-        assert_eq!(reselect(&[note("a")], None, 4), (0, None));
-    }
-
-    #[test]
-    fn lists_agents_that_need_you_then_failed_then_done() {
-        let mut agents = Agents {
-            list: vec![
-                agent("done", "done", 3),
-                Summary { failed: true, ..agent("fail", "done", 1) },
-                agent("ask", "needsYou", 0),
-                agent("busy", "working", 9),
-                Summary { attached: false, ..agent("blind", "done", 9) },
-            ],
-            pending: vec![Permission { agent_id: "ask".into(), tool_name: "Bash".into(), ..Default::default() }],
-            ..Default::default()
-        };
-        said(&mut agents, "done", "\nTagged v2\nmore");
-        agents.list[1].error = "exit 1".into();
-        let got: Vec<(String, Status, String, String)> = notes(&agents).into_iter().map(|n| (n.terminal, n.status, n.title, n.subtitle)).collect();
-        let want = [
-            ("t-ask", Status::NeedsYou, "Wants to use Bash", "ASK"),
-            ("t-fail", Status::Failed, "FAIL failed", "exit 1"),
-            ("t-done", Status::Done, "DONE", "Tagged v2"),
-        ];
-        assert_eq!(got, want.map(|(t, s, a, b)| (t.to_string(), s, a.to_string(), b.to_string())));
-    }
-
-    #[test]
-    fn a_note_reads_the_summary_and_not_a_timeline_that_may_be_unloaded_or_stale() {
-        let mut agents =
-            Agents { list: vec![Summary { failed: true, error: "exit 1".into(), ..agent("fail", "done", 1) }, agent("done", "done", 2)], ..Default::default() };
-        said(&mut agents, "done", "Tagged v2");
-        let stale = |kind: &str| vec![Item { kind: kind.into(), text: "old".into(), error: "old".into(), ..Default::default() }];
-        agents.timelines.insert("fail".into(), stale("result"));
-        agents.timelines.insert("done".into(), stale("assistant"));
-        let got: Vec<_> = notes(&agents).into_iter().map(|n| n.subtitle).collect();
-        assert_eq!(got, ["exit 1", "Tagged v2"]);
+    fn ask(request: &str) -> Permission {
+        Permission { request_id: request.into(), agent_id: "a".into(), tool_name: "Bash".into(), ..Default::default() }
     }
 
     #[test]
@@ -318,60 +460,64 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(count(&agents), 3);
-        assert_eq!(count(&agents), notes(&agents).len());
     }
 
     #[test]
-    fn the_inbox_lists_needs_you_failed_done_oldest_first() {
-        let mut agents = Agents::default();
-        let failed = |id: &str, at| Summary { failed: true, ..agent(id, "done", at) };
-        agents.list = vec![agent("new", "done", 5), agent("ask2", "needsYou", 7), failed("fail", 9), agent("old", "done", 1), agent("ask", "needsYou", 2)];
-        let notes = notes(&agents);
-        let got: Vec<&str> = notes.iter().map(|n| n.agent.as_str()).collect();
-        assert_eq!(got, vec!["ask", "ask2", "fail", "old", "new"]);
-        let headings: Vec<_> = (0..notes.len()).map(|i| heading(&notes, i)).collect();
-        let want = [Some(("NEEDS YOU", 2)), None, Some(("FAILED", 1)), Some(("DONE", 2)), None];
-        assert_eq!(headings, want.map(|h| h.map(|(l, n)| (l.to_string(), n))));
+    fn a_card_holds_its_open_asks_else_what_it_last_said_its_error_or_nothing_once_done() {
+        assert_eq!(body(Status::NeedsYou, vec![ask("r")], "said", true, "", false), Body::Asks(vec![ask("r")]));
+        assert_eq!(body(Status::NeedsYou, vec![], " Which branch?\n", false, "", false), Body::Said { text: "Which branch?".into(), chat: false });
+        assert_eq!(body(Status::Failed, vec![], "", true, "exit 1\n", true), Body::Failed { error: "exit 1".into(), retry: true });
+        assert_eq!(body(Status::Done, vec![], "Tagged v2", true, "", false), Body::Done);
     }
 
     #[test]
-    fn a_needs_you_agent_without_an_open_ask_reads_its_title_and_last_text() {
-        let mut agents = Agents { list: vec![agent("ask", "needsYou", 0)], ..Default::default() };
-        said(&mut agents, "ask", "Which branch?");
-        let n = &notes(&agents)[0];
-        assert_eq!((n.title.as_str(), n.subtitle.as_str()), ("ASK", "Which branch?"));
+    fn cards_list_needs_you_then_failed_then_done_oldest_first_unless_sorted_by_time() {
+        let all = || vec![card("done", Status::Done, 1), card("fail", Status::Failed, 3), card("ask2", Status::NeedsYou, 5), card("ask", Status::NeedsYou, 2)];
+        let agents = |sort| {
+            let mut cards = all();
+            order(&mut cards, sort);
+            cards.into_iter().map(|c| c.agent).collect::<Vec<_>>()
+        };
+        assert_eq!(agents(InboxSort::Urgent), ["ask", "ask2", "fail", "done"]);
+        assert_eq!(agents(InboxSort::Newest), ["ask2", "fail", "ask", "done"]);
+        assert_eq!(agents(InboxSort::Oldest), ["done", "ask", "fail", "ask2"]);
     }
 
     #[test]
-    fn j_and_down_step_to_the_next_note_and_k_and_up_to_the_previous_stopping_at_the_top() {
-        let got = [step("j", 1), step("down", 1), step("k", 1), step("up", 1), step("k", 0), step("x", 1)];
-        assert_eq!(got, [Some(2), Some(2), Some(0), Some(0), Some(0), None]);
-    }
-
-    fn note(terminal: &str, status: Status) -> Note {
-        Note { agent: terminal.to_uppercase(), terminal: terminal.into(), status, title: String::new(), subtitle: String::new(), at: 0 }
+    fn the_popover_opens_on_needs_you_unless_only_updates_wait() {
+        assert_eq!(opening_tab(&[card("a", Status::Done, 0), card("b", Status::Failed, 0)]), Tab::NeedsYou);
+        assert_eq!(opening_tab(&[card("a", Status::Done, 0)]), Tab::Updates);
+        assert_eq!(opening_tab(&[]), Tab::NeedsYou);
     }
 
     #[test]
-    fn selecting_a_note_clamps_to_the_list_and_focuses_its_terminal() {
-        let notes = [note("a", Status::NeedsYou), note("b", Status::Done)];
-        assert_eq!((select(&notes, 0), select(&notes, 5), select(&[], 1)), ((0, Some("a".to_string())), (1, Some("b".to_string())), (0, None)));
+    fn mark_all_seen_marks_only_the_updates() {
+        assert_eq!(mark_all_seen(&[card("a", Status::NeedsYou, 0), card("b", Status::Failed, 0), card("c", Status::Done, 0)]), ["c"]);
     }
 
     #[test]
-    fn mark_all_seen_marks_every_agent_but_those_that_need_you() {
-        let notes = vec![note("a", Status::NeedsYou), note("b", Status::Failed), note("c", Status::Done)];
-        assert_eq!(readable(notes), vec!["B", "C"]);
+    fn a_card_steps_through_its_asks_and_settles_once_all_are_answered() {
+        let mut answers = Answers::default();
+        let c = Card { body: Body::Asks(vec![ask("r1"), ask("r2")]), ..card("a", Status::NeedsYou, 0) };
+        let Body::Asks(asks) = &c.body else { unreachable!() };
+        assert_eq!(answers.shown(asks).map(|(i, p)| (i, p.request_id.as_str())), Some((0, "r1")));
+        assert!(answers.send("r1", "Allowed".into()));
+        assert!(!answers.send("r1", "Allowed".into()), "an answer goes out once");
+        assert_eq!(answers.shown(asks).map(|(i, _)| i), Some(1));
+        assert_eq!(answers.settled(&c), None);
+        answers.send("r2", "Denied".into());
+        assert_eq!(answers.settled(&c), Some("Denied"));
     }
 
     #[test]
-    fn the_inbox_shows_one_status_or_all_newest_or_oldest_first() {
-        let at = |t: &str, status, at| Note { at, ..note(t, status) };
-        let all = || vec![at("a", Status::NeedsYou, 3), at("b", Status::Failed, 1), at("c", Status::Done, 2)];
-        let terminals = |notes: Vec<Note>| notes.into_iter().map(|n| n.terminal).collect::<Vec<_>>();
-        assert_eq!(terminals(arrange(all(), InboxSort::Urgent, InboxFilter::All)), ["a", "b", "c"]);
-        assert_eq!(terminals(arrange(all(), InboxSort::Newest, InboxFilter::All)), ["a", "c", "b"]);
-        assert_eq!(terminals(arrange(all(), InboxSort::Oldest, InboxFilter::All)), ["b", "c", "a"]);
-        assert_eq!(terminals(arrange(all(), InboxSort::Urgent, InboxFilter::Failed)), ["b"]);
+    fn answers_are_forgotten_once_pocketd_drops_the_ask_or_the_session() {
+        let mut answers = Answers::default();
+        answers.send("r1", "Allowed".into());
+        answers.send("gone", "Sent".into());
+        answers.send("fail", "Retrying".into());
+        answers.forget_gone(&[Card { body: Body::Asks(vec![ask("r1")]), ..card("a", Status::NeedsYou, 0) }, card("fail", Status::Failed, 0)]);
+        let mut kept: Vec<_> = answers.sent.keys().cloned().collect();
+        kept.sort();
+        assert_eq!(kept, ["fail", "r1"]);
     }
 }

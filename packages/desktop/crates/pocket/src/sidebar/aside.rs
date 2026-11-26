@@ -5,6 +5,7 @@ use super::sections::{Section, emoji_mark, section_head};
 use super::tree_card::{self, WAIT};
 use super::{Kind, Sidebar, done_name, row_name, with_sub};
 use crate::desktop::chrome::{Column, RowMenu, Screen, drag_area, id, seam_handle};
+use crate::inbox::{Inbox, hung};
 use crate::spaces::{Heading, SLIDE_MS};
 use crate::star::Star;
 use crate::updates::{Update, release_url};
@@ -157,6 +158,7 @@ pub(crate) struct AsideFrame {
     pub(crate) seam: bool,
     pub(crate) reduce_motion: bool,
     pub(crate) unseen: usize,
+    pub(crate) inbox: Option<Entity<Inbox>>,
     pub(crate) screen: Screen,
     pub(crate) pages: Vec<(&'static str, &'static str, Screen)>,
     pub(crate) scratch: Option<ScratchFrame>,
@@ -840,9 +842,16 @@ impl Render for Sidebar {
             .items_center()
             .justify_end()
             .child(
-                icon_button_sized("aside-bell", "bell", 28., TEXT_3)
-                    .when(f.unseen > 0, |d| d.child(ui::count_badge(f.unseen).top(px(-3.)).right(px(-3.))))
-                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Bell))),
+                div()
+                    .relative()
+                    .child(ui::popover_trigger(
+                        icon_button_sized("aside-bell", "bell", 28., if f.inbox.is_some() { TEXT } else { TEXT_3 })
+                            .when(f.inbox.is_some(), |d| d.bg(FILL_3))
+                            .when(f.unseen > 0, |d| d.child(ui::count_badge(f.unseen).top(px(-3.)).right(px(-3.)))),
+                        f.inbox.is_some(),
+                        cx.listener(|_, _: &MouseDownEvent, _, cx| cx.emit(SidebarEvent::Bell)),
+                    ))
+                    .children(f.inbox.clone().map(|inbox| hung(34., -6., inbox))),
             )
             .child(
                 icon_button_sized("aside-collapse", "sidebar-collapse", 28., TEXT_3)

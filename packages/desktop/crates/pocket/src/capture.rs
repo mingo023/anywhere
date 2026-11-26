@@ -36,7 +36,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 310] = [
+const STEPS: [(&str, Step); 314] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -555,7 +555,14 @@ const STEPS: [(&str, Step); 310] = [
             d.open_composer(pane, i, window, cx);
         }
     }),
-    ("inbox", |d, window, cx| d.open_inbox(window, cx)),
+    ("inbox", |d, _, cx| d.toggle_inbox(cx)),
+    ("inbox-cases", |d, _, _| seed_inbox(d)),
+    ("inbox-no-questions", |d, _, _| {
+        d.agents.pending.retain(|p| p.tool_name != "AskUserQuestion");
+        d.agents.list.iter_mut().filter(|a| a.id == "crash" || a.id == "haptics").for_each(|a| a.status = "idle".into());
+    }),
+    ("inbox-updates", |d, _, cx| d.inbox(cx).update(cx, |i, cx| i.show_tab(crate::inbox::Tab::Updates, cx))),
+    ("inbox-observe", |d, _, _| d.agents.scopes = vec!["read".into()]),
     ("activity", |d, window, cx| d.open_activity(window, cx)),
     ("activity-panel", |d, window, cx| {
         if let Some(id) = d.agents.list.iter().find(|a| a.status == "needsYou").map(|a| a.id.clone()) {
@@ -1969,6 +1976,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     });
     (d.layout, d.widths) = (Layout::Sidebars, [None; 2]);
     d.sidebar.update(cx, |s, cx| s.set_panel_open(false, cx));
+    d.inbox(cx).update(cx, |i, cx| i.shut(cx));
     d.panels.update(cx, |p, cx| p.set_menu(None, cx));
     (d.worktree, d.terminal.focused) = (None, None);
     d.preview.update(cx, |p, _| p.state.panes.values_mut().for_each(|f| f.file = None));
@@ -2090,4 +2098,76 @@ fn save(_: &Window, _: &Path) -> Result<(), String> {
 fn syntax(d: &mut Desktop, palette: store::SyntaxTheme, cx: &mut Context<Desktop>) {
     d.store.appearance.syntax = palette;
     theme::set_syntax(palette as usize, cx);
+}
+
+/// Every card the inbox draws: several asks, an edit with its diff, an MCP tool, a long question, a multi-select wizard
+/// in a delegated session, a chat and a terminal waiting without an ask, a failed turn, and finished sessions.
+fn seed_inbox(d: &mut Desktop) {
+    use agents::{Detail, DiffLine, FileDiff, Permission};
+    let ask = |agent: &str, n: usize, tool: &str, detail: Detail, feedback: bool| Permission {
+        request_id: format!("inbox-{agent}-{n}"),
+        agent_id: agent.into(),
+        tool_name: tool.into(),
+        detail,
+        feedback,
+    };
+    let line = |kind: &str, text: &str| DiffLine { number: None, kind: kind.into(), text: text.into() };
+    let diff = FileDiff {
+        lines: vec![
+            line("del", "const reveal = () => show(term);"),
+            line("add", "const reveal = () => requestAnimationFrame(() => show(term));"),
+            line("add", "onSettled(reveal);"),
+        ],
+        additions: 2,
+        deletions: 1,
+        content_only: false,
+    };
+    let questions = |qs: serde_json::Value| Detail { kind: "other".into(), input: json!({ "questions": qs }), ..Default::default() };
+    let heavy = questions(json!([{
+        "header": "Restore strategy",
+        "question": "Which restore strategy should the terminal use?\n\nThe reveal races the **settled** event on slow devices:\n\n- `requestAnimationFrame` waits one frame\n- a fixed 800ms delay hides the race but feels slow\n- keying off `onSettled` needs a fallback for sessions that never settle",
+        "options": [
+            { "label": "Key off onSettled", "description": "Reveal when the session reports it settled, with a 2s fallback for sessions that never do. Most correct, touches the restore hook and its tests." },
+            { "label": "Wait one frame", "description": "Smallest change; fixes the flash on fast devices but not on the emulator." },
+            { "label": "Keep the 800ms delay", "description": "No code change." },
+            { "label": "Ask me again after profiling", "description": "" }
+        ]
+    }]));
+    let wizard = questions(json!([
+        { "header": "Platforms", "question": "Which platforms get haptics?", "multiSelect": true,
+          "options": [{ "label": "iOS", "description": "UIImpactFeedbackGenerator" }, { "label": "Android", "description": "HapticFeedbackConstants" }, { "label": "iPad", "description": "" }] },
+        { "header": "Strength", "question": "How strong?", "options": [{ "label": "Light", "description": "" }, { "label": "Medium", "description": "" }] },
+        { "header": "Settings", "question": "Add a setting to turn it off?", "options": [{ "label": "Yes", "description": "" }, { "label": "No", "description": "" }] }
+    ]));
+    let edit = Detail { kind: "edit".into(), path: "src/restore/useReveal.ts".into(), diff: Some(diff), ..Default::default() };
+    let mcp = Detail {
+        kind: "other".into(),
+        name: "mcp__linear__create_issue".into(),
+        input: json!({ "title": "Stale terminal flash", "team": "MOB", "priority": 2 }),
+        ..Default::default()
+    };
+    d.agents.pending.extend([
+        ask("fix", 2, "Edit", edit, false),
+        ask("fix", 3, "mcp__linear__create_issue", mcp, false),
+        ask("crash", 1, "AskUserQuestion", heavy, true),
+        ask("haptics", 1, "AskUserQuestion", wizard, true),
+    ]);
+    for a in d.agents.list.iter_mut() {
+        match a.id.as_str() {
+            "crash" | "haptics" => a.status = "needsYou".into(),
+            "migrate" => {
+                (a.status, a.chat_only) = ("needsYou".into(), true);
+                a.recap.said = "The legacy hooks import from `restore/v1`. Should I delete v1 or keep a shim for the iOS app?".into();
+            }
+            "hook" => {
+                a.status = "needsYou".into();
+                a.recap.said = "? Overwrite deliveries.lock? (y/N)".into();
+            }
+            "split" | "mkt" => a.status = "done".into(),
+            _ => {}
+        }
+        if a.id == "haptics" {
+            a.parent = "split".into();
+        }
+    }
 }

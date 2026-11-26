@@ -22,6 +22,7 @@ use crate::desktop::pages;
 use crate::desktop::project::Placement;
 use crate::git_ui::pull_requests;
 use crate::glide::Glide;
+use crate::inbox::Inbox;
 use crate::modals::host_finder::Opener;
 use crate::region;
 use crate::renames::{self, Renames, Slot};
@@ -70,9 +71,9 @@ pub(crate) fn row_of(tree: Option<String>, listed: Option<&[agents::worktrees::T
     }
 }
 
-/// The column left of the page, listing the inbox or Automations.
+/// The column left of the page, listing Automations.
 pub(crate) fn column_shown(layout: Layout, screen: Screen) -> bool {
-    layout != Layout::Focus && matches!(screen, Screen::Inbox | Screen::Automations)
+    layout != Layout::Focus && screen == Screen::Automations
 }
 
 /// Where the lead column rests in `layout`, on a line from nothing through the rail to the sidebar.
@@ -183,6 +184,7 @@ pub struct Sidebar {
     /// Where a right-click opened the row menu; `None` drops it under its `···` button.
     pub(crate) menu_at: Option<Point<Pixels>>,
     pub(crate) picker: Entity<ProjectPicker>,
+    pub(crate) inbox: Entity<Inbox>,
     pub(crate) rail: Entity<Rail>,
     pub(crate) panel_rail: Entity<PanelRail>,
     pub(crate) panel_view: Entity<Panel>,
@@ -211,6 +213,7 @@ impl Sidebar {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions…"));
         let sessions = cx.new(|_| SessionList::new(search.clone()));
         let picker = cx.new(|cx| ProjectPicker::new(window, cx));
+        let inbox = cx.new(|cx| Inbox::new(window, cx));
         let rail = cx.new(|_| Rail::new(picker.clone()));
         let panel_rail = cx.new(|_| PanelRail::default());
         let panel_view = cx.new(|_| Panel::default());
@@ -227,6 +230,7 @@ impl Sidebar {
             rail_spaces,
             menu_at: None,
             picker,
+            inbox,
             rail,
             panel_rail,
             panel_view,
@@ -277,7 +281,7 @@ impl Sidebar {
     }
 
     pub(crate) fn menu_open(&self, cx: &App) -> bool {
-        self.picker.read(cx).open || self.header.read(cx).menu_open() || self.space_header.read(cx).menu_open()
+        self.picker.read(cx).open || self.inbox.read(cx).open || self.header.read(cx).menu_open() || self.space_header.read(cx).menu_open()
     }
 
     pub(crate) fn close(&mut self, fold: Fold, cx: &mut Context<Self>) {
@@ -294,6 +298,7 @@ impl Sidebar {
         cx.notify();
         self.menu_at = None;
         self.picker.update(cx, |p, cx| p.shut(cx));
+        self.inbox.update(cx, |i, cx| i.shut(cx));
         self.header.update(cx, |h, cx| h.shut(cx));
         self.space_header.update(cx, |h, cx| h.shut(cx));
     }
@@ -301,7 +306,7 @@ impl Sidebar {
 
 impl Desktop {
     pub(crate) fn sidebar_subs(sidebar: &Entity<Sidebar>, window: &mut Window, cx: &mut Context<Self>) -> Vec<Subscription> {
-        let (search, sessions, space_header, aside, rail_spaces, picker, rail, panel_rail, panel_view, column, header) = {
+        let (search, sessions, space_header, aside, rail_spaces, picker, inbox, rail, panel_rail, panel_view, column, header) = {
             let s = sidebar.read(cx);
             (
                 s.search.clone(),
@@ -310,6 +315,7 @@ impl Desktop {
                 s.aside_spaces.clone(),
                 s.rail_spaces.clone(),
                 s.picker.clone(),
+                s.inbox.clone(),
                 s.rail.clone(),
                 s.panel_rail.clone(),
                 s.panel_view.clone(),
@@ -326,6 +332,8 @@ impl Desktop {
             cx.observe(&header, |_, _, cx| cx.notify()),
             cx.subscribe_in(&picker, window, Self::on_picker_event),
             cx.observe(&picker, |_, _, cx| cx.notify()),
+            cx.subscribe_in(&inbox, window, Self::on_inbox_event),
+            cx.observe(&inbox, |_, _, cx| cx.notify()),
             cx.subscribe_in(&space_header, window, Self::on_space_header_event),
             cx.subscribe_in(&aside, window, Self::on_switcher_event),
             cx.subscribe_in(&rail_spaces, window, Self::on_switcher_event),
@@ -369,7 +377,7 @@ impl Desktop {
 
     fn on_sidebar_event(&mut self, _: &Entity<Sidebar>, ev: &SidebarEvent, window: &mut Window, cx: &mut Context<Self>) {
         match ev {
-            SidebarEvent::Bell => self.open_inbox(window, cx),
+            SidebarEvent::Bell => self.toggle_inbox(cx),
             SidebarEvent::Collapse => self.toggle_sidebar(&crate::actions::ToggleSidebar, window, cx),
             SidebarEvent::Palette => self.open(Overlay::Palette, window, cx),
             SidebarEvent::Page(screen) => self.go_to_screen(*screen, window, cx),
@@ -482,6 +490,7 @@ impl Desktop {
 
     /// The lead column: the sidebar or the rail, one fading into the other as it widens, and nothing in Focus.
     pub(crate) fn lead(&self, cx: &mut Context<Self>) -> Div {
+        self.sync_inbox(cx);
         let (at, wide) = (self.sidebar.read(cx).lead.at(), self.aside_width());
         let shown = aside_shown(at);
         if at > 0. && shown < 1. {
@@ -532,6 +541,7 @@ impl Desktop {
             seam: self.overlay.is_none(),
             reduce_motion,
             unseen: crate::inbox::count(&self.agents),
+            inbox: Inbox::hung_from(&self.sidebar.read(cx).inbox, self.layout, Layout::Sidebars, cx),
             screen: self.screen,
             pages: pages::offered(&self.agents).map(|p| (p.name, p.icon, p.screen)).collect(),
             scratch: self.scratch_frame(&query, space, cx),
@@ -748,12 +758,12 @@ mod tests {
     }
 
     #[test]
-    fn the_left_column_lists_the_inbox_and_automations_outside_focus() {
+    fn the_left_column_lists_automations_outside_focus() {
         let got = [
             column_shown(Layout::Sidebars, Screen::Sessions),
-            column_shown(Layout::Compact, Screen::Inbox),
+            column_shown(Layout::Compact, Screen::Automations),
             column_shown(Layout::Sidebars, Screen::Automations),
-            column_shown(Layout::Focus, Screen::Inbox),
+            column_shown(Layout::Focus, Screen::Automations),
         ];
         assert_eq!(got, [false, true, true, false]);
     }

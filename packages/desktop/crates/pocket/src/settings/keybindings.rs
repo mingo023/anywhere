@@ -2,7 +2,7 @@ use super::catalog::Setting;
 use super::{Section, Settings, SettingsEvent, card, group, row};
 use crate::desktop::chrome::Confirm;
 use crate::desktop::pages;
-use crate::{actions, browser, inbox, settings};
+use crate::{actions, browser, settings};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -38,13 +38,7 @@ const TOPICS: [(Topic, &str); 5] =
     [(Topic::Sessions, "Sessions"), (Topic::Navigation, "Navigation"), (Topic::Panels, "Panels & tabs"), (Topic::Browser, "Browser"), (Topic::App, "App")];
 
 /// Keys handled outside the keymap, so no binding lists them.
-const FIXED: [(&str, &[&str]); 5] = [
-    ("Close a menu, dialog or Settings", &["Esc"]),
-    ("Move in the palette", &["↑", "↓"]),
-    ("Open from the palette", &["↩"]),
-    ("Next in Inbox", &["J", "↓"]),
-    ("Previous in Inbox", &["K", "↑"]),
-];
+const FIXED: [(&str, &[&str]); 3] = [("Close a menu, dialog or Settings", &["Esc"]), ("Move in the palette", &["↑", "↓"]), ("Open from the palette", &["↩"])];
 
 /// What an action does and the group listing it; `None` leaves it out.
 fn label(action: &str) -> Option<(&'static str, Topic)> {
@@ -56,7 +50,6 @@ fn label(action: &str) -> Option<(&'static str, Topic)> {
     Some(match action {
         "StartSession" => ("New session", Sessions),
         "NewWorktree" => ("New worktree", Sessions),
-        "OpenSession" => ("Open session", Sessions),
         "NextNeedsYou" => ("Next Needs you", Sessions),
         "GoToUpNext" => ("Go to Up next", Sessions),
         "NextSession" => ("Next session", Sessions),
@@ -102,13 +95,12 @@ fn label(action: &str) -> Option<(&'static str, Topic)> {
     })
 }
 
-/// Where `b` works: `Some(None)` everywhere, `Some(Some(place))` in a terminal, browser or the Inbox, `None` somewhere the list leaves out.
+/// Where `b` works: `Some(None)` everywhere, `Some(Some(place))` in a terminal, browser or Settings, `None` somewhere the list leaves out.
 fn place(b: &KeyBinding) -> Option<Option<&'static str>> {
     match b.predicate().map(|p| p.to_string()).as_deref() {
         None => Some(None),
         Some(keys::CONTEXT) => Some(Some("Terminal")),
         Some(browser::CONTEXT) => Some(Some("Browser")),
-        Some(inbox::CONTEXT) => Some(Some("Inbox")),
         Some(settings::CONTEXT) => Some(Some("Settings")),
         Some(_) => None,
     }
@@ -582,10 +574,10 @@ mod tests {
     }
 
     #[test]
-    fn terminal_browser_and_inbox_shortcuts_are_marked_with_where_they_work() {
+    fn terminal_and_browser_shortcuts_are_marked_with_where_they_work() {
         let rows = shortcut_rows(&bindings());
         let at = |l: &str| rows.iter().find(|r| r.label == l).unwrap().place;
-        assert_eq!([at("Copy"), at("Reload"), at("Open session"), at("Settings")], [Some("Terminal"), Some("Browser"), Some("Inbox"), None]);
+        assert_eq!([at("Copy"), at("Reload"), at("Settings")], [Some("Terminal"), Some("Browser"), None]);
     }
 
     #[test]

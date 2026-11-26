@@ -16,7 +16,7 @@ mod permission;
 mod phase;
 mod pin;
 mod pr_link;
-mod question;
+pub(crate) mod question;
 mod question_marker;
 mod reveal;
 pub(crate) mod selectable;

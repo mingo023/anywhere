@@ -3,12 +3,11 @@ use super::{Settings, row};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use store::Store;
-use store::prefs::sidebar::{Details, InboxFilter, InboxSort, SessionSort};
+use store::prefs::sidebar::{Details, InboxSort, SessionSort};
 use theme::*;
 
 const SORTS: [SessionSort; 4] = [SessionSort::Newest, SessionSort::Status, SessionSort::Activity, SessionSort::Name];
 const INBOX_SORTS: [InboxSort; 3] = [InboxSort::Urgent, InboxSort::Newest, InboxSort::Oldest];
-const INBOX_FILTERS: [InboxFilter; 4] = [InboxFilter::All, InboxFilter::NeedsYou, InboxFilter::Failed, InboxFilter::Done];
 
 type Detail = (&'static str, fn(&mut Details) -> &mut bool);
 
@@ -81,15 +80,6 @@ pub(super) const ROWS: &[Setting] = &[
         Look::Dropdown,
         |s| s.sidebar.inbox_sort as usize,
         |s, i| s.sidebar.inbox_sort = INBOX_SORTS[i],
-    ),
-    Setting::choice(
-        "inbox-filter",
-        "Inbox",
-        "Open the inbox showing",
-        &["All", "Needs you", "Failed", "Done"],
-        Look::Segmented,
-        |s| s.sidebar.inbox_filter as usize,
-        |s, i| s.sidebar.inbox_filter = INBOX_FILTERS[i],
     ),
 ];
 

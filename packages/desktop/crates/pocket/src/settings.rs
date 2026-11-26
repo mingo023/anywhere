@@ -1023,12 +1023,8 @@ impl Desktop {
         }
     }
 
-    pub(crate) fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn close_settings(&mut self, cx: &mut Context<Self>) {
         self.screen = self.settings.read(cx).back_to();
-        if self.screen == Screen::Inbox {
-            let focus = self.inbox.read(cx).focus.clone();
-            window.focus(&focus, cx);
-        }
         cx.notify();
     }
 
@@ -1038,7 +1034,7 @@ impl Desktop {
             return self.close_add_host(window, cx);
         }
         if self.settings.read(cx).search.read(cx).value().is_empty() {
-            return self.close_settings(window, cx);
+            return self.close_settings(cx);
         }
         self.settings.update(cx, |s, cx| s.clear_search(window, cx));
         window.focus(&self.root, cx);
@@ -1066,7 +1062,7 @@ impl Desktop {
             SettingsEvent::CheckGh => self.check_gh(cx),
             SettingsEvent::GhLogin => {
                 let argv = ["gh", "auth", "login"].map(String::from);
-                self.close_settings(window, cx);
+                self.close_settings(cx);
                 self.run_in_tree(workspace::Place::Pane(None), &argv, None, |cwd| daemon::agent_op(&argv, cwd), cx);
             }
             SettingsEvent::PickGhAccount { project, account } => {
@@ -1081,7 +1077,7 @@ impl Desktop {
             SettingsEvent::FontsLoaded => appearance::apply_fonts(self, cx),
             SettingsEvent::ChooseBackground(setting) => appearance::choose_background(setting, cx),
             SettingsEvent::Shown(section) => self.load_section(*section, cx),
-            SettingsEvent::Close => self.close_settings(window, cx),
+            SettingsEvent::Close => self.close_settings(cx),
             SettingsEvent::FocusRoot => window.focus(&self.root, cx),
             SettingsEvent::Error(e) => {
                 self.fail(e.clone(), cx);
@@ -1203,9 +1199,9 @@ mod tests {
     fn closing_settings_returns_to_the_screen_it_came_from() {
         let mut back = Return::default();
         assert_eq!(back.0, Screen::Sessions);
-        back.open(Screen::Inbox);
+        back.open(Screen::Board);
         back.open(Screen::Settings);
-        assert_eq!(back.0, Screen::Inbox);
+        assert_eq!(back.0, Screen::Board);
         back.open(Screen::Sessions);
         assert_eq!(back.0, Screen::Sessions);
     }

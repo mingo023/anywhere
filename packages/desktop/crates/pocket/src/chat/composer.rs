@@ -739,7 +739,6 @@ impl Desktop {
             ("answer", c.answer.read(cx).focus_handle(cx)),
             ("map", self.chats.map.read(cx).focus.clone()),
             ("browser", self.browsers.focus.clone()),
-            ("inbox", self.inbox.read(cx).focus.clone()),
             ("sidebar-filter", self.sidebar.read(cx).header.read(cx).filter.input.read(cx).focus_handle(cx)),
         ];
         let focus = match window.focused(cx) {
