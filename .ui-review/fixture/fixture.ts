@@ -1272,6 +1272,9 @@ Bun.serve({
           const items = timeline(a);
           held.set(a.id, items);
           ws.send(JSON.stringify({ type: "agent.timeline", id: f.id, agentId: a.id, ...paged(items, f.limit) }));
+        } else if (summaries.some((s) => s.id === f.agentId)) {
+          // As pocketd: a session just created answers with what it has so far, nothing until its prompt echoes.
+          ws.send(JSON.stringify({ type: "agent.timeline", id: f.id, agentId: f.agentId, ...paged([], f.limit) }));
         }
         if (a?.id === CHAT_AGENT && firstChat.at(-1)?.kind === "user") reply(ws, a.id);
         if (a?.id === CHAT_AGENT && process.env.FIXTURE_CHAT === "permissions") ask(ws, a.id, "permission");
