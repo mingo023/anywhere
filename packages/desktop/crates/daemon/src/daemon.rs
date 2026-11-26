@@ -47,6 +47,7 @@ pub struct Msg {
     /// Whether an agent at its account's limit moves to another; absent from a pocketd too old to.
     #[serde(rename = "autoSwitch")]
     pub auto_switch: Option<bool>,
+    pub unchanged: bool,
 }
 
 /// The part of pocketd's `status` reply Settings reads.
@@ -510,7 +511,12 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub struct Daemon {
-    writer: Arc<Mutex<Option<UnixStream>>>,
+    writer: Arc<Mutex<Option<Link>>>,
+}
+
+struct Link {
+    stream: UnixStream,
+    terminals: Option<String>,
 }
 
 impl Daemon {
@@ -537,14 +543,19 @@ impl Daemon {
                     s.set_write_timeout(Some(write_timeout)).map_err(|e| e.to_string())?;
                     Ok((BufReader::new(s.try_clone().map_err(|e| e.to_string())?), s))
                 }) {
-                    *shared.lock().expect("poisoned") = Some(stream);
+                    *shared.lock().expect("poisoned") = Some(Link { stream, terminals: None });
                     down = false;
                     if !link("up") {
                         return;
                     }
                     let up = Instant::now();
                     for line in reader.lines().map_while(Result::ok) {
-                        let Ok(msg) = serde_json::from_str::<Msg>(&line) else { continue };
+                        let Ok(mut msg) = serde_json::from_str::<Msg>(&line) else { continue };
+                        if msg.ev == "terminals" {
+                            let mut link = shared.lock().expect("poisoned");
+                            let Some(settled) = link.as_mut().and_then(|l| settle_terminals(&mut l.terminals, line, msg)) else { continue };
+                            msg = settled;
+                        }
                         if tx.unbounded_send(msg).is_err() {
                             return;
                         }
@@ -571,14 +582,17 @@ impl Daemon {
     }
 
     /// Whether the message reached pocketd's socket; false while it is down.
-    pub fn send(&self, msg: Value) -> bool {
+    pub fn send(&self, mut msg: Value) -> bool {
         let mut writer = self.writer.lock().expect("poisoned");
-        let Some(stream) = writer.as_mut() else { return false };
-        if writeln!(stream, "{msg}").is_ok() {
+        let Some(link) = writer.as_mut() else { return false };
+        if link.terminals.is_some() && msg == json!({"op": "list"}) {
+            msg["cached"] = true.into();
+        }
+        if writeln!(link.stream, "{msg}").is_ok() {
             return true;
         }
         // A write that timed out may have left half a line, so the link is no good; shutting it ends the reader, which reports "down".
-        let _ = stream.shutdown(std::net::Shutdown::Both);
+        let _ = link.stream.shutdown(std::net::Shutdown::Both);
         *writer = None;
         false
     }
@@ -586,6 +600,15 @@ impl Daemon {
     pub fn input(&self, id: &str, bytes: &[u8]) -> bool {
         self.send(json!({"op": "input", "id": id, "data": STANDARD.encode(bytes)}))
     }
+}
+
+/// The `terminals` the caller sees: for pocketd's "unchanged", the ones `held` from its last whole reply, which `line` otherwise replaces.
+fn settle_terminals(held: &mut Option<String>, line: String, msg: Msg) -> Option<Msg> {
+    if !msg.unchanged {
+        *held = Some(line);
+        return Some(msg);
+    }
+    serde_json::from_str(held.as_deref()?).ok()
 }
 
 #[cfg(test)]
@@ -874,6 +897,30 @@ mod tests {
         write!(&peer, "{{\"ev\":\"ok\"}}\n{{\"ev\":\"spawned\",\"id\":\"s2\"}}\n").unwrap();
         assert_eq!(next(&mut rx), "up");
         assert_eq!(next(&mut rx), "spawned");
+        assert!(d.send(json!({"op": "list"})));
+        assert_eq!(read_line(&peer), json!({"op": "list"}));
+    }
+
+    #[test]
+    fn list_gets_back_the_terminals_it_holds_when_pocketd_says_unchanged_until_the_link_drops() {
+        let path = sock("unchanged");
+        let ln = UnixListener::bind(&path).unwrap();
+        let (d, mut rx) = Daemon::spawn(&path);
+        assert_eq!(next(&mut rx), "up");
+        let (peer, _) = ln.accept().unwrap();
+        assert!(d.send(json!({"op": "list"})));
+        assert_eq!(read_line(&peer), json!({"op": "list"}));
+        writeln!(&peer, r#"{{"ev":"terminals","items":[{{"id":"a","cmd":"zsh","cwd":"/w"}}]}}"#).unwrap();
+        assert_eq!(block_on(rx.next()).unwrap().items.len(), 1);
+        assert!(d.send(json!({"op": "list"})));
+        assert_eq!(read_line(&peer), json!({"op": "list", "cached": true}));
+        writeln!(&peer, r#"{{"ev":"terminals","unchanged":true}}"#).unwrap();
+        let m = block_on(rx.next()).unwrap();
+        assert_eq!((m.ev.as_str(), m.items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>()), ("terminals", vec!["a"]));
+        drop(peer);
+        assert_eq!(next(&mut rx), "down");
+        let (peer, _) = ln.accept().unwrap();
+        assert_eq!(next(&mut rx), "up");
         assert!(d.send(json!({"op": "list"})));
         assert_eq!(read_line(&peer), json!({"op": "list"}));
     }

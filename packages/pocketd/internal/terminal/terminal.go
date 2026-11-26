@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -268,6 +269,7 @@ func (m *Manager) List() []Info {
 	for _, s := range m.terminals {
 		out = append(out, s.Info())
 	}
+	slices.SortFunc(out, func(a, b Info) int { return strings.Compare(a.ID, b.ID) })
 	return out
 }
 

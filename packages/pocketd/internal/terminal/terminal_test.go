@@ -83,6 +83,21 @@ func waitScreen(t *testing.T, s *Terminal, want string) {
 	t.Fatalf("screen never showed %q; got:\n%s", want, s.Screen())
 }
 
+func TestListIsSortedByID(t *testing.T) {
+	m := NewManager()
+	for range 8 {
+		spawn(t, m, "sleep 5")
+	}
+	got := m.List()
+	ids := make([]string, len(got))
+	for i, info := range got {
+		ids[i] = info.ID
+	}
+	if len(ids) != 8 || !slices.IsSorted(ids) {
+		t.Fatalf("%v", ids)
+	}
+}
+
 func TestPromptReachesProcess(t *testing.T) {
 	s := spawn(t, NewManager(), `printf 'ready\n'; read x; echo "got:$x"; sleep 5`)
 	waitScreen(t, s, "ready")
