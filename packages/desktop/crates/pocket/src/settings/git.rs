@@ -1,5 +1,5 @@
 use super::catalog::{Look, Setting};
-use super::dropdown::dropdown;
+use super::dropdown::{self, dropdown};
 use super::models::model_rows;
 use super::{Settings, SettingsEvent, action, row};
 use crate::composer::model_menu::listed_name;
@@ -215,12 +215,8 @@ impl Settings {
             (None, false) => div().text_color(TEXT_3).child(format!("Active account ({})", row.active)),
         };
         let toggle = project.clone();
-        let button = action(("gh-account", i), "").gap(px(6.)).child(shown).child(icon("chevron-down", 12., TEXT_3)).on_click(cx.listener(
-            move |this, _: &ClickEvent, _, cx| {
-                (this.menu, this.account_menu) = if open { (None, None) } else { (Some(ACCOUNT_MENU), Some(toggle.clone())) };
-                cx.notify();
-            },
-        ));
+        let button = action(("gh-account", i), "").gap(px(6.)).child(shown).child(icon("chevron-down", 12., TEXT_3));
+        let button = dropdown::trigger_with(button, open, move |this| (this.menu, this.account_menu) = (Some(ACCOUNT_MENU), Some(toggle.clone())), cx);
         let menu = open.then(|| {
             let options = row.accounts.clone().into_iter().enumerate().map(|(j, account)| {
                 let project = project.clone();
@@ -235,9 +231,10 @@ impl Settings {
                         cx.notify();
                     }))
             });
+            let options: Vec<_> = options.collect();
             ui::menu_in(
                 SharedString::from(format!("gh-account-menu-in-{i}")),
-                ui::pop(div()).min_w(px(180.)).max_h(px(320.)).p(px(4.)).flex().flex_col().children(options),
+                dropdown::shuts(ui::pop(div()), ACCOUNT_MENU, cx).min_w(px(180.)).max_h(px(320.)).p(px(4.)).flex().flex_col().children(options),
             )
         });
         div()
@@ -256,14 +253,9 @@ impl Settings {
             remotes.insert(0, chosen.clone());
         }
         let open = self.menu == Some(setting.id);
-        let button = action(setting.id, "")
-            .gap(px(6.))
-            .child(div().font_family(MONO).text_size(px(12.)).child(chosen.clone()))
-            .child(icon("chevron-down", 12., TEXT_3))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.menu = (!open).then_some(setting.id);
-                cx.notify();
-            }));
+        let button =
+            action(setting.id, "").gap(px(6.)).child(div().font_family(MONO).text_size(px(12.)).child(chosen.clone())).child(icon("chevron-down", 12., TEXT_3));
+        let button = dropdown::trigger(button, setting.id, open, cx);
         let rows = remotes.into_iter().enumerate().map(|(i, name)| {
             div()
                 .id(("remote-option", i))
@@ -285,7 +277,8 @@ impl Settings {
                     this.set(setting, cx, move |s| s.git.remote = name.clone());
                 }))
         });
-        let menu = ui::menu_in("remote-menu-in", ui::pop(div()).min_w(px(160.)).p(px(4.)).flex().flex_col().children(rows));
+        let rows: Vec<_> = rows.collect();
+        let menu = ui::menu_in("remote-menu-in", dropdown::shuts(ui::pop(div()), setting.id, cx).min_w(px(160.)).p(px(4.)).flex().flex_col().children(rows));
         row(setting.label, setting.hint, div().relative().child(button).when(open, |d| d.child(ui::dropdown_right(30., menu))))
     }
 }

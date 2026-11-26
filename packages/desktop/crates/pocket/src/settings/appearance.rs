@@ -1,5 +1,5 @@
 use super::catalog::{Look, Setting};
-use super::{Settings, SettingsEvent, action, row, themes};
+use super::{Settings, SettingsEvent, action, dropdown, row, themes};
 use crate::desktop::Desktop;
 use crate::git_ui::diff::{code, code_text};
 use git::{Kind, Line};
@@ -302,12 +302,8 @@ fn accent_row(d: &mut Settings, setting: &'static Setting, cx: &mut Context<Sett
 pub(super) fn font_row(d: &mut Settings, setting: &'static Setting, menu: &'static FontMenu, cx: &mut Context<Settings>) -> Div {
     let chosen = (menu.get)(&d.store).map(str::to_string);
     let open = d.menu == Some(setting.id);
-    let button = action(setting.id, "").gap(px(6.)).child(menu.name(&d.store)).child(icon("chevron-down", 12., TEXT_3)).on_click(cx.listener(
-        move |this, _: &ClickEvent, _, cx| {
-            this.menu = (!open).then_some(setting.id);
-            cx.notify();
-        },
-    ));
+    let button =
+        dropdown::trigger(action(setting.id, "").gap(px(6.)).child(menu.name(&d.store)).child(icon("chevron-down", 12., TEXT_3)), setting.id, open, cx);
     if !open {
         return row(setting.label, setting.hint, button);
     }
@@ -346,7 +342,7 @@ pub(super) fn font_row(d: &mut Settings, setting: &'static Setting, menu: &'stat
     )
     .w(px(220.))
     .h(px(26. * count.min(12) as f32));
-    let list = ui::menu_in(SharedString::from(format!("{}-menu-in", setting.id)), ui::pop(div()).p(px(4.)).child(rows));
+    let list = ui::menu_in(SharedString::from(format!("{}-menu-in", setting.id)), dropdown::shuts(ui::pop(div()).p(px(4.)), setting.id, cx).child(rows));
     row(setting.label, setting.hint, div().relative().child(button).child(ui::dropdown_right(30., list)))
 }
 

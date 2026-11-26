@@ -55,11 +55,17 @@ pub(crate) fn pick_row(id: impl Into<ElementId>, checked: bool) -> Stateful<Div>
 /// Makes `button` open the menu `id` on press, so a second press shuts it (`docs/DESIGN.md`), and on Space or Enter once focused.
 /// `open` is whether the menu showed in the frame that drew `button`.
 pub(crate) fn trigger(button: Stateful<Div>, id: &'static str, open: bool, cx: &mut Context<Settings>) -> Stateful<Div> {
-    let opens = move |this: &mut Settings, cx: &mut Context<Settings>| {
-        this.menu = Some(id);
+    trigger_with(button, open, move |this| this.menu = Some(id), cx)
+}
+
+/// `trigger` for a menu that notes more than its id when it opens, such as which project's it is.
+pub(crate) fn trigger_with(button: Stateful<Div>, open: bool, opens: impl Fn(&mut Settings) + 'static, cx: &mut Context<Settings>) -> Stateful<Div> {
+    let opens = Rc::new(move |this: &mut Settings, cx: &mut Context<Settings>| {
+        opens(this);
         this.menu_scroll = Default::default();
         cx.notify();
-    };
+    });
+    let on_press = opens.clone();
     let keys = button.cursor_pointer().on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
         // A mouse press already opened or shut it.
         if matches!(ev, ClickEvent::Keyboard(_)) {
@@ -71,7 +77,7 @@ pub(crate) fn trigger(button: Stateful<Div>, id: &'static str, open: bool, cx: &
             }
         }
     }));
-    ui::popover_trigger(keys, open, cx.listener(move |this, _: &MouseDownEvent, _, cx| opens(this, cx)))
+    ui::popover_trigger(keys, open, cx.listener(move |this, _: &MouseDownEvent, _, cx| on_press(this, cx)))
 }
 
 /// Shuts the menu `id` on a press outside it, unless that press already opened another.

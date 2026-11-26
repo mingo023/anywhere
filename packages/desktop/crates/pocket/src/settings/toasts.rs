@@ -1,6 +1,7 @@
 use super::catalog::Setting;
 use super::{Setter, Settings, SettingsEvent};
 use crate::desktop::Desktop;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -59,7 +60,7 @@ impl Toast {
     }
 
     fn stays(&self) -> Duration {
-        if self.undo.is_some() || self.retry.is_some() { UNDO_FOR } else { TELL_FOR }
+        if self.undo.is_some() || self.retry.is_some() || self.bad { UNDO_FOR } else { TELL_FOR }
     }
 }
 
@@ -95,7 +96,7 @@ impl Toasts {
         Some(self.list.remove(i))
     }
 
-    /// Drops every toast offering to retry `setting`, once its row is retried or reset.
+    /// Drops every toast offering to retry `setting`, once its row gets a new value.
     pub(crate) fn forget(&mut self, setting: &str) {
         self.list.retain(|t| !matches!(&t.retry, Some(Retry::Write(s, _)) if s.id == setting));
     }
@@ -105,7 +106,7 @@ impl Toasts {
     }
 }
 
-/// A save that failed, shown on its row with Retry until a save or Retry clears it.
+/// A save that failed, shown on its row with Retry until a save or a new value clears it.
 #[derive(Clone)]
 pub(crate) struct RowError {
     pub setting: &'static Setting,
@@ -121,7 +122,9 @@ pub(crate) struct Saves {
 }
 
 impl Saves {
+    /// A new value supersedes whatever failed on its row; the next save says how this one went.
     pub(crate) fn wrote(&mut self, setting: &'static Setting) {
+        self.errors.retain(|e| e.setting.id != setting.id);
         if !self.pending.iter().any(|s| s.id == setting.id) {
             self.pending.push(setting);
         }
@@ -150,11 +153,6 @@ impl Saves {
 
     pub(crate) fn error(&self, setting: &str) -> Option<&RowError> {
         self.errors.iter().find(|e| e.setting.id == setting)
-    }
-
-    pub(crate) fn clear(&mut self, setting: &str) -> Option<RowError> {
-        let i = self.errors.iter().position(|e| e.setting.id == setting)?;
-        Some(self.errors.remove(i))
     }
 }
 
@@ -203,12 +201,10 @@ impl Settings {
     pub(crate) fn retry(&mut self, retry: &Retry, cx: &mut Context<Self>) {
         match retry {
             Retry::Save => cx.emit(SettingsEvent::SaveAgain),
-            Retry::Write(setting, apply) => {
-                self.saves.clear(setting.id);
-                self.toasts.forget(setting.id);
-                self.saves.wrote(setting);
-                cx.emit(SettingsEvent::Write { setting: Some(setting), apply: apply.clone() });
-            }
+            Retry::Write(setting, apply) => self.write(Some(setting), cx, {
+                let apply = apply.clone();
+                move |s, live| apply(s, live)
+            }),
         }
         cx.notify();
     }
@@ -259,8 +255,8 @@ impl Settings {
                 .shadow(vec![ui::shadow(rgba(0x00000040), 10., 30.)])
                 .text_size(px(12.5))
                 .text_color(rgb(0xf5f5f7))
-                .whitespace_nowrap()
-                .child(t.text.clone())
+                .max_w(px(420.))
+                .child(div().min_w_0().when(!t.bad, |d| d.whitespace_nowrap()).child(t.text.clone()))
                 .children(button)
                 .with_animation(("toast-in", id as usize), Animation::new(MENU_IN).with_easing(ease_out_quint()), |d, p| d.opacity(p).mt(px(8. * (1. - p))))
         });
@@ -288,6 +284,12 @@ mod tests {
         assert_eq!(toasts.shown().iter().map(|t| t.text.as_str()).collect::<Vec<_>>(), ["Moved Ink to the Trash"]);
         assert!(toasts.prune(now + UNDO_FOR));
         assert!(toasts.shown().is_empty());
+    }
+
+    #[test]
+    fn a_failure_stays_as_long_as_a_toast_with_undo() {
+        let (mut toasts, now) = (Toasts::default(), Instant::now());
+        assert_eq!(toasts.push(Toast::failed("Couldn\u{2019}t save settings: disk full", None), now) - now, UNDO_FOR);
     }
 
     #[test]
@@ -323,13 +325,22 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_effect_stays_on_its_row_through_a_save_until_retried() {
+    fn a_failed_effect_stays_on_its_row_through_a_save() {
         let mut saves = Saves::default();
         let apply: Setter = Rc::new(|s, _| s.general.open_at_login = true);
         saves.fail(RowError { setting: &LOGIN, message: "macOS refused".into(), retry: Retry::Write(&LOGIN, apply) });
         saves.saved();
         assert!(matches!(saves.error("open-at-login").map(|e| &e.retry), Some(Retry::Write(..))));
-        assert!(saves.clear("open-at-login").is_some());
-        assert!(saves.error("open-at-login").is_none());
+    }
+
+    #[test]
+    fn changing_a_row_by_hand_clears_its_failure() {
+        let mut saves = Saves::default();
+        let apply: Setter = Rc::new(|s, _| s.general.open_at_login = true);
+        saves.fail(RowError { setting: &LOGIN, message: "macOS refused".into(), retry: Retry::Write(&LOGIN, apply) });
+        saves.fail(RowError { setting: &RESUME, message: "disk full".into(), retry: Retry::Save });
+        saves.wrote(&LOGIN);
+        saves.wrote(&RESUME);
+        assert!(saves.error("open-at-login").is_none() && saves.error("resume").is_none());
     }
 }

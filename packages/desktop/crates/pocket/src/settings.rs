@@ -465,6 +465,7 @@ impl Settings {
     pub(crate) fn write(&mut self, setting: Option<&'static Setting>, cx: &mut Context<Self>, apply: impl Fn(&mut Store, &::agents::Agents) + 'static) {
         if let Some(setting) = setting {
             self.saves.wrote(setting);
+            self.toasts.forget(setting.id);
         }
         cx.emit(SettingsEvent::Write { setting, apply: Rc::new(apply) });
     }
@@ -614,8 +615,6 @@ impl Settings {
 
     /// Puts one row back to its default, with a toast naming the value.
     fn reset_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) {
-        self.saves.clear(setting.id);
-        self.toasts.forget(setting.id);
         if let Some(field) = self.fields.get_mut(setting.id) {
             field.draft.error = None;
         }
@@ -931,11 +930,19 @@ impl Settings {
         }
     }
 
+    /// An off row's control is drawn but takes neither presses (see `row`) nor focus.
     fn control(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> AnyElement {
+        let off = setting.off_in(&self.store).is_some();
+        let focus = self.control_focus(setting.id, cx).tab_stop(!off);
+        if let Some(field) = self.fields.get(setting.id).or(self.numbers.get(setting.id)) {
+            field.input.update(cx, |input, cx| {
+                input.set_disabled(off, cx);
+                input.focus_handle(cx).tab_stop(!off);
+            });
+        }
         match setting.control {
             Control::Switch { get, .. } => {
                 let on = get(&self.store);
-                let focus = self.control_focus(setting.id, cx);
                 let switch = div()
                     .id(setting.id)
                     .track_focus(&focus)
@@ -947,7 +954,6 @@ impl Settings {
                 focus_ring(switch).into_any_element()
             }
             Control::Choice { options, look: Look::Segmented, get, .. } => {
-                let focus = self.control_focus(setting.id, cx);
                 let labels = options.iter().map(|o| SharedString::from(*o)).collect();
                 segmented_control(setting.id, labels, get(&self.store), move |this, i, cx| this.choose(setting, i, cx), cx)
                     .track_focus(&focus)
@@ -956,7 +962,6 @@ impl Settings {
             Control::Choice { options, look: Look::Dropdown, .. } => {
                 let chosen = setting.chosen(&self.store, &self.live);
                 let open = self.menu == Some(setting.id);
-                let focus = self.control_focus(setting.id, cx);
                 let button = action(setting.id, options.get(chosen).copied().unwrap_or_default())
                     .track_focus(&focus)
                     .gap(px(6.))
@@ -980,7 +985,8 @@ impl Settings {
                         .rounded(px(5.))
                         .text_size(px(14.))
                         .text_color(if enabled { TEXT_2 } else { TEXT_4 })
-                        .when(enabled, |d| d.cursor_pointer().tab_index(0).hover(|d| d.bg(FILL_3)))
+                        .when(enabled, |d| d.cursor_pointer().hover(|d| d.bg(FILL_3)))
+                        .when(enabled && !off, |d| d.tab_index(0))
                         .child(glyph)
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             if enabled {
@@ -1027,7 +1033,6 @@ impl Settings {
                 let shown = field_box()
                     .child(icon("folder", 13., TEXT_3))
                     .child(div().flex_1().min_w_0().truncate().font_family(MONO).text_size(px(12.)).text_color(TEXT).child(crate::util::tilde(&path)));
-                let focus = self.control_focus(setting.id, cx);
                 let choose = action(SharedString::from(format!("{}-choose", setting.id)), "Choose…").track_focus(&focus).on_click(cx.listener(
                     move |this, _: &ClickEvent, window, cx| {
                         this.pick_paths(true, window, cx, move |this, paths, cx| {
