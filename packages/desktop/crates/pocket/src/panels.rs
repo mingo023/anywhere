@@ -17,6 +17,7 @@ use crate::creating::{self, Creates};
 use crate::desktop::chrome::id;
 use crate::glide::Glide;
 use crate::modals::more::MoreMenu;
+use crate::slide::Slide;
 use drop::Aim;
 use frame::{Drawing, Frame};
 use gpui_kit::component::tooltip::Tooltip;
@@ -76,7 +77,7 @@ pub(crate) struct Panels {
     /// The agent whose top tab's right-click menu is open, and where the click was.
     top_actions: Option<(String, Point<Pixels>)>,
     /// The tab held on a strip, and the strip's pane.
-    drag: Option<(PaneId, strip::TabDrag)>,
+    drag: Option<(PaneId, Slide)>,
     pub(crate) more: Entity<MoreMenu>,
     /// The main area as last drawn, in window pixels; which panes have room to split depends on it.
     pub(crate) bounds: Rect,
