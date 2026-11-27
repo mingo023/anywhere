@@ -314,7 +314,8 @@ mod tests {
     #[test]
     fn a_step_left_in_the_background_doesnt_hold_the_run_open() {
         let (tx, mut rx) = mpsc::channel(64);
-        let _stop = start(vec!["sleep 5 &".into(), "echo up".into()], std::env::temp_dir(), tx);
+        // Far longer than the bound, so a loaded machine's slow shell start can't pass for waiting on it.
+        let _stop = start(vec!["sleep 20 &".into(), "echo up".into()], std::env::temp_dir(), tx);
         let started = std::time::Instant::now();
         let done = futures::executor::block_on(async {
             while let Some(e) = rx.next().await {
@@ -325,7 +326,7 @@ mod tests {
             None
         });
         assert_eq!(done, Some(Exit::Passed));
-        assert!(started.elapsed() < Duration::from_secs(3));
+        assert!(started.elapsed() < Duration::from_secs(10));
     }
 
     #[test]
