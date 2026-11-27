@@ -52,10 +52,12 @@ fn moved(before: f32, now: f32, max: f32) -> bool {
     now.clamp(-max, 0.) != before
 }
 
-/// Whether the list owns a wheel event: any but the rest of a gesture the chat took, last `chat` scrolled,
-/// unless it `began` a new one. A chat fling that carries the card under the pointer stays the chat's.
-fn owns(began: bool, chat: Option<Instant>, now: Instant) -> bool {
-    began || !chat.is_some_and(|t| now.duration_since(t) < GESTURE_GAP)
+/// Whether the list owns a wheel event: one that `began` a gesture, the rest of a gesture it owned
+/// `last`, or any while the `chat` wheel is still. A chat fling that carries the card under the pointer
+/// stays the chat's.
+fn owns(began: bool, last: Option<Instant>, chat: Option<Instant>, now: Instant) -> bool {
+    let recent = |t: Option<Instant>| t.is_some_and(|t| now.duration_since(t) < GESTURE_GAP);
+    began || recent(last) || !recent(chat)
 }
 
 /// The turn's todo list as a card: what's done, what's on, what's next.
@@ -72,7 +74,8 @@ pub(crate) fn card(id: &str, todos: &[Todo], chat: &Rc<Cell<Option<Instant>>>, w
         .child(icon("list", 15., TEXT_4))
         .child(div().flex_1().font_family(code_font()).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child("Tasks"))
         .child(pill);
-    let scroll = window.use_keyed_state(SharedString::from(format!("{id}-todos-scroll")), cx, |_, _| ScrollHandle::new()).read(cx).clone();
+    let (scroll, last) =
+        window.use_keyed_state(SharedString::from(format!("{id}-todos-scroll")), cx, |_, _| (ScrollHandle::new(), Rc::new(Cell::new(None)))).read(cx).clone();
     let chat = chat.clone();
     let clamped = |s: &ScrollHandle| f32::from(s.offset().y).clamp(-f32::from(s.max_offset().y), 0.);
     let before = Rc::new(Cell::new(clamped(&scroll)));
@@ -84,11 +87,13 @@ pub(crate) fn card(id: &str, todos: &[Todo], chat: &Rc<Cell<Option<Instant>>>, w
             .track_scroll(&scroll)
             // Keeps the chat still until the list reaches its end.
             .on_scroll(move |e, _, cx| {
+                let now = Instant::now();
                 let began = e.touch_phase == TouchPhase::Started || matches!(e.delta, ScrollDelta::Lines(_));
-                if !owns(began, chat.get(), Instant::now()) {
+                if !owns(began, last.get(), chat.get(), now) {
                     scroll.set_offset(point(px(0.), px(before.get())));
                     return;
                 }
+                last.set(Some(now));
                 if moved(before.get(), f32::from(scroll.offset().y), f32::from(scroll.max_offset().y)) {
                     cx.stop_propagation();
                 }
@@ -134,9 +139,10 @@ mod tests {
     fn the_list_leaves_the_chat_the_rest_of_its_gesture() {
         let t = std::time::Instant::now();
         let soon = t + GESTURE_GAP / 2;
-        assert!(owns(false, None, t), "a wheel with no phase, the chat still");
-        assert!(owns(false, Some(t), t + GESTURE_GAP), "a pause in a gesture over the list");
-        assert!(!owns(false, Some(t), soon), "a chat fling arriving over the list");
-        assert!(owns(true, Some(t), soon), "a new gesture or a wheel notch over the list");
+        assert!(owns(false, None, None, t), "a wheel with no phase, the chat still");
+        assert!(owns(false, None, Some(t), t + GESTURE_GAP), "a pause in a gesture over the list");
+        assert!(!owns(false, None, Some(t), soon), "a chat fling arriving over the list");
+        assert!(owns(true, None, Some(t), soon), "a new gesture or a wheel notch over the list");
+        assert!(owns(false, Some(t), Some(t), soon), "the rest of a gesture begun over the list, after a chat fling");
     }
 }
