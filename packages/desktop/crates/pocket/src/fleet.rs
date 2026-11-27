@@ -404,6 +404,10 @@ impl Desktop {
             Event::Hosts(entries) => self.fleet.hosts.replace(entries),
             Event::HostUpdate { request, host } => {
                 let id = host.id.clone();
+                if self.fleet.hosts.list.iter().any(|h| h.id == id && h.target != host.target) {
+                    self.fleet.stuck.remove(&id);
+                    self.fleet.installs.remove(&id);
+                }
                 let turns = self.fleet.hosts.update(host).into_iter().collect();
                 match self.fleet.asked.remove(&request) {
                     Some(Asked::Add { password }) => {

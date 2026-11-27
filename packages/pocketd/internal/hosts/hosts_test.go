@@ -38,6 +38,14 @@ func TestAnEditedHostKeepsItsIDAndANameItWasGiven(t *testing.T) {
 	}
 }
 
+func TestAnEditedHostIsProbedForWindowsAgain(t *testing.T) {
+	box := New(address("box.example.com"), nil)
+	box.Windows = true
+	if moved, err := Edit([]Host{box}, box, address("linux.example.com")); err != nil || moved.Windows {
+		t.Fatalf("the new machine's OS isn't known yet: %+v %v", moved, err)
+	}
+}
+
 func TestAnEditCantTakeAnotherHostsTargetOrAnInvalidOne(t *testing.T) {
 	a, b := New(address("a.example.com"), nil), New(address("b.example.com"), nil)
 	b.ID = "b"

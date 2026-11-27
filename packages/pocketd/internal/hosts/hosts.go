@@ -102,7 +102,8 @@ func Add(taken []Host, t Target) (Host, error) {
 	return New(t, taken), nil
 }
 
-// Edit is h reaching t instead, under the same id. A name that was only the old target's own follows the new one.
+// Edit is h reaching t instead, under the same id. A name that was only the old target's own follows the new one,
+// and the next connect probes t's OS afresh.
 func Edit(taken []Host, h Host, t Target) (Host, error) {
 	if err := check(taken, t, h.ID); err != nil {
 		return Host{}, err
@@ -110,7 +111,7 @@ func Edit(taken []Host, h Host, t Target) (Host, error) {
 	if h.Name == New(h.Target, nil).Name {
 		h.Name = New(t, nil).Name
 	}
-	h.Target = t
+	h.Target, h.Windows = t, false
 	return h, nil
 }
 
