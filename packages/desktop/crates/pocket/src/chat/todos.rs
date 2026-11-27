@@ -3,10 +3,14 @@ use chat::{Todo, TodoStatus};
 use gpui_kit::*;
 use std::cell::Cell;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 use theme::*;
 
 /// About nine rows; a longer list scrolls inside the card.
 const LIST_MAX_HEIGHT: f32 = 300.;
+
+/// The longest pause between wheel events of one gesture, momentum included.
+const GESTURE_GAP: Duration = Duration::from_millis(500);
 
 /// How many todos are done, and how many there are.
 pub(crate) fn count(todos: &[Todo]) -> (usize, usize) {
@@ -48,6 +52,12 @@ fn moved(before: f32, now: f32, max: f32) -> bool {
     now.clamp(-max, 0.) != before
 }
 
+/// Whether the list owns a wheel event: one that `began` a gesture over it, or one soon after the
+/// `last` it owned. A chat fling that carries the card under the pointer stays the chat's.
+fn owns(began: bool, last: Option<Instant>, now: Instant) -> bool {
+    began || last.is_some_and(|t| now.duration_since(t) < GESTURE_GAP)
+}
+
 /// The turn's todo list as a card: what's done, what's on, what's next.
 pub(crate) fn card(id: &str, todos: &[Todo], window: &mut Window, cx: &mut App) -> Div {
     let pill = div().rounded_full().bg(FILL_4).px(px(8.)).py(px(2.)).font_family(code_font()).text_size(px(10.5)).text_color(TEXT_3).child(progress(todos));
@@ -62,7 +72,8 @@ pub(crate) fn card(id: &str, todos: &[Todo], window: &mut Window, cx: &mut App) 
         .child(icon("list", 15., TEXT_4))
         .child(div().flex_1().font_family(code_font()).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child("Tasks"))
         .child(pill);
-    let scroll = window.use_keyed_state(SharedString::from(format!("{id}-todos-scroll")), cx, |_, _| ScrollHandle::new()).read(cx).clone();
+    let (scroll, last) =
+        window.use_keyed_state(SharedString::from(format!("{id}-todos-scroll")), cx, |_, _| (ScrollHandle::new(), Rc::new(Cell::new(None)))).read(cx).clone();
     let clamped = |s: &ScrollHandle| f32::from(s.offset().y).clamp(-f32::from(s.max_offset().y), 0.);
     let before = Rc::new(Cell::new(clamped(&scroll)));
     div().rounded(px(12.)).bg(FILL_1).border_1().border_color(SEPARATOR).overflow_hidden().child(header).child(
@@ -72,7 +83,14 @@ pub(crate) fn card(id: &str, todos: &[Todo], window: &mut Window, cx: &mut App) 
             .overflow_y_scroll()
             .track_scroll(&scroll)
             // Keeps the chat still until the list reaches its end.
-            .on_scroll(move |_, _, cx| {
+            .on_scroll(move |e, _, cx| {
+                let now = Instant::now();
+                let began = e.touch_phase == TouchPhase::Started || matches!(e.delta, ScrollDelta::Lines(_));
+                if !owns(began, last.get(), now) {
+                    scroll.set_offset(point(px(0.), px(before.get())));
+                    return;
+                }
+                last.set(Some(now));
                 if moved(before.get(), f32::from(scroll.offset().y), f32::from(scroll.max_offset().y)) {
                     cx.stop_propagation();
                 }
@@ -87,7 +105,7 @@ pub(crate) fn card(id: &str, todos: &[Todo], window: &mut Window, cx: &mut App) 
 
 #[cfg(test)]
 mod tests {
-    use super::{count, moved, progress};
+    use super::{GESTURE_GAP, count, moved, owns, progress};
     use chat::{Todo, TodoStatus};
 
     #[test]
@@ -112,5 +130,15 @@ mod tests {
         assert!(moved(-60., -80., 100.), "scrolled down with rows below");
         assert!(!moved(-100., -120., 100.), "already at the bottom");
         assert!(!moved(0., 20., 0.), "a list that doesn't scroll");
+    }
+
+    #[test]
+    fn the_list_keeps_only_gestures_that_began_over_it() {
+        let t = std::time::Instant::now();
+        let soon = t + GESTURE_GAP / 2;
+        assert!(owns(true, None, t), "a gesture or a wheel notch starting over the list");
+        assert!(owns(false, Some(t), soon), "the rest of that gesture, momentum included");
+        assert!(!owns(false, None, t), "a chat fling arriving over the list");
+        assert!(!owns(false, Some(t), t + GESTURE_GAP), "a fling arriving well after the list's last gesture");
     }
 }
