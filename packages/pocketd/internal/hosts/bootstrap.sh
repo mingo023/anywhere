@@ -1,11 +1,11 @@
 #!/bin/sh
 # Installs pocketd as a user service on a host, or finds the one already running there.
 # The desktop fills the @@…@@ placeholders and pipes this into `sh -s` over ssh.
-# @@URL@@ is the release's download directory; it holds pocketd-<os>-<arch>.tar.gz and Anywhere.dmg, each with its .sha256.
+# @@URL@@ is the release's download directory; it holds pocketd-<os>-<arch>.tar.gz and Zoes.dmg, each with its .sha256.
 # ANYWHERE_ARCHIVE names a tarball already on the host to use instead, checked against ANYWHERE_SHA256.
 # Downloads are https only; ANYWHERE_ALLOW_HTTP=1 lets scripts/test-bootstrap.sh serve them from this Mac.
 # ANYWHERE_FORCE=1 updates: installs the archive even over a running pocketd, which hands off to it in place.
-# When the Anywhere app on a Mac host runs it, the update replaces that app with the release's Anywhere.dmg instead.
+# When the Anywhere app on a Mac host runs it, the update replaces that app with the release's Zoes.dmg instead.
 # Lines for the desktop: ANYWHERE step <name> | warn <msg> | error <msg> | running | done. Others are log.
 set -u
 umask 077
@@ -43,27 +43,28 @@ version_of() {
   POCKET_HOME="$DIR" POCKETD_SOCK="$DIR/pocketd.sock" "$exe" "$@" 2>/dev/null </dev/null | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' | head -n 1
 }
 
-# update_app swaps in the release's Zoes.app for the one whose pocketd is $from. That pocketd sees its file change
+# update_app swaps in the release's app for the one whose pocketd is $from. That pocketd sees its file change
 # and hands off to the new one in place, as after a Sparkle update.
 update_app() {
   app=${from%/Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd}
   if [ "$app" = "$from" ] || [ -z "$URL" ] || [ "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist" 2>/dev/null)" != dev.mingo.anywhere ]; then
     fail "pocketd here runs from $from, which an update can't replace; update the Anywhere app on this Mac instead"
   fi
-  fetch "$URL/Anywhere.dmg" "$tmp/Anywhere.dmg" || fail "download $URL/Anywhere.dmg failed"
-  fetch "$URL/Anywhere.dmg.sha256" "$tmp/dmg.sha256" || fail "download $URL/Anywhere.dmg.sha256 failed"
+  fetch "$URL/Zoes.dmg" "$tmp/Zoes.dmg" || fail "download $URL/Zoes.dmg failed"
+  fetch "$URL/Zoes.dmg.sha256" "$tmp/dmg.sha256" || fail "download $URL/Zoes.dmg.sha256 failed"
   want=$(cut -d' ' -f1 "$tmp/dmg.sha256")
-  got=$(sha256 "$tmp/Anywhere.dmg")
-  [ "$got" = "$want" ] || fail "checksum mismatch for Anywhere.dmg: got $got, want $want"
-  mkdir "$tmp/mnt" && hdiutil attach -quiet -nobrowse -readonly -noautoopen -mountpoint "$tmp/mnt" "$tmp/Anywhere.dmg" || fail "can't open Anywhere.dmg"
+  got=$(sha256 "$tmp/Zoes.dmg")
+  [ "$got" = "$want" ] || fail "checksum mismatch for Zoes.dmg: got $got, want $want"
+  mkdir "$tmp/mnt" && hdiutil attach -quiet -nobrowse -readonly -noautoopen -mountpoint "$tmp/mnt" "$tmp/Zoes.dmg" || fail "can't open Zoes.dmg"
   rm -rf "$app.new" "$app.old"
-  out=$(ditto "$tmp/mnt/Zoes.app" "$app.new" 2>&1)
+  new=$(ls -d "$tmp/mnt"/*.app 2>/dev/null | head -n 1)
+  out=$(ditto "$new" "$app.new" 2>&1)
   copied=$?
   hdiutil detach -quiet "$tmp/mnt"
-  [ "$copied" = 0 ] || fail "can't copy Zoes.app beside $app: $out"
+  [ "$copied" = 0 ] || fail "can't copy the app from Zoes.dmg beside $app: $out"
   if [ "$(version_of "$app.new/Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd" version --json)" != "$VERSION" ]; then
     rm -rf "$app.new"
-    fail "Anywhere.dmg doesn't hold pocketd $VERSION"
+    fail "Zoes.dmg doesn't hold pocketd $VERSION"
   fi
   out=$(mv "$app" "$app.old" 2>&1) || {
     rm -rf "$app.new"

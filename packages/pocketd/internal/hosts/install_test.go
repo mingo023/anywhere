@@ -314,7 +314,7 @@ func TestAnUpdateReplacesTheAppWhosePocketdRunsThereWhateverItsFolderIsCalled(t 
 		out, linked := forceUpdate(t, func(dir string) string {
 			app = filepath.Join(filepath.Dir(filepath.Dir(dir)), "Applications", folder)
 			return anywhereApp(t, app, "dev.mingo.anywhere", "#!/bin/sh\n")
-		}, serveRelease(t, dmg, fmt.Sprintf("%x  Anywhere.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
+		}, serveRelease(t, dmg, fmt.Sprintf("%x  Zoes.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
 		now, _ := os.ReadFile(filepath.Join(app, appPocketd))
 		if linked || string(now) != newer || !strings.HasSuffix(out, "ANYWHERE done\n") {
 			t.Errorf("%s: linked %v, app's pocketd %q:\n%s", folder, linked, now, out)
@@ -322,6 +322,23 @@ func TestAnUpdateReplacesTheAppWhosePocketdRunsThereWhateverItsFolderIsCalled(t 
 		if left, _ := filepath.Glob(app + ".*"); len(left) > 0 {
 			t.Errorf("%s: left beside the app: %v", folder, left)
 		}
+	}
+}
+
+func TestAnUpdateTakesTheAppTheDMGHoldsWhateverItsName(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only a Mac runs the app")
+	}
+	const newer = "#!/bin/sh\n# 1.2.0\necho '{\"version\": \"1.2.0\"}'\n"
+	dmg := releaseDMGWithApp(t, "Anywhere.app", newer)
+	var app string
+	out, _ := forceUpdate(t, func(dir string) string {
+		app = filepath.Join(filepath.Dir(filepath.Dir(dir)), "Applications", "Anywhere.app")
+		return anywhereApp(t, app, "dev.mingo.anywhere", "#!/bin/sh\n")
+	}, serveRelease(t, dmg, fmt.Sprintf("%x  Zoes.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
+	now, _ := os.ReadFile(filepath.Join(app, appPocketd))
+	if string(now) != newer || !strings.HasSuffix(out, "ANYWHERE done\n") {
+		t.Errorf("app's pocketd %q:\n%s", now, out)
 	}
 }
 
@@ -334,7 +351,7 @@ func TestAnAppUpdateWhoseDMGFailsItsChecksumKeepsTheAppThere(t *testing.T) {
 	out, _ := forceUpdate(t, func(dir string) string {
 		app = filepath.Join(filepath.Dir(filepath.Dir(dir)), "Applications", "Anywhere.app")
 		return anywhereApp(t, app, "dev.mingo.anywhere", "#!/bin/sh\n# old\n")
-	}, serveRelease(t, dmg, strings.Repeat("ab", 32)+"  Anywhere.dmg\n"), "ANYWHERE_ALLOW_HTTP=1")
+	}, serveRelease(t, dmg, strings.Repeat("ab", 32)+"  Zoes.dmg\n"), "ANYWHERE_ALLOW_HTTP=1")
 	now, _ := os.ReadFile(filepath.Join(app, appPocketd))
 	if string(now) != "#!/bin/sh\n# old\n" || !strings.Contains(out, "ANYWHERE error checksum mismatch") {
 		t.Errorf("app's pocketd %q:\n%s", now, out)
@@ -355,7 +372,7 @@ func TestAnAppUpdateThatCantMoveTheAppLeavesItThere(t *testing.T) {
 		}
 		t.Cleanup(func() { exec.Command("chflags", "nouchg", app).Run() })
 		return exe
-	}, serveRelease(t, dmg, fmt.Sprintf("%x  Anywhere.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
+	}, serveRelease(t, dmg, fmt.Sprintf("%x  Zoes.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
 	now, _ := os.ReadFile(filepath.Join(app, appPocketd))
 	if string(now) != "#!/bin/sh\n# old\n" || !strings.Contains(out, "ANYWHERE error can't replace "+app) {
 		t.Errorf("app's pocketd %q:\n%s", now, out)
@@ -389,9 +406,13 @@ func anywhereApp(t *testing.T, app, id, script string) string {
 }
 
 func releaseDMG(t *testing.T, script string) []byte {
+	return releaseDMGWithApp(t, "Zoes.app", script)
+}
+
+func releaseDMGWithApp(t *testing.T, appName, script string) []byte {
 	dir := t.TempDir()
-	anywhereApp(t, filepath.Join(dir, "stage", "Zoes.app"), "dev.mingo.anywhere", script)
-	dmg := filepath.Join(dir, "Anywhere.dmg")
+	anywhereApp(t, filepath.Join(dir, "stage", appName), "dev.mingo.anywhere", script)
+	dmg := filepath.Join(dir, "Zoes.dmg")
 	if b, err := exec.Command("hdiutil", "create", "-quiet", "-volname", "Zoes", "-srcfolder", filepath.Join(dir, "stage"), "-format", "UDZO", dmg).CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, b)
 	}
@@ -405,9 +426,9 @@ func releaseDMG(t *testing.T, script string) []byte {
 func serveRelease(t *testing.T, dmg []byte, sums string) string {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/Anywhere.dmg":
+		case "/Zoes.dmg":
 			w.Write(dmg)
-		case "/Anywhere.dmg.sha256":
+		case "/Zoes.dmg.sha256":
 			io.WriteString(w, sums)
 		default:
 			http.NotFound(w, r)

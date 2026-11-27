@@ -1,10 +1,10 @@
 # Anywhere ships as a notarized universal DMG on GitHub Releases and updates through Sparkle
 
-Users download `Anywhere.dmg` from a landing page whose button points at `github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg`. One script, `scripts/release-mac.sh`, builds a universal (arm64 + x86_64) `Anywhere.app`, signs it with a Developer ID under the hardened runtime (no entitlements needed), notarizes and staples the DMG, signs the update with Sparkle's EdDSA key, writes `appcast.xml` and uploads both to the release. It runs on the maintainer's Mac first and later unchanged in a tag-triggered GitHub Actions workflow, free for a public repo. Updates use Sparkle 2 (MIT) rather than a Zed-style updater of our own, because strangers' machines hit the cases Sparkle already handles: an app run from Downloads, /Applications without write access, a bad signature. The cost is a bundled framework and an `objc2` bridge.
+Users download `Zoes.dmg` from a landing page whose button points at `github.com/mingo023/anywhere/releases/latest/download/Zoes.dmg`. One script, `scripts/release-mac.sh`, builds a universal (arm64 + x86_64) `Anywhere.app`, signs it with a Developer ID under the hardened runtime (no entitlements needed), notarizes and staples the DMG, signs the update with Sparkle's EdDSA key, writes `appcast.xml` and uploads both to the release. It runs on the maintainer's Mac first and later unchanged in a tag-triggered GitHub Actions workflow, free for a public repo. Updates use Sparkle 2 (MIT) rather than a Zed-style updater of our own, because strangers' machines hit the cases Sparkle already handles: an app run from Downloads, /Applications without write access, a bad signature. The cost is a bundled framework and an `objc2` bridge.
 
 `pocketd` ships inside the app as `Contents/Library/Helpers/AnywhereDaemon.app`, a bundle named "Anywhere", so privacy prompts from its terminals say "Anywhere" rather than "pocketd". The app registers it with `SMAppService.agent` on first launch, without a welcome screen; if the user turns it off in Login Items, the "Not starting?" state offers to open Login Items. This needs macOS 13. A moved or deleted app takes its daemon along, which a LaunchAgent plist with an absolute path would not.
 
-Linux and Windows get an unsigned archive on the same release, `Anywhere-<os>-amd64`, holding `pocket-desktop` and `pocketd`; `scripts/release-desktop.sh` builds it and adds it once `release-mac.sh` has created the release. On first launch the app has that `pocketd` install itself as a systemd user unit or a Scheduled Task. These builds have no updater yet. The Release workflow takes a version, tags the commit and dispatches both release workflows on the tag.
+Linux and Windows get an unsigned archive on the same release, `Zoes-<os>-amd64`, holding `pocket-desktop` and `pocketd`; `scripts/release-desktop.sh` builds it and adds it once `release-mac.sh` has created the release. On first launch the app has that `pocketd` install itself as a systemd user unit or a Scheduled Task. These builds have no updater yet. The Release workflow takes a version, tags the commit and dispatches both release workflows on the tag.
 
 ## Rules
 
@@ -12,6 +12,7 @@ Linux and Windows get an unsigned archive on the same release, `Anywhere-<os>-am
 - One stable channel. A pre-release tag publishes a DMG but stays out of the appcast.
 - Release notes are a `CHANGELOG.md` section, drafted from commit subjects since the last tag and edited before release. The script refuses a tag without one.
 - The Sparkle private key lives outside the repo (1Password and a CI secret). Losing it strands every installed copy.
+- Release assets are named `Zoes.*`. A build's bootstrap downloads its own release's assets, so older builds keep finding `Anywhere.*` in theirs.
 - `SUFeedURL` is `…/releases/latest/download/appcast.xml` and never changes, since every shipped build has it baked in.
 - Release and Dev are separate apps that run side by side:
 
