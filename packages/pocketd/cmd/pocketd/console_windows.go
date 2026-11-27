@@ -2,6 +2,10 @@ package main
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
+	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -13,14 +17,39 @@ func notifyResize(chan<- os.Signal) {}
 var (
 	kernel32              = windows.NewLazySystemDLL("kernel32.dll")
 	getConsoleProcessList = kernel32.NewProc("GetConsoleProcessList")
+	getConsoleWindow      = kernel32.NewProc("GetConsoleWindow")
 	freeConsole           = kernel32.NewProc("FreeConsole")
+	attachConsole         = kernel32.NewProc("AttachConsole")
 )
 
-// detachConsole closes the console window Windows opened for a pocketd the
-// scheduled task started. A console pocketd shares with its shell stays.
+// detachConsole swaps the console window Windows opened for a pocketd the
+// scheduled task started for a console with no window: with no console at
+// all, each console program pocketd runs, like git, opens a window of its own.
 func detachConsole() {
 	var pids [2]uint32
-	if n, _, _ := getConsoleProcessList.Call(uintptr(unsafe.Pointer(&pids[0])), uintptr(len(pids))); n == 1 {
-		freeConsole.Call()
+	n, _, _ := getConsoleProcessList.Call(uintptr(unsafe.Pointer(&pids[0])), uintptr(len(pids)))
+	if window, _, _ := getConsoleWindow.Call(); n != 1 || window == 0 {
+		return
+	}
+	freeConsole.Call()
+	attachWindowless()
+}
+
+func attachWindowless() {
+	cmd := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"), "/d")
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
+	stdin, err := cmd.StdinPipe()
+	if err != nil || cmd.Start() != nil {
+		return
+	}
+	// Closing stdin ends cmd.exe, and pocketd keeps the console it attached to.
+	defer cmd.Wait()
+	defer stdin.Close()
+	// cmd.exe's console may not exist yet just after it starts.
+	for range 50 {
+		if ok, _, _ := attachConsole.Call(uintptr(cmd.Process.Pid)); ok != 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
