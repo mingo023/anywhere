@@ -1108,13 +1108,13 @@ impl Inline {
         let line_height = text_layout.line_height();
         for (range, color) in &self.range_backgrounds {
             for (row, left, right) in range_boxes(&glyphs, range.clone()) {
-                window.paint_quad(gpui::fill(
-                    Bounds::from_corners(
-                        point(origin.x + left, origin.y + line_height * row as f32),
-                        point(origin.x + right, origin.y + line_height * (row + 1) as f32),
-                    ),
-                    *color,
-                ));
+                let bounds = Bounds::from_corners(
+                    point(origin.x + left, origin.y + line_height * row as f32),
+                    point(origin.x + right, origin.y + line_height * (row + 1) as f32),
+                );
+                // A faint halo, then the highlight, both rounded like a marker stroke.
+                window.paint_quad(gpui::fill(bounds.dilate(px(1.5)), color.opacity(0.45)).corner_radii(px(4.5)));
+                window.paint_quad(gpui::fill(bounds, *color).corner_radii(px(3.)));
             }
         }
     }

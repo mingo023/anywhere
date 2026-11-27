@@ -35,6 +35,7 @@ pub(crate) fn label(action: &str) -> Option<(&'static str, Topic)> {
         "AddToChat" => ("Add selection to chat", Sessions),
         "PrevPrompt" => ("Previous prompt in chat", Sessions),
         "NextPrompt" => ("Next prompt in chat", Sessions),
+        "FindInChat" => ("Find in chat", Sessions),
         "OpenPalette" => ("Command palette", Navigation),
         "GoToFile" => ("Go to file", Navigation),
         "ToggleSidebar" => ("Toggle sidebar", Navigation),
