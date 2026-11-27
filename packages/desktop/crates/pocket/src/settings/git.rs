@@ -1,12 +1,15 @@
 use super::catalog::{Look, Setting};
 use super::dropdown::{self, dropdown};
 use super::models::model_rows;
+use super::projects::{Entry, Line, lines, machine_heading};
+use super::side::Machine;
 use super::{Settings, SettingsEvent, action, row};
 use crate::composer::model_menu::listed_name;
 use crate::models::model_or_default;
 use git::github::GhStatus;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::collections::HashSet;
 use store::Store;
 use store::prefs::git::Style;
 use theme::*;
@@ -25,7 +28,7 @@ fn index<T: PartialEq>(all: &[T], value: &T) -> usize {
 }
 
 pub(super) const ROWS: &[Setting] = &[
-    Setting::custom("gh", "GitHub", "GitHub CLI", |d, _, cx| d.gh_row(cx)),
+    Setting::custom("gh", "GitHub", "GitHub CLI", |d, _, cx| d.gh_row(cx)).bare(),
     Setting::custom("remote", "Repository", "Default remote", |d, s, cx| d.remote_row(s, cx))
         .resets(|s| s.git.remote.clone(), |s, d| s.git.remote = d.git.remote.clone())
         .hint("Where Push sends commits"),
@@ -110,6 +113,12 @@ fn gh_line(status: Option<&GhStatus>) -> (Option<Token>, &'static str, String) {
     }
 }
 
+fn account_lines(hosts: &[Option<&str>], machines: &[Machine]) -> Vec<Line> {
+    let entries: Vec<Entry> = hosts.iter().map(|&host| Entry { name: "", path: "", host }).collect();
+    let holds_a_project = |l: &Line| !matches!(l, Line::Header { total: 0, .. });
+    lines(&entries, machines, &HashSet::new(), "").into_iter().filter(holds_a_project).collect()
+}
+
 /// A shell command to copy.
 fn command(id: &'static str, text: &'static str, cx: &mut Context<Settings>) -> Stateful<Div> {
     div()
@@ -183,25 +192,36 @@ impl Settings {
         let again = action("gh-check", "Check again")
             .when(checking, |d| d.opacity(0.5))
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::CheckGh)));
-        div().flex().flex_col().child(row(title, None, again)).child(self.gh_accounts_rows(cx))
-    }
-
-    /// Each project's account, once `gh` has more than one.
-    fn gh_accounts_rows(&mut self, cx: &mut Context<Self>) -> Div {
+        let status = row(title, None, again);
         if self.side.gh.rows.is_empty() {
-            return div();
+            return super::card(vec![status]);
         }
         let caption = div()
             .px(px(14.))
             .py(px(9.))
-            .border_t(px(0.5))
-            .border_b(px(0.5))
-            .border_color(SEPARATOR)
             .text_size(px(12.))
             .text_color(TEXT_3)
             .child("Each project's pull requests and new terminals use its account. Zoes picks the one with the most access to the repo.");
-        let rows: Vec<Div> = (0..self.side.gh.rows.len()).map(|i| self.gh_account_row(i, cx)).collect();
-        div().flex().flex_col().child(caption).children(rows)
+        let hosts: Vec<Option<&str>> = self.side.gh.rows.iter().map(|r| self.side.projects[r.card].host.as_deref()).collect();
+        let lines = account_lines(&hosts, &self.side.machines);
+        if !lines.iter().any(|l| matches!(l, Line::Header { .. })) {
+            let rows: Vec<Div> = (0..self.side.gh.rows.len()).map(|i| self.gh_account_row(i, cx)).collect();
+            let caption = caption.border_t(px(0.5)).border_b(px(0.5)).border_color(SEPARATOR);
+            return super::card(vec![div().flex().flex_col().child(status).child(caption).children(rows)]);
+        }
+        let mut blocks = vec![super::card(vec![status, caption])];
+        let mut at = 0;
+        while let Some(Line::Header { host, total, .. }) = lines.get(at) {
+            at += 1;
+            let mut rows = Vec::new();
+            while let Some(Line::Project { card }) = lines.get(at) {
+                rows.push(self.gh_account_row(*card, cx));
+                at += 1;
+            }
+            let header = div().h(px(24.)).ml(px(2.)).flex().items_center().child(machine_heading(host, self.machine(host), *total));
+            blocks.push(div().flex().flex_col().gap(px(6.)).child(header).child(super::card(vec![div().flex().flex_col().children(rows)])));
+        }
+        div().flex().flex_col().gap(px(14.)).children(blocks)
     }
 
     fn gh_account_row(&mut self, i: usize, cx: &mut Context<Self>) -> Div {
@@ -298,7 +318,9 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
-    use super::{AGENTS, STYLES, gh_line, index, writes_commits};
+    use super::{AGENTS, STYLES, account_lines, gh_line, index, writes_commits};
+    use crate::settings::projects::{Line, MachineState};
+    use crate::settings::side::Machine;
     use git::github::GhStatus;
     use store::prefs::git::Style;
 
@@ -324,6 +346,49 @@ mod tests {
         assert_eq!(gh_line(Some(&ready(&["minh-ngo", "work"]))).2, "gh 2.81.0 · 2 accounts on github.com, minh-ngo active");
         assert_eq!(gh_line(Some(&GhStatus::Missing)).1, "GitHub CLI isn't installed");
         assert_eq!(gh_line(None).1, "Checking for GitHub CLI…");
+    }
+
+    fn machines() -> Vec<Machine> {
+        let machine = |host: Option<&str>, state| Machine {
+            host: host.map(str::to_string),
+            name: host.unwrap_or("This Mac").into(),
+            glyph: "server",
+            colour: None,
+            state,
+        };
+        vec![machine(None, MachineState::Local), machine(Some("build"), MachineState::Connected), machine(Some("mini"), MachineState::Offline)]
+    }
+
+    fn header(host: Option<&str>, total: usize) -> Line {
+        Line::Header { host: host.map(str::to_string), open: true, total }
+    }
+
+    #[test]
+    fn accounts_on_one_machine_stay_a_flat_list() {
+        assert_eq!(account_lines(&[None, None], &machines()), [Line::Project { card: 0 }, Line::Project { card: 1 }]);
+    }
+
+    #[test]
+    fn accounts_on_several_machines_group_under_each_machine_in_its_order_skipping_machines_without_projects() {
+        assert_eq!(
+            account_lines(&[Some("mini"), None, Some("mini"), None], &machines()),
+            [
+                header(None, 2),
+                Line::Project { card: 1 },
+                Line::Project { card: 3 },
+                header(Some("mini"), 2),
+                Line::Project { card: 0 },
+                Line::Project { card: 2 }
+            ]
+        );
+    }
+
+    #[test]
+    fn an_account_on_a_host_pocketd_no_longer_lists_still_gets_a_group() {
+        assert_eq!(
+            account_lines(&[None, Some("old")], &machines()),
+            [header(None, 1), Line::Project { card: 0 }, header(Some("old"), 1), Line::Project { card: 1 }]
+        );
     }
 
     #[test]
