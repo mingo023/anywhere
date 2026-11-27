@@ -104,8 +104,8 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             packages/desktop/target
-          key: cargo-ci-${{ github.workspace }}-${{ steps.rust.outputs.rustc }}-${{ hashFiles('packages/desktop/Cargo.lock', 'packages/desktop/Cargo.toml') }}
-          restore-keys: cargo-ci-${{ github.workspace }}-${{ steps.rust.outputs.rustc }}-
+          key: cargo-ci-${{ github.event.repository.name }}-${{ steps.rust.outputs.rustc }}-${{ hashFiles('packages/desktop/Cargo.lock', 'packages/desktop/Cargo.toml') }}
+          restore-keys: cargo-ci-${{ github.event.repository.name }}-${{ steps.rust.outputs.rustc }}-
 
       - name: Build
         if: steps.cargo.outputs.cache-hit != 'true'

@@ -53,11 +53,13 @@ struct Ran {
     worked: bool,
     /// pocketd's status showed the agent idle since. Until then, or `STATUS_LAG_MS`, working may be the turn before's.
     idled: bool,
+    /// A new session's opening prompt: there is no turn before, and its timeline moving only says the agent started.
+    opening: bool,
 }
 
 impl Ran {
     fn new(at: i64) -> Self {
-        Ran { at, worked: false, idled: false }
+        Ran { at, worked: false, idled: false, opening: false }
     }
 }
 
@@ -113,6 +115,14 @@ impl Outgoing {
         (!working).then_some(self.next_id)
     }
 
+    /// Shows the prompt a new session opened with, which pocketd sent before its chat opened.
+    pub fn opening(&mut self, text: String, now_ms: i64) {
+        self.push(text, false, now_ms);
+        if let Some(ran) = &mut self.command {
+            (ran.idled, ran.opening) = (true, true);
+        }
+    }
+
     /// Sends `text` into the turn underway; returns its id. A command shows too, until the turn it waits behind ends.
     pub fn steer_text(&mut self, text: String, now_ms: i64) -> u64 {
         if command(&text) {
@@ -162,7 +172,7 @@ impl Outgoing {
             let age = now_ms - ran.at;
             ran.idled |= !working;
             ran.worked |= working && (ran.idled || age > STATUS_LAG_MS);
-            if (ran.worked && !working) || (!ran.worked && age > STATUS_LAG_MS) || (age > COMMAND_MS && !self.compacting) {
+            if (ran.worked && !working) || (!ran.worked && !ran.opening && age > STATUS_LAG_MS) || (age > COMMAND_MS && !self.compacting) {
                 self.command = None;
             }
         }
@@ -191,6 +201,9 @@ impl Outgoing {
             claimed.push(prompt.id.clone());
             false
         });
+        // Once the opening command echoed, its transcript says whether the agent is at work.
+        let pending = self.sends.iter().any(|s| s.delivery == Delivery::Sending && command(&s.text));
+        self.command = self.command.filter(|ran| !ran.opening || pending);
         // A command that never echoes goes once it reads as done.
         if self.command.is_none() {
             self.sends.retain(|s| !(s.delivery == Delivery::Sending && command(&s.text)));
@@ -357,7 +370,7 @@ impl Outgoing {
 
     /// The agent's timeline moved, so a command sent before it shows what it did, if anything.
     pub fn moved(&mut self) {
-        self.command = None;
+        self.command = self.command.filter(|ran| ran.opening);
     }
 
     pub fn list(&self) -> &[Pending] {

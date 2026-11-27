@@ -209,14 +209,14 @@ fn card(
     let body = if text.is_empty() {
         div().flex_none().text_color(TEXT_2).child(attached_count(images.len(), files, elements)).into_any_element()
     } else if open {
-        let text = div()
-            .id(SharedString::from(format!("sticky-text-{id}")))
-            .max_h(px(OPEN_MAX_HEIGHT))
-            .overflow_y_scroll()
-            .child(user_bubble::styled(&format!("sticky-{id}"), text));
+        let text = div().id(SharedString::from(format!("sticky-text-{id}"))).max_h(px(OPEN_MAX_HEIGHT)).overflow_y_scroll().child(user_bubble::styled(
+            &format!("sticky-{id}"),
+            text,
+            &[],
+        ));
         div().flex_1().min_w_0().pt(px(1.)).text_color(TEXT_BODY).child(text).into_any_element()
     } else {
-        div().min_w_0().truncate().child(user_bubble::styled(&format!("sticky-{id}"), &one_line(text))).into_any_element()
+        div().min_w_0().truncate().child(user_bubble::styled(&format!("sticky-{id}"), &one_line(text), &[])).into_any_element()
     };
     let time = time.map(|time| {
         div()
@@ -293,6 +293,10 @@ fn card(
 impl View {
     pub(super) fn sticky(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<(Div, f32)> {
         let view = &*self;
+        // The find bar takes the chat's top while it's open.
+        if view.find_count().is_some() {
+            return None;
+        }
         let s = &view.session;
         let (top, offset) = view.top_row();
         let ix = stuck(&s.rows, top, offset)?;
