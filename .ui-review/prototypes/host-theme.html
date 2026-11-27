@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Host themes · Arc-style colour per space — design prototype</title>
+<style>
+@property --t1{syntax:'<color>';inherits:true;initial-value:transparent}
+@property --t2{syntax:'<color>';inherits:true;initial-value:transparent}
+@property --t3{syntax:'<color>';inherits:true;initial-value:transparent}
+@property --accent{syntax:'<color>';inherits:true;initial-value:#111113}
+@property --grain{syntax:'<number>';inherits:true;initial-value:0}
+@property --text{syntax:'<color>';inherits:true;initial-value:#111113}
+@property --text-2{syntax:'<color>';inherits:true;initial-value:#6f6f78}
+@property --text-3{syntax:'<color>';inherits:true;initial-value:#8b8b94}
+@property --text-4{syntax:'<color>';inherits:true;initial-value:#a1a1aa}
+@property --window{syntax:'<color>';inherits:true;initial-value:#f4f4f5}
+@property --side-base{syntax:'<color>';inherits:true;initial-value:#f4f4f5}
+@property --side{syntax:'<color>';inherits:true;initial-value:#fafafbb3}
+@property --surface{syntax:'<color>';inherits:true;initial-value:#fff}
+@property --page{syntax:'<color>';inherits:true;initial-value:#f7f7f7}
+@property --popover{syntax:'<color>';inherits:true;initial-value:#fff}
+@property --pad-bg{syntax:'<color>';inherits:true;initial-value:#0000000a}
+@property --fill-2{syntax:'<color>';inherits:true;initial-value:#1111130b}
+@property --fill-4{syntax:'<color>';inherits:true;initial-value:#11111311}
+@property --separator{syntax:'<color>';inherits:true;initial-value:#11111317}
+@property --separator-strong{syntax:'<color>';inherits:true;initial-value:#1111131f}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-font-smoothing:antialiased;font-size:13px;overflow:hidden;background:#000}
+button,input,textarea{font:inherit;color:inherit;background:none;border:0;outline:0}
+button{cursor:pointer;text-align:left}
+svg.i{flex:none;display:block}
+.mono{font-family:"Geist Mono",ui-monospace,Menlo,monospace}
+
+/* ---------- app tokens (Graphite light / dark) ---------- */
+.app{
+  --text:#111113;--text-2:#6f6f78;--text-3:#8b8b94;--text-4:#a1a1aa;--on-text:#fff;
+  --window:#f4f4f5;--side-base:#f4f4f5;--side:#fafafbb3;--surface:#fff;--page:#f7f7f7;--popover:#fff;--pad-bg:#0000000a;
+  --fill-2:#1111130b;--fill-4:#11111311;--separator:#11111317;--separator-strong:#1111131f;--shadow:#00000024;
+  --accent:#111113;--success:#2b9a66;--waiting-dot:#ffb224;--working:#cc4e00;--failed:#cd2b31;--claude:#d97757;
+  position:relative;display:flex;height:100vh;overflow:hidden;color:var(--text);background:var(--window);isolation:isolate;
+}
+.app[data-appearance=dark]{
+  --text:#ededef;--text-2:#a1a1a9;--text-3:#7d7d86;--text-4:#5d5d66;--on-text:#111113;
+  --window:#161618;--side-base:#161618;--side:#1a1a1cb3;--surface:#222225;--page:#1b1b1d;--popover:#232326;--pad-bg:#00000047;
+  --fill-2:#ffffff0d;--fill-4:#ffffff17;--separator:#ffffff14;--separator-strong:#ffffff21;--shadow:#00000080;
+  --accent:#ededef;
+}
+.app.easing{transition:--t1 .32s ease,--t2 .32s ease,--t3 .32s ease,--grain .32s ease,--accent .32s ease,--text .32s ease,--text-2 .32s ease,--text-3 .32s ease,--text-4 .32s ease,--window .32s ease,--side-base .32s ease,--side .32s ease,--surface .32s ease,--page .32s ease,--popover .32s ease,--pad-bg .32s ease,--fill-2 .32s ease,--fill-4 .32s ease,--separator .32s ease,--separator-strong .32s ease}
+
+/* the wash: up to three colours. Only what GPUI paints: two-stop linear gradients stacked, and a noise image at an opacity (no radial, blend modes or masks). */
+.tinted{background-image:linear-gradient(45deg,var(--t3),transparent 60%),linear-gradient(var(--ang,135deg),var(--t1),var(--t2));background-color:var(--window)}
+.grain{position:absolute;inset:0;pointer-events:none;opacity:var(--grain);background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1.7 0 0 0 -.68'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>")}
+.app[data-appearance=dark] .grain{filter:invert(1)}
+
+/* ---------- sidebar ---------- */
+.side{width:272px;flex:none;background:var(--side);border-right:.5px solid var(--separator);display:flex;flex-direction:column;padding:0 10px;position:relative;z-index:2}
+.top{height:40px;flex:none;display:flex;align-items:center;justify-content:space-between;color:var(--text-3)}
+.lights{display:flex;gap:8px;padding-left:4px}.lights i{width:12px;height:12px;border-radius:6px;background:var(--fill-4);box-shadow:inset 0 0 0 .5px var(--separator-strong)}
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+.top .r{display:flex;gap:12px}
+.search{height:32px;flex:none;margin:2px 0 8px;padding:0 10px;display:flex;align-items:center;gap:8px;border-radius:9px;background:var(--surface);box-shadow:0 0 0 .5px var(--separator-strong);color:var(--text-3);font-size:13.5px}
+.search kbd{margin-left:auto;font:inherit;font-size:11.5px;color:var(--text-4)}
+.row{height:28px;flex:none;padding:0 6px;display:flex;align-items:center;gap:8px;border-radius:8px;font-size:13.5px;white-space:nowrap;position:relative;cursor:default}
+.row:hover{background:var(--fill-2)}
+.row.on{background:var(--fill-4)}
+.row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.row.nav{color:var(--text-2)}
+.child{padding-left:32px}
+.child .lead{position:absolute;left:12px;top:7px;width:14px;display:flex;justify-content:center;color:var(--text-3)}
+.stat{font-size:12px}.stat .a{color:var(--success)}.stat .d{color:var(--failed);margin-left:6px}
+.sh{height:28px;flex:none;margin:6px 0 2px;padding:0 6px;display:flex;align-items:center;font-size:11.5px;font-weight:600;letter-spacing:.04em;color:var(--text-3)}
+.list{flex:1;overflow-y:auto;overflow-x:hidden;margin:0 -4px;padding:0 4px 8px}
+.grp{margin-bottom:8px}
+.ptile{width:20px;height:20px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:5px;font-size:10px;font-weight:600;color:var(--text-2);background:var(--surface);box-shadow:inset 0 0 0 .5px var(--separator-strong)}
+.dot{width:6px;height:6px;border-radius:3px;flex:none;background:var(--success)}
+.sdot{width:7px;height:7px;border-radius:4px;background:var(--waiting-dot)}
+.spin{width:9px;height:9px;border-radius:5px;border:1.5px solid var(--working);border-right-color:transparent;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+.space-wrap{position:relative;flex:none;margin-top:8px}
+.space{height:34px;padding:0 6px;display:flex;align-items:center;gap:8px;border-radius:8px;cursor:pointer}
+.space:hover,.space[data-open]{background:var(--fill-2)}
+.htile{width:22px;height:22px;flex:none;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff}
+.htile.plain{background:var(--fill-4)!important;color:var(--text-2)}
+.space b{font-size:14px;font-weight:600;white-space:nowrap}
+.space .h{font-size:12px;color:var(--text-3);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.switcher{flex:none;display:flex;align-items:center;gap:2px;padding:6px 8px 10px;border-top:.5px solid var(--separator);margin:0 -10px}
+.sw{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--text-3);position:relative}
+.sw:hover{background:var(--fill-2)}
+.sw:active{transform:scale(.95)}
+.sw.on{background:var(--fill-4);color:var(--text)}
+.sw .pip{position:absolute;left:50%;bottom:1px;width:12px;height:2.5px;border-radius:2px;transform:translateX(-50%)}
+.sw .cdot{position:absolute;right:5px;top:6px;width:6px;height:6px;border-radius:3px;box-shadow:0 0 0 1.5px var(--side-base)}
+
+/* ---------- menus ---------- */
+.pop{background:var(--popover);border-radius:12px;box-shadow:0 0 0 .5px var(--separator-strong),0 18px 50px var(--shadow),0 2px 6px #0000000f}
+.menu{position:absolute;z-index:20;top:40px;left:0;width:250px;padding:5px;display:flex;flex-direction:column;gap:1px;transform-origin:top left;animation:menuin .15s cubic-bezier(.23,1,.32,1)}
+@keyframes menuin{from{opacity:0;transform:translateY(-4px)}}
+.ml{padding:6px 10px 4px;font-size:11.5px;font-weight:500;color:var(--text-3)}
+.md{height:.5px;margin:4px 8px;background:var(--separator);flex:none}
+.mp{height:32px;padding:0 10px;display:flex;align-items:center;gap:10px;border-radius:8px;font-size:13.5px;white-space:nowrap;cursor:pointer;color:var(--text)}
+.mp:hover{background:var(--fill-2)}
+.mp .lead{width:14px;display:flex;justify-content:center;flex:none;color:var(--text-2)}
+.mp .nm{flex:1}
+.mp .kb{font-size:11.5px;color:var(--text-4)}
+.mp.danger{color:var(--failed)}.mp.danger .lead{color:var(--failed)}
+.icons{display:flex;gap:2px;padding:0 6px 6px}
+.icons span{cursor:pointer;width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-2)}
+.icons span:hover{background:var(--fill-2)}
+.icons span.on{background:var(--fill-4);color:var(--text)}
+
+/* ---------- page ---------- */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--page);position:relative;z-index:1}
+.bar{height:40px;flex:none;display:flex;align-items:center;gap:8px;padding:0 16px;color:var(--text-3)}
+.bar b{color:var(--text);font-weight:600}
+.body{flex:1;display:flex;justify-content:center;overflow:auto}
+.content{width:600px;margin-top:20vh;display:flex;flex-direction:column;align-items:center}
+h1{font-size:21px;line-height:25px;font-weight:600;letter-spacing:-.01em}
+.frame{width:100%;margin-top:20px;background:var(--surface);border-radius:16px;box-shadow:0 0 0 .5px var(--separator-strong),0 1px 2px #0000000a,0 8px 24px #0000000d}
+.ptext{padding:14px 16px 0;height:80px;color:var(--text-4);font-size:14.5px;line-height:22px}
+.pbar{display:flex;align-items:center;gap:4px;padding:4px 11px 11px}
+.pill{height:30px;display:flex;align-items:center;gap:6px;padding:0 7px;border-radius:9px;font-size:12.5px;color:var(--text-2)}
+.pill b{font-weight:500;color:var(--text)}
+.send{width:32px;height:32px;border-radius:16px;display:flex;align-items:center;justify-content:center;background:var(--text);color:var(--on-text);margin-left:auto}
+.foot-row{width:100%;margin-top:10px;display:flex;align-items:center;gap:6px;font-size:13px}
+.chip{height:30px;padding:0 10px;display:flex;align-items:center;gap:7px;border-radius:8px;background:var(--fill-2);white-space:nowrap;font-weight:500}
+
+/* ---------- the editor (shared by every variant) ---------- */
+.ed{--e:calc(var(--k) * 1px);width:calc(356 * var(--e));padding:calc(8 * var(--e)) calc(8 * var(--e)) calc(14 * var(--e));border-radius:calc(22 * var(--e));background:var(--ed-bg,#3a3a3c);box-shadow:inset 0 0 0 1px #ffffff1a,0 0 0 .5px #00000080;color:#ffffff8c;user-select:none;-webkit-user-select:none}
+.ed.float{box-shadow:inset 0 0 0 1px #ffffff1a,0 0 0 .5px #00000080,0 24px 60px #00000059,0 4px 12px #00000026}
+.pad{position:relative;width:calc(340 * var(--e));height:calc(340 * var(--e));border-radius:calc(10 * var(--e));background:#0000000d;box-shadow:inset 0 0 0 .5px #ffffff0d;overflow:hidden;touch-action:none}
+.pad canvas{position:absolute;inset:0;width:100%;height:100%}
+.pad .hint{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);white-space:nowrap;font-size:calc(12 * var(--e));color:#ffffff73;pointer-events:none}
+.handle{--hs:calc(45 * var(--e));position:absolute;left:0;top:0;width:var(--hs);height:var(--hs);margin:calc(var(--hs) / -2) 0 0 calc(var(--hs) / -2);border-radius:50%;border:calc(4.5 * var(--e)) solid #fff;box-shadow:0 1px 4px #00000040;cursor:grab;touch-action:none;transition:scale .15s cubic-bezier(.23,1,.32,1);will-change:transform}
+.handle:hover{scale:1.04}
+.handle.grab{cursor:grabbing;scale:1.08;z-index:3}
+.handle.sel{z-index:2}
+.handle:focus-visible{outline:2px solid #ffffff99;outline-offset:3px}
+.modes{position:absolute;top:calc(24 * var(--e));left:50%;transform:translateX(-50%);display:flex;gap:calc(9 * var(--e));z-index:4}
+.modes button{width:calc(32 * var(--e));height:calc(32 * var(--e));border-radius:calc(8 * var(--e));display:flex;align-items:center;justify-content:center;color:#ffffff80;transition:color .15s ease-out,background-color .15s ease-out}
+.modes button svg{width:calc(19 * var(--e));height:calc(19 * var(--e))}
+.modes button:hover{color:#ffffffbf}
+.modes button[data-on]{background:#ffffff14;color:#ffffffc7}
+.modes button:active,.pm button:active{transform:scale(.94)}
+.pm{position:absolute;bottom:calc(17 * var(--e));left:50%;transform:translateX(-50%);display:flex;gap:calc(12 * var(--e));z-index:4}
+.pm button{width:calc(28 * var(--e));height:calc(28 * var(--e));display:flex;align-items:center;justify-content:center;color:#ffffff80}
+.pm button:hover{color:#ffffffcc}
+.pm button svg{width:calc(15 * var(--e));height:calc(15 * var(--e))}
+.pm button[disabled]{opacity:.35;pointer-events:none}
+.swrow{display:flex;align-items:center;justify-content:space-between;margin-top:calc(13 * var(--e));height:calc(40 * var(--e))}
+.pager{width:calc(30 * var(--e));height:calc(32 * var(--e));display:flex;align-items:center;justify-content:center;color:#ffffff99;flex:none}
+.pager svg{width:calc(17 * var(--e));height:calc(17 * var(--e))}
+.pager:hover{color:#ffffffd9}
+.pager[disabled]{color:#ffffff4d;pointer-events:none}
+.sws{display:flex;gap:calc(5.5 * var(--e));align-items:center}
+.swb{width:calc(24 * var(--e));height:calc(24 * var(--e));border-radius:50%;box-shadow:inset 0 0 0 calc(1.5 * var(--e)) #00000029;transition:transform .12s ease-out}
+.swb:hover{transform:scale(1.08)}
+.swb:active{transform:scale(.92)}
+.swb[data-on]{box-shadow:inset 0 0 0 calc(1.5 * var(--e)) #00000029,0 0 0 calc(2 * var(--e)) var(--ed-bg),0 0 0 calc(3.5 * var(--e)) #ffffffa6}
+.bottom{display:flex;align-items:center;gap:calc(10 * var(--e));margin-top:calc(15 * var(--e));padding-left:calc(10 * var(--e))}
+.wave{position:relative;width:calc(234 * var(--e));height:calc(72 * var(--e));flex:none;touch-action:none;cursor:ew-resize}
+.wave svg{position:absolute;inset:0;overflow:visible}
+.wave-thumb{position:absolute;top:calc(7 * var(--e));width:calc(26 * var(--e));height:calc(58 * var(--e));margin-left:calc(-13 * var(--e));border-radius:999px;background:#fff;box-shadow:0 1px 5px #00000040;transition:scale .15s cubic-bezier(.23,1,.32,1)}
+.wave.grab .wave-thumb{scale:1.05}
+.dial{position:relative;width:calc(72 * var(--e));height:calc(72 * var(--e));flex:none;touch-action:none;cursor:grab;border-radius:50%}
+.dial.grab{cursor:grabbing}
+.dial .tick{position:absolute;left:50%;top:50%;width:calc(5 * var(--e));height:calc(5 * var(--e));margin:calc(-2.5 * var(--e)) 0 0 calc(-2.5 * var(--e));border-radius:50%;background:#ffffff59;transition:opacity .1s ease-out}
+.dial .tick[data-lit]{background:#ffffffd9}
+.dial .tick[data-hide]{opacity:0}
+.dial .disc{position:absolute;inset:calc(16 * var(--e));border-radius:50%;background:#8e908f;overflow:hidden}
+.dial .disc .grain{filter:none!important;opacity:var(--g)}
+.dial .knob{position:absolute;left:50%;top:50%;width:calc(7 * var(--e));height:calc(16 * var(--e));margin:calc(-8 * var(--e)) 0 0 calc(-3.5 * var(--e));border-radius:999px;background:#fff;box-shadow:0 1px 3px #0000004d}
+.wave:focus-visible,.dial:focus-visible,.swb:focus-visible,.modes button:focus-visible{outline:2px solid #ffffff80;outline-offset:2px}
+
+/* ---------- 1 · Wash: the whole window takes the colour; the page sits on it as a card; Arc's floating editor ---------- */
+.v-wash .side{background:transparent;border-right:0}
+.v-wash .main{margin:8px 8px 8px 0;border-radius:12px;overflow:hidden;box-shadow:0 0 0 .5px var(--separator-strong),0 1px 2px #0000000d,0 6px 20px #00000014}
+.ed-card{position:absolute;z-index:30;top:-6px;left:calc(100% + 18px);border-radius:22px;transform-origin:0 20px}
+.ed-card.enter{animation:cardin .22s cubic-bezier(.23,1,.32,1)}
+@keyframes cardin{from{opacity:0;transform:scale(.94) translateX(-6px)}}
+
+/* ---------- 2 · Column: only the sidebar takes the colour; editor inside the space menu ---------- */
+.v-col .side.tinted{--ang:180deg;background-image:linear-gradient(45deg,var(--t3),transparent 60%),linear-gradient(var(--ang),var(--t1),var(--t2));background-color:var(--side-base);border-right:.5px solid var(--separator)}
+.v-col .side>.grain{z-index:-1}
+.v-col .menu.wide{width:290px;max-height:calc(100vh - 200px);overflow-y:auto;overscroll-behavior:contain}
+.v-col .menu .ed{margin:0 0 2px}
+
+/* ---------- 3 · Glow: neutral window, the colour rises from the top edge and paints the accent; a docked Host looks panel ---------- */
+.glow{position:absolute;left:0;right:0;top:0;height:300px;pointer-events:none;z-index:0;--ang:90deg;background-color:transparent}
+.glow::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 18%,var(--window))}
+.v-glow .side{background:transparent}
+.v-glow .main{background:transparent}
+.v-glow .send{background:var(--accent);color:#fff}
+.v-glow[data-appearance=dark] .send{color:#111}
+.v-glow .row.on{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.v-glow .chip.on{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--text)}
+.v-glow.sheet-open .main{padding-right:364px}
+.sheet{position:absolute;z-index:25;top:8px;right:8px;bottom:8px;width:348px;border-radius:16px;background:var(--popover);box-shadow:0 0 0 .5px var(--separator-strong),0 18px 50px var(--shadow);display:flex;flex-direction:column;overflow:hidden}
+.sheet.enter{animation:sheetin .24s cubic-bezier(.23,1,.32,1)}
+@keyframes sheetin{from{opacity:0;transform:translateX(24px)}}
+.sheet-h{height:48px;flex:none;display:flex;align-items:center;padding:0 10px 0 16px;gap:8px}
+.sheet-h b{font-size:14px;font-weight:600;flex:1}
+.xb{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-3)}
+.xb:hover{background:var(--fill-2);color:var(--text)}
+.sheet-b{flex:1;overflow:auto;padding:0 8px 12px}
+.look{border-radius:12px;padding:6px;cursor:pointer}
+.look:hover{background:var(--fill-2)}
+.look.on{background:var(--fill-2);cursor:default}
+.look-r{display:flex;align-items:center;gap:10px}
+.mini{position:relative;width:52px;height:34px;border-radius:7px;flex:none;box-shadow:inset 0 0 0 .5px #0000002e;overflow:hidden}
+.mini::after{content:'';position:absolute;left:14px;top:4px;right:4px;bottom:4px;border-radius:3px;background:var(--mini-page);opacity:.92}
+.look-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.look-t b{font-size:13px;font-weight:500;display:flex;align-items:center;gap:6px}
+.look-t span{font-size:11.5px;color:var(--text-3)}
+.look .ed{margin-top:10px}
+.note{margin:10px 10px 0;font-size:11.5px;line-height:16px;color:var(--text-3)}
+
+@media (prefers-reduced-motion: reduce){
+  .ed-card.enter,.sheet.enter,.menu{animation:fadein .15s ease-out}
+  @keyframes fadein{from{opacity:0}}
+  .app.easing{transition:none}
+}
+
+/* ---------- picker (PICKER.md, verbatim) ---------- */
+.proto-picker {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(10, 10, 10, 0.82);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 8px 24px rgba(0, 0, 0, 0.24),
+    0 2px 6px rgba(0, 0, 0, 0.12);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  line-height: 1;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.proto-picker-highlight {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  will-change: transform;
+}
+
+/* The slide is enabled only after first paint (data-ready), so load doesn't animate. */
+.proto-picker[data-ready] .proto-picker-highlight {
+  transition:
+    transform 250ms cubic-bezier(0.23, 1, 0.32, 1),
+    width 250ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .proto-picker[data-ready] .proto-picker-highlight { transition: none; }
+}
+
+.proto-picker-item {
+  position: relative; /* sits above the highlight */
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  font: inherit;
+  cursor: pointer;
+  transition: color 150ms ease-out;
+}
+
+.proto-picker-item:hover {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.proto-picker-item:active {
+  transform: scale(0.97);
+}
+
+.proto-picker-item:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.4);
+  outline-offset: 2px;
+}
+
+.proto-picker-item[data-active] {
+  color: #fff;
+}
+
+.proto-picker-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.proto-picker-replay {
+  padding: 0 10px;
+  font-size: 14px;
+}
+
+.proto-picker[data-position="top"] {
+  bottom: auto;
+  top: 24px;
+}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<nav class="proto-picker" aria-label="Prototype variants">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item" data-active aria-current="true">Wash</button>
+  <button class="proto-picker-item">Column</button>
+  <button class="proto-picker-item">Glow</button>
+  <span class="proto-picker-divider" aria-hidden="true"></span>
+  <button class="proto-picker-item proto-picker-replay" aria-label="Replay animation (R)">↻</button>
+</nav>
+
+<script>
+const ICONS={"laptop": {"vb": "0 0 24 24", "body": "<path d=\"M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z\"/><path d=\"M20.054 15.987H3.946\"/>", "fill": false}, "server": {"vb": "0 0 24 24", "body": "<rect width=\"20\" height=\"8\" x=\"2\" y=\"2\" rx=\"2\" ry=\"2\"/><rect width=\"20\" height=\"8\" x=\"2\" y=\"14\" rx=\"2\" ry=\"2\"/><line x1=\"6\" x2=\"6.01\" y1=\"6\" y2=\"6\"/><line x1=\"6\" x2=\"6.01\" y1=\"18\" y2=\"18\"/>", "fill": false}, "globe": {"vb": "0 0 24 24", "body": "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\"/><path d=\"M2 12h20\"/>", "fill": false}, "check": {"vb": "0 0 24 24", "body": "<path d=\"M20 6 9 17l-5-5\"/>", "fill": false}, "chevron-down": {"vb": "0 0 24 24", "body": "<path d=\"m6 9 6 6 6-6\"/>", "fill": false}, "chevron-right": {"vb": "0 0 24 24", "body": "<path d=\"m9 18 6-6-6-6\"/>", "fill": false}, "chevron-up": {"vb": "0 0 24 24", "body": "<path d=\"m18 15-6-6-6 6\"/>", "fill": false}, "folder": {"vb": "0 0 24 24", "body": "<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "fill": false}, "folder-plus": {"vb": "0 0 24 24", "body": "<path d=\"M12 10v6\"/><path d=\"M9 13h6\"/><path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "fill": false}, "worktree": {"vb": "0 0 24 24", "body": "<circle cx=\"12\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><path d=\"M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9\"/><path d=\"M12 12v3\"/>", "fill": false}, "branch": {"vb": "0 0 24 24", "body": "<path d=\"M15 6a9 9 0 0 0-9 9V3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/>", "fill": false}, "plus": {"vb": "0 0 24 24", "body": "<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>", "fill": false}, "search": {"vb": "0 0 24 24", "body": "<path d=\"m21 21-4.34-4.34\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/>", "fill": false}, "activity": {"vb": "0 0 24 24", "body": "<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\"/>", "fill": false}, "blocks": {"vb": "0 0 24 24", "body": "<path d=\"M10 22V7a1 1 0 0 0-1-1H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5a1 1 0 0 0-1-1H2\"/><rect x=\"14\" y=\"2\" width=\"8\" height=\"8\" rx=\"1\"/>", "fill": false}, "bolt": {"vb": "0 0 24 24", "body": "<path d=\"M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z\"/>", "fill": false}, "settings": {"vb": "0 0 24 24", "body": "<path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>", "fill": false}, "warning": {"vb": "0 0 24 24", "body": "<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/>", "fill": false}, "x": {"vb": "0 0 24 24", "body": "<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>", "fill": false}, "sidebar-collapse": {"vb": "0 0 24 24", "body": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M9 3v18\"/><path d=\"m16 15-3-3 3-3\"/>", "fill": false}, "bell": {"vb": "0 0 24 24", "body": "<path d=\"M10.268 21a2 2 0 0 0 3.464 0\"/><path d=\"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326\"/>", "fill": false}, "claude": {"vb": "0 0 24 24", "body": "<path d=\"m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z\"/>", "fill": true}, "terminal": {"vb": "0 0 24 24", "body": "<path d=\"m7 11 2-2-2-2\"/><path d=\"M11 13h4\"/><rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\"/>", "fill": false}, "more": {"vb": "0 0 24 24", "body": "<circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/>", "fill": false}, "reload": {"vb": "0 0 24 24", "body": "<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/>", "fill": false}, "arrow-down-wide-narrow": {"vb": "0 0 24 24", "body": "<path d=\"m3 16 4 4 4-4\"/><path d=\"M7 20V4\"/><path d=\"M11 4h10\"/><path d=\"M11 8h7\"/><path d=\"M11 12h4\"/>", "fill": false}, "arrow-up": {"vb": "0 0 24 24", "body": "<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>", "fill": false}, "back": {"vb": "0 0 24 24", "body": "<path d=\"m15 18-6-6 6-6\"/>", "fill": false}, "pull-request": {"vb": "0 0 24 24", "body": "<circle cx=\"18\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><path d=\"M13 6h3a2 2 0 0 1 2 2v7\"/><line x1=\"6\" x2=\"6\" y1=\"9\" y2=\"21\"/>", "fill": false}, "shield": {"vb": "0 0 24 24", "body": "<path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\"/>", "fill": false}, "file": {"vb": "0 0 24 24", "body": "<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/>", "fill": false}, "trash": {"vb": "0 0 24 24", "body": "<path d=\"M10 11v6\"/><path d=\"M14 11v6\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"/><path d=\"M3 6h18\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/>", "fill": false}, "pencil": {"vb": "0 0 24 24", "body": "<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>", "fill": false}, "sliders": {"vb": "0 0 24 24", "body": "<path d=\"M10 5H3\"/><path d=\"M12 19H3\"/><path d=\"M14 3v4\"/><path d=\"M16 17v4\"/><path d=\"M21 12h-9\"/><path d=\"M21 19h-5\"/><path d=\"M21 5h-7\"/><path d=\"M8 10v4\"/><path d=\"M8 12H3\"/>", "fill": false}, "appearance": {"vb": "0 0 24 24", "body": "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 18a6 6 0 0 0 0-12v12z\"/>", "fill": false}, "keyboard": {"vb": "0 0 24 24", "body": "<path d=\"M10 8h.01\"/><path d=\"M12 12h.01\"/><path d=\"M14 8h.01\"/><path d=\"M16 12h.01\"/><path d=\"M18 8h.01\"/><path d=\"M6 8h.01\"/><path d=\"M7 16h10\"/><path d=\"M8 12h.01\"/><rect width=\"20\" height=\"16\" x=\"2\" y=\"4\" rx=\"2\"/>", "fill": false}, "bot": {"vb": "0 0 24 24", "body": "<path d=\"M12 8V4H8\"/><rect width=\"16\" height=\"12\" x=\"4\" y=\"8\" rx=\"2\"/><path d=\"M2 14h2\"/><path d=\"M20 14h2\"/><path d=\"M15 13v2\"/><path d=\"M9 13v2\"/>", "fill": false}, "phone": {"vb": "0 0 24 24", "body": "<rect width=\"14\" height=\"20\" x=\"5\" y=\"2\" rx=\"2\" ry=\"2\"/><path d=\"M12 18h.01\"/>", "fill": false}, "list-checks": {"vb": "0 0 24 24", "body": "<path d=\"M13 5h8\"/><path d=\"M13 12h8\"/><path d=\"M13 19h8\"/><path d=\"m3 17 2 2 4-4\"/><path d=\"m3 7 2 2 4-4\"/>", "fill": false}, "code": {"vb": "0 0 24 24", "body": "<path d=\"m16 18 6-6-6-6\"/><path d=\"m8 6-6 6 6 6\"/>", "fill": false}, "diff-split": {"vb": "0 0 24 24", "body": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M12 3v18\"/>", "fill": false}, "github": {"vb": "0 0 24 24", "body": "<path d=\"M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4\"/><path d=\"M9 18c-4.51 2-5-2-7-2\"/>", "fill": false}, "cloud": {"vb": "0 0 24 24", "body": "<path d=\"M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z\"/>", "fill": false}};
+Object.assign(ICONS,{
+  sparkles:{vb:'0 0 24 24',body:'<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/>'},
+  sun:{vb:'0 0 24 24',body:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>'},
+  moon:{vb:'0 0 24 24',body:'<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>'},
+  minus:{vb:'0 0 24 24',body:'<path d="M5 12h14"/>'},
+  palette:{vb:'0 0 24 24',body:'<path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/>'},
+});
+const ic=(n,s=14,c='currentColor')=>{const d=ICONS[n];return d.fill?`<svg class="i" width="${s}" height="${s}" viewBox="${d.vb}" fill="var(--claude)">${d.body}</svg>`:`<svg class="i" width="${s}" height="${s}" viewBox="${d.vb}" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d.body}</svg>`};
+
+/* ---------- colour model ----------
+   Pad: angle is hue, clockwise from the right (the screenshot's mint handle, left of centre and a little low, lands on hue ≈151°).
+   Distance from centre is lightness, dark at the centre, light at the rim (one source, a decompile; swap in `lightAt`).
+   Light paints the wash in 0.575–0.97 lightness, Dark in 0.01–0.425 (one source); Auto follows the system (ours).
+   Intensity is the wash's alpha, 0.2 + 0.55 × intensity. */
+const lightAt=r=>.06+.9*r;
+const fromHL=(h,L,s=.8)=>{const r=Math.max(0,Math.min(1,(L-.06)/.9)),a=h*Math.PI/180;return{x:r*Math.cos(a),y:r*Math.sin(a),s}};
+const live=c=>({x:c.dx??c.x,y:c.dy??c.y});
+function hl(c,isLive){const p=isLive?live(c):c,r=Math.min(1,Math.hypot(p.x,p.y));let h=Math.atan2(p.y,p.x)*180/Math.PI;if(h<0)h+=360;return{h,r,L:lightAt(r)}}
+const hsl=(h,s,l,a=1)=>`hsl(${h.toFixed(1)} ${(s*100).toFixed(1)}% ${(l*100).toFixed(1)}% / ${a.toFixed(3)})`;
+const raw=(c,isLive)=>{const {h,L}=hl(c,isLive);return hsl(h,c.s,L)};
+const sysDark=()=>matchMedia('(prefers-color-scheme: dark)').matches;
+const reduced=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
+function appearance(sp){const m=sp.theme.mode;return m==='auto'?(sysDark()?'dark':'light'):m}
+const paintL=(L,app)=>app==='dark'?.01+.415*L:.575+.395*L;
+function look(sp,isLive){
+  const t=sp.theme,app=appearance(sp),a=.2+.55*t.intensity;
+  const cs=t.colors.map(c=>{const {h,L}=hl(c,isLive);return hsl(h,c.s,paintL(L,app),a)});
+  const none='hsl(0 0% 50% / 0)',lead=t.colors[0]&&hl(t.colors[0],isLive),s=t.colors[0]?.s;
+  return{app,t1:cs[0]||none,t2:cs[1]||cs[0]||none,t3:cs[2]||none,grain:(t.grain*.4).toFixed(3),
+    tile:lead?hsl(lead.h,s,Math.min(.6,Math.max(.36,lead.L))):null,
+    accent:lead?hsl(lead.h,Math.max(s,.0),app==='dark'?.66:.45):null,
+    card:lead?hsl(lead.h,.09,.25):'hsl(240 2% 23%)',
+    base:app==='dark'?'#161618':'#f4f4f5',page:app==='dark'?'#232326':'#ffffff'};
+}
+
+/* ---------- presets: five pages of nine (Brand, Brand pairs, Pastel, Drab, Greyscale) ---------- */
+const P=(h,L,s)=>({h,L,s});
+const BRAND=[P(40,.95,.4),P(330,.76,.75),P(285,.55,.35),P(355,.6,.8),P(22,.6,.92),P(46,.64,.9),P(150,.55,.7),P(200,.6,.6),P(240,.45,.3)];
+const HUES=[0,28,52,95,150,180,205,240,285];
+const PAGES=[
+  {name:'Brand',sw:BRAND.map(c=>[c])},
+  {name:'Brand pairs',sw:BRAND.map(c=>[c,P((c.h+36)%360,c.L,c.s)])},
+  {name:'Pastel',sw:HUES.map(h=>[P(h,.86,.7)])},
+  {name:'Drab',sw:HUES.map(h=>[P(h,.5,.2)])},
+  {name:'Greyscale',sw:[.97,.88,.78,.66,.55,.44,.33,.22,.1].map(L=>[P(0,L,0)])},
+];
+const swatchCss=cs=>cs.length>1?`linear-gradient(135deg,${cs.map(c=>hsl(c.h,c.s,c.L)).join(',')})`:hsl(cs[0].h,cs[0].s,cs[0].L);
+
+/* ---------- data ---------- */
+const col=(h,L,s)=>{const c=fromHL(h,L,s);c.dx=c.x;c.dy=c.y;c.vx=c.vy=0;return c};
+const S={
+  at:1,
+  spaces:[
+    {name:'This Mac',addr:'',glyph:'laptop',theme:{mode:'auto',colors:[],intensity:.45,grain:0},
+      projects:[['anywhere',[['worktree','eternal-creeper','working',[318,41]],['laptop','Local','idle']]],['glow-me',[['laptop','Local','idle']]]]},
+    {name:'devbox',addr:'dev@devbox.lan',glyph:'server',theme:{mode:'dark',colors:[col(150,.82,.42)],intensity:.9,grain:0},
+      projects:[['dragon',[['server','Local','idle'],['worktree','fix/ws-reconnect','working',[42,17]]]],['anywhere',[['server','Local','need']]]]},
+    {name:'gpu-box',addr:'ubuntu@10.0.4.12',glyph:'cloud',theme:{mode:'light',colors:[col(262,.62,.7),col(305,.7,.7)],intensity:.6,grain:.12},
+      projects:[['trainer',[['cloud','Local','working',[12,3]],['worktree','lora-sweep','idle']]],['notebooks',[['cloud','Local','idle']]]]},
+    {name:'prod-eu',addr:'deploy@prod-eu-1',glyph:'globe',theme:{mode:'auto',colors:[col(8,.62,.8),col(30,.7,.85),col(340,.55,.6)],intensity:.5,grain:.4},
+      projects:[['api-gateway',[['globe','Local','idle']]],['billing',[['worktree','hotfix/vat-rounding','need',[6,2]]]]]},
+  ],
+};
+const ui={open:true,menu:false,enter:false,page:0,sel:0};
+const cur=()=>S.spaces[S.at];
+let V='wash';
+
+/* ---------- markup ---------- */
+function headTile(sp,isCur,size=22){const L=look(sp,isCur);return `<span class="htile${L.tile?'':' plain'}"${isCur?' data-tile-live':''} style="width:${size}px;height:${size}px;border-radius:${size*.27}px;${L.tile?`background:${L.tile}`:''}">${ic(sp.glyph,size*.6)}</span>`}
+function lead(t){if(t[2]==='working')return '<span class="spin"></span>';if(t[2]==='need')return '<span class="sdot"></span>';return ic(t[0],13)}
+function sidebar(){
+  const sp=cur();
+  const rows=sp.projects.map(([repo,trees],pi)=>`<div class="grp"><div class="row"><span class="ptile">${repo[0].toUpperCase()}</span><span class="nm">${repo}</span></div>`+
+    trees.map((t,ti)=>`<div class="row child${pi===0&&ti===0?' on':''}"><span class="lead">${lead(t)}</span><span class="nm">${t[1]}</span>${t[3]?`<span class="stat mono"><span class="a">+${t[3][0]}</span><span class="d">−${t[3][1]}</span></span>`:''}</div>`).join('')+`</div>`).join('');
+  const sw=S.spaces.map((x,i)=>{const L=look(x,i===S.at);return `<button class="sw${i===S.at?' on':''}" data-act="space" data-v="${i}" title="${x.name} · ⌃${i+1}">${ic(x.glyph,16)}${L.tile?`<span class="cdot" style="background:${L.tile}"${i===S.at?' data-pip-live':''}></span>`:''}</button>`}).join('');
+  const open=V==='col'?ui.open:ui.menu;
+  return `<aside class="side${V==='col'?' tinted':''}">${V==='col'?'<div class="grain"></div>':''}
+  <div class="top"><span class="lights"><i></i><i></i><i></i></span><span class="r">${ic('bell',16)}${ic('sidebar-collapse',16)}</span></div>
+  <div class="search">${ic('search',14)}<span>Search all machines</span><kbd>⌘K</kbd></div>
+  <div class="row nav">${ic('activity',15)}<span class="nm">Activity</span></div>
+  <div class="row nav">${ic('blocks',15)}<span class="nm">Board</span></div>
+  <div class="space-wrap">
+    <div class="space" data-act="menu"${open?' data-open':''}>${headTile(sp,true)}<b>${sp.name}</b>${sp.addr?'<span class="dot"></span>':''}<span class="h">${sp.addr}</span>${ic('chevron-down',12,'var(--text-4)')}</div>
+    ${open?menu():''}
+    ${V==='wash'&&ui.open?`<div class="ed-card${ui.enter?' enter':''}" data-pop>${editor(356,true)}</div>`:''}
+  </div>
+  <div class="sh"><span>PROJECTS</span></div>
+  <div class="list">${rows}</div>
+  <div class="switcher">${sw}</div>
+  </aside>`;
+}
+function menu(){
+  const sp=cur(),local=!sp.addr;
+  const top=local
+    ?`<div class="mp"><span class="lead">${ic('terminal',14)}</span><span class="nm">Open terminal</span></div><div class="mp"><span class="lead">${ic('settings',14)}</span><span class="nm">Hosts settings…</span></div>`
+    :`<div class="mp"><span class="lead">${ic('pencil',14)}</span><span class="nm">Rename…</span></div><div class="mp"><span class="lead">${ic('settings',14)}</span><span class="nm">Host settings…</span></div>`;
+  const icons=['server','cloud','globe','terminal','code','bot','bolt'].map(g=>`<span class="${g===sp.glyph?'on':''}" data-act="icon" data-v="${g}">${ic(g,14)}</span>`).join('');
+  const iconRow=`<div class="ml">Icon</div><div class="icons">${icons}</div>`;
+  if(V==='col')return `<div class="menu pop wide" data-pop>${top}<div class="md"></div><div class="ml">Theme</div>${editor(280)}${local?'':`<div class="md"></div>${iconRow}<div class="md"></div><div class="mp danger"><span class="lead">${ic('trash',14)}</span><span class="nm">Remove host…</span></div>`}</div>`;
+  return `<div class="menu pop" data-pop>${top}
+    <div class="mp" data-act="theme"><span class="lead">${ic('palette',14)}</span><span class="nm">${V==='glow'?'Host looks…':'Edit theme…'}</span></div>
+    ${local?'':`<div class="md"></div>${iconRow}<div class="md"></div><div class="mp danger"><span class="lead">${ic('trash',14)}</span><span class="nm">Remove host…</span></div>`}</div>`;
+}
+/* Arc's mode glyphs are solid: sparkles, a filled sun, a moon with a star. */
+const MODE_GLYPH={
+  auto:'<path fill="currentColor" d="M9 6C11.40 11.60 11.40 11.60 17 14C11.40 16.40 11.40 16.40 9 22C6.60 16.40 6.60 16.40 1 14C6.60 11.60 6.60 11.60 9 6ZM17.5 1.1C18.52 3.48 18.52 3.48 20.9 4.5C18.52 5.52 18.52 5.52 17.5 7.9C16.48 5.52 16.48 5.52 14.1 4.5C16.48 3.48 16.48 3.48 17.5 1.1ZM20.8 8.1C21.52 9.78 21.52 9.78 23.2 10.5C21.52 11.22 21.52 11.22 20.8 12.9C20.08 11.22 20.08 11.22 18.400000000000002 10.5C20.08 9.78 20.08 9.78 20.8 8.1Z"/>',
+  light:'<circle cx="12" cy="12" r="4.6" fill="currentColor"/><g stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M12 2.2v1.6M12 20.2v1.6M2.2 12h1.6M20.2 12h1.6M5.1 5.1l1.1 1.1M17.8 17.8l1.1 1.1M5.1 18.9l1.1-1.1M17.8 6.2l1.1-1.1"/></g>',
+  dark:'<path fill="currentColor" d="M11 3.2a8.6 8.6 0 1 0 9.6 11.6A7.2 7.2 0 0 1 11 3.2ZM18 2.4C18.288 4.512 18.288 4.512 20.4 4.8C18.288 5.088 18.288 5.088 18 7.199999999999999C17.712 5.088 17.712 5.088 15.6 4.8C17.712 4.512 17.712 4.512 18 2.4Z"/>',
+};
+const modeIcon=(m,s)=>`<svg class="i" width="${s}" height="${s}" viewBox="0 0 24 24">${MODE_GLYPH[m]}</svg>`;
+function editor(W,float){
+  const t=cur().theme,page=PAGES[ui.page];
+  const handles=t.colors.map((c,i)=>`<span class="handle${i===ui.sel?' sel':''}" data-i="${i}" tabindex="0" role="slider" aria-label="Colour ${i+1}"></span>`).join('');
+  const sws=page.sw.map((cs,i)=>`<button class="swb" data-act="preset" data-v="${i}" style="background:${swatchCss(cs)}" title="${page.name}"></button>`).join('');
+  return `<div class="ed${float?' float':''}" style="--k:${(W/356).toFixed(4)}">
+    <div class="pad">
+      <canvas></canvas>
+      <div class="modes">${['auto','light','dark'].map(m=>`<button data-act="mode" data-v="${m}" title="${m==='auto'?'Auto':m==='light'?'Light':'Dark'}">${modeIcon(m,19)}</button>`).join('')}</div>
+      ${t.colors.length?'':'<span class="hint">Pick a swatch or press +</span>'}
+      ${handles}
+      <div class="pm"><button data-act="minus" title="Remove colour"${t.colors.length?'':' disabled'}>${ic('minus',15)}</button><button data-act="plus" title="Add colour"${t.colors.length>=3?' disabled':''}>${ic('plus',15)}</button></div>
+    </div>
+    <div class="swrow"><button class="pager" data-act="page" data-v="-1" title="Previous page"${ui.page?'':' disabled'}>${ic('back',17)}</button><div class="sws">${sws}</div><button class="pager" data-act="page" data-v="1" title="Next page"${ui.page<PAGES.length-1?'':' disabled'}>${ic('chevron-right',17)}</button></div>
+    <div class="bottom">
+      <div class="wave" tabindex="0" role="slider" aria-label="Intensity"><svg></svg><span class="wave-thumb"></span></div>
+      <div class="dial" tabindex="0" role="slider" aria-label="Grain">${Array.from({length:DIAL_DOTS},(_,i)=>`<span class="tick" data-k="${i}"></span>`).join('')}<span class="disc"><span class="grain"></span></span><span class="knob"></span></div>
+    </div>
+  </div>`;
+}
+function main(){
+  const sp=cur(),name=sp.addr?sp.name:'this Mac';
+  return `<main class="main"><div class="bar"><span>${sp.name}</span>${ic('chevron-right',12,'var(--text-4)')}<b>New session</b></div>
+  <div class="body"><div class="content"><h1>What should we build on ${name}?</h1>
+    <div class="frame"><div class="ptext">Describe a task, or type / for commands</div>
+      <div class="pbar"><span class="pill">${ic('claude',14)}<b>Opus 5.5</b></span><span class="pill">Auto-accept</span><span class="send">${ic('arrow-up',16)}</span></div></div>
+    <div class="foot-row"><span class="chip on">${ic('folder',13)}${sp.projects[0][0]}</span><span class="chip">${ic('worktree',13)}New worktree</span></div>
+  </div></div></main>`;
+}
+const summary=t=>{const n=t.colors.length;return `${t.mode==='auto'?'Auto':t.mode==='light'?'Light':'Dark'} · ${n?`${n} colour${n>1?'s':''}`:'No colour'}${t.grain>.005?` · grain ${Math.round(t.grain*100)}%`:''}`};
+function sheet(){
+  const rows=S.spaces.map((x,i)=>{const L=look(x,i===S.at),t=x.theme,n=t.colors.length;
+    const sum=summary(t);
+    return `<div class="look${i===S.at?' on':''}"${i===S.at?'':` data-act="space" data-v="${i}"`}>
+      <div class="look-r"><span class="mini tinted"${i===S.at?' data-mini-live':''} style="--t1:${L.t1};--t2:${L.t2};--t3:${L.t3};--window:${L.base};--mini-page:${L.page}"></span>
+      <span class="look-t"><b>${headTile(x,i===S.at,16)}${x.name}</b><span${i===S.at?' data-sum-live':''}>${sum}</span></span></div>
+      ${i===S.at?editor(316):''}</div>`}).join('');
+  return `<div class="sheet${ui.enter?' enter':''}" data-pop><div class="sheet-h"><b>Host looks</b><button class="xb" data-act="close" title="Close (Esc)">${ic('x',14)}</button></div>
+    <div class="sheet-b">${rows}<p class="note">Each machine keeps its own look on this desktop. Switching spaces brings its colour with it.</p></div></div>`;
+}
+function inner(){return `<div class="grain"${V==='wash'?'':' hidden'}></div>${V==='glow'?'<div class="glow tinted"><div class="grain"></div></div>':''}${sidebar()}${main()}${V==='glow'&&ui.open?sheet():''}`}
+
+/* ---------- render ---------- */
+const stage=document.getElementById('stage');
+function render(){
+  let app=stage.querySelector('.app');
+  if(!app||!app.classList.contains('v-'+V)){stage.innerHTML=`<div class="app v-${V}${V==='wash'?' tinted':''}"></div>`;app=stage.firstChild}
+  app.classList.toggle('sheet-open',V==='glow'&&ui.open);
+  app.innerHTML=inner();
+  ui.enter=false;
+  stage.querySelectorAll('.pad canvas').forEach(drawPad);
+  refresh();
+}
+function ease(){const app=stage.querySelector('.app');if(!app||reduced())return;app.classList.add('easing');clearTimeout(ease.t);ease.t=setTimeout(()=>app.classList.remove('easing'),360)}
+function refresh(){
+  const app=stage.querySelector('.app');if(!app)return;
+  const sp=cur(),L=look(sp,true);
+  app.dataset.appearance=L.app;
+  for(const k of ['t1','t2','t3','grain'])app.style.setProperty('--'+k,L[k]);
+  if(L.accent)app.style.setProperty('--accent',L.accent);else app.style.removeProperty('--accent');
+  stage.querySelectorAll('[data-tile-live]').forEach(el=>{el.classList.toggle('plain',!L.tile);el.style.background=L.tile||''});
+  stage.querySelectorAll('[data-pip-live]').forEach(el=>el.style.background=L.tile||'transparent');
+  const mini=stage.querySelector('[data-mini-live]');
+  if(mini){for(const k of ['t1','t2','t3'])mini.style.setProperty('--'+k,L[k]);mini.style.setProperty('--window',L.base);mini.style.setProperty('--mini-page',L.page)}
+  const t=sp.theme;
+  const sum=stage.querySelector('[data-sum-live]');if(sum)sum.textContent=summary(t);
+  stage.querySelectorAll('.ed').forEach(ed=>{
+    ed.querySelectorAll('.modes button').forEach(b=>b.toggleAttribute('data-on',b.dataset.v===t.mode));
+    ed.style.setProperty('--ed-bg',L.card);
+    const pad=ed.querySelector('.pad'),c0=pad.clientWidth/2,R=c0*PAD_REACH;
+    ed.querySelectorAll('.handle').forEach(h=>{const c=t.colors[+h.dataset.i];if(!c)return;const p=live(c);h.style.transform=`translate(${c0+p.x*R}px,${c0+p.y*R}px)`;h.style.background=(q=>hsl(q.h,c.s,paintL(q.L,'light')))(hl(c,true));h.classList.toggle('sel',+h.dataset.i===ui.sel)});
+    const page=PAGES[ui.page];
+    ed.querySelectorAll('.swb').forEach((b,i)=>b.toggleAttribute('data-on',matches(page.sw[i],t.colors)));
+    drawWave(ed.querySelector('.wave'),t.intensity);
+    drawDial(ed.querySelector('.dial'),t.grain);
+  });
+}
+function matches(cs,colors){return cs.length===colors.length&&cs.every((p,i)=>{const q=fromHL(p.h,p.L,p.s),c=colors[i];return Math.abs(q.x-c.x)<.02&&Math.abs(q.y-c.y)<.02&&Math.abs(p.s-c.s)<.02})}
+/* Handles keep their centre this far out of the pad's half-width, so the ring stays inside. */
+const PAD_REACH=.85,DIAL_DOTS=24,DIAL_MIN=-143,DIAL_SPAN=286;
+function drawPad(cv){
+  const pad=cv.parentElement,P=pad.clientWidth,k=P/340,dpr=devicePixelRatio||1;
+  cv.width=P*dpr;cv.height=P*dpr;const g=cv.getContext('2d');g.scale(dpr,dpr);
+  const gap=4.5*k;g.fillStyle='rgba(255,255,255,.15)';
+  for(let y=gap/2;y<P;y+=gap)for(let x=gap/2;x<P;x+=gap){g.beginPath();g.arc(x,y,Math.max(.45,.55*k),0,Math.PI*2);g.fill()}
+}
+/* The thumb's centre runs from x0 to x0 + span; the wave starts 7pt in. */
+function waveGeom(el){const w=el.clientWidth,k=el.clientHeight/72;return{w,k,start:7*k,x0:7*k+13*k,span:w-26*k-7*k}}
+function drawWave(el,v){
+  const {w,k,start,x0,span}=waveGeom(el),mid=el.clientHeight/2,tx=x0+v*span,A=14*k*(.25+.75*v),per=47*k;
+  let d=`M${start.toFixed(1)} ${mid}`;for(let x=start;x<=tx;x+=1.5)d+=`L${x.toFixed(1)} ${(mid-A*Math.sin((x-start)/per*Math.PI*2)).toFixed(1)}`;
+  el.querySelector('svg').innerHTML=`<rect x="0" y="${mid-7.5*k}" width="${w}" height="${15*k}" rx="${7.5*k}" fill="#ffffff12"/><path d="${d}" fill="none" stroke="#ffffff8c" stroke-width="${(5*k).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  el.querySelector('.wave-thumb').style.left=tx+'px';
+  el.setAttribute('aria-valuenow',Math.round(v*100));
+}
+/* A full ring of dots; the knob turns from bottom-left (−143°) to bottom-right (+143°), lighting the dots it passes. */
+function drawDial(el,v){
+  const D=el.clientWidth,k=D/72,r=33.5*k,a=DIAL_MIN+DIAL_SPAN*v;
+  el.querySelectorAll('.tick').forEach(t=>{let ta=360*(+t.dataset.k)/DIAL_DOTS;if(ta>180)ta-=360;const lit=v>0&&ta>=DIAL_MIN&&ta<=a,near=Math.abs(((ta-a+540)%360)-180)<9;
+    t.style.transform=`rotate(${ta}deg) translateY(${-r}px)`;t.toggleAttribute('data-lit',lit);t.toggleAttribute('data-hide',near)});
+  el.querySelector('.knob').style.transform=`rotate(${a}deg) translateY(${-31.5*k}px)`;
+  el.querySelector('.disc').style.setProperty('--g',(.55+.45*v).toFixed(3));
+  el.setAttribute('aria-valuenow',Math.round(v*100));
+}
+
+/* ---------- springs (critically damped, from the on-screen value, carrying velocity) ---------- */
+const RESPONSE=.35,K=(2*Math.PI/RESPONSE)**2,C=4*Math.PI/RESPONSE;
+let raf=0,last=0;
+function kick(){if(reduced()){cur().theme.colors.forEach(c=>{c.dx=c.x;c.dy=c.y;c.vx=c.vy=0});refresh();return}if(!raf)raf=requestAnimationFrame(step)}
+function step(now){
+  raf=0;const dt=last?Math.min(1/30,(now-last)/1000):1/60;last=now;let moving=false;
+  for(const c of cur().theme.colors){
+    if(c.drag)continue;
+    for(const [p,v,tg] of [['dx','vx','x'],['dy','vy','y']]){
+      c[v]+=(-K*(c[p]-c[tg])-C*c[v])*dt;c[p]+=c[v]*dt;
+      if(Math.abs(c[p]-c[tg])>1e-4||Math.abs(c[v])>1e-3)moving=true;else{c[p]=c[tg];c[v]=0}
+    }
+  }
+  refresh();
+  if(moving)raf=requestAnimationFrame(step);else last=0;
+}
+const rubber=(over,dim,k=.55)=>(over*dim*k)/(dim+k*Math.abs(over));
+
+/* ---------- actions ---------- */
+function switchSpace(i){if(i===S.at)return;S.at=i;ui.sel=0;if(V!=='glow')ui.menu=false;ease();render()}
+function setColors(cs){
+  const t=cur().theme,lead=t.colors[0];
+  t.colors=cs.map((p,i)=>{const q=fromHL(p.h,p.L,p.s),c=t.colors[i]||{dx:lead?lead.dx:0,dy:lead?lead.dy:0,vx:0,vy:0};return Object.assign(c,{x:q.x,y:q.y,s:q.s})});
+  ui.sel=Math.min(ui.sel,t.colors.length-1);
+}
+function act(a,v){
+  const t=cur().theme;
+  switch(a){
+    case 'space':switchSpace(+v);break;
+    case 'menu':if(V==='col'){ui.open=!ui.open;ui.enter=ui.open}else{if(V==='wash'&&ui.open){ui.open=false;ui.menu=true}else ui.menu=!ui.menu}render();break;
+    case 'icon':cur().glyph=v;render();break;
+    case 'theme':ui.menu=false;ui.open=V==='glow'?true:!ui.open;ui.enter=true;render();break;
+    case 'close':ui.open=false;render();break;
+    case 'mode':t.mode=v;ease();refresh();break;
+    case 'page':ui.page=Math.max(0,Math.min(PAGES.length-1,ui.page+(+v)));render();break;
+    case 'preset':{const n=t.colors.length;setColors(PAGES[ui.page].sw[+v]);if(n!==t.colors.length)render();kick();break}
+    case 'plus':{
+      if(t.colors.length>=3)break;
+      if(!t.colors.length){setColors([P(210,.62,.8)]);render();kick();break}
+      const L=hl(t.colors[0]),off=t.colors.length===1?180:-150;
+      setColors([...t.colors.map(c=>{const q=hl(c);return P(q.h,q.L,c.s)}),P((L.h+off+360)%360,L.L,t.colors[0].s<.05?.8:t.colors[0].s)]);
+      ui.sel=t.colors.length-1;ease();render();kick();break}
+    case 'minus':{if(!t.colors.length)break;t.colors.splice(Math.min(ui.sel,t.colors.length-1),1);ui.sel=Math.max(0,t.colors.length-1);ease();render();break}
+  }
+}
+stage.addEventListener('click',e=>{const a=e.target.closest('[data-act]');if(a&&!a.disabled)act(a.dataset.act,a.dataset.v)});
+
+/* ---------- direct manipulation ---------- */
+let drag=null;
+stage.addEventListener('pointerdown',e=>{
+  if(e.button!==0)return;
+  const h=e.target.closest('.handle'),w=e.target.closest('.wave'),d=e.target.closest('.dial');
+  const app=stage.querySelector('.app');app?.classList.remove('easing');
+  if(h){
+    e.preventDefault();h.focus({preventScroll:true});
+    const i=+h.dataset.i,c=cur().theme.colors[i],pad=h.closest('.pad'),rc=pad.getBoundingClientRect(),R=rc.width/2*PAD_REACH,cx=rc.left+rc.width/2,cy=rc.top+rc.height/2;
+    h.setPointerCapture(e.pointerId);h.classList.add('grab');ui.sel=i;c.drag=true;c.vx=c.vy=0;if(c.s<.05)c.s=.8;
+    drag={kind:'h',el:h,c,R,cx,cy,ox:e.clientX-(cx+c.dx*R),oy:e.clientY-(cy+c.dy*R),hist:[[e.clientX,e.clientY,e.timeStamp]]};
+    refresh();return;
+  }
+  if(w){
+    e.preventDefault();w.focus({preventScroll:true});w.setPointerCapture(e.pointerId);w.classList.add('grab');
+    const {x0,span}=waveGeom(w),left=w.getBoundingClientRect().left,t=cur().theme;
+    const off=e.target.closest('.wave-thumb')?e.clientX-(left+x0+t.intensity*span):0;
+    drag={kind:'w',el:w,left,x0,span,off};
+    if(!off){t.intensity=Math.max(0,Math.min(1,(e.clientX-left-x0)/span));refresh()}
+    return;
+  }
+  if(d){
+    e.preventDefault();d.focus({preventScroll:true});d.setPointerCapture(e.pointerId);d.classList.add('grab');
+    const rc=d.getBoundingClientRect(),cx=rc.left+rc.width/2,cy=rc.top+rc.height/2;
+    drag={kind:'d',el:d,cx,cy,prev:Math.atan2(e.clientY-cy,e.clientX-cx),ang:DIAL_MIN+DIAL_SPAN*cur().theme.grain};
+    return;
+  }
+  // Outside a popover shuts it; its trigger handles its own second press. The rest of the DOM stays, so the press still lands where it was aimed.
+  if(!e.target.closest('[data-pop],[data-act=menu],[data-act=theme]')){
+    if(ui.menu)ui.menu=false;
+    if(V!=='glow')ui.open=false;
+    stage.querySelectorAll('.space-wrap [data-pop]').forEach(el=>el.remove());
+    stage.querySelector('.space')?.removeAttribute('data-open');
+  }
+});
+stage.addEventListener('pointermove',e=>{
+  if(!drag)return;
+  if(drag.kind==='h'){
+    const {c,R,cx,cy,ox,oy}=drag;let x=(e.clientX-ox-cx)/R,y=(e.clientY-oy-cy)/R;const r=Math.hypot(x,y);
+    if(r>1){const shown=1+rubber((r-1)*R,R)/R;c.x=x/r;c.y=y/r;x=c.x*shown;y=c.y*shown}else{c.x=x;c.y=y}
+    c.dx=x;c.dy=y;
+    drag.hist.push([e.clientX,e.clientY,e.timeStamp]);if(drag.hist.length>5)drag.hist.shift();
+  }else if(drag.kind==='w'){
+    cur().theme.intensity=Math.max(0,Math.min(1,(e.clientX-drag.off-drag.left-drag.x0)/drag.span));
+  }else{
+    const a=Math.atan2(e.clientY-drag.cy,e.clientX-drag.cx);let da=(a-drag.prev)*180/Math.PI;
+    if(da>180)da-=360;if(da<-180)da+=360;drag.prev=a;
+    drag.ang=Math.max(DIAL_MIN,Math.min(DIAL_MIN+DIAL_SPAN,drag.ang+da));cur().theme.grain=(drag.ang-DIAL_MIN)/DIAL_SPAN;
+  }
+  refresh();
+});
+function endDrag(){
+  if(!drag)return;drag.el.classList.remove('grab');
+  if(drag.kind==='h'){
+    const {c,hist,R}=drag,[a,b]=[hist[0],hist[hist.length-1]],dt=(b[2]-a[2])/1000,out=Math.hypot(c.dx,c.dy)>1.0001,fresh=performance.now()-b[2]<80;
+    c.drag=false;if(out&&fresh&&dt>0){c.vx=(b[0]-a[0])/R/dt;c.vy=(b[1]-a[1])/R/dt}else{c.vx=c.vy=0}
+    kick();
+  }
+  drag=null;
+}
+stage.addEventListener('pointerup',endDrag);
+stage.addEventListener('pointercancel',endDrag);
+
+/* Custom controls own their arrow keys; captured here so the picker's ←/→ don't fire. */
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){if(ui.menu||ui.open){ui.menu=false;ui.open=false;render()}return}
+  const el=document.activeElement;if(!el||!stage.contains(el))return;
+  const k=e.key,dir=k==='ArrowRight'||k==='ArrowUp'?1:k==='ArrowLeft'||k==='ArrowDown'?-1:0;if(!dir)return;
+  const t=cur().theme;
+  if(el.classList.contains('wave'))t.intensity=Math.max(0,Math.min(1,t.intensity+dir*.05));
+  else if(el.classList.contains('dial'))t.grain=Math.max(0,Math.min(1,t.grain+dir*.05));
+  else if(el.classList.contains('handle')){
+    const c=t.colors[+el.dataset.i],q=hl(c);
+    const n=k==='ArrowLeft'||k==='ArrowRight'?fromHL((q.h+dir*4+360)%360,q.L,c.s):fromHL(q.h,Math.max(.06,Math.min(.96,q.L+dir*.04)),c.s);
+    c.x=n.x;c.y=n.y;kick();
+  }else return;
+  e.preventDefault();e.stopPropagation();refresh();
+},true);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',refresh);
+addEventListener('resize',()=>{stage.querySelectorAll('.pad canvas').forEach(drawPad);refresh()});
+
+/* ---------- picker wiring (PICKER.md; variants mount through render so the theme state carries across) ---------- */
+const variants=[()=>{V='wash'},()=>{V='col'},()=>{V='glow'}];
+const picker = document.querySelector('.proto-picker');
+const highlight = picker.querySelector('.proto-picker-highlight');
+const items = [...picker.querySelectorAll('.proto-picker-item:not(.proto-picker-replay)')];
+const replay = picker.querySelector('.proto-picker-replay');
+let current = 0;
+
+function moveHighlight() {
+  const el = items[current];
+  highlight.style.width = el.offsetWidth + 'px';
+  highlight.style.transform = `translateX(${el.offsetLeft}px)`;
+}
+
+function mount(i) {
+  stage.innerHTML = '';
+  // Clear first, render next frame, so entrance animations re-run.
+  requestAnimationFrame(() => { variants[i](); ui.open = true; ui.menu = false; ui.enter = true; render(); });
+}
+
+function setActive(i) {
+  if (i < 0 || i >= variants.length) return;
+  current = i;
+  items.forEach((el, j) => {
+    el.toggleAttribute('data-active', j === i);
+    if (j === i) el.setAttribute('aria-current', 'true');
+    else el.removeAttribute('aria-current');
+  });
+  moveHighlight();
+  const url = new URL(location);
+  url.searchParams.set('v', i + 1);
+  history.replaceState(null, '', url);
+  mount(i);
+}
+
+items.forEach((el, i) => el.addEventListener('click', () => setActive(i)));
+replay?.addEventListener('click', () => mount(current));
+window.addEventListener('resize', moveHighlight);
+
+document.addEventListener('keydown', (e) => {
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const num = parseInt(e.key, 10);
+  if (num >= 1 && num <= variants.length) setActive(num - 1);
+  else if (e.key === 'ArrowRight') setActive((current + 1) % variants.length);
+  else if (e.key === 'ArrowLeft') setActive((current - 1 + variants.length) % variants.length);
+  else if (e.key === 'r' || e.key === 'R') mount(current);
+});
+
+setActive((parseInt(new URLSearchParams(location.search).get('v'), 10) || 1) - 1);
+// Enable the slide only after first paint, so load doesn't animate.
+requestAnimationFrame(() => requestAnimationFrame(() => picker.setAttribute('data-ready', '')));
+</script>
+</body>
+</html>
