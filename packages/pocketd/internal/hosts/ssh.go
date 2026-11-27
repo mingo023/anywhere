@@ -271,15 +271,16 @@ func knownHostsOption(knownHosts string) []string {
 
 func destination(host Host, command string) []string {
 	var out []string
-	dest := host.Target.Name
-	if host.Target.Kind == KindAddress {
-		t := host.Target
-		if t.Port != 22 {
-			out = append(out, "-p", strconv.Itoa(t.Port))
-		}
-		if t.User != "" {
-			out = append(out, "-l", t.User)
-		}
+	t := host.Target
+	dest := t.Name
+	// An alias's own port and user win over its config's; an address's port 22 is ssh's default anyway.
+	if t.Port != 0 && (t.Kind == KindAlias || t.Port != 22) {
+		out = append(out, "-p", strconv.Itoa(t.Port))
+	}
+	if t.User != "" {
+		out = append(out, "-l", t.User)
+	}
+	if t.Kind == KindAddress {
 		if t.KeyFile != "" {
 			out = append(out, "-i", t.KeyFile, "-o", "IdentitiesOnly=yes")
 		}

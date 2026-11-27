@@ -3,9 +3,9 @@ import { Schema } from "effect";
 /** The host verbs and events, for owner conns only. */
 export const CAP_HOSTS = "hosts.v1";
 
-/** How ssh reaches a host: an alias from ~/.ssh/config, or an address. An empty `user` is this Mac's user. */
+/** How ssh reaches a host: an alias from ~/.ssh/config, whose `port` and `user` win over its config's, or an address. An empty `user` is this Mac's user. */
 export const HostTarget = Schema.Union(
-  Schema.Struct({ kind: Schema.Literal("alias"), name: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("alias"), name: Schema.String, port: Schema.optional(Schema.Int), user: Schema.optional(Schema.String) }),
   Schema.Struct({
     kind: Schema.Literal("address"),
     addr: Schema.String,
@@ -53,11 +53,12 @@ export type Host = typeof Host.Type;
 
 export const InstallStep = Schema.Literal("detect", "download", "verify", "unpack", "link", "service", "start");
 
-/** `running`, `done` and `error` end an install. */
+/** `running`, `done` and `error` end an install; `final` marks an error trying again can't fix. */
 export const InstallProgress = Schema.Struct({
   kind: Schema.Literal("step", "warn", "running", "done", "error"),
   step: Schema.optional(InstallStep),
   text: Schema.optional(Schema.String),
+  final: Schema.optional(Schema.Boolean),
 });
 export type InstallProgress = typeof InstallProgress.Type;
 
@@ -72,6 +73,7 @@ export const HostLinkBody = Schema.Struct({
 export const HostsClient = [
   Schema.Struct({ type: Schema.Literal("host.list"), id: Schema.String }),
   Schema.Struct({ type: Schema.Literal("host.add"), id: Schema.String, target: HostTarget, name: Schema.optional(Schema.String) }),
+  Schema.Struct({ type: Schema.Literal("host.edit"), id: Schema.String, hostId: Schema.NonEmptyString, target: HostTarget }),
   Schema.Struct({ type: Schema.Literal("host.remove"), id: Schema.String, hostId: Schema.NonEmptyString, uninstall: Schema.optional(Schema.Boolean) }),
   Schema.Struct({ type: Schema.Literal("host.retry"), id: Schema.String, hostId: Schema.NonEmptyString }),
   Schema.Struct({

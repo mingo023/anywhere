@@ -315,6 +315,12 @@ impl Outbox {
         id
     }
 
+    pub fn host_edit(&self, host_id: &str, target: &hosts::Target) -> String {
+        let id = self::host_id();
+        self.send(json!({"type": "host.edit", "id": id, "hostId": host_id, "target": target}));
+        id
+    }
+
     pub fn host_remove(&self, host_id: &str, uninstall: bool) -> String {
         let id = self::host_id();
         self.send(json!({"type": "host.remove", "id": id, "hostId": host_id, "uninstall": uninstall}));

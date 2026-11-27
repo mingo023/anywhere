@@ -18,12 +18,13 @@ const (
 )
 
 // Target is how ssh reaches a host: an alias from ~/.ssh/config, or an address with the port, user and key it was given.
+// An alias's Port and User, when set, win over its config's.
 type Target struct {
 	Kind string `json:"kind"`
 	Name string `json:"name,omitempty"`
 	Addr string `json:"addr,omitempty"`
 	Port int    `json:"port,omitempty"`
-	// User empty signs in as the user on this Mac.
+	// User empty signs in as the user on this Mac, or for an alias as its config says.
 	User    string `json:"user,omitempty"`
 	KeyFile string `json:"keyFile,omitempty"`
 }
@@ -50,6 +51,8 @@ func (e ExistsError) Error() string { return e.Name + " is already added" }
 func Valid(t Target) error {
 	const noName = InvalidError("Enter the host's address or name")
 	const badAddr = InvalidError("Enter an address like 10.0.4.12 or devbox.example.com")
+	const badPort = InvalidError("The port is a number, usually 22")
+	const badUser = InvalidError("Enter a username without spaces")
 	unsafe := func(s string) bool { return strings.ContainsFunc(s, unicode.IsSpace) || strings.HasPrefix(s, "-") }
 	switch t.Kind {
 	case KindAlias:
@@ -59,6 +62,12 @@ func Valid(t Target) error {
 		if unsafe(t.Name) {
 			return badAddr
 		}
+		if t.Port < 0 || t.Port > 65535 {
+			return badPort
+		}
+		if unsafe(t.User) {
+			return badUser
+		}
 	case KindAddress:
 		if t.Addr == "" {
 			return noName
@@ -67,10 +76,10 @@ func Valid(t Target) error {
 			return badAddr
 		}
 		if t.Port < 1 || t.Port > 65535 {
-			return InvalidError("The port is a number, usually 22")
+			return badPort
 		}
 		if unsafe(t.User) {
-			return InvalidError("Enter a username without spaces")
+			return badUser
 		}
 	default:
 		return noName
@@ -87,15 +96,35 @@ func New(t Target, taken []Host) Host {
 }
 
 func Add(taken []Host, t Target) (Host, error) {
-	if err := Valid(t); err != nil {
+	if err := check(taken, t, ""); err != nil {
 		return Host{}, err
 	}
+	return New(t, taken), nil
+}
+
+// Edit is h reaching t instead, under the same id. A name that was only the old target's own follows the new one.
+func Edit(taken []Host, h Host, t Target) (Host, error) {
+	if err := check(taken, t, h.ID); err != nil {
+		return Host{}, err
+	}
+	if h.Name == New(h.Target, nil).Name {
+		h.Name = New(t, nil).Name
+	}
+	h.Target = t
+	return h, nil
+}
+
+// check refuses an invalid t, or one a host other than self already has.
+func check(taken []Host, t Target, self string) error {
+	if err := Valid(t); err != nil {
+		return err
+	}
 	for _, h := range taken {
-		if h.Target == t {
-			return Host{}, ExistsError{h.Name}
+		if h.Target == t && h.ID != self {
+			return ExistsError{h.Name}
 		}
 	}
-	return New(t, taken), nil
+	return nil
 }
 
 func shortName(addr string) string {

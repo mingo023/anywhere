@@ -3,7 +3,7 @@ use super::dropdown;
 use super::fields::{filter_field, filter_matches};
 use super::host::{service_line, uptime};
 use super::projects::FILTER_ABOVE;
-use super::side::HostRow;
+use super::side::{EditSide, HostRow};
 use super::{HostsAct, Settings, SettingsEvent, field_box, row};
 use crate::desktop::chrome::Confirm;
 use crate::fleet::needs_update;
@@ -184,16 +184,17 @@ impl Settings {
         let show_here = filter_matches(&query, &["This Mac"]);
         let remotes =
             self.side.hosts.rows.iter().enumerate().filter(|(_, r)| filter_matches(&query, &[r.shown.as_str(), r.host.address().as_str()])).enumerate().map(
-                |(n, (i, HostRow { host: h, link, shown, glyph, colour, install, notice }))| {
+                |(n, (i, HostRow { host: h, link, shown, glyph, colour, install, notice, stuck }))| {
                     let link = link.as_ref();
                     let list = install.as_ref();
                     let line = notice.clone().unwrap_or_else(|| host_line(h, shown, link));
                     let password_form = self.side.hosts.password.as_ref();
                     let typing = password_form.is_some_and(|p| p.host.as_ref() == Some(&h.id));
+                    let editing = self.side.hosts.edit.as_ref().filter(|e| e.host.as_ref() == Some(&h.id));
                     let facts = Facts {
                         link,
                         installing: list.is_some(),
-                        needs_update: needs_update(link, channel::version()),
+                        needs_update: needs_update(link, channel::version()) && !stuck,
                         typing_password: typing,
                         signing_in: typing && password_form.is_some_and(|p| p.signing_in),
                     };
@@ -204,12 +205,15 @@ impl Settings {
                         super::action(("host-action", i), a.label())
                             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.run_host_action(a, &target, cx)))
                     });
-                    let more = self.host_menu(i, &h.id, &todo, &target, cx);
+                    // An edit reconnects the host, which would cut an install under way.
+                    let can_edit = list.is_none_or(|l| l.outcome.is_some());
+                    let more = self.host_menu(i, &h.id, &todo, can_edit, &target, cx);
                     let shown_name = shown.clone();
                     let row =
                         host_row(n + usize::from(show_here), tile(glyph, *colour, 28.), shown.clone(), line, link_color(link)).children(button).child(more);
-                    let panel = list.cloned().map(|list| self.checklist_panel(i, &h.id, &shown_name, &list, cx));
-                    div().flex().flex_col().child(row).when(typing, |d| d.child(self.password_form(&h.name, cx))).children(panel)
+                    let panel = list.filter(|_| editing.is_none()).cloned().map(|list| self.checklist_panel(i, &h.id, &shown_name, &list, cx));
+                    let form = editing.map(|e| edit_form(e, &h.target, &shown_name, cx));
+                    div().flex().flex_col().child(row).when(typing, |d| d.child(self.password_form(&h.name, cx))).children(form).children(panel)
                 },
             );
         let filter = filtering.then(|| filter_field(&self.projects.hosts_filter));
@@ -230,8 +234,8 @@ impl Settings {
         cx.notify();
     }
 
-    /// The ⋯ button, and under it the host's every action, then Remove.
-    fn host_menu(&self, i: usize, id: &str, todo: &[HostAction], t: &Target, cx: &mut Context<Self>) -> Div {
+    /// The ⋯ button, and under it the host's every action, Edit unless an install runs, then Remove.
+    fn host_menu(&self, i: usize, id: &str, todo: &[HostAction], can_edit: bool, t: &Target, cx: &mut Context<Self>) -> Div {
         let open = self.menu == Some(HOST_MENU) && self.projects.host_menu.as_deref() == Some(id);
         let owner = id.to_string();
         let button = ui::icon_button_sized(("host-more", i), "more", 26., TEXT_3).tab_index(0);
@@ -253,17 +257,34 @@ impl Settings {
                     },
                 ))
             };
-            let sep = (!todo.is_empty()).then(|| div().h(px(0.5)).my(px(4.)).mx(px(4.)).bg(SEPARATOR));
+            let edit = can_edit.then(|| {
+                let id = t.id.clone();
+                dropdown::pick_row(("host-edit", i), false).child("Edit\u{2026}").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.menu = None;
+                    cx.emit(SettingsEvent::Hosts(HostsAct::OpenEdit(id.clone())));
+                    cx.notify();
+                }))
+            });
+            let sep = (!todo.is_empty() || can_edit).then(|| div().h(px(0.5)).my(px(4.)).mx(px(4.)).bg(SEPARATOR));
             let items: Vec<_> = items.collect();
             ui::menu_in(
                 SharedString::from(format!("host-menu-in-{i}")),
-                dropdown::shuts(ui::pop(div()), HOST_MENU, cx).min_w(px(160.)).p(px(4.)).flex().flex_col().children(items).children(sep).child(remove),
+                dropdown::shuts(ui::pop(div()), HOST_MENU, cx)
+                    .min_w(px(160.))
+                    .p(px(4.))
+                    .flex()
+                    .flex_col()
+                    .children(items)
+                    .children(edit)
+                    .children(sep)
+                    .child(remove),
             )
         });
         div().relative().flex_none().child(button).children(menu.map(|m| ui::dropdown_right(30., m)))
     }
 
-    /// The install's steps under the host's row, with Retry once it failed and Done once pocketd runs.
+    /// The install's steps under the host's row, with Dismiss once it failed, and Retry unless trying again can't fix it,
+    /// and Done once pocketd runs.
     fn checklist_panel(&self, i: usize, id: &str, name: &str, list: &Checklist, cx: &mut Context<Self>) -> Div {
         let name = name.to_string();
         let title = checklist_title(list, &name);
@@ -289,13 +310,17 @@ impl Settings {
         };
         let (id, update) = (id.to_string(), list.update);
         let (open, button) = match &list.outcome {
-            Some(Outcome::Failed(_)) => (
-                None,
-                Some(
+            Some(Outcome::Failed(_)) => {
+                let dismiss_id = id.clone();
+                let dismiss = ui::button(("host-install-dismiss", i), ui::Variant::Ghost, None, "Dismiss")
+                    .h(px(26.))
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::DismissInstall(dismiss_id.clone())))));
+                let retry = (!list.stuck).then(|| {
                     super::action(("host-install-retry", i), "Retry")
-                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::Install { id: id.clone(), update })))),
-                ),
-            ),
+                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::Install { id: id.clone(), update }))))
+                });
+                (Some(dismiss), retry)
+            }
             Some(_) => {
                 let (space, done_id) = (Space::Host(id.clone()), id.clone());
                 let open = (!update).then(|| {
@@ -331,9 +356,9 @@ impl Settings {
             .rounded(px(8.))
             .bg(FILL_2)
             .child(head)
+            .children(error)
             .children(rows.collect::<Vec<_>>())
             .children(warnings)
-            .children(error)
     }
 
     /// Signs in once with a password to put the app's own key on a host that refused the user's keys.
@@ -452,12 +477,12 @@ impl Settings {
             .gap(px(12.))
             .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(setting.label))
             .children(suggested)
-            .map(|d| match form.picked {
-                Some(_) => {
-                    d.child(div().flex().gap(px(10.)).child(field("Host", &form.address).flex_1()).child(field("Password", &form.password).flex_1())).child(
-                        div().text_size(px(12.)).text_color(TEXT_3).child("From your ~/.ssh/config: its user, port, key and jump host are used as they are."),
-                    )
-                }
+            .map(|d| match &form.picked {
+                Some(alias) => d
+                    .child(field("Host", &form.address))
+                    .child(div().flex().gap(px(10.)).child(field("Username", &form.user).flex_1()).child(field("Port", &form.port).w(px(80.))))
+                    .child(field("Password", &form.password))
+                    .child(div().text_size(px(12.)).text_color(TEXT_3).child(alias_note(alias))),
                 None => d
                     .child(div().flex().gap(px(10.)).child(field("Address", &form.address).flex_1()).child(field("Port", &form.port).w(px(80.))))
                     .child(div().flex().gap(px(10.)).child(field("Username", &form.user).flex_1()).child(field("Password", &form.password).flex_1()))
@@ -466,6 +491,53 @@ impl Settings {
             .children(error)
             .child(foot)
     }
+}
+
+fn alias_note(name: &str) -> String {
+    format!("Blank fields use what ~/.ssh/config says for {name}; its key and jump host stay as they are.")
+}
+
+/// The form under a host's row that changes where ssh reaches it, lined up under its name.
+fn edit_form(form: &EditSide, target: &agents::hosts::Target, name: &str, cx: &mut Context<Settings>) -> Div {
+    let alias = matches!(target, agents::hosts::Target::Alias { .. });
+    let note = match target {
+        agents::hosts::Target::Alias { name, .. } => alias_note(name),
+        _ => "Signs in with your SSH keys and ~/.ssh/config.".to_string(),
+    };
+    let error = form.error.clone().map(|e| div().text_size(px(12.)).text_color(FAILED_TEXT).child(e));
+    let cancel = ui::button("host-edit-cancel", ui::Variant::Secondary, None, "Cancel")
+        .h(px(26.))
+        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::CloseEdit))));
+    let save = ui::button("host-edit-save", ui::Variant::Primary, None, "Save")
+        .h(px(26.))
+        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Hosts(HostsAct::SaveEdit))));
+    div()
+        .pl(px(54.))
+        .pr(px(14.))
+        .pb(px(12.))
+        .flex()
+        .flex_col()
+        .gap(px(10.))
+        .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(format!("Edit {name}")))
+        .map(|d| match alias {
+            true => d
+                .child(field("Host", &form.address))
+                .child(div().flex().gap(px(10.)).child(field("Username", &form.user).flex_1()).child(field("Port", &form.port).w(px(80.)))),
+            false => d
+                .child(div().flex().gap(px(10.)).child(field("Address", &form.address).flex_1()).child(field("Port", &form.port).w(px(80.))))
+                .child(field("Username", &form.user)),
+        })
+        .child(div().text_size(px(12.)).text_color(TEXT_3).child(note))
+        .children(error)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(div().flex_1().text_size(px(12.)).text_color(TEXT_3).child(format!("Saving reconnects {name}.")))
+                .child(cancel)
+                .child(save),
+        )
 }
 
 #[cfg(test)]
@@ -502,7 +574,7 @@ mod tests {
     #[test]
     fn a_host_row_names_the_address_only_when_its_name_doesnt() {
         let host = |name: &str, target| Host { id: "h".into(), name: name.into(), target, windows: false, socket: Default::default() };
-        let alias = host("devbox", Target::Alias { name: "devbox".into() });
+        let alias = host("devbox", Target::alias("devbox"));
         assert_eq!(host_line(&alias, "devbox", None), "Not connected");
         assert_eq!(host_line(&alias, "GPU box", None), "devbox \u{b7} Not connected");
         let ip = host("10.0.4.12", Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "dev".into(), key_file: None });

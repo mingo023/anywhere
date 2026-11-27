@@ -10,7 +10,7 @@ use gpui_kit::*;
 use hosts::Host;
 use hosts::checklist::{Checklist, Outcome};
 use hosts::remote::{Client, HostInfo};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -139,6 +139,7 @@ enum Asked {
     Install(String),
     Uninstall(String),
     SignIn(String),
+    Edit(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -178,7 +179,7 @@ pub(crate) struct AddForm {
     pub error: Option<String>,
     /// The hosts `~/.ssh/config` names, read when the form opens.
     pub suggestions: Vec<String>,
-    /// The suggestion that filled the form; ssh's config brings the rest, so only the host shows.
+    /// The suggestion that filled the form; ssh's config brings what its port and user leave blank.
     pub picked: Option<String>,
 }
 
@@ -191,8 +192,28 @@ impl AddForm {
         for field in [&self.port, &self.user, &self.password] {
             field.update(cx, |f, cx| f.set_value("", window, cx));
         }
+        let [port, user] = placeholders(picked.is_some());
+        self.port.update(cx, |f, cx| f.set_placeholder(port, window, cx));
+        self.user.update(cx, |f, cx| f.set_placeholder(user, window, cx));
         self.picked = picked;
     }
+}
+
+/// What a blank port and username mean: an alias's `~/.ssh/config`, else ssh's port 22 and this Mac's user.
+fn placeholders(alias: bool) -> [String; 2] {
+    match alias {
+        true => ["Default".into(), "From ~/.ssh/config".into()],
+        false => ["22".into(), std::env::var("USER").unwrap_or_default()],
+    }
+}
+
+/// The fields under a host's row that change how ssh reaches it; open while `host` is set.
+pub(crate) struct EditForm {
+    pub host: Option<String>,
+    pub address: Entity<InputState>,
+    pub port: Entity<InputState>,
+    pub user: Entity<InputState>,
+    pub error: Option<String>,
 }
 
 /// A password typed in the add form, kept until its host says whether it takes the user's keys.
@@ -282,6 +303,9 @@ pub(crate) struct Fleet {
     /// What a host's row says instead of its link, as while its service is uninstalled.
     pub notices: HashMap<String, String>,
     pub password: PasswordForm,
+    pub edit: EditForm,
+    /// Hosts whose update can't run from here, as one whose pocketd the Anywhere app there owns.
+    pub stuck: HashSet<String>,
     pending: Pending,
     /// Host messages sent and not yet answered, by request id.
     asked: HashMap<String, Asked>,
@@ -306,6 +330,14 @@ impl Fleet {
                 })
             })
             .collect();
+        let [edit_address, edit_port, edit_user] = [(); 3].map(|_| cx.new(|cx| InputState::new(window, cx)));
+        for field in [&edit_address, &edit_port, &edit_user] {
+            subs.push(cx.subscribe_in(field, window, |this, _, ev: &InputEvent, window, cx| match ev {
+                InputEvent::PressEnter { .. } => this.save_edit_host(window, cx),
+                InputEvent::Change if this.fleet.edit.error.take().is_some() => cx.notify(),
+                _ => {}
+            }));
+        }
         subs.push(cx.subscribe_in(&password, window, |this, _, ev: &InputEvent, window, cx| match ev {
             InputEvent::PressEnter { .. } => this.sign_in_with_password(window, cx),
             InputEvent::Change if this.fleet.password.error.take().is_some() => cx.notify(),
@@ -321,6 +353,8 @@ impl Fleet {
             tokens: HashMap::new(),
             notices: HashMap::new(),
             password,
+            edit: EditForm { host: None, address: edit_address, port: edit_port, user: edit_user, error: None },
+            stuck: HashSet::new(),
             pending: Pending::default(),
             asked: HashMap::new(),
             status_retries: HashMap::new(),
@@ -335,6 +369,9 @@ impl Fleet {
         let was_open = list.outcome.is_none();
         list.apply(progress);
         let installed = just_installed(was_open, list);
+        if list.update && list.stuck {
+            self.stuck.insert(id.into());
+        }
         if list.outcome == Some(Outcome::Reused) {
             self.installs.remove(id);
         }
@@ -351,6 +388,10 @@ impl Fleet {
         if self.password.host.as_deref() == Some(id) {
             self.password.host = None;
         }
+        if self.edit.host.as_deref() == Some(id) {
+            self.edit.host = None;
+        }
+        self.stuck.remove(id);
         self.pending.forget(id);
     }
 }
@@ -364,13 +405,17 @@ impl Desktop {
             Event::HostUpdate { request, host } => {
                 let id = host.id.clone();
                 let turns = self.fleet.hosts.update(host).into_iter().collect();
-                if let Some(Asked::Add { password }) = self.fleet.asked.remove(&request) {
-                    self.close_add_host(window, cx);
-                    // A password signs in first; until then ssh can't reach the host to install.
-                    match password.is_empty() {
-                        true => self.install_host(&id, false, cx),
-                        false => self.fleet.pending.hold(id, password),
+                match self.fleet.asked.remove(&request) {
+                    Some(Asked::Add { password }) => {
+                        self.close_add_host(window, cx);
+                        // A password signs in first; until then ssh can't reach the host to install.
+                        match password.is_empty() {
+                            true => self.install_host(&id, false, cx),
+                            false => self.fleet.pending.hold(id, password),
+                        }
                     }
+                    Some(Asked::Edit(edited)) if self.fleet.edit.host.as_ref() == Some(&edited) => self.close_edit_host(cx),
+                    _ => {}
                 }
                 turns
             }
@@ -386,7 +431,8 @@ impl Desktop {
                     Some(Asked::Install(id)) => self.fleet.installs.get_mut(&id).into_iter().for_each(|l| l.fail(message.clone())),
                     Some(Asked::Uninstall(id)) => _ = self.fleet.notices.insert(id, message),
                     Some(Asked::SignIn(id)) => self.signed_in(&id, Some((detail, message))),
-                    None => {}
+                    Some(Asked::Edit(id)) if self.fleet.edit.host.as_ref() == Some(&id) => self.fleet.edit.error = Some(message),
+                    Some(Asked::Edit(_)) | None => {}
                 }
                 Vec::new()
             }
@@ -524,6 +570,7 @@ impl Desktop {
 
     /// Opens the add form, its address filled with `hint` when an agent named the host.
     pub(crate) fn open_add_host(&mut self, hint: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_edit_host(cx);
         self.fleet.form.open = true;
         self.fleet.form.address.update(cx, |f, cx| {
             if let Some(hint) = hint {
@@ -567,7 +614,11 @@ impl Desktop {
         let form = &self.fleet.form;
         let [address, port, user] = [&form.address, &form.port, &form.user].map(|f| f.read(cx).value().to_string());
         let password = form.password.read(cx).value().to_string();
-        match hosts::target(&address, &port, &user, form.key_file.as_deref(), &form.suggestions) {
+        let target = match &form.picked {
+            Some(alias) if alias == address.trim() => hosts::alias(&address, &port, &user),
+            _ => hosts::target(&address, &port, &user, form.key_file.as_deref(), &form.suggestions),
+        };
+        match target {
             Ok(target) => {
                 let request = self.outbox.local.host_add(&target);
                 self.fleet.asked.insert(request, Asked::Add { password });
@@ -577,9 +628,58 @@ impl Desktop {
         cx.notify();
     }
 
+    /// Opens the edit form under host `id`'s row, filled with how ssh reaches it now; one form shows at a time.
+    pub(crate) fn open_edit_host(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(host) = self.fleet.hosts.list.iter().find(|h| h.id == id) else { return };
+        let [port, user] = placeholders(matches!(host.target, agents::hosts::Target::Alias { .. }));
+        let form = &self.fleet.edit;
+        for ((field, value), placeholder) in
+            [&form.address, &form.port, &form.user].into_iter().zip(hosts::fields(&host.target)).zip([String::new(), port, user])
+        {
+            field.update(cx, |f, cx| {
+                f.set_placeholder(placeholder, window, cx);
+                f.set_value(value, window, cx);
+            });
+        }
+        form.user.update(cx, |f, cx| f.focus(window, cx));
+        (self.fleet.edit.host, self.fleet.edit.error) = (Some(id.into()), None);
+        if self.fleet.form.open {
+            self.close_add_host(window, cx);
+        }
+        if self.fleet.password.host.as_deref() == Some(id) {
+            self.close_password(window, cx);
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn close_edit_host(&mut self, cx: &mut Context<Self>) {
+        (self.fleet.edit.host, self.fleet.edit.error) = (None, None);
+        cx.notify();
+    }
+
+    /// Sends what the edit form says; a target as it was only shuts the form.
+    pub(crate) fn save_edit_host(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        let form = &self.fleet.edit;
+        let Some(host) = form.host.as_ref().and_then(|id| self.fleet.hosts.list.iter().find(|h| &h.id == id)) else { return };
+        let [address, port, user] = [&form.address, &form.port, &form.user].map(|f| f.read(cx).value().to_string());
+        match hosts::edited(&host.target, &address, &port, &user) {
+            Ok(target) if target == host.target => return self.close_edit_host(cx),
+            Ok(target) => {
+                let id = host.id.clone();
+                let request = self.outbox.local.host_edit(&id, &target);
+                self.fleet.asked.insert(request, Asked::Edit(id));
+            }
+            Err(e) => self.fleet.edit.error = Some(e.into()),
+        }
+        cx.notify();
+    }
+
     pub(crate) fn install_host(&mut self, id: &str, update: bool, cx: &mut Context<Self>) {
         if self.fleet.installs.get(id).is_some_and(|l| l.outcome.is_none()) {
             return;
+        }
+        if self.fleet.edit.host.as_deref() == Some(id) {
+            self.close_edit_host(cx);
         }
         self.fleet.installs.insert(id.into(), Checklist::new(update));
         let archives = hosts::dist_dir().map(|d| d.display().to_string());
@@ -703,7 +803,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     fn entry(id: &str, link: Link) -> Entry {
-        Entry { id: id.into(), name: id.into(), target: Target::Alias { name: id.into() }, windows: false, socket: format!("/h/{id}.sock"), link }
+        Entry { id: id.into(), name: id.into(), target: Target::alias(id), windows: false, socket: format!("/h/{id}.sock"), link }
     }
 
     fn online() -> Link {

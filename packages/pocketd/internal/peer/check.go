@@ -57,6 +57,7 @@ var Needs = map[string]Scope{
 	"ws:automation.run":       Own,
 	"ws:host.list":            Own,
 	"ws:host.add":             Own,
+	"ws:host.edit":            Own,
 	"ws:host.remove":          Own,
 	"ws:host.retry":           Own,
 	"ws:host.install":         Own,

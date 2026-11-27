@@ -1,6 +1,7 @@
-/// How ssh reaches a host: an alias from `~/.ssh/config`, or an address. An empty `user` is the Mac's user.
+/// How ssh reaches a host: an alias from `~/.ssh/config`, whose `port` and `user` win over its config's, or an address.
+/// An empty `user` is the Mac's user.
 public enum HostTarget: Codable, Hashable, Sendable {
-    case alias(name: String)
+    case alias(name: String, port: Int? = nil, user: String? = nil)
     case address(addr: String, port: Int, user: String? = nil, keyFile: String? = nil)
 
     enum Keys: String, CodingKey {
@@ -10,7 +11,10 @@ public enum HostTarget: Codable, Hashable, Sendable {
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
         switch try c.decode(String.self, forKey: .kind) {
-        case "alias": self = .alias(name: try c.decode(String.self, forKey: .name))
+        case "alias":
+            self = .alias(
+                name: try c.decode(String.self, forKey: .name), port: try c.decodeIfPresent(Int.self, forKey: .port),
+                user: try c.decodeIfPresent(String.self, forKey: .user))
         case "address":
             self = .address(
                 addr: try c.decode(String.self, forKey: .addr), port: try c.decode(Int.self, forKey: .port),
@@ -22,9 +26,11 @@ public enum HostTarget: Codable, Hashable, Sendable {
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: Keys.self)
         switch self {
-        case .alias(let name):
+        case .alias(let name, let port, let user):
             try c.encode("alias", forKey: .kind)
             try c.encode(name, forKey: .name)
+            try c.encodeIfPresent(port, forKey: .port)
+            try c.encodeIfPresent(user, forKey: .user)
         case .address(let addr, let port, let user, let keyFile):
             try c.encode("address", forKey: .kind)
             try c.encode(addr, forKey: .addr)
@@ -111,7 +117,7 @@ public struct HostUpdate: Codable, Hashable, Sendable {
     public init(host: Host) { self.host = host }
 }
 
-/// A step of a `host.install`. `running`, `done` and `error` end it.
+/// A step of a `host.install`. `running`, `done` and `error` end it; `final` marks an error trying again can't fix.
 public struct InstallProgress: Codable, Hashable, Sendable {
     public struct Kind: OpenString {
         public let rawValue: String
@@ -138,11 +144,13 @@ public struct InstallProgress: Codable, Hashable, Sendable {
     public var kind: Kind
     public var step: Step?
     public var text: String?
+    public var final: Bool?
 
-    public init(kind: Kind, step: Step? = nil, text: String? = nil) {
+    public init(kind: Kind, step: Step? = nil, text: String? = nil, final: Bool? = nil) {
         self.kind = kind
         self.step = step
         self.text = text
+        self.final = final
     }
 }
 
@@ -176,6 +184,15 @@ extension ClientMessage {
         public init(target: HostTarget, name: String? = nil) {
             self.target = target
             self.name = name
+        }
+    }
+
+    public struct HostEdit: Codable, Hashable, Sendable {
+        public var hostId: String
+        public var target: HostTarget
+        public init(hostId: String, target: HostTarget) {
+            self.hostId = hostId
+            self.target = target
         }
     }
 

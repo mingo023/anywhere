@@ -55,12 +55,19 @@ const (
 	ProgressError   ProgressKind = "error"
 )
 
-// Progress is what an install reports; Step is set for a step, Text for a warn or an error.
+// Progress is what an install reports; Step is set for a step, Text for a warn or an error, and Final for an error
+// that trying again can't fix.
 type Progress struct {
-	Kind ProgressKind
-	Step Step
-	Text string
+	Kind  ProgressKind
+	Step  Step
+	Text  string
+	Final bool
 }
+
+// FinalError is an install's failure that trying again can't fix, as a pocketd the Anywhere app owns.
+type FinalError string
+
+func (e FinalError) Error() string { return string(e) }
 
 func parseProgress(line string) (Progress, bool) {
 	rest, ok := strings.CutPrefix(strings.TrimRightFunc(line, unicode.IsSpace), "ANYWHERE ")
@@ -79,6 +86,8 @@ func parseProgress(line string) (Progress, bool) {
 		return Progress{Kind: ProgressWarn, Text: text}, true
 	case word == "error":
 		return Progress{Kind: ProgressError, Text: text}, true
+	case word == "final":
+		return Progress{Kind: ProgressError, Text: text, Final: true}, true
 	case word == "running" && text == "":
 		return Progress{Kind: ProgressRunning}, true
 	case word == "done" && text == "":
@@ -365,6 +374,8 @@ func (m *Manager) bootstrap(ctx context.Context, h Host, src Source, force bool,
 	switch {
 	case last.Kind == ProgressDone || last.Kind == ProgressRunning:
 		return nil
+	case last.Kind == ProgressError && last.Final:
+		return FinalError(last.Text)
 	case last.Kind == ProgressError:
 		return errors.New(last.Text)
 	case cmd.ProcessState.ExitCode() == 255:

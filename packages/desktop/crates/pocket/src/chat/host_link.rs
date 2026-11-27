@@ -90,7 +90,7 @@ mod tests {
     }
 
     fn alias(name: &str) -> Target {
-        Target::Alias { name: name.into() }
+        Target::alias(name)
     }
 
     fn links(of: &[(&str, Link)]) -> Links {

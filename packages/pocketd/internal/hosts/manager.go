@@ -166,6 +166,37 @@ func (m *Manager) Add(t Target, name string) (Entry, error) {
 	return m.entry(h), nil
 }
 
+// Edit points the host at t, keeping its id and files, and reconnects it; the same target changes nothing.
+func (m *Manager) Edit(id string, t Target) (Entry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	i := m.index(id)
+	switch {
+	case i < 0:
+		return Entry{}, ErrUnknown
+	case m.hosts[i].Target == t:
+		return m.entry(m.hosts[i]), nil
+	case m.installs[id]:
+		return Entry{}, ErrBusy
+	}
+	h, err := Edit(m.hosts, m.hosts[i], t)
+	if err != nil {
+		return Entry{}, err
+	}
+	list := slices.Clone(m.hosts)
+	list[i] = h
+	if err := Save(m.db, m.hosts, list); err != nil {
+		return Entry{}, err
+	}
+	m.hosts = list
+	// The supervisor reads the target on each connect, so a retry drops the old tunnel for one to t.
+	if s := m.sups[id]; s != nil {
+		s.retry()
+	}
+	m.notify()
+	return m.entry(h), nil
+}
+
 // Remove closes the host's tunnel and forgets it with its files here. With uninstall it first removes pocketd's
 // service there; if that fails the host stays.
 func (m *Manager) Remove(id string, uninstall bool) error {
@@ -284,7 +315,8 @@ func (m *Manager) Install(id string, update bool, archiveDir string, on func(Pro
 		m.mu.Unlock()
 		done()
 		if err != nil {
-			on(Progress{Kind: ProgressError, Text: message(err, h.Name)})
+			_, final := errors.AsType[FinalError](err)
+			on(Progress{Kind: ProgressError, Text: message(err, h.Name), Final: final})
 			return
 		}
 		m.Retry(id)

@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anywhere · Hosts: leave a failed update, edit a host</title>
+<style>
+:root{
+  --text:#ebebeb;--text-body:#c4c4c4;--text-2:#acacac;--text-3:#929292;--text-4:#7a7a7a;--text-5:#5f5f5f;
+  --page:#2b2b2c;--side:#232324;--surface:rgba(235,235,235,.07);--popover:#323233;--well:rgba(235,235,235,.05);
+  --fill-1:rgba(235,235,235,.05);--fill-2:rgba(235,235,235,.08);--fill-3:rgba(235,235,235,.1);--fill-4:rgba(235,235,235,.13);
+  --sep:rgba(235,235,235,.08);--sep-strong:rgba(235,235,235,.14);
+  --ink:#ebebeb;--on-ink:#171717;--focus:rgba(235,235,235,.6);
+  --on:#30a46c;--failed:#e5484d;--failed-bg:rgba(229,72,77,.14);--failed-text:#ff9592;
+  --waiting:#ffca16;--ok:#3dd68c;--ok-bg:rgba(61,214,140,.12);
+  --row-shadow:0 0 0 .5px rgba(235,235,235,.1);
+  --pop-shadow:0 0 0 .5px rgba(235,235,235,.14),0 16px 40px rgba(0,0,0,.5);
+  --mono:"Geist Mono","SF Mono",ui-monospace,Menlo,monospace;
+  --sans:system-ui,-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  --out:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box}
+html{color-scheme:dark}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font:13px/1.4 var(--sans);-webkit-font-smoothing:antialiased;color:var(--text);
+  background:radial-gradient(1100px 700px at 12% 0%,#2b3140 0%,transparent 60%),radial-gradient(900px 600px at 92% 100%,#33293b 0%,transparent 60%),#16181d}
+button,input{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;margin:0;cursor:default;text-align:inherit}
+button:disabled{opacity:.45}
+svg{display:block;flex:none}
+:focus{outline:none}
+:focus-visible{box-shadow:0 0 0 2px var(--page),0 0 0 4px var(--focus)!important;border-radius:7px}
+@media (prefers-reduced-motion:reduce){*{transition-duration:1ms!important;animation-duration:1ms!important}}
+
+#win{position:absolute;inset:24px 24px 76px;display:flex;border-radius:11px;overflow:hidden;background:var(--page);
+  box-shadow:0 0 0 .5px rgba(0,0,0,.28),0 24px 70px rgba(0,0,0,.34),0 6px 18px rgba(0,0,0,.14);user-select:none;-webkit-user-select:none}
+.lights{position:absolute;left:14px;top:15px;display:flex;gap:8px;z-index:5}
+.lights i{width:12px;height:12px;border-radius:50%;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.16)}
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+
+#nav{width:220px;flex:none;background:var(--side);border-right:.5px solid var(--sep);padding:46px 10px 16px;overflow:auto}
+.ncap{padding:12px 8px 4px;font-size:11px;font-weight:600;color:var(--text-4)}
+.ni{display:flex;align-items:center;gap:9px;height:30px;padding:0 8px;border-radius:7px;color:var(--text-body)}
+.ni.sel{background:var(--fill-4);color:var(--text);font-weight:600}
+@media (max-width:760px){#nav{display:none}#win{inset:0 0 64px;border-radius:0}}
+
+#page{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
+.scroll{flex:1;min-height:0;overflow:auto}
+#stage{max-width:700px;margin:0 auto;padding:26px 24px 120px}
+.top{display:flex;align-items:flex-start;gap:12px;margin:0 2px 18px}
+.top .tl{flex:1;min-width:0}
+.top h1{margin:0;font-size:20px;font-weight:700;letter-spacing:-.01em;line-height:26px}
+.top p{margin:2px 0 0;font-size:12.5px;color:var(--text-3)}
+.crumb{display:flex;align-items:center;gap:2px;margin:0 0 10px -6px;font-size:13px;color:var(--text-3)}
+.crumb button{display:flex;align-items:center;gap:2px;height:24px;padding:0 6px;border-radius:6px;color:var(--text-2)}
+.crumb button:hover{background:var(--fill-2);color:var(--text)}
+.gcap{font-size:12px;font-weight:600;color:var(--text-3);margin:20px 4px 7px}
+.card{background:var(--surface);border-radius:12px;box-shadow:var(--row-shadow)}
+.card>*+*{border-top:.5px solid var(--sep)}
+
+/* host row (ssh_hosts.rs host_row) */
+.hrow{display:flex;align-items:center;gap:12px;padding:9px 14px;min-height:52px}
+.hrow.click:hover{background:var(--fill-1)}
+.tile{width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#fff;flex:none}
+.tile.here{background:var(--fill-4);color:var(--text-2)}
+.tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.nm{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ln{display:flex;align-items:flex-start;gap:6px;font-size:12px;line-height:16px;color:var(--text-3)}
+.ln .d{width:7px;height:7px;border-radius:50%;flex:none;margin-top:4.5px}
+.ln .t{min-width:0;flex:1}
+.ln .err{color:var(--failed-text)}
+.ln .ok{color:var(--ok)}
+.here-tag{font-size:12.5px;color:var(--text-3)}
+.chev{color:var(--text-4)}
+
+.btn{height:26px;padding:0 11px;border-radius:7px;background:var(--fill-3);box-shadow:0 0 0 .5px var(--sep-strong);font-size:12.5px;font-weight:500;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;flex:none;transition:transform 100ms ease-out,background 120ms}
+.btn:hover{background:var(--fill-4)}
+.btn:active{transform:scale(.97)}
+.btn.pri{background:var(--ink);color:var(--on-ink);box-shadow:none}
+.btn.ghost{background:none;box-shadow:none;color:var(--text-2)}
+.btn.ghost:hover{background:var(--fill-2);color:var(--text)}
+.btn.danger{color:var(--failed-text)}
+.iconb{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--text-3);flex:none}
+.iconb:hover,.iconb[aria-expanded=true]{background:var(--fill-3);color:var(--text)}
+.iconb.sm{width:20px;height:20px;border-radius:5px}
+.lnk{color:var(--text);text-decoration:underline;text-decoration-color:var(--sep-strong);text-underline-offset:2px;font-weight:500}
+.lnk:hover{text-decoration-color:var(--text)}
+
+/* ⋯ menu */
+.dd{position:relative;flex:none}
+.menu{position:absolute;right:0;top:30px;z-index:20;min-width:170px;padding:4px;border-radius:9px;background:var(--popover);box-shadow:var(--pop-shadow);transform-origin:top right;animation:pop 140ms var(--out)}
+@keyframes pop{from{opacity:0;transform:scale(.97)}}
+.mi{display:flex;align-items:center;width:100%;height:26px;padding:0 9px;border-radius:6px;font-size:13px}
+.mi:hover{background:var(--fill-3)}
+.mi.danger{color:var(--failed-text)}
+.msep{height:.5px;background:var(--sep);margin:4px}
+
+/* checklist panel (ssh_hosts.rs checklist_panel) */
+.pwrap{display:grid;grid-template-rows:1fr;transition:grid-template-rows 220ms var(--out),opacity 160ms ease-out}
+.pwrap>div{min-height:0;overflow:hidden}
+.pwrap.closing{grid-template-rows:0fr;opacity:0}
+.panel{margin:0 14px 10px 54px;padding:8px 12px 10px;border-radius:8px;background:var(--fill-2);display:flex;flex-direction:column;gap:4px}
+.ph{display:flex;align-items:center;gap:6px;min-height:26px}
+.ph b{flex:1;font-size:12.5px;font-weight:500}
+.step{display:flex;align-items:center;gap:8px;height:22px;font-size:12.5px}
+.step .m{width:14px;height:14px;display:flex;align-items:center;justify-content:center;flex:none}
+.step.pending{color:var(--text-4)}
+.step .pd{width:5px;height:5px;border-radius:50%;background:var(--text-5)}
+.msg{font-size:12px;line-height:1.45;color:var(--failed-text)}
+.msg.plain{color:var(--text-2)}
+.spin{width:11px;height:11px;border-radius:50%;border:1.5px solid var(--text-5);border-top-color:var(--text-2);animation:spin .7s linear infinite;flex:none;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* forms */
+.iform{margin:0 14px 12px 54px;display:flex;flex-direction:column;gap:12px}
+.iform.add{margin:0;padding:12px 14px}
+.ifh{font-size:13px;font-weight:500}
+.frow{display:flex;gap:10px}
+.fld{display:flex;flex-direction:column;gap:5px;min-width:0}
+.fld.grow{flex:1}.fld.port{width:90px}
+.fld>span{font-size:12px;font-weight:500;color:var(--text-2)}
+.fld input,.fin{height:28px;padding:0 9px;border-radius:7px;border:0;background:var(--fill-2);box-shadow:inset 0 0 0 .5px var(--sep-strong);font:12px var(--mono);color:var(--text);min-width:0;width:100%}
+.fld input::placeholder,.fin::placeholder{color:var(--text-4);font-family:var(--sans)}
+.fld input:focus,.fin:focus{box-shadow:inset 0 0 0 1px var(--focus)}
+.note{font-size:12px;color:var(--text-3);line-height:1.45}
+.note code{font:11.5px var(--mono);color:var(--text-2)}
+.ffoot{display:flex;align-items:center;gap:8px}
+.ffoot .note{flex:1}
+.chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.chip{height:24px;padding:0 10px;border-radius:12px;background:var(--fill-2);font-size:12px;font-weight:500;color:var(--text-body)}
+.chip:hover{background:var(--fill-4)}
+.chip[aria-pressed=true]{background:#5b5bd6;color:#fff}
+.addrow{display:flex;align-items:center;gap:16px;padding:10px 14px;min-height:52px}
+.addrow .tx .s{font-size:12px;color:var(--text-3)}
+.rise{animation:rise 200ms var(--out)}
+@keyframes rise{from{opacity:0;transform:translateY(-4px)}}
+
+/* Sheet */
+.scrim{position:absolute;inset:0;z-index:30;background:rgba(0,0,0,.36);display:flex;align-items:center;justify-content:center;padding:24px}
+.scrim.in{animation:fade 160ms ease-out}
+@keyframes fade{from{opacity:0}}
+.sheet{width:520px;max-width:100%;max-height:100%;overflow:auto;border-radius:14px;background:var(--popover);box-shadow:var(--pop-shadow);display:flex;flex-direction:column}
+.scrim.in .sheet{animation:sheet 200ms var(--out)}
+@keyframes sheet{from{opacity:0;transform:scale(.97)}}
+.sh{display:flex;align-items:center;gap:12px;padding:16px 16px 12px}
+.sh .tx .nm{font-size:15px;font-weight:600}
+.sb{padding:4px 16px 16px;display:flex;flex-direction:column;gap:16px}
+.sec>.cap{font-size:12px;font-weight:600;color:var(--text-3);margin-bottom:8px}
+.box{border-radius:10px;background:var(--fill-1);box-shadow:inset 0 0 0 .5px var(--sep);padding:12px;display:flex;flex-direction:column;gap:10px}
+.box.bad{background:var(--failed-bg);box-shadow:none}
+.steps2{display:grid;grid-template-columns:1fr 1fr;column-gap:12px}
+.sf{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:.5px solid var(--sep)}
+.sf .sp{flex:1}
+
+/* Drill-in */
+.push{animation:push 220ms var(--out)}
+.pop{animation:popback 220ms var(--out)}
+@keyframes push{from{opacity:0;transform:translateX(18px)}}
+@keyframes popback{from{opacity:0;transform:translateX(-18px)}}
+.banner{display:flex;gap:11px;padding:12px 12px 12px 14px;border-radius:12px;background:var(--failed-bg);margin-bottom:4px}
+.banner.run{background:var(--fill-2)}
+.banner.ok{background:var(--ok-bg)}
+.banner .bi{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none;background:var(--failed);color:#fff;margin-top:1px}
+.banner.ok .bi{background:var(--on)}
+.banner.run .bi{background:none}
+.banner .bt{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.banner .bt b{font-size:13px;font-weight:600}
+.banner .bt .msg{color:var(--text-body)}
+.banner .acts{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap}
+.banner .steps{margin-top:6px}
+.frw{display:flex;align-items:center;gap:12px;padding:0 14px;min-height:44px}
+.frw .fl{width:120px;flex:none;font-size:13px}
+.frw .fv{flex:1;min-width:0;display:flex;justify-content:flex-end;align-items:center;gap:8px;font-size:12.5px;color:var(--text-2)}
+.frw .val{max-width:100%;height:26px;padding:0 8px;margin-right:-8px;border-radius:6px;display:flex;align-items:center;gap:7px;font:12px var(--mono);color:var(--text-body);white-space:nowrap;overflow:hidden}
+.frw .val .ed{color:var(--text-4);opacity:0;transition:opacity 120ms}
+.frw .val:hover{background:var(--fill-2)}
+.frw .val:hover .ed{opacity:1}
+.frw .val .ph{font-family:var(--sans);color:var(--text-4)}
+.frw .fin{max-width:300px;text-align:right}
+.frw .saved{font-size:11.5px;color:var(--ok);font-weight:500;animation:fadeout 1.8s ease-out forwards}
+@keyframes fadeout{0%,70%{opacity:1}100%{opacity:0}}
+.frw.center{justify-content:center}
+.frw.center button{color:var(--failed-text);font-size:13px}
+.hint{font-size:12px;color:var(--text-3);margin:7px 4px 0;line-height:1.45}
+
+#toast{position:absolute;top:14px;left:50%;transform:translate(-50%,-8px);z-index:50;padding:7px 12px;border-radius:9px;background:var(--popover);box-shadow:var(--pop-shadow);font-size:12.5px;opacity:0;pointer-events:none;transition:opacity 160ms ease-out,transform 200ms var(--out)}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+
+/* picker: verbatim from PICKER.md */
+.proto-picker{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:2147483647;display:flex;align-items:center;gap:2px;padding:4px;border-radius:999px;background:rgba(10,10,10,0.82);-webkit-backdrop-filter:blur(12px) saturate(1.4);backdrop-filter:blur(12px) saturate(1.4);box-shadow:0 0 0 1px rgba(255,255,255,0.08) inset,0 8px 24px rgba(0,0,0,0.24),0 2px 6px rgba(0,0,0,0.12);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;line-height:1;-webkit-font-smoothing:antialiased;user-select:none;-webkit-user-select:none}
+.proto-picker-highlight{position:absolute;top:4px;left:0;height:28px;border-radius:999px;background:rgba(255,255,255,0.12);will-change:transform}
+.proto-picker[data-ready] .proto-picker-highlight{transition:transform 250ms cubic-bezier(0.23,1,0.32,1),width 250ms cubic-bezier(0.23,1,0.32,1)}
+@media (prefers-reduced-motion:reduce){.proto-picker[data-ready] .proto-picker-highlight{transition:none}}
+.proto-picker-item{position:relative;display:flex;align-items:center;height:28px;padding:0 12px;border:0;border-radius:999px;background:transparent;color:rgba(255,255,255,0.55);font:inherit;cursor:pointer;transition:color 150ms ease-out}
+.proto-picker-item:hover{color:rgba(255,255,255,0.85)}
+.proto-picker-item:active{transform:scale(0.97)}
+.proto-picker-item:focus-visible{outline:2px solid rgba(255,255,255,0.4);outline-offset:2px}
+.proto-picker-item[data-active]{color:#fff}
+.proto-picker-divider{width:1px;height:16px;margin:0 4px;background:rgba(255,255,255,0.12)}
+.proto-picker-replay{padding:0 10px;font-size:14px}
+.proto-picker[data-position="top"]{bottom:auto;top:24px}
+</style>
+</head>
+<body>
+<div id="win">
+  <div class="lights"><i></i><i></i><i></i></div>
+  <aside id="nav">
+    <div class="ncap">App</div><div class="ni">General</div><div class="ni">Appearance</div><div class="ni">Notifications</div>
+    <div class="ncap">Agents</div><div class="ni">Agents</div><div class="ni">Accounts</div>
+    <div class="ncap">Machines</div><div class="ni sel">Hosts</div><div class="ni">Phone</div>
+    <div class="ncap">Workspace</div><div class="ni">Projects</div><div class="ni">Terminal</div>
+  </aside>
+  <main id="page"><div class="scroll"><div id="stage"></div></div><div id="over"></div></main>
+  <div id="toast" role="status" aria-live="polite"></div>
+</div>
+
+<nav class="proto-picker" aria-label="Prototype variants">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item" data-active aria-current="true">Inline</button>
+  <button class="proto-picker-item">Sheet</button>
+  <button class="proto-picker-item">Drill-in</button>
+  <span class="proto-picker-divider" aria-hidden="true"></span>
+  <button class="proto-picker-item proto-picker-replay" aria-label="Replay animation (R)">↻</button>
+</nav>
+
+<script>
+const P={
+  server:'<rect x="2.5" y="2.5" width="11" height="4.6" rx="1.4"/><rect x="2.5" y="8.9" width="11" height="4.6" rx="1.4"/><path d="M5 4.8h.01M5 11.2h.01"/>',
+  laptop:'<rect x="3" y="3.5" width="10" height="7" rx="1.2"/><path d="M1.5 12.5h13"/>',
+  check:'<path d="M3.5 8.5l3 3 6-7"/>',
+  x:'<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
+  more:'<circle cx="3.5" cy="8" r=".6" fill="currentColor"/><circle cx="8" cy="8" r=".6" fill="currentColor"/><circle cx="12.5" cy="8" r=".6" fill="currentColor"/>',
+  right:'<path d="M6 3.5L10.5 8 6 12.5"/>',
+  left:'<path d="M10 3.5L5.5 8 10 12.5"/>',
+  plus:'<path d="M8 3v10M3 8h10"/>',
+  bang:'<path d="M8 4.5v4.2M8 11.3h.01"/>',
+  pen:'<path d="M10.5 3.5l2 2-7 7H3.5v-2z"/>',
+};
+const ic=(n,s=14,w=1.6)=>`<svg width="${s}" height="${s}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${P[n]}</svg>`;
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const STEPS=['Check the host','Download pocketd','Verify the download','Unpack pocketd','Install pocketd','Set up the service','Start pocketd'];
+const LATEST='0.1.67';
+// What each ~/.ssh/config alias already says; blank User/Port fields fall back to it.
+const CFG={devbox:{user:'dev',port:22,host:'10.0.3.5'},'staging-eu':{user:'deploy',port:22,host:'10.20.0.7'},'pi-lab':{user:'pi',port:2201,host:'192.168.1.40'}};
+const SELF_ERR='studio-mac is the Mac you’re on. Its pocketd comes with the Anywhere app, so updating it here can’t work. Update the app instead.';
+const marks=(done,failed)=>STEPS.map((_,i)=>i<done?'done':i===failed?'failed':'pending');
+
+function fresh(){return{
+  hosts:[
+    {id:'mac',name:'studio-mac',kind:'addr',addr:'studio-mac.example.ts.net',port:'22',user:'dev',color:'#3b82f6',glyph:'server',
+     ver:'0.1.65',link:{s:'online',up:'7h'},needsUpdate:true,self:true,failAt:4,updateBlocked:true,
+     install:{marks:marks(4,4),outcome:'failed',error:SELF_ERR,retryable:false}},
+    {id:'devbox',name:'devbox',kind:'alias',alias:'devbox',user:'',port:'',color:'#8b5cf6',glyph:'server',
+     ver:'0.1.64',link:{s:'online',up:'3d'},needsUpdate:true,failAt:null,
+     install:{marks:marks(1,1),outcome:'failed',error:'devbox couldn’t reach github.com: the download timed out after 30s.',retryable:true}},
+    {id:'gpu',name:'gpu-box',kind:'addr',addr:'10.0.4.12',port:'2222',user:'dev',color:'#10b981',glyph:'server',
+     ver:'0.1.67',link:{s:'failed',auth:true},needsUpdate:false,install:null},
+  ],
+  menu:null,edit:null,add:null,sheet:null,page:null,fedit:null,saved:null,showSteps:{},anim:null,focus:null,
+};}
+
+let S=fresh(),V=0,timers=[];
+const later=(f,ms)=>timers.push(setTimeout(f,ms));
+const H=id=>S.hosts.find(h=>h.id===id);
+
+/* ---------- shared logic ---------- */
+function address(h){
+  if(h.kind==='alias')return (h.user?h.user+'@':'')+h.alias+(h.port&&h.port!=='22'?':'+h.port:'');
+  return `${h.user}@${h.addr}${h.port&&h.port!=='22'?':'+h.port:''}`;
+}
+function linkText(h){
+  const l=h.link;
+  if(l.s==='online')return `Connected · version ${h.ver} · up ${l.up}`;
+  if(l.s==='connecting')return 'Connecting…';
+  if(l.auth)return `${h.name} refused your SSH keys. Check the username, or sign in once with a password.`;
+  return 'Not connected';
+}
+const dotColor=h=>({online:'var(--on)',connecting:'var(--waiting)',failed:'var(--failed)'}[h.link.s]||'var(--text-4)');
+function line(h){const a=address(h);return a===h.name?linkText(h):`${a} · ${linkText(h)}`}
+function actions(h){
+  const a=[];
+  // An update that can never work here (this Mac's own pocketd) isn't offered again.
+  if(h.needsUpdate&&!h.install&&!h.updateBlocked)a.push('Update…');
+  if(h.link.s==='online')a.push('Open');
+  if(h.link.auth)a.push('Use password');
+  if(h.link.s!=='connecting')a.push('Reconnect');
+  return a;
+}
+function title(ins){
+  if(ins.outcome==='run')return 'Updating pocketd';
+  if(ins.outcome==='failed')return 'Couldn’t update pocketd';
+  return `pocketd is updated to ${LATEST}`;
+}
+const activeStep=ins=>ins.marks.findIndex(m=>m==='active'||m==='failed');
+
+function connect(h){
+  const gen=h.gen=(h.gen||0)+1;
+  h.link={s:'connecting'};render();
+  later(()=>{
+    // A newer connect (a second save) owns the result.
+    if(h.gen!==gen)return;
+    // gpu-box refuses user "dev"; any other username gets in.
+    if(h.id==='gpu'&&h.user==='dev')h.link={s:'failed',auth:true};
+    else h.link={s:'online',up:'1s'};
+    render();
+  },1100);
+}
+function runInstall(h){
+  const ins=h.install={marks:STEPS.map(()=>'pending'),outcome:'run',error:null,retryable:true};
+  let i=0;
+  const step=()=>{
+    if(h.install!==ins)return;
+    if(i===STEPS.length){
+      ins.outcome='done';h.ver=LATEST;h.needsUpdate=false;render();
+      if(V===1)later(()=>{if(h.install===ins){h.install=null;render()}},2600);
+      return;
+    }
+    ins.marks[i]='active';render();
+    later(()=>{
+      if(h.install!==ins)return;
+      if(i===h.failAt){ins.marks[i]='failed';ins.outcome='failed';ins.error=SELF_ERR;ins.retryable=false;h.updateBlocked=true;render();return}
+      ins.marks[i]='done';i++;step();
+    },380);
+  };
+  step();
+}
+function act(h,label){
+  S.menu=null;
+  // Reconnect and Update use the saved settings, and the edit form hides the update's panel, so they shut the form.
+  if(S.edit===h.id&&label!=='Open')S.edit=null;
+  if(label==='Update…')runInstall(h);
+  else if(label==='Reconnect')connect(h);
+  else if(label==='Open'){toast(`Opens ${h.name}’s space`);render()}
+  else if(label==='Use password'){toast(`Opens the one-time password sign-in for ${h.name}`);render()}
+}
+// The failed update's own way forward: Retry only when trying again can work.
+function fixButton(h,cls='btn'){
+  const ins=h.install;
+  if(ins.retryable)return `<button class="${cls}" data-act="retry" data-id="${h.id}">Retry</button>`;
+  if(h.self)return `<button class="${cls}" data-act="toast" data-msg="Checks for a new Anywhere app">Check for app update</button>`;
+  return '';
+}
+function readForm(p){
+  const v={};document.querySelectorAll(`[data-k^="${p}:"]`).forEach(el=>v[el.dataset.k.slice(p.length+1)]=el.value.trim());return v;
+}
+/** The first problem with a form's values, as [field, message], or null. `self` is the host being edited. */
+function invalid(v,kind,self){
+  if(kind==='alias'&&!v.alias)return ['alias','Enter the host’s name from ~/.ssh/config.'];
+  if(kind==='addr'&&!v.addr)return ['addr','Enter an address.'];
+  if(kind==='addr'&&!v.user)return ['user','Enter a username.'];
+  if(v.port&&!(/^\d+$/.test(v.port)&&+v.port>=1&&+v.port<=65535))return ['port','The port is a number from 1 to 65535.'];
+  const t=kind==='alias'?{kind,alias:v.alias,user:v.user,port:v.port}:{kind,addr:v.addr,user:v.user,port:v.port||'22'};
+  const twin=S.hosts.find(o=>o!==self&&address(o)===address(t));
+  if(twin)return [kind==='alias'?'alias':'addr',`That’s already added as ${twin.name}.`];
+  return null;
+}
+const changed=(h,v)=>h.kind==='alias'?v.alias!==h.alias||v.user!==h.user||v.port!==h.port:v.addr!==h.addr||v.user!==h.user||(v.port||'22')!==h.port;
+function applyEdit(h,v){
+  if(h.kind==='alias'){h.alias=v.alias;h.name=v.alias;h.user=v.user;h.port=v.port}
+  else{h.addr=v.addr;h.port=v.port||'22';h.user=v.user}
+  connect(h);
+}
+function addHost(v,picked){
+  const id='n'+Date.now();
+  const h=picked
+    ?{id,name:v.alias,kind:'alias',alias:v.alias,user:v.user,port:v.port}
+    :{id,name:v.addr,kind:'addr',addr:v.addr,port:v.port||'22',user:v.user};
+  Object.assign(h,{color:'#f59e0b',glyph:'server',ver:LATEST,link:{s:'connecting'},needsUpdate:false,install:null});
+  S.hosts.push(h);connect(h);return h;
+}
+
+/* ---------- shared pieces ---------- */
+const tile=(h,s=14)=>`<span class="tile" style="background:${h.color}">${ic(h.glyph,s)}</span>`;
+const hereRow=()=>`<div class="hrow"><span class="tile here">${ic('laptop')}</span><div class="tx"><div class="nm">This Mac</div><div class="ln"><i class="d" style="background:var(--on)"></i><span class="t">Background service running · version ${LATEST}</span></div></div><span class="here-tag">Here</span></div>`;
+function stepRows(ins){
+  return ins.marks.map((m,i)=>{
+    const lead=m==='done'?`<span style="color:var(--on)">${ic('check',13,2)}</span>`:m==='active'?'<span class="spin"></span>':m==='failed'?`<span style="color:var(--failed)">${ic('x',11,2.2)}</span>`:'<i class="pd"></i>';
+    return `<div class="step ${m==='pending'?'pending':''}"><span class="m">${lead}</span>${STEPS[i]}</div>`;
+  }).join('');
+}
+function menu(h,extra){
+  const id='m:'+h.id,open=S.menu===id,a=actions(h);
+  const items=a.map(x=>`<button class="mi" data-act="do" data-id="${h.id}" data-x="${x}">${x}</button>`).join('');
+  return `<div class="dd"><button class="iconb" data-act="menu" data-m="${id}" aria-haspopup="menu" aria-expanded="${open}" aria-label="More for ${esc(h.name)}">${ic('more',14,2)}</button>${open?`<div class="menu" role="menu">${items}${extra}<div class="msep"></div><button class="mi danger" data-act="toast" data-msg="Asks before removing ${esc(h.name)}">Remove…</button></div>`:''}</div>`;
+}
+function fld(p,k,label,val,ph,cls,type='text'){
+  return `<label class="fld ${cls}"><span>${label}</span><input data-k="${p}:${k}" type="${type}" value="${esc(val)}" placeholder="${esc(ph)}" spellcheck="false" autocomplete="off"></label>`;
+}
+// The fields that say how to reach a host; an alias host's user and port can now be overridden.
+function connFields(p,h,mode){
+  if(h.kind==='alias'){
+    const c=CFG[h.alias]||{user:'',port:22};
+    return `<div class="frow">${fld(p,'alias','Host',h.alias,'','grow')}</div>
+      <div class="frow">${fld(p,'user','Username',h.user,`${c.user} — from ~/.ssh/config`,'grow')}${fld(p,'port','Port',h.port,String(c.port),'port')}</div>
+      ${mode==='add'?`<div class="frow">${fld(p,'pass','Password','','Only if it refuses your keys','grow','password')}</div>`:''}
+      <div class="note">Blank fields use what <code>~/.ssh/config</code> says for <code>${esc(h.alias)}</code>: its key and jump host stay as they are.</div>`;
+  }
+  return `<div class="frow">${fld(p,'addr','Address',h.addr,'hostname or IP','grow')}${fld(p,'port','Port',h.port,'22','port')}</div>
+    <div class="frow">${fld(p,'user','Username',h.user,'','grow')}${mode==='add'?fld(p,'pass','Password','','Only if it refuses your keys','grow','password'):''}</div>
+    <div class="note">Signs in with your SSH keys and <code>~/.ssh/config</code>. <button class="lnk" data-act="toast" data-msg="Opens a file picker for a private key">Use a key file…</button></div>`;
+}
+const SUGGEST=['staging-eu','pi-lab'];
+function addFields(){
+  const picked=S.add.picked;
+  const chips=`<div class="chips"><span class="note" style="margin-right:4px">From ~/.ssh/config</span>${SUGGEST.map(a=>`<button class="chip" data-act="pick" data-a="${a}" aria-pressed="${picked===a}">${a}</button>`).join('')}</div>`;
+  const h=picked?{kind:'alias',alias:picked,user:'',port:''}:{kind:'addr',addr:'',port:'',user:''};
+  const err=S.err?.form==='a'?`<div class="msg">${esc(S.err.msg)}</div>`:'';
+  return chips+connFields('a',h,'add')+err;
+}
+
+/* ---------- 1 · Inline ---------- */
+function inline(){
+  const rows=S.hosts.map(h=>{
+    const a=actions(h);
+    const btn=a[0]?`<button class="btn" data-act="do" data-id="${h.id}" data-x="${a[0]}">${a[0]}</button>`:'';
+    // Editing mid-update would reconnect under it, so Edit waits for the update to finish.
+    const edit=h.install?.outcome==='run'?'':`<button class="mi" data-act="edit" data-id="${h.id}">Edit…</button>`;
+    const row=`<div class="hrow">${tile(h)}<div class="tx"><div class="nm">${esc(h.name)}</div><div class="ln"><i class="d" style="background:${dotColor(h)}"></i><span class="t">${esc(line(h))}</span></div></div>${btn}${menu(h,edit)}</div>`;
+    const p='e.'+h.id,err=S.err?.form===p?`<div class="msg">${esc(S.err.msg)}</div>`:'';
+    const editing=S.edit===h.id?`<div class="iform ${S.anim==='form'?'rise':''}" data-form="e"><div class="ifh">Edit ${esc(h.name)}</div>${connFields(p,h,'edit')}${err}
+      <div class="ffoot"><span class="note">Saving reconnects ${esc(h.name)}.</span><button class="btn" data-act="cancel">Cancel</button><button class="btn pri" data-act="save" data-id="${h.id}">Save</button></div></div>`:'';
+    let panel='';
+    const ins=h.install;
+    if(ins&&S.edit!==h.id){
+      const right=ins.outcome==='failed'
+        ?`<button class="btn ghost" data-act="dismiss" data-id="${h.id}">Dismiss</button>${fixButton(h)}`
+        :ins.outcome==='done'?`<button class="btn" data-act="dismiss" data-id="${h.id}">Done</button>`:'';
+      panel=`<div class="pwrap ${h.closing?'closing':''}" data-p="${h.id}"><div><div class="panel"><div class="ph"><b>${title(ins)}</b>${right}</div>
+        ${ins.error?`<div class="msg" style="margin:-2px 0 4px">${esc(ins.error)}</div>`:''}${stepRows(ins)}</div></div></div>`;
+    }
+    return `<div>${row}${editing}${panel}</div>`;
+  }).join('');
+  const add=S.add
+    ?`<div class="iform add ${S.anim==='form'?'rise':''}"><div class="ifh">Add a host</div>${addFields()}<div class="ffoot"><span class="note">Nothing is changed in your ~/.ssh</span><button class="btn" data-act="cancel">Cancel</button><button class="btn pri" data-act="connect">Connect</button></div></div>`
+    :`<div class="addrow"><div class="tx"><div class="nm">Add a host</div><div class="s">A Mac, Linux or Windows machine you can reach over SSH</div></div><button class="btn pri" data-act="open-add">${ic('plus',12,2)} Add host</button></div>`;
+  return `<div class="top"><div class="tl"><h1>Hosts</h1><p>Machines your agents run on: this Mac, and any machine you can sign in to over SSH.</p></div></div>
+    <div class="card">${hereRow()}${rows}</div><div class="card" style="margin-top:14px">${add}</div>`;
+}
+
+/* ---------- 2 · Sheet ---------- */
+function sheetLine(h){
+  const ins=h.install;
+  if(!ins)return `<i class="d" style="background:${dotColor(h)}"></i><span class="t">${esc(line(h))}</span>`;
+  if(ins.outcome==='run'){const i=activeStep(ins);return `<span class="spin" style="margin-top:2.5px"></span><span class="t">Updating pocketd · ${STEPS[i]} (${i+1} of ${STEPS.length})</span>`}
+  if(ins.outcome==='done')return `<i class="d" style="background:var(--on)"></i><span class="t"><span class="ok">Updated to ${LATEST}</span> · ${esc(address(h))}</span>`;
+  return `<i class="d" style="background:var(--failed)"></i><span class="t"><span class="err">Update failed at “${STEPS[activeStep(ins)]}”</span> · <button class="lnk" data-act="sheet" data-id="${h.id}">Details</button></span><button class="iconb sm" data-act="dismiss" data-id="${h.id}" aria-label="Clear the failed update" title="Clear">${ic('x',11,2)}</button>`;
+}
+function sheetList(){
+  const rows=S.hosts.map(h=>{
+    const a=actions(h),ins=h.install;
+    const first=ins?.outcome==='failed'&&ins.retryable?`<button class="btn" data-act="retry" data-id="${h.id}">Retry</button>`:a[0]?`<button class="btn" data-act="do" data-id="${h.id}" data-x="${a[0]}">${a[0]}</button>`:'';
+    return `<div class="hrow click" data-act="sheet" data-id="${h.id}">${tile(h)}<div class="tx"><div class="nm">${esc(h.name)}</div><div class="ln">${sheetLine(h)}</div></div>${first}${menu(h,`<button class="mi" data-act="sheet" data-id="${h.id}">Edit…</button>`)}</div>`;
+  }).join('');
+  return `<div class="top"><div class="tl"><h1>Hosts</h1><p>Machines your agents run on: this Mac, and any machine you can sign in to over SSH.</p></div><button class="btn pri" data-act="sheet" data-id="new">${ic('plus',12,2)} Add host</button></div>
+    <div class="card">${hereRow()}${rows}</div>`;
+}
+function sheetOver(){
+  if(!S.sheet)return '';
+  const anim=S.anim==='sheet'?'in':'';
+  if(S.sheet==='new'){
+    return `<div class="scrim ${anim}" data-act="close-sheet"><div class="sheet" role="dialog" aria-label="Add a host" data-stop>
+      <div class="sh"><span class="tile here">${ic('plus',14,2)}</span><div class="tx"><div class="nm">Add a host</div><div class="ln">A Mac, Linux or Windows machine you can reach over SSH</div></div><button class="iconb" data-act="close-sheet" aria-label="Close">${ic('x',12,2)}</button></div>
+      <div class="sb"><div class="sec iform add" style="padding:0">${addFields()}</div></div>
+      <div class="sf"><span class="note sp">Nothing is changed in your ~/.ssh</span><button class="btn" data-act="close-sheet">Cancel</button><button class="btn pri" data-act="connect">Connect</button></div></div></div>`;
+  }
+  const h=H(S.sheet),ins=h.install;
+  let upd='';
+  if(ins){
+    const tone=ins.outcome==='failed'?'bad':'';
+    upd=`<div class="sec"><div class="cap">Last update</div><div class="box ${tone}">
+      <div class="ph"><b>${title(ins)}</b>${ins.outcome!=='run'?`<button class="btn ghost" data-act="dismiss" data-id="${h.id}">Clear</button>`:''}${ins.outcome==='failed'?fixButton(h):''}</div>
+      ${ins.error?`<div class="msg plain" style="color:var(--text-body)">${esc(ins.error)}</div>`:''}
+      <div class="steps2">${stepRows(ins)}</div></div></div>`;
+  }
+  return `<div class="scrim ${anim}" data-act="close-sheet"><div class="sheet" role="dialog" aria-label="${esc(h.name)}" data-stop>
+    <div class="sh">${tile(h)}<div class="tx"><div class="nm">${esc(h.name)}</div><div class="ln"><i class="d" style="background:${dotColor(h)}"></i><span class="t">${esc(linkText(h))}</span></div></div><button class="iconb" data-act="close-sheet" aria-label="Close">${ic('x',12,2)}</button></div>
+    <div class="sb">${upd}<div class="sec iform add" style="padding:0"><div class="cap" style="font-size:12px;font-weight:600;color:var(--text-3);margin-bottom:-4px">Connection</div>${connFields('e.'+h.id,h,'edit')}${S.err?.form==='e.'+h.id?`<div class="msg">${esc(S.err.msg)}</div>`:''}</div></div>
+    <div class="sf"><button class="btn ghost danger" data-act="toast" data-msg="Asks before removing ${esc(h.name)}">Remove…</button><span class="sp"></span><button class="btn" data-act="close-sheet">Cancel</button><button class="btn pri" data-act="save" data-id="${h.id}">Save & reconnect</button></div></div></div>`;
+}
+
+/* ---------- 3 · Drill-in ---------- */
+function drillList(){
+  const rows=S.hosts.map(h=>{
+    const ins=h.install,a=actions(h);
+    const lead=ins?.outcome==='failed'?`<span class="err">Update failed</span> · `:ins?.outcome==='run'?'Updating pocketd… · ':'';
+    const btn=a[0]&&a[0]!=='Reconnect'?`<button class="btn" data-act="do" data-id="${h.id}" data-x="${a[0]}">${a[0]}</button>`:'';
+    return `<div class="hrow click" data-act="push" data-id="${h.id}">${tile(h)}<div class="tx"><div class="nm">${esc(h.name)}</div><div class="ln"><i class="d" style="background:${ins?.outcome==='failed'?'var(--failed)':dotColor(h)}"></i><span class="t">${lead}${esc(line(h))}</span></div></div>${btn}<span class="chev">${ic('right',13)}</span></div>`;
+  }).join('');
+  return `<div class="${S.anim==='pop'?'pop':''}"><div class="top"><div class="tl"><h1>Hosts</h1><p>Machines your agents run on: this Mac, and any machine you can sign in to over SSH.</p></div></div>
+    <div class="card">${hereRow()}${rows}<div class="hrow click" data-act="push" data-id="new"><span class="tile here">${ic('plus',14,2)}</span><div class="tx"><div class="nm">Add a host…</div></div><span class="chev">${ic('right',13)}</span></div></div></div>`;
+}
+function banner(h){
+  const ins=h.install;if(!ins)return '';
+  if(ins.outcome==='run'){const i=activeStep(ins);return `<div class="banner run"><span class="bi"><span class="spin"></span></span><div class="bt"><b>Updating pocketd</b><div class="msg plain">${STEPS[i]} · ${i+1} of ${STEPS.length}</div></div></div>`}
+  if(ins.outcome==='done')return `<div class="banner ok"><span class="bi">${ic('check',12,2.4)}</span><div class="bt"><b>pocketd is updated to ${LATEST}</b></div><button class="iconb sm" data-act="dismiss" data-id="${h.id}" aria-label="Close">${ic('x',11,2)}</button></div>`;
+  const open=S.showSteps[h.id];
+  return `<div class="banner"><span class="bi">${ic('bang',13,2.4)}</span><div class="bt"><b>Couldn’t update pocketd</b><div class="msg">${esc(ins.error)}</div>
+    ${open?`<div class="steps">${stepRows(ins)}</div>`:''}
+    <div class="acts">${fixButton(h,'btn pri')}<button class="btn ghost" data-act="steps" data-id="${h.id}">${open?'Hide steps':'Show steps'}</button></div></div>
+    <button class="iconb sm" data-act="dismiss" data-id="${h.id}" aria-label="Dismiss" title="Dismiss">${ic('x',11,2)}</button></div>`;
+}
+function frow(h,f,label,val,ph){
+  const key=`${h.id}:${f}`;
+  const saved=S.saved===key?'<span class="saved">Saved</span>':'';
+  if(S.fedit===key)return `<div class="frw"><span class="fl">${label}</span><div class="fv"><input class="fin" data-k="f:${key}" data-orig="${esc(val)}" value="${esc(val)}" placeholder="${esc(ph||'')}" spellcheck="false" autocomplete="off"></div></div>`;
+  const shown=val?esc(val):`<span class="ph">${esc(ph)}</span>`;
+  return `<div class="frw"><span class="fl">${label}</span><div class="fv">${saved}<button class="val" data-act="fedit" data-id="${h.id}" data-f="${f}" aria-label="Edit ${label}">${shown}<span class="ed">${ic('pen',12)}</span></button></div></div>`;
+}
+function drillPage(){
+  const anim=S.anim==='push'?'push':'';
+  const crumb=name=>`<div class="crumb"><button data-act="back">${ic('left',13)} Hosts</button></div>`;
+  if(S.page==='new'){
+    return `<div class="${anim}">${crumb()}<div class="top"><div class="tl"><h1>Add a host</h1><p>A Mac, Linux or Windows machine you can reach over SSH.</p></div></div>
+      <div class="card"><div class="iform add">${addFields()}</div></div>
+      <div class="ffoot" style="margin-top:14px"><span class="note">Nothing is changed in your ~/.ssh</span><button class="btn" data-act="back">Cancel</button><button class="btn pri" data-act="connect">Connect</button></div></div>`;
+  }
+  const h=H(S.page),a=actions(h),c=h.kind==='alias'?CFG[h.alias]||{}:null;
+  const conn=h.kind==='alias'
+    ?frow(h,'alias','Host',h.alias)+frow(h,'user','Username',h.user,`${c.user} · from ~/.ssh/config`)+frow(h,'port','Port',h.port,`${c.port} · from ~/.ssh/config`)
+    :frow(h,'addr','Address',h.addr)+frow(h,'user','Username',h.user)+frow(h,'port','Port',h.port,'22')+`<div class="frw"><span class="fl">Key</span><div class="fv"><button class="val" data-act="toast" data-msg="Opens a file picker for a private key"><span class="ph">Your SSH keys</span><span class="ed">${ic('pen',12)}</span></button></div></div>`;
+  return `<div class="${anim}">${crumb()}<div class="top">${tile(h,15)}<div class="tl"><h1>${esc(h.name)}</h1><p>${esc(address(h))}</p></div>${a.includes('Open')?`<button class="btn pri" data-act="do" data-id="${h.id}" data-x="Open">Open</button>`:''}</div>
+    ${banner(h)}
+    <div class="gcap">Status</div><div class="card">
+      <div class="frw"><span class="fl">Connection</span><div class="fv"><span class="ln" style="align-items:center"><i class="d" style="background:${dotColor(h)};margin:0"></i>${h.link.s==='online'?`Connected · up ${h.link.up}`:h.link.s==='connecting'?'Connecting…':'Refused your SSH keys'}</span>${h.link.auth?`<button class="btn" data-act="do" data-id="${h.id}" data-x="Use password">Use password</button>`:''}${h.link.s!=='connecting'?`<button class="btn" data-act="do" data-id="${h.id}" data-x="Reconnect">Reconnect</button>`:''}</div></div>
+      <div class="frw"><span class="fl">pocketd</span><div class="fv">${h.link.s==='online'?`version ${h.ver}`:'—'}${h.needsUpdate&&!h.install?`<button class="btn" data-act="do" data-id="${h.id}" data-x="Update…">Update to ${LATEST}…</button>`:''}</div></div>
+    </div>
+    <div class="gcap">Connection</div><div class="card">${conn}</div>
+    <div class="hint">Click a value to change it. Saving reconnects ${esc(h.name)}.${h.kind==='alias'?` Blank fields use <code style="font:11.5px var(--mono)">~/.ssh/config</code>.`:''}</div>
+    <div class="card" style="margin-top:20px"><div class="frw center"><button data-act="toast" data-msg="Asks before removing ${esc(h.name)}">Remove ${esc(h.name)}…</button></div></div></div>`;
+}
+
+const VIEWS=[
+  {main:inline,over:()=>''},
+  {main:sheetList,over:sheetOver},
+  {main:()=>S.page?drillPage():drillList(),over:()=>''},
+];
+
+/* ---------- render ---------- */
+const stage=document.getElementById('stage'),over=document.getElementById('over'),win=document.getElementById('win');
+let rendering=false,pressed=false,owed=false;
+// A render between press and release swaps the pressed element out, and the browser then drops the click.
+addEventListener('pointerdown',()=>{pressed=true},true);
+const release=()=>{pressed=false;if(owed){owed=false;setTimeout(render)}};
+addEventListener('pointerup',release,true);addEventListener('pointercancel',release,true);
+function render(){
+  if(pressed){owed=true;return}
+  rendering=true;
+  const snap={},a=document.activeElement,ak=a?.dataset?.k,sel=ak&&a.selectionStart!=null?[a.selectionStart,a.selectionEnd]:null;
+  win.querySelectorAll('[data-k]').forEach(el=>snap[el.dataset.k]=el.value);
+  stage.innerHTML=VIEWS[V].main();over.innerHTML=VIEWS[V].over();
+  win.querySelectorAll('[data-k]').forEach(el=>{if(el.dataset.k in snap)el.value=snap[el.dataset.k]});
+  const want=S.focus||ak;
+  if(want){const el=win.querySelector(`[data-k="${want}"]`);if(el){el.focus();if(want===ak&&sel)el.setSelectionRange(...sel);else el.select?.()}}
+  S.focus=null;S.anim=null;rendering=false;
+}
+let toastT;
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('on'),1800)}
+
+/* ---------- actions ---------- */
+function dismiss(h){
+  const w=stage.querySelector(`[data-p="${h.id}"]`);
+  // `closing` survives re-renders from other hosts' timers during the collapse.
+  if(w&&!h.closing){h.closing=true;w.classList.add('closing');later(()=>{h.install=null;h.closing=false;render()},230)}
+  else if(!w){h.install=null;render()}
+}
+function commitField(el){
+  const [,id,f]=el.dataset.k.split(':'),h=H(id),v=el.value.trim();
+  S.fedit=null;
+  if(v!==el.dataset.orig&&!(f==='alias'&&!v)&&!(f==='addr'&&!v)){
+    h[f]=v;if(f==='alias')h.name=v;S.saved=`${id}:${f}`;connect(h);
+  }else render();
+}
+const ACT={
+  menu:(h,t)=>{S.menu=S.menu===t.dataset.m?null:t.dataset.m;render()},
+  do:(h,t)=>act(h,t.dataset.x),
+  edit:h=>{S.menu=null;S.err=null;if(S.edit!==h.id)S.anim='form';S.edit=h.id;S.add=null;S.focus=`e.${h.id}:user`;render()},
+  cancel:()=>{S.edit=null;S.add=null;S.err=null;render()},
+  save:h=>{
+    const p='e.'+h.id,v=readForm(p),bad=invalid(v,h.kind,h);
+    if(bad){S.err={form:p,msg:bad[1]};S.focus=`${p}:${bad[0]}`;render();return}
+    S.edit=null;S.sheet=null;S.err=null;
+    if(changed(h,v))applyEdit(h,v);else render();
+  },
+  retry:h=>runInstall(h),
+  dismiss:h=>dismiss(h),
+  'open-add':()=>{S.add={picked:null};S.edit=null;S.err=null;S.anim='form';S.focus='a:addr';render()},
+  pick:(h,t)=>{const a=t.dataset.a;S.add.picked=S.add.picked===a?null:a;S.err=null;win.querySelectorAll('[data-k^="a:"]').forEach(el=>el.value='');render();win.querySelectorAll('[data-k^="a:"]').forEach(el=>el.value=el.getAttribute('value'))},
+  connect:()=>{
+    const v=readForm('a'),p=S.add?.picked,bad=invalid(v,p?'alias':'addr',null);
+    if(bad){S.err={form:'a',msg:bad[1]};S.focus=`a:${bad[0]}`;render();return}
+    const h=addHost(v,p);S.add=null;S.sheet=null;S.err=null;if(V===2){S.page=null;S.anim='pop'}render();toast(`Added ${h.name}`);
+  },
+  sheet:(h,t)=>{S.menu=null;const id=t.dataset.id;S.sheet=id;if(id==='new')S.add={picked:null};S.anim='sheet';S.focus=id==='new'?'a:addr':null;render()},
+  'close-sheet':(h,t,e)=>{if(t.classList.contains('scrim')&&e.target!==t)return;S.sheet=null;S.add=null;S.err=null;render()},
+  push:(h,t)=>{const id=t.dataset.id;S.page=id;S.fedit=null;if(id==='new'){S.add={picked:null};S.focus='a:addr'}S.anim='push';render();document.querySelector('.scroll').scrollTop=0},
+  back:()=>{S.page=null;S.add=null;S.err=null;S.fedit=null;S.anim='pop';render()},
+  fedit:(h,t)=>{S.fedit=`${h.id}:${t.dataset.f}`;S.saved=null;S.focus=`f:${S.fedit}`;render()},
+  steps:h=>{S.showSteps[h.id]=!S.showSteps[h.id];render()},
+  toast:(h,t)=>{S.menu=null;render();toast(t.dataset.msg)},
+};
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-act]');if(!t||!win.contains(t))return;
+  // Clicks inside the sheet don't reach the scrim behind it.
+  if(t.dataset.act==='close-sheet'&&t.classList.contains('scrim')&&e.target.closest('[data-stop]'))return;
+  ACT[t.dataset.act]?.(H(t.dataset.id),t,e);
+});
+// DESIGN.md: a press outside a menu shuts it; its own trigger toggles it.
+document.addEventListener('pointerdown',e=>{
+  if(!S.menu||e.target.closest('.menu')||e.target.closest('[data-act=menu]'))return;
+  S.menu=null;win.querySelector('.menu')?.remove();win.querySelectorAll('[data-act=menu]').forEach(b=>b.setAttribute('aria-expanded','false'));
+});
+document.addEventListener('keydown',e=>{
+  const k=e.target.dataset?.k;
+  if(e.key==='Escape'){
+    if(k?.startsWith('f:')){S.fedit=null;render();return}
+    if(S.menu){S.menu=null;render()}else if(S.sheet){S.sheet=null;S.add=null;render()}else if(S.edit||S.add&&V===0){S.edit=null;S.add=null;S.err=null;render()}else if(V===2&&S.page)ACT.back();
+    return;
+  }
+  if(e.key==='Enter'&&k){
+    e.preventDefault();
+    if(k.startsWith('f:'))commitField(e.target);
+    else if(k.startsWith('a:'))ACT.connect();
+    else if(k.startsWith('e.'))ACT.save(H(k.slice(2,k.indexOf(':'))));
+  }
+});
+document.addEventListener('focusout',e=>{const k=e.target.dataset?.k;if(!rendering&&k?.startsWith('f:')&&S.fedit)commitField(e.target)});
+
+/* ---------- picker wiring (PICKER.md) ---------- */
+const picker=document.querySelector('.proto-picker');
+const highlight=picker.querySelector('.proto-picker-highlight');
+const items=[...picker.querySelectorAll('.proto-picker-item:not(.proto-picker-replay)')];
+const replay=picker.querySelector('.proto-picker-replay');
+let current=0;
+function moveHighlight(){const el=items[current];highlight.style.width=el.offsetWidth+'px';highlight.style.transform=`translateX(${el.offsetLeft}px)`}
+function mount(i){
+  timers.forEach(clearTimeout);timers=[];
+  S=fresh();V=i;stage.innerHTML='';over.innerHTML='';
+  requestAnimationFrame(render);
+}
+function setActive(i){
+  if(i<0||i>=VIEWS.length)return;
+  current=i;
+  items.forEach((el,j)=>{el.toggleAttribute('data-active',j===i);if(j===i)el.setAttribute('aria-current','true');else el.removeAttribute('aria-current')});
+  moveHighlight();
+  const url=new URL(location);url.searchParams.set('v',i+1);history.replaceState(null,'',url);
+  mount(i);
+}
+items.forEach((el,i)=>el.addEventListener('click',()=>setActive(i)));
+replay?.addEventListener('click',()=>mount(current));
+window.addEventListener('resize',moveHighlight);
+document.addEventListener('keydown',e=>{
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)||e.target.isContentEditable)return;
+  if(e.metaKey||e.ctrlKey||e.altKey)return;
+  const num=parseInt(e.key,10);
+  if(num>=1&&num<=VIEWS.length)setActive(num-1);
+  else if(e.key==='ArrowRight')setActive((current+1)%VIEWS.length);
+  else if(e.key==='ArrowLeft')setActive((current-1+VIEWS.length)%VIEWS.length);
+  else if(e.key==='r'||e.key==='R')mount(current);
+});
+setActive((parseInt(new URLSearchParams(location.search).get('v'),10)||1)-1);
+requestAnimationFrame(()=>requestAnimationFrame(()=>picker.setAttribute('data-ready','')));
+</script>
+</body>
+</html>

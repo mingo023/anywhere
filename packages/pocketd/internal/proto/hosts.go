@@ -26,7 +26,8 @@ const (
 
 var HostFailures = []string{"auth", "unknown_key", "key_changed", "no_such_host", "refused", "timed_out", "dropped", "throttled", "not_running", "unpaired", "path_too_long", "other"}
 
-// HostTarget is how ssh reaches a host: kind "alias" (Name) or "address" (Addr, Port, User, KeyFile).
+// HostTarget is how ssh reaches a host: kind "alias" (Name, and Port and User over its config's) or "address" (Addr, Port,
+// User, KeyFile).
 type HostTarget struct {
 	Kind    string `json:"kind"`
 	Name    string `json:"name,omitempty"`
@@ -85,11 +86,13 @@ type HostLink struct {
 	Reason        string `json:"reason,omitempty"`
 }
 
-// InstallProgress is a step of a host.install: Step is set for kind step, Text for warn and error; running, done and error end it.
+// InstallProgress is a step of a host.install: Step is set for kind step, Text for warn and error, Final for an error
+// trying again can't fix; running, done and error end it.
 type InstallProgress struct {
-	Kind string `json:"kind"`
-	Step string `json:"step,omitempty"`
-	Text string `json:"text,omitempty"`
+	Kind  string `json:"kind"`
+	Step  string `json:"step,omitempty"`
+	Text  string `json:"text,omitempty"`
+	Final bool   `json:"final,omitempty"`
 }
 
 // HostList answers host.list, and without an id is the whole list pushed to an owner.
@@ -106,7 +109,7 @@ func NewHostList(id string, hosts []Host) HostList {
 	return HostList{"host.list", id, hosts}
 }
 
-// HostUpdate answers host.add, and without an id is one host pushed after it changed.
+// HostUpdate answers host.add and host.edit, and without an id is one host pushed after it changed.
 type HostUpdate struct {
 	Type string `json:"type"`
 	ID   string `json:"id,omitempty"`
@@ -130,6 +133,9 @@ var hostVerbs = map[string]verbDecoder{
 	"host.list": func(fields, *ClientMessage) bool { return true },
 	"host.add": func(f fields, m *ClientMessage) bool {
 		return decodeHostTarget(f["target"], &m.HostTarget) && f.optionalString("name", &m.Name)
+	},
+	"host.edit": func(f fields, m *ClientMessage) bool {
+		return f.text("hostId", &m.HostID) && decodeHostTarget(f["target"], &m.HostTarget)
 	},
 	"host.remove": func(f fields, m *ClientMessage) bool {
 		return f.text("hostId", &m.HostID) && f.optionalBool("uninstall", &m.Uninstall)
@@ -169,7 +175,7 @@ func decodeHostTarget(raw json.RawMessage, dst **HostTarget) bool {
 	var ok bool
 	switch head.Kind {
 	case "alias":
-		ok = strictInto(raw, &t, []string{"kind", "name"})
+		ok = strictInto(raw, &t, []string{"kind", "name"}, "port", "user")
 	case "address":
 		ok = strictInto(raw, &t, []string{"kind", "addr", "port"}, "user", "keyFile")
 	}

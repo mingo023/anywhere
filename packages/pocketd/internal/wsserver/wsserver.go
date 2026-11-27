@@ -627,7 +627,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	case "config.set":
 		c.configSet(m)
 		return nil
-	case "host.list", "host.add", "host.remove", "host.retry", "host.install", "host.sign_in":
+	case "host.list", "host.add", "host.edit", "host.remove", "host.retry", "host.install", "host.sign_in":
 		return c.host(m)
 	case "automation.save", "automation.enable", "automation.delete", "automation.run":
 		return c.automation(m)

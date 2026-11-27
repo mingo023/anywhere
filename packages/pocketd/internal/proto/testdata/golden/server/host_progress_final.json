@@ -1,0 +1,10 @@
+{
+  "type": "host.progress",
+  "hostId": "devbox",
+  "update": true,
+  "progress": {
+    "kind": "error",
+    "text": "pocketd here runs from /opt/pocketd, which an update can't replace; update the Anywhere app on this Mac instead",
+    "final": true
+  }
+}
