@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -25,7 +26,7 @@ func account(t *testing.T) (Log, device, device, string) {
 	t.Helper()
 	mac, host := newDevice(Desktop, "mac"), newDevice(Machine, "host")
 	code := NewRecoveryCode()
-	l := Genesis(mac.key, mac.m, pub(RecoveryKey(code))).Add(mac.key, host.m)
+	l := Genesis(mac.key, mac.m, RecoveryKey(code)).Add(mac.key, host.m)
 	return l, mac, host, code
 }
 
@@ -165,6 +166,33 @@ func TestTheRecoveryCodeAddsADeviceWithNoApproval(t *testing.T) {
 	}
 	if _, _, err := JoinWithCode(l, laptop.m, NewRecoveryCode()); !errors.Is(err, ErrCodeMismatch) {
 		t.Fatalf("wrong code: err = %v", err)
+	}
+}
+
+func TestTheRecoveryCodeRejectsAGenesisTheCloudMadeWithTheRealRecoveryKey(t *testing.T) {
+	l, _, _, code := account(t)
+	real, _ := Replay(l)
+	cloud, laptop := newDevice(Desktop, "cloud"), newDevice(Desktop, "laptop")
+	fake := Genesis(cloud.key, cloud.m, nil)
+	fake[0].Recovery = real.Recovery
+	fake[0] = sign(cloud.key, fake[0])
+	if _, _, err := JoinWithCode(fake, laptop.m, code); !errors.Is(err, ErrBadSig) {
+		t.Fatalf("err = %v, want ErrBadSig", err)
+	}
+}
+
+func TestAMalformedLogIsRejectedNotAPanic(t *testing.T) {
+	l, _, _, _ := account(t)
+	short := slices.Clone(l)
+	short[1].By = short[1].By[:5]
+	for name, bad := range map[string]Log{
+		"empty genesis":  {{Type: opGenesis}},
+		"short signer":   short,
+		"short recovery": {{Type: opGenesis, Recovery: []byte{1}}},
+	} {
+		if _, err := Replay(bad); err == nil {
+			t.Fatalf("%s: accepted", name)
+		}
 	}
 }
 

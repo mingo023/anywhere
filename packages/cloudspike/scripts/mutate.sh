@@ -27,5 +27,7 @@ mut members/members.go 's/if !bytes\.Equal\(s\.Recovery, rk\.Public\(\)\.\(ed255
 mut members/members.go 's/member && signer\.Kind == Phone && /false \&\& signer.Kind == Phone \&\& member \&\& /' ./members "phone may add desktop"
 mut members/members.go 's/if Commit\(nd\) != commit \{/if false {/' ./members "no commitment check"
 mut channel/channel.go 's/cfg\.ClientAuth = tls\.RequireAnyClientCert/_ = cfg/' ./channel "server skips client cert"
+mut members/members.go 's/r != nil && \(len\(r\)/false \&\& r != nil \&\& (len(r)/' ./members "no genesis recovery signature"
+mut members/members.go 's/if len\(o\.By\) != ed25519\.PublicKeySize \|\| len\(o\.Member\.Key\) != ed25519\.PublicKeySize \|\| /if /' ./members "no key-length check"
 mut relay/relay.go 's/return nil, ErrOffline/return nil, err/' ./relay "offline not mapped"
 mut relay/relay.go 's/io\.Copy\(counting\{dst, sent, r\.tap\}, src\)/io.Copy(dst, src)/' ./relay "relay counts nothing"

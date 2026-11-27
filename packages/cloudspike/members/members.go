@@ -38,8 +38,11 @@ type Op struct {
 	Prev     []byte            `json:"prev,omitempty"`
 	Member   Member            `json:"member"`
 	Recovery ed25519.PublicKey `json:"recovery,omitempty"`
-	By       ed25519.PublicKey `json:"by"`
-	Sig      []byte            `json:"sig,omitempty"`
+	// RecoverySig proves the genesis came from whoever held the recovery code;
+	// the public key alone can be copied into a genesis the cloud made up.
+	RecoverySig []byte            `json:"recoverySig,omitempty"`
+	By          ed25519.PublicKey `json:"by"`
+	Sig         []byte            `json:"sig,omitempty"`
 }
 
 type OpType string
@@ -62,7 +65,7 @@ var (
 )
 
 func (o Op) body() []byte {
-	o.Sig = nil
+	o.Sig, o.RecoverySig = nil, nil
 	b, _ := json.Marshal(o)
 	return b
 }
@@ -80,8 +83,13 @@ func sign(by ed25519.PrivateKey, o Op) Op {
 
 type Log []Op
 
-func Genesis(first ed25519.PrivateKey, m Member, recovery ed25519.PublicKey) Log {
-	return Log{sign(first, Op{Type: opGenesis, Member: m, Recovery: recovery})}
+func Genesis(first ed25519.PrivateKey, m Member, recovery ed25519.PrivateKey) Log {
+	o := Op{Type: opGenesis, Member: m, By: first.Public().(ed25519.PublicKey)}
+	if recovery != nil {
+		o.Recovery = recovery.Public().(ed25519.PublicKey)
+		o.RecoverySig = ed25519.Sign(recovery, o.body())
+	}
+	return Log{sign(first, o)}
 }
 
 func (l Log) Add(by ed25519.PrivateKey, m Member) Log {
@@ -117,8 +125,11 @@ func Replay(l Log) (State, error) {
 		return State{}, ErrBadChain
 	}
 	s := State{Root: l[0].hash(), Recovery: l[0].Recovery, members: map[string]Member{}}
+	if r := l[0].Recovery; r != nil && (len(r) != ed25519.PublicKeySize || !ed25519.Verify(r, l[0].body(), l[0].RecoverySig)) {
+		return State{}, fmt.Errorf("op 0: recovery: %w", ErrBadSig)
+	}
 	for i, o := range l {
-		if !ed25519.Verify(o.By, o.body(), o.Sig) {
+		if len(o.By) != ed25519.PublicKeySize || len(o.Member.Key) != ed25519.PublicKeySize || !ed25519.Verify(o.By, o.body(), o.Sig) {
 			return State{}, fmt.Errorf("op %d: %w", i, ErrBadSig)
 		}
 		if i > 0 {
