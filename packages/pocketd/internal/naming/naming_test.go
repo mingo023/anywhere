@@ -45,10 +45,10 @@ func TestThePromptFencesTheRequestAndAClippedReply(t *testing.T) {
 }
 
 func TestEachProviderRunsHeadlessOnACheapModel(t *testing.T) {
-	if got := Command("claude", "/bin/claude", "P"); !reflect.DeepEqual(got, []string{"/bin/claude", "--strict-mcp-config", "-p", "--model", "haiku", "P"}) {
+	if got := Command("claude", "/bin/claude"); !reflect.DeepEqual(got, []string{"/bin/claude", "--strict-mcp-config", "-p", "--model", "haiku"}) {
 		t.Fatal(got)
 	}
-	if got := Command("codex", "/bin/codex", "P"); !reflect.DeepEqual(got, []string{"/bin/codex", "exec", "--skip-git-repo-check", "-m", "gpt-5.6-luna", "P"}) {
+	if got := Command("codex", "/bin/codex"); !reflect.DeepEqual(got, []string{"/bin/codex", "exec", "--skip-git-repo-check", "-m", "gpt-5.6-luna", "-"}) {
 		t.Fatal(got)
 	}
 }
@@ -57,11 +57,11 @@ func TestEachProviderRunsHeadlessOnACheapModel(t *testing.T) {
 func TestAProviderWithNoHeadlessRunHasNoNamingCommand(t *testing.T) {
 	for _, p := range providers.All {
 		_, has := commands[p.ID]
-		if got := Command(p.ID, "/bin/"+p.ID, "P"); (got != nil) != has || has != (p == &providers.Claude || p == &providers.Codex) {
+		if got := Command(p.ID, "/bin/"+p.ID); (got != nil) != has || has != (p == &providers.Claude || p == &providers.Codex) {
 			t.Errorf("%s: %v", p.ID, got)
 		}
 	}
-	if got := Command("gemini", "/bin/gemini", "P"); got != nil {
+	if got := Command("gemini", "/bin/gemini"); got != nil {
 		t.Fatal(got)
 	}
 }
@@ -86,7 +86,7 @@ func sh(t *testing.T) string {
 }
 
 func TestGenerateParsesWhatTheCommandPrints(t *testing.T) {
-	n, err := Generate(context.Background(), []string{sh(t), "-c", `echo '{"title":"Say hi","branchName":"say-hi","vague":true}'`}, nil)
+	n, err := Generate(context.Background(), []string{sh(t), "-c", `echo '{"title":"Say hi","branchName":"say-hi","vague":true}'`}, "", nil)
 	if err != nil || n != (Result{Title: "Say hi", Branch: "say-hi", Vague: true}) {
 		t.Fatalf("%+v %v", n, err)
 	}
@@ -97,7 +97,7 @@ func TestGenerateGivesUpAtTheTimeout(t *testing.T) {
 	Timeout = 100 * time.Millisecond
 	t.Cleanup(func() { Timeout = old })
 	start := time.Now()
-	if _, err := Generate(context.Background(), []string{sh(t), "-c", "sleep 5"}, nil); err == nil || time.Since(start) > 2*time.Second {
+	if _, err := Generate(context.Background(), []string{sh(t), "-c", "sleep 5"}, "", nil); err == nil || time.Since(start) > 2*time.Second {
 		t.Fatalf("%v after %v", err, time.Since(start))
 	}
 }
@@ -112,7 +112,7 @@ func TestGenerateTellsALimitFromOtherFailures(t *testing.T) {
 		{`echo "Not logged in · Please run /login"; exit 1`, false},
 		{`echo "You've hit your weekly limit"`, false},
 	} {
-		_, err := Generate(context.Background(), []string{sh(t), "-c", c.script}, nil)
+		_, err := Generate(context.Background(), []string{sh(t), "-c", c.script}, "", nil)
 		if err == nil || errors.Is(err, ErrLimit) != c.limit {
 			t.Errorf("%s: %v", c.script, err)
 		}

@@ -59,24 +59,21 @@ func clip(s string, n int) string {
 	return s
 }
 
-var commands = map[string]func(exe, prompt string) []string{
-	providers.Claude.ID: func(exe, prompt string) []string {
-		return []string{exe, "--strict-mcp-config", "-p", "--model", "haiku", prompt}
-	},
-	providers.Codex.ID: func(exe, prompt string) []string {
-		return []string{exe, "exec", "--skip-git-repo-check", "-m", "gpt-5.6-luna", prompt}
-	},
+// commands read the prompt on stdin: cmd.exe, which runs an npm .cmd shim on Windows, ends an argument at a newline.
+var commands = map[string][]string{
+	providers.Claude.ID: {"--strict-mcp-config", "-p", "--model", "haiku"},
+	providers.Codex.ID:  {"exec", "--skip-git-repo-check", "-m", "gpt-5.6-luna", "-"},
 }
 
-// Command runs provider's CLI at exe once, headless, on a cheap model. It is
-// nil for a provider with no such run: another CLI's flags would start
-// something else.
-func Command(provider, exe, prompt string) []string {
-	c, ok := commands[provider]
+// Command runs provider's CLI at exe once, headless, on a cheap model, with
+// the prompt on stdin. It is nil for a provider with no such run: another
+// CLI's flags would start something else.
+func Command(provider, exe string) []string {
+	args, ok := commands[provider]
 	if !ok {
 		return nil
 	}
-	return c(exe, prompt)
+	return append([]string{exe}, args...)
 }
 
 // Env is env without API keys, so the user's login pays, and without pocketd's
@@ -89,12 +86,12 @@ func Env(env []string) []string {
 	})
 }
 
-// Generate runs argv in the temp dir and parses what it prints. A timeout kills its process group.
-func Generate(ctx context.Context, argv, env []string) (Result, error) {
+// Generate runs argv in the temp dir with prompt on stdin, and parses what it prints. A timeout kills its process group.
+func Generate(ctx context.Context, argv []string, prompt string, env []string) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Dir, cmd.Env = os.TempDir(), Env(env)
+	cmd.Dir, cmd.Env, cmd.Stdin = os.TempDir(), Env(env), strings.NewReader(prompt)
 	killGroup(cmd)
 	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()

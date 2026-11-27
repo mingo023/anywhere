@@ -133,9 +133,9 @@ func shellsWith(t *testing.T) map[string][]string {
 	home, bin := t.TempDir(), t.TempDir()
 	os.WriteFile(filepath.Join(bin, "cc"), []byte("#!/bin/sh\necho compiler\n"), 0o755)
 	os.WriteFile(filepath.Join(bin, "real"), []byte("#!/bin/sh\n"), 0o755)
-	os.WriteFile(filepath.Join(home, ".zshenv"), []byte("cc() { echo \"$@\"; }\n"), 0o644)
+	os.WriteFile(filepath.Join(home, ".zshenv"), []byte("cc() { echo \"$@\"; cat; }\n"), 0o644)
 	os.MkdirAll(filepath.Join(home, ".config", "fish", "functions"), 0o755)
-	os.WriteFile(filepath.Join(home, ".config", "fish", "functions", "cc.fish"), []byte("function cc; echo $argv; end\n"), 0o644)
+	os.WriteFile(filepath.Join(home, ".config", "fish", "functions", "cc.fish"), []byte("function cc; echo $argv; cat; end\n"), 0o644)
 	envs := map[string][]string{}
 	for _, shell := range []string{"/bin/zsh", "fish"} {
 		if path, err := exec.LookPath(shell); err == nil {

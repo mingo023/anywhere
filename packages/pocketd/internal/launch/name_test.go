@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -311,3 +312,18 @@ func TestNamingThroughAShellFunctionStaysOnItsAccount(t *testing.T) {
 
 // claudeAt is an absolute path to claude: "/bin/claude" isn't one on Windows, which needs a drive.
 var claudeAt = filepath.Join(filepath.VolumeName(os.TempDir())+string(filepath.Separator), "bin", "claude")
+
+func TestTheNamingPromptReachesTheAgentWholeOnItsStdin(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in agent is a shell script")
+	}
+	exe := filepath.Join(t.TempDir(), "claude")
+	script := "#!/bin/sh\n[ \"$#\" -eq 4 ] && tail -n 1 | grep -qx '</user-prompt>' && echo '{\"title\":\"Fix the login\",\"branchName\":\"fix-login\"}'\n"
+	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	n, err := generate("claude", exe, naming.Prompt("fix the\nlogin", ""), []string{"PATH=" + os.Getenv("PATH")})
+	if err != nil || n.Title != "Fix the login" {
+		t.Fatalf("%+v %v", n, err)
+	}
+}
