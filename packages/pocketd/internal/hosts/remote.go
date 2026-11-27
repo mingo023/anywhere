@@ -539,6 +539,26 @@ func (m *Manager) Projects(ctx context.Context, id string) ([]proto.Project, err
 	return l.Projects, nil
 }
 
+// AddProject lists the folder at path in host id's projects, as Open folder on a host does, over a conn of its own:
+// registry.v2 would also subscribe the link to every registry.list.
+func (m *Manager) AddProject(ctx context.Context, id, path string) error {
+	if _, err := m.connected(ctx, id); err != nil {
+		return err
+	}
+	socket, token, _ := m.Endpoint(id)
+	c, err := Dial(ctx, socket, token, func(string, []byte) {}, proto.CapRegistryV2)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if !slices.Contains(c.Caps, proto.CapRegistryV2) {
+		h, _ := m.host(id)
+		return Refusal{proto.NewErrorCode("", proto.CodeHostOutdated, "Can't add projects on "+h.Name+": Zoes there is out of date. Update it on "+h.Name+", then try again.")}
+	}
+	_, err = c.Call(ctx, "ack", map[string]any{"type": "project.add", "path": path})
+	return err
+}
+
 func (m *Manager) Summary(tagged string) (proto.AgentSummary, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
