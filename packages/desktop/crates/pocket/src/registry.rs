@@ -4,7 +4,7 @@
 use crate::desktop::Desktop;
 use agents::registry::List;
 use gpui_kit::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use store::RepoConfig;
 use store::registry::{Change, Slice, changes};
 
@@ -12,6 +12,8 @@ use store::registry::{Change, Slice, changes};
 #[derive(Default)]
 pub(crate) struct Registry {
     synced: HashMap<Option<String>, Slice>,
+    /// The machines whose move to `~/.zoes` the store has caught up with.
+    rehomed: HashSet<Option<String>>,
 }
 
 impl Registry {
@@ -45,6 +47,15 @@ impl Registry {
     }
 }
 
+/// Each legacy home on `host` that leads into `shared` once its pocketd moved it to `~/.zoes`, keyed as the store
+/// keys the host's paths.
+fn host_moves(host: &str, user_home: &str, shared: &str) -> Vec<(String, String)> {
+    if shared != format!("{user_home}/.zoes") {
+        return Vec::new();
+    }
+    [".coding-pocket", ".anywhere"].iter().map(|l| (format!("//{host}{user_home}/{l}"), format!("//{host}{shared}"))).collect()
+}
+
 /// What a change aimed at a pocketd without `registry.v2` says: `host`'s name, or `None` for this Mac's.
 pub(crate) fn outdated(host: Option<&str>) -> String {
     match host {
@@ -58,6 +69,7 @@ impl Desktop {
     pub(crate) fn on_registry(&mut self, host: Option<&str>, mut list: List, cx: &mut Context<Self>) {
         // Sent before the list replaces the store, which would otherwise undo a change not yet sent.
         self.publish_registry(cx);
+        self.rehome_for(host);
         let pushed = host.map(|h| self.store.adopt_cached(h, &mut list)).unwrap_or_default();
         pushed.iter().for_each(|c| _ = self.send_change(c));
         let before = self.store.projects.clone();
@@ -68,6 +80,29 @@ impl Desktop {
             self.refresh_git(cx);
         }
         cx.notify();
+    }
+
+    /// Points the store's paths on `host` at where its pocketd moved its home, once: the store may have loaded first.
+    /// Runs after publishing, so the old paths aren't sent as changes.
+    fn rehome_for(&mut self, host: Option<&str>) {
+        let machine = host.map(str::to_string);
+        if self.registry.rehomed.contains(&machine) {
+            return;
+        }
+        let moves = match host {
+            None => std::env::home_dir().map(|user| daemon::home::moved(&user)).unwrap_or_default(),
+            Some(h) => {
+                let key = format!("//{h}/");
+                host_moves(h, &self.host_agents.home_of(&key), &self.host_agents.shared_of(&key))
+            }
+        };
+        if !moves.is_empty() {
+            self.store.rehome(|path| daemon::home::rehome(&moves, path));
+            if host.is_none() {
+                crate::modals::form::reshare();
+            }
+            self.registry.rehomed.insert(machine);
+        }
     }
 
     /// Notes what an outdated pocketd that said hello holds, so a change aimed at it says it needs updating.
@@ -116,7 +151,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Registry, outdated};
+    use super::{Registry, host_moves, outdated};
     use store::Store;
     use store::registry::Change;
 
@@ -163,5 +198,15 @@ mod tests {
         registry.listed(None, store.registry(None));
         assert!(registry.pending(Some("devbox"), &store.registry(Some("devbox"))).is_empty());
         assert_eq!(registry.machines(), [None]);
+    }
+
+    #[test]
+    fn a_hosts_cached_paths_follow_its_home_only_once_it_moved_to_zoes() {
+        let moves = host_moves("devbox", "/home/dev", "/home/dev/.zoes");
+        assert_eq!(daemon::home::rehome(&moves, "//devbox/home/dev/.anywhere/sessions/calm").as_deref(), Some("//devbox/home/dev/.zoes/sessions/calm"));
+        assert_eq!(daemon::home::rehome(&moves, "//devbox/home/dev/.coding-pocket").as_deref(), Some("//devbox/home/dev/.zoes"));
+        assert_eq!(daemon::home::rehome(&moves, "//devbox2/home/dev/.anywhere/x"), None);
+        assert!(host_moves("devbox", "/home/dev", "/home/dev/.anywhere").is_empty());
+        assert!(host_moves("win", "C:/Users/dev", "~/.anywhere").is_empty());
     }
 }

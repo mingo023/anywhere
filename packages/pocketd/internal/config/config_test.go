@@ -126,7 +126,7 @@ func TestADevBuildKeepsOutOfTheInstalledAppsHomeServiceAndPort(t *testing.T) {
 	t.Setenv("POCKET_HOME", "")
 	t.Setenv("HOME", "/h")
 	t.Setenv("USERPROFILE", "/h")
-	if Release() || Home() != filepath.FromSlash("/h/.anywhere/dev") || Label() != "dev.mingo.anywhere.dev.pocketd" || DefaultPort() != 4518 {
+	if Release() || Home() != filepath.FromSlash("/h/.zoes/dev") || Label() != "dev.mingo.anywhere.dev.pocketd" || DefaultPort() != 4518 {
 		t.Fatal(Home(), Label(), DefaultPort())
 	}
 }
@@ -136,7 +136,7 @@ func TestAReleaseBuildKeepsTheNamesInstalledCopiesUse(t *testing.T) {
 	t.Setenv("POCKET_HOME", "")
 	t.Setenv("HOME", "/h")
 	t.Setenv("USERPROFILE", "/h")
-	if !Release() || Home() != filepath.FromSlash("/h/.anywhere") || Label() != "dev.mingo.anywhere.pocketd" || DefaultPort() != 4517 {
+	if !Release() || Home() != filepath.FromSlash("/h/.zoes") || Label() != "dev.mingo.anywhere.pocketd" || DefaultPort() != 4517 {
 		t.Fatal(Home(), Label(), DefaultPort())
 	}
 }
@@ -146,7 +146,7 @@ func TestTheLegacyHomeStaysTheHomeUntilItMoves(t *testing.T) {
 	t.Setenv("HOME", user)
 	t.Setenv("USERPROFILE", user)
 	t.Setenv("POCKET_HOME", "")
-	legacy, home := filepath.Join(user, ".coding-pocket-dev"), filepath.Join(user, ".anywhere", "dev")
+	legacy, home := filepath.Join(user, ".coding-pocket-dev"), filepath.Join(user, ".zoes", "dev")
 	os.Mkdir(legacy, 0o700)
 	if Home() != legacy {
 		t.Fatal(Home())

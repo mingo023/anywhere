@@ -11,7 +11,7 @@ pub mod sections;
 pub mod themes;
 
 /// Under the home of the machine holding the project; pocketd makes the same folder.
-const DEFAULT_WORKTREES: &str = ".anywhere/worktrees";
+const DEFAULT_WORKTREES: &str = "worktrees";
 
 /// How a repository shows in the rail and how new worktrees of it are made.
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone)]
@@ -250,7 +250,7 @@ pub struct Appearance {
     /// Percent opaque the dark window's glass is; read it through `glass()`.
     #[serde(deserialize_with = "lenient")]
     pub glass: Option<u32>,
-    /// The image behind the New session page and chats: a copy in `~/.anywhere/backgrounds/`.
+    /// The image behind the New session page and chats: a copy in the shared home's `backgrounds/`.
     #[serde(deserialize_with = "lenient")]
     pub background: Option<String>,
 }
@@ -317,7 +317,7 @@ pub enum DiffColors {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct WorktreeDefaults {
-    /// Empty means `~/.anywhere/worktrees`; each project gets a folder in it.
+    /// Empty means the shared home's `worktrees`; each project gets a folder in it.
     pub root: String,
     /// Empty means `~/code`.
     pub clone_root: String,
@@ -501,12 +501,28 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn load(home: &Path) -> Self {
+    /// `moved` is where a path under a home pocketd moved went, `None` for any other. Every path the file holds goes
+    /// through it, so the projects and worktrees it keys by match pocketd's.
+    pub fn load(home: &Path, moved: impl Fn(&str) -> Option<String>) -> Self {
         let path = home.join("desktop.json");
-        let mut s: Self = std::fs::read(&path).ok().and_then(|raw| serde_json::from_slice(&raw).ok()).unwrap_or_default();
+        let mut raw: Option<serde_json::Value> = std::fs::read(&path).ok().and_then(|raw| serde_json::from_slice(&raw).ok());
+        if let Some(v) = raw.as_mut() {
+            rehome(v, &moved);
+        }
+        let mut s: Self = raw.and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
         s.path = path;
         s.sections.settle_hosts();
         s
+    }
+
+    /// Points each path `moved` maps where it says, as `load` does, for a home pocketd moved after this loaded.
+    pub fn rehome(&mut self, moved: impl Fn(&str) -> Option<String>) {
+        let Ok(mut v) = serde_json::to_value(&*self) else { return };
+        rehome(&mut v, &moved);
+        let Ok(mut s) = serde_json::from_value::<Self>(v) else { return };
+        s.path = std::mem::take(&mut self.path);
+        s.ids = std::mem::take(&mut self.ids).into_iter().map(|(path, id)| (moved(&path).unwrap_or(path), id)).collect();
+        *self = s;
     }
 
     /// The folder Pocket keeps its files in.
@@ -620,12 +636,13 @@ impl Store {
     }
 
     /// The folder `repo`'s new worktrees go in: a folder named for it under the root.
-    /// `home` is the home of the machine holding `repo`; a host's pocketd knows nothing of this Mac's root, so it uses `~/.anywhere/worktrees`.
-    pub fn worktrees_dir(&self, repo: &str, home: &str) -> String {
+    /// `shared` is the shared home of the machine holding `repo`; a host's pocketd knows nothing of this Mac's root, so it uses
+    /// the `worktrees` there.
+    pub fn worktrees_dir(&self, repo: &str, shared: &str) -> String {
         let name = self.repo_name(repo);
         match hosts::split(repo) {
-            (None, _) => format!("{}/{name}", self.worktree_root(home)),
-            (Some(host), _) => hosts::place(host, &format!("{home}/{DEFAULT_WORKTREES}/{name}")),
+            (None, _) => format!("{}/{name}", self.worktree_root(shared)),
+            (Some(host), _) => hosts::place(host, &format!("{shared}/{DEFAULT_WORKTREES}/{name}")),
         }
     }
 
@@ -635,9 +652,9 @@ impl Store {
         named.unwrap_or_else(|| repo.trim_end_matches('/').rsplit('/').next().unwrap_or_default().to_string())
     }
 
-    /// The folder new worktrees go under, one subfolder per project: the chosen root, else `~/.anywhere/worktrees`.
-    pub fn worktree_root(&self, home: &str) -> String {
-        if self.worktree.root.is_empty() { format!("{home}/{DEFAULT_WORKTREES}") } else { self.worktree.root.trim_end_matches('/').to_string() }
+    /// The folder new worktrees go under, one subfolder per project: the chosen root, else the shared home's `worktrees`.
+    pub fn worktree_root(&self, shared: &str) -> String {
+        if self.worktree.root.is_empty() { format!("{shared}/{DEFAULT_WORKTREES}") } else { self.worktree.root.trim_end_matches('/').to_string() }
     }
 
     /// The folder Add project › Clone starts in: the chosen one, else `~/code`.
@@ -650,6 +667,48 @@ impl Store {
         let (Some(i), Some(j)) = (self.projects.iter().position(|p| p == from), self.projects.iter().position(|p| p == to)) else { return };
         let p = self.projects.remove(i);
         self.projects.insert(j, p);
+    }
+}
+
+/// Points each string and key in `v` that `moved` maps where it says. A key that then names an entry already there
+/// takes the moved one's value, which is what the user had before the move; a list keeps the first of two that meet.
+fn rehome(v: &mut serde_json::Value, moved: &impl Fn(&str) -> Option<String>) {
+    use serde_json::Value;
+    match v {
+        Value::String(s) => {
+            if let Some(to) = moved(s) {
+                *s = to;
+            }
+        }
+        Value::Array(list) => {
+            let mut changed = false;
+            for item in list.iter_mut() {
+                if let Value::String(s) = item
+                    && let Some(to) = moved(s)
+                {
+                    *s = to;
+                    changed = true;
+                } else {
+                    rehome(item, moved);
+                }
+            }
+            if changed {
+                let mut seen = BTreeSet::new();
+                list.retain(|item| item.as_str().is_none_or(|s| seen.insert(s.to_string())));
+            }
+        }
+        Value::Object(map) => {
+            let mut later = Vec::new();
+            for (key, mut value) in std::mem::take(map) {
+                rehome(&mut value, moved);
+                match moved(&key) {
+                    Some(to) => later.push((to, value)),
+                    None => _ = map.insert(key, value),
+                }
+            }
+            map.extend(later);
+        }
+        _ => {}
     }
 }
 
@@ -830,7 +889,7 @@ mod tests {
     fn round_trips_through_desktop_json() {
         let dir = std::env::temp_dir().join(format!("pocket-store-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut s = Store::load(&dir);
+        let mut s = Store::load(&dir, |_| None);
         s.projects.push("/w".into());
         s.collapsed.insert("/w".into());
         let launch = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into(), access: "ask".into(), ..LaunchPick::default() };
@@ -848,7 +907,7 @@ mod tests {
         s.sections.move_tree("/w", vec!["/t/fix".into(), "/t/feat".into()], "/t/feat", "/t/fix");
         s.chats.insert("t1".into());
         s.save();
-        let back = Store::load(&dir);
+        let back = Store::load(&dir, |_| None);
         assert_eq!(back, s);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -875,11 +934,41 @@ mod tests {
     }
 
     #[test]
+    fn a_desktop_json_from_before_the_home_moved_names_the_new_paths() {
+        let dir = std::env::temp_dir().join(format!("pocket-store-moved-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let raw = serde_json::json!({
+            "projects": ["/w", "/u/.anywhere/sessions/calm", "/u/.zoes/sessions/calm"],
+            "scratch": ["/u/.anywhere/sessions/calm"],
+            "tracked": ["/u/.anywhere/worktrees/w/fix", "//m1/u/.anywhere/worktrees/w/x", "/u/.anywhere-other/y"],
+            "repos": {"/u/.anywhere/sessions/calm": {"name": "before"}, "/u/.zoes/sessions/calm": {"name": "during"}},
+            "collapsed": ["/u/.anywhere/sessions/calm"],
+            "appearance": {"background": "/u/.anywhere/backgrounds/1-sky.png"},
+        });
+        std::fs::write(dir.join("desktop.json"), raw.to_string()).unwrap();
+        let moved = |p: &str| p.strip_prefix("/u/.anywhere").filter(|r| r.is_empty() || r.starts_with('/')).map(|r| format!("/u/.zoes{r}"));
+        let s = Store::load(&dir, moved);
+        assert_eq!(s.projects, ["/w", "/u/.zoes/sessions/calm"]);
+        assert!(s.is_scratch("/u/.zoes/sessions/calm") && s.collapsed.contains("/u/.zoes/sessions/calm"));
+        assert_eq!(s.tracked, ["//m1/u/.anywhere/worktrees/w/x", "/u/.anywhere-other/y", "/u/.zoes/worktrees/w/fix"].map(String::from).into());
+        assert_eq!(s.repos.keys().collect::<Vec<_>>(), ["/u/.zoes/sessions/calm"]);
+        assert_eq!(s.repos["/u/.zoes/sessions/calm"].name, "before");
+        assert_eq!(s.appearance.background.as_deref(), Some("/u/.zoes/backgrounds/1-sky.png"));
+
+        let mut later = Store::load(&dir, |_| None);
+        later.ids.insert("/u/.anywhere/sessions/calm".into(), "p1".into());
+        later.rehome(moved);
+        assert_eq!((&later.projects, &later.repos, &later.tracked), (&s.projects, &s.repos, &s.tracked), "a store loaded before the move catches up");
+        assert_eq!((later.ids.keys().map(String::as_str).collect::<Vec<_>>(), later.home()), (vec!["/u/.zoes/sessions/calm"], dir.as_path()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn an_old_desktop_json_loads_with_default_geometry() {
         let dir = std::env::temp_dir().join(format!("pocket-store-old-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("desktop.json"), r#"{"projects":["/w"]}"#).unwrap();
-        let s = Store::load(&dir);
+        let s = Store::load(&dir, |_| None);
         assert_eq!((s.projects.len(), &s.window, s.layout, s.widths), (1, &None, Layout::Sidebars, ColumnWidths::default()));
         assert!(s.layouts.is_empty() && s.tracked.is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
@@ -892,13 +981,13 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pocket-store-layouts-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let mut s = Store::load(&dir);
+        let mut s = Store::load(&dir, |_| None);
         let mut w = Workspace::default();
         w.tree.push(0, Tab::Term("t1".into()));
         w.tree.split(0, Edge::Right, Tab::Doc(Doc::File("/w/a.rs".into())));
         s.layouts.insert("/w".into(), w);
         s.save();
-        assert_eq!(Store::load(&dir).layouts, s.layouts);
+        assert_eq!(Store::load(&dir, |_| None).layouts, s.layouts);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -915,7 +1004,7 @@ mod tests {
             "layouts": { "/w": serde_json::to_value(&good).unwrap(), "/x": { "tree": 5 } },
         });
         std::fs::write(dir.join("desktop.json"), raw.to_string()).unwrap();
-        let s = Store::load(&dir);
+        let s = Store::load(&dir, |_| None);
         assert_eq!(s.projects, ["/w"]);
         assert_eq!(s.layouts.get("/w"), Some(&good));
         assert!(!s.layouts.contains_key("/x"));
@@ -954,9 +1043,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pocket-sounds-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("desktop.json"), r#"{"projects":["/w"]}"#).unwrap();
-        assert_eq!(Store::load(&dir).sounds, Sounds::default());
+        assert_eq!(Store::load(&dir, |_| None).sounds, Sounds::default());
         std::fs::write(dir.join("desktop.json"), r#"{"sounds":{"done":false}}"#).unwrap();
-        assert_eq!(Store::load(&dir).sounds, Sounds { done: false, ..Sounds::default() });
+        assert_eq!(Store::load(&dir, |_| None).sounds, Sounds { done: false, ..Sounds::default() });
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -972,12 +1061,12 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pocket-store-private-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let mut s = Store::load(&dir);
+        let mut s = Store::load(&dir, |_| None);
         s.projects.push("/w".into());
         s.save();
         assert_eq!(mode(&dir.join("desktop.json")), 0o600);
         assert!(!dir.join("desktop.json.tmp").exists());
-        assert_eq!(Store::load(&dir).projects, ["/w"]);
+        assert_eq!(Store::load(&dir, |_| None).projects, ["/w"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -992,7 +1081,7 @@ mod tests {
             std::fs::write(dir.join(name), "{}").unwrap();
             std::fs::set_permissions(dir.join(name), std::fs::Permissions::from_mode(0o644)).unwrap();
         }
-        Store::load(&dir).save();
+        Store::load(&dir, |_| None).save();
         assert_eq!(mode(&dir.join("desktop.json")), 0o600);
         assert!(!dir.join("desktop.json.tmp").exists());
         std::fs::remove_dir_all(&dir).unwrap();
@@ -1071,7 +1160,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pocket-store-settings-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let mut s = Store::load(&dir);
+        let mut s = Store::load(&dir, |_| None);
         s.notifications.banners = false;
         s.appearance = Appearance {
             mode: Mode::Dark,
@@ -1097,7 +1186,7 @@ mod tests {
         s.keys = BTreeMap::from([("desktop::OpenPalette".into(), "cmd-shift-p".into()), ("desktop::Reload in Browser".into(), String::new())]);
         s.added = vec![("desktop::OpenActivity".into(), "cmd-shift-y".into()), ("desktop::OpenPalette".into(), "cmd-alt-p".into())];
         s.save();
-        assert_eq!(Store::load(&dir), s);
+        assert_eq!(Store::load(&dir, |_| None), s);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1171,19 +1260,19 @@ mod tests {
     }
 
     #[test]
-    fn worktrees_dir_is_a_folder_named_for_the_repo_under_the_root_else_under_anywhere_in_home() {
+    fn worktrees_dir_is_a_folder_named_for_the_repo_under_the_root_else_under_the_shared_home() {
         let mut s = Store::default();
         s.repos.insert("/w/named".into(), RepoConfig { name: "Named".into(), ..Default::default() });
-        assert_eq!(["/w/named", "/w/plain"].map(|r| s.worktrees_dir(r, "/h")), ["/h/.anywhere/worktrees/Named", "/h/.anywhere/worktrees/plain"]);
+        assert_eq!(["/w/named", "/w/plain"].map(|r| s.worktrees_dir(r, "/h/.zoes")), ["/h/.zoes/worktrees/Named", "/h/.zoes/worktrees/plain"]);
         s.worktree.root = "/wt/".into();
         assert_eq!(["/w/named", "/w/plain"].map(|r| s.worktrees_dir(r, "/h")), ["/wt/Named", "/wt/plain"]);
     }
 
     #[test]
-    fn a_hosts_project_makes_worktrees_under_the_hosts_home_whatever_this_macs_root() {
+    fn a_hosts_project_makes_worktrees_under_the_hosts_shared_home_whatever_this_macs_root() {
         let s = Store { worktree: WorktreeDefaults { root: "/wt".into(), ..Default::default() }, ..Default::default() };
-        assert_eq!(s.worktrees_dir("//devbox/u/app", "/home/me"), "//devbox/home/me/.anywhere/worktrees/app");
-        assert_eq!(s.worktrees_dir("//win/C:/code/app", r"C:\Users\me"), "//win/C:/Users/me/.anywhere/worktrees/app");
+        assert_eq!(s.worktrees_dir("//devbox/u/app", "/home/me/.zoes"), "//devbox/home/me/.zoes/worktrees/app");
+        assert_eq!(s.worktrees_dir("//win/C:/code/app", r"C:\Users\me\.anywhere"), "//win/C:/Users/me/.anywhere/worktrees/app");
     }
 
     #[test]
@@ -1216,7 +1305,7 @@ mod tests {
         let mut sample: serde_json::Value = serde_json::from_str(include_str!("../../../../pocketd/internal/hosts/testdata/desktop.json")).unwrap();
         sample["hosts"][0]["note"] = "kept as written".into();
         std::fs::write(dir.join("desktop.json"), sample.to_string()).unwrap();
-        let mut s = Store::load(&dir);
+        let mut s = Store::load(&dir, |_| None);
         s.projects.push("/w".into());
         s.save();
         let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("desktop.json")).unwrap()).unwrap();

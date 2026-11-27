@@ -24,6 +24,8 @@ pub trait Host: Send + Sync {
     fn size(&self, path: &str) -> io::Result<Option<u64>>;
     fn remove(&self, path: &str) -> io::Result<()>;
     fn home(&self) -> io::Result<String>;
+    /// The home every channel on the host shares, which holds its worktrees.
+    fn shared(&self) -> io::Result<String>;
 }
 
 impl Host for hosts::remote::Client {
@@ -59,6 +61,10 @@ impl Host for hosts::remote::Client {
 
     fn home(&self) -> io::Result<String> {
         hosts::remote::Client::home(self)
+    }
+
+    fn shared(&self) -> io::Result<String> {
+        self.shared_dir()
     }
 }
 
@@ -196,6 +202,10 @@ pub(crate) mod testing {
 
         fn home(&self) -> io::Result<String> {
             Ok(self.home.clone())
+        }
+
+        fn shared(&self) -> io::Result<String> {
+            Ok(format!("{}/.zoes", self.home))
         }
     }
 

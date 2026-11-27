@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"pocketd/internal/config"
 	"pocketd/internal/registry"
 )
 
@@ -99,13 +100,12 @@ func branches(project string) ([]string, error) {
 }
 
 // Dir is the folder project's new Worktrees go in: under the root setting, else
-// ~/.anywhere/worktrees.
+// the shared home's worktrees.
 func Dir(f registry.File, project string) string {
 	if r := f.Worktree.Root; r != "" {
 		return filepath.Join(r, f.Name(project))
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".anywhere", "worktrees", f.Name(project))
+	return filepath.Join(config.SharedHome(), "worktrees", f.Name(project))
 }
 
 // Containing is the registered Project whose folder or worktrees folder holds

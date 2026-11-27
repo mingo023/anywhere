@@ -70,7 +70,8 @@ fn main() {
     let home = path.parent().unwrap_or(path).to_path_buf();
     let links = agents::LinkLog::open(&home.join("logs/desktop.log"));
     let (outbox, mut agent_rx) = agents::connect_with(path, own.token.clone(), agents::Peer::ThisMac, links.clone());
-    let store = Store::load(&home);
+    let moves = std::env::home_dir().map(|user| daemon::home::moved(&user)).unwrap_or_default();
+    let store = Store::load(&home, |path| daemon::home::rehome(&moves, path));
     let custom = themes::load(&home);
     if channel::is_release() && store.general.open_at_login {
         std::thread::spawn(|| daemon::service::open_at_login(true));

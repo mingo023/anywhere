@@ -3391,6 +3391,7 @@ dependencies = [
 name = "handoff"
 version = "0.0.0"
 dependencies = [
+ "daemon",
  "git",
  "hosts",
  "serde_json",

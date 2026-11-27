@@ -664,7 +664,7 @@ impl Desktop {
     }
 
     pub(super) fn pick_repo(&mut self, repo: String, window: &mut Window, cx: &mut Context<Self>) {
-        let folders = self.store.worktrees_dir(&repo, &self.host_agents.home_of(&repo));
+        let folders = self.store.worktrees_dir(&repo, &self.host_agents.shared_of(&repo));
         let scratch = self.store.is_scratch(&repo);
         self.new_form.update(cx, |f, cx| f.edit(cx, |d| d.pick_repo(Some(repo.clone()), scratch)));
         let dir = repo.clone();
@@ -808,7 +808,7 @@ impl Desktop {
             self.new_form.update(cx, |f, cx| f.edit(cx, |d| d.reply.sent(request)));
             return cx.notify();
         }
-        let path = format!("{}/{folder}", self.store.worktrees_dir(&project, &self.host_agents.home_of(&project)));
+        let path = format!("{}/{folder}", self.store.worktrees_dir(&project, &self.host_agents.shared_of(&project)));
         self.creates.update(cx, |c, _| c.list.push(Create::new(request, path.clone(), spec, Instant::now())));
         self.clear_new_form(window, cx);
         self.leave_new_session(window, cx);

@@ -2,7 +2,7 @@ use super::catalog::{Look, Setting};
 use super::fields::{filter_field, filter_matches};
 use super::side::Machine;
 use super::{HostsAct, Settings, SettingsEvent, action, dropdown};
-use crate::modals::form::home;
+use crate::modals::form::{home, shared};
 use crate::settings::toasts::Toast;
 use crate::spaces::header::tile;
 use crate::util::tilde;
@@ -24,7 +24,7 @@ fn worktree_count(n: usize) -> String {
 }
 
 pub(super) const ROWS: &[Setting] = &[
-    Setting::path("worktree-folder", "Locations", "Worktree folder", |s| s.worktree_root(&home()), |s, p| s.worktree.root = p)
+    Setting::path("worktree-folder", "Locations", "Worktree folder", |s| s.worktree_root(&shared()), |s, p| s.worktree.root = p)
         .hint("New worktrees go in <folder>/<project>/<name>"),
     Setting::path("clone-folder", "Locations", "Clone folder", |s| s.clone_root(&home()), |s, p| s.worktree.clone_root = p)
         .hint("Where Add project › Clone puts new repositories"),

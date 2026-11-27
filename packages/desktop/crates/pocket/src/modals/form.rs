@@ -11,6 +11,20 @@ pub(crate) fn home() -> String {
     std::env::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
+static SHARED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// The home every channel on this Mac shares, holding its worktrees and Scratch folders. Read once until `reshare`,
+/// since settings render it every frame.
+pub(crate) fn shared() -> String {
+    let mut shared = SHARED.lock().unwrap_or_else(|e| e.into_inner());
+    shared.get_or_insert_with(|| daemon::home::shared_home(home().as_ref()).to_string_lossy().into_owned()).clone()
+}
+
+/// Reads the shared home again, after pocketd moved it.
+pub(crate) fn reshare() {
+    *SHARED.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
 pub(crate) fn typed_or(input: &Entity<InputState>, fallback: impl FnOnce() -> String, cx: &App) -> String {
     let v = input.read(cx).value().trim().to_string();
     if v.is_empty() { fallback() } else { v }

@@ -333,6 +333,15 @@ impl Client {
         self.pocket.get().cloned()
     }
 
+    /// The folder on the host every channel keeps worktrees and Scratch folders in, asked of pocketd only until a
+    /// `status` gives it.
+    pub fn shared_dir(&self) -> io::Result<String> {
+        match (self.home.get(), self.pocket.get()) {
+            (Some(home), Some(pocket)) => Ok(shared(home, pocket)),
+            _ => Ok(shared_dir(&self.status()?)),
+        }
+    }
+
     pub fn list(&self, dir: &str) -> io::Result<Vec<Entry>> {
         let reply = self.fs("fs.list", json!({"path": self.host_path(dir)}))?;
         // pocketd omits `entries` for an empty folder.
@@ -376,6 +385,17 @@ fn pocket_dir(info: &HostInfo) -> String {
         "" => format!("{}/{}", info.user_home, channel::home_dir_name()),
         home => home.replace('\\', "/"),
     }
+}
+
+/// The folder on the host every channel keeps worktrees and Scratch folders in, as `config.SharedHome` finds it there.
+pub fn shared_dir(info: &HostInfo) -> String {
+    shared(&info.user_home.replace('\\', "/"), &pocket_dir(info))
+}
+
+/// `~/.zoes` once pocketd's home `pocket` is in it, else `~/.anywhere`.
+fn shared(home: &str, pocket: &str) -> String {
+    let zoes = format!("{home}/.zoes");
+    if pocket == zoes || pocket == format!("{zoes}/dev") { zoes } else { format!("{home}/.anywhere") }
 }
 
 /// A write that blocks past `write_timeout` fails, so a host that stopped reading can't hold the lock `call` writes under.
@@ -520,6 +540,22 @@ mod tests {
         let info = |home: &str, user_home: &str| HostInfo { home: home.into(), user_home: user_home.into(), ..HostInfo::default() };
         assert_eq!(pocket_dir(&info("", "/home/dev")), format!("/home/dev/{}", channel::home_dir_name()));
         assert_eq!(pocket_dir(&info("C:\\Users\\dev\\.coding-pocket", "C:/Users/dev")), "C:/Users/dev/.coding-pocket");
+    }
+
+    #[test]
+    fn a_hosts_shared_folder_moves_to_zoes_with_its_pocketd() {
+        let info = |home: &str| HostInfo { home: home.into(), user_home: "/home/dev".into(), ..HostInfo::default() };
+        for (pocket, shared) in [
+            ("/home/dev/.zoes", "/home/dev/.zoes"),
+            ("/home/dev/.zoes/dev", "/home/dev/.zoes"),
+            ("/home/dev/.anywhere", "/home/dev/.anywhere"),
+            ("/home/dev/.anywhere/dev", "/home/dev/.anywhere"),
+            ("/home/dev/.coding-pocket", "/home/dev/.anywhere"),
+        ] {
+            assert_eq!(shared_dir(&info(pocket)), shared, "{pocket}");
+        }
+        let windows = HostInfo { home: r"C:\Users\dev\.anywhere".into(), user_home: r"C:\Users\dev".into(), ..HostInfo::default() };
+        assert_eq!(shared_dir(&windows), "C:/Users/dev/.anywhere");
     }
 
     #[test]

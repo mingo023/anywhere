@@ -108,6 +108,10 @@ func serve(sock, handed string) error {
 		return fmt.Errorf("pocketd.db: %w", err)
 	}
 	defer db.Close()
+	moves := config.Moved()
+	if err := rehome(db, moves); err != nil {
+		log.Printf("home: pointing paths at the moved home: %v", err)
+	}
 	started := time.Now()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
@@ -217,8 +221,7 @@ func serve(sock, handed string) error {
 		return err
 	}
 	userHome, _ := os.UserHomeDir()
-	// The same folder for dev and release builds, so both see one set of accounts.
-	d.Accounts = &accounts.Store{Root: filepath.Join(userHome, ".anywhere", "accounts"), Home: userHome}
+	d.Accounts = &accounts.Store{Root: config.AccountsDir(), Home: userHome}
 	if runtime.GOOS == "darwin" {
 		d.Accounts.Secret = accounts.Keychain
 	}
@@ -351,8 +354,13 @@ func serve(sock, handed string) error {
 		clients = holder.Find(d.Terminals.Holder.Dir)
 	}
 	reap(clients)
+	for _, c := range clients {
+		c.Cwd = config.Rehome(moves, c.Cwd)
+	}
 	var ptys []state.Terminal
-	for _, e := range inherited.Terminals {
+	for i := range inherited.Terminals {
+		e := &inherited.Terminals[i]
+		e.Cwd, e.Saved.LaunchDir = config.Rehome(moves, e.Cwd), config.Rehome(moves, e.Saved.LaunchDir)
 		if e.FD > 0 {
 			ptys = append(ptys, e.Saved)
 		}
@@ -363,6 +371,9 @@ func serve(sock, handed string) error {
 		d.Adopt(inherited)
 	}
 	saved := o.restoring(statePath)
+	for i := range saved.Terminals {
+		saved.Terminals[i].LaunchDir = config.Rehome(moves, saved.Terminals[i].LaunchDir)
+	}
 	saved.Terminals = slices.DeleteFunc(saved.Terminals, func(e state.Terminal) bool {
 		return slices.ContainsFunc(ptys, func(p state.Terminal) bool { return p.TerminalID == e.TerminalID })
 	})

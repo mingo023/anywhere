@@ -7,7 +7,7 @@ use crate::{Host, run};
 
 /// Sends `pack`'s bundle to the host for handoff `id`; where it landed.
 pub fn send(host: &dyn Host, pack: &Pack, id: &str) -> Result<String, String> {
-    let dir = format!("{}/.anywhere/handoff", host.home().map_err(|e| e.to_string())?);
+    let dir = format!("{}/handoff", host.shared().map_err(|e| e.to_string())?);
     host.mkdir(&dir).map_err(|e| e.to_string())?;
     let path = format!("{dir}/{id}.bundle");
     host.write(&path, &pack.bundle).map_err(|e| e.to_string())?;
@@ -60,8 +60,8 @@ pub fn worktree(host: &dyn Host, project: &str, name: &str, bundle: &str, pack: 
 
 /// Adds the worktree, noting its path in `placed` as soon as it exists, and returns its real path.
 fn add(host: &dyn Host, name: &str, pack: &Pack, placed: &mut Placed) -> Result<String, String> {
-    let home = host.home().map_err(|e| e.to_string())?;
-    let root = format!("{home}/.anywhere/worktrees/{}", basename(&placed.project));
+    let shared = host.shared().map_err(|e| e.to_string())?;
+    let root = format!("{shared}/worktrees/{}", basename(&placed.project));
     host.mkdir(&root).map_err(|e| e.to_string())?;
     let path = free_path(host, &root, name)?;
     run(host, &placed.project, &["git", "worktree", "add", "-q", &path, &pack.branch])?;
@@ -106,7 +106,7 @@ mod tests {
         let project = format!("{home}/code/app");
         let placed = worktree(&host, &project, "feat", &bundle, &p).unwrap();
         let path = placed.path.clone();
-        assert_eq!(path, format!("{home}/.anywhere/worktrees/app/feat"));
+        assert_eq!(path, format!("{home}/.zoes/worktrees/app/feat"));
         assert!(placed.made_branch);
         let tree = Path::new(&path);
         assert_eq!(git(tree, &["rev-parse", "HEAD"]), p.tip, "the branch is at this Mac's commit, not the wip one");
@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn a_taken_folder_name_gets_a_number() {
         let (_root, mac, home) = repos("taken", "feat");
-        std::fs::create_dir_all(format!("{home}/.anywhere/worktrees/app/feat")).unwrap();
+        std::fs::create_dir_all(format!("{home}/.zoes/worktrees/app/feat")).unwrap();
         let p = pack(&mac, "t1").unwrap();
         let host = Folder { home: home.clone() };
         let bundle = send(&host, &p, "t1").unwrap();
@@ -172,7 +172,7 @@ mod tests {
         let p = pack(&mac, "f1").unwrap();
         let host = Folder { home: home.clone() };
         let bundle = send(&host, &p, "f1").unwrap();
-        std::fs::write(format!("{home}/.anywhere/worktrees"), "a file where the folder goes").unwrap();
+        std::fs::write(format!("{home}/.zoes/worktrees"), "a file where the folder goes").unwrap();
         let project = format!("{home}/code/app");
         assert!(worktree(&host, &project, "feat", &bundle, &p).is_err());
         assert_eq!(git(Path::new(&project), &["branch", "--list", "feat"]), "");
