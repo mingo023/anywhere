@@ -164,12 +164,21 @@ pub(crate) fn view(
             .hover(|s| s.text_color(TEXT_2))
             .line_clamp(2)
             .on_click(on_brief)
-            .child(b.to_string())
+            .child(b.split_whitespace().collect::<Vec<_>>().join(" "))
     });
+    let name = div()
+        .flex_1()
+        .min_w_0()
+        .truncate()
+        .text_size(px(14.))
+        .line_height(px(20.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(TEXT)
+        .child(sub_agent::name(agent));
     let title = div()
         .flex_1()
         .min_w_0()
-        .child(div().truncate().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(sub_agent::name(agent)))
+        .child(div().flex().items_start().gap(px(10.)).child(name).child(div().flex_none().flex().gap(px(2.)).children(actions)))
         .children(brief);
     let head = div()
         .flex_none()
@@ -184,8 +193,7 @@ pub(crate) fn view(
         .border_color(SEPARATOR)
         .children(lead)
         .child(div().mt(px(3.)).child(sub_agent::glyph(&format!("{key}-{}", call.id), m)))
-        .child(title)
-        .child(div().flex_none().flex().gap(px(2.)).children(actions));
+        .child(title);
 
     let local = |ms: i64| format_timestamp(ms, &chrono::Local);
     let facts = div().flex().flex_col().gap(px(7.)).text_size(px(13.)).line_height(px(19.)).children(facts(call, agent, now, local).into_iter().map(fact_row));

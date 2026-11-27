@@ -100,10 +100,10 @@ pub(crate) fn half(r: Rect, edge: Edge) -> Rect {
 mod tests {
     use super::*;
 
-    /// Two 600x400 panes side by side, `0` holding three 100px tabs, `1` holding two.
+    /// Two 800x400 panes side by side, `0` holding three 100px tabs, `1` holding two.
     fn two() -> (Vec<(PaneId, Rect)>, Slots) {
-        let layout = vec![(0, Rect { x: 0., y: 0., w: 600., h: 400. }), (1, Rect { x: 600., y: 0., w: 600., h: 400. })];
-        let slots = HashMap::from([(0, vec![(10., 100.), (112., 100.), (214., 100.)]), (1, vec![(610., 100.), (712., 100.)])]);
+        let layout = vec![(0, Rect { x: 0., y: 0., w: 800., h: 400. }), (1, Rect { x: 800., y: 0., w: 800., h: 400. })];
+        let slots = HashMap::from([(0, vec![(10., 100.), (112., 100.), (214., 100.)]), (1, vec![(810., 100.), (912., 100.)])]);
         (layout, slots)
     }
 
@@ -118,9 +118,9 @@ mod tests {
     #[test]
     fn a_tab_over_another_strip_lands_past_the_tabs_whose_middle_it_passed() {
         let (layout, slots) = two();
-        assert_eq!(aim(&layout, (650., 20.), 0, 3, 640., &slots), at(1, 0));
-        assert_eq!(aim(&layout, (700., 20.), 0, 3, 700., &slots), at(1, 1));
-        assert_eq!(aim(&layout, (1100., 20.), 0, 3, 1100., &slots), at(1, 2));
+        assert_eq!(aim(&layout, (850., 20.), 0, 3, 840., &slots), at(1, 0));
+        assert_eq!(aim(&layout, (900., 20.), 0, 3, 900., &slots), at(1, 1));
+        assert_eq!(aim(&layout, (1300., 20.), 0, 3, 1300., &slots), at(1, 2));
     }
 
     #[test]
@@ -132,11 +132,11 @@ mod tests {
     #[test]
     fn near_a_pane_edge_a_tab_splits_that_way_and_in_the_middle_joins_the_pane() {
         let (layout, slots) = two();
-        assert_eq!(aim(&layout, (620., 220.), 0, 3, 620., &slots), split(1, Edge::Left));
-        assert_eq!(aim(&layout, (1180., 220.), 0, 3, 1180., &slots), split(1, Edge::Right));
-        assert_eq!(aim(&layout, (900., 50.), 0, 3, 900., &slots), split(1, Edge::Top));
-        assert_eq!(aim(&layout, (900., 390.), 0, 3, 900., &slots), split(1, Edge::Bottom));
-        assert_eq!(aim(&layout, (900., 220.), 0, 3, 900., &slots), at(1, 2));
+        assert_eq!(aim(&layout, (820., 220.), 0, 3, 820., &slots), split(1, Edge::Left));
+        assert_eq!(aim(&layout, (1580., 220.), 0, 3, 1580., &slots), split(1, Edge::Right));
+        assert_eq!(aim(&layout, (1100., 50.), 0, 3, 1100., &slots), split(1, Edge::Top));
+        assert_eq!(aim(&layout, (1100., 390.), 0, 3, 1100., &slots), split(1, Edge::Bottom));
+        assert_eq!(aim(&layout, (1100., 220.), 0, 3, 1100., &slots), at(1, 2));
     }
 
     #[test]
@@ -150,14 +150,14 @@ mod tests {
     fn over_its_own_pane_a_tab_drops_only_to_split_it_and_only_if_it_leaves_a_tab() {
         let (layout, slots) = two();
         assert_eq!(aim(&layout, (300., 220.), 0, 3, 300., &slots), None);
-        assert_eq!(aim(&layout, (580., 220.), 0, 3, 580., &slots), split(0, Edge::Right));
-        assert_eq!(aim(&layout, (580., 220.), 0, 1, 580., &slots), None);
+        assert_eq!(aim(&layout, (780., 220.), 0, 3, 780., &slots), split(0, Edge::Right));
+        assert_eq!(aim(&layout, (780., 220.), 0, 1, 780., &slots), None);
     }
 
     #[test]
     fn a_tab_outside_every_pane_drops_nowhere() {
         let (layout, slots) = two();
-        assert_eq!(aim(&layout, (1300., 220.), 0, 3, 1300., &slots), None);
+        assert_eq!(aim(&layout, (1700., 220.), 0, 3, 1700., &slots), None);
     }
 
     #[test]
@@ -177,17 +177,17 @@ mod tests {
     #[test]
     fn a_pane_drops_at_the_edge_its_pointer_leans_to_most() {
         let (layout, _) = two();
-        assert_eq!(pane_aim(&layout, (650., 200.), Some(0)), Some((1, Edge::Left)));
-        assert_eq!(pane_aim(&layout, (1150., 200.), Some(0)), Some((1, Edge::Right)));
-        assert_eq!(pane_aim(&layout, (900., 20.), Some(0)), Some((1, Edge::Top)));
-        assert_eq!(pane_aim(&layout, (900., 390.), Some(0)), Some((1, Edge::Bottom)));
+        assert_eq!(pane_aim(&layout, (850., 200.), Some(0)), Some((1, Edge::Left)));
+        assert_eq!(pane_aim(&layout, (1550., 200.), Some(0)), Some((1, Edge::Right)));
+        assert_eq!(pane_aim(&layout, (1100., 20.), Some(0)), Some((1, Edge::Top)));
+        assert_eq!(pane_aim(&layout, (1100., 390.), Some(0)), Some((1, Edge::Bottom)));
     }
 
     #[test]
     fn a_pane_never_drops_on_itself_or_outside_every_pane() {
         let (layout, _) = two();
         assert_eq!(pane_aim(&layout, (300., 200.), Some(0)), None);
-        assert_eq!(pane_aim(&layout, (1300., 200.), Some(0)), None);
+        assert_eq!(pane_aim(&layout, (1700., 200.), Some(0)), None);
         assert_eq!(pane_aim(&layout, (100., 200.), None), Some((0, Edge::Left)));
     }
 

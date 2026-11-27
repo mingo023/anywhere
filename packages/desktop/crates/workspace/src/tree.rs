@@ -84,7 +84,7 @@ pub struct Rect {
 pub const UNIT: Rect = Rect { x: 0., y: 0., w: 1., h: 1. };
 
 /// The smallest a pane may be drawn; a split or resize that would go below it doesn't happen.
-pub const MIN_W: f32 = 260.;
+pub const MIN_W: f32 = 360.;
 
 pub const MIN_H: f32 = 150.;
 
@@ -802,11 +802,11 @@ mod tests {
         let mut t = with(&["a"]);
         let b = t.split(0, Edge::Right, "b").unwrap();
         t.split(b, Edge::Right, "c");
-        t.resize(&Divider { path: vec![], i: 1 }, 900., 1200.);
+        t.resize(&Divider { path: vec![], i: 1 }, 1200., 1600.);
         assert_eq!(sizes(&t), vec![0.5, 0.25, 0.25]);
-        t.resize(&Divider { path: vec![], i: 1 }, 880., 1200.);
+        t.resize(&Divider { path: vec![], i: 1 }, 1180., 1600.);
         let s = sizes(&t);
-        assert!((s[0] - 0.5).abs() < EPS && (s[1] - 280. / 1200.).abs() < EPS && (s[2] - 320. / 1200.).abs() < EPS, "{s:?}");
+        assert!((s[0] - 0.5).abs() < EPS && (s[1] - 380. / 1600.).abs() < EPS && (s[2] - 420. / 1600.).abs() < EPS, "{s:?}");
     }
 
     #[test]
