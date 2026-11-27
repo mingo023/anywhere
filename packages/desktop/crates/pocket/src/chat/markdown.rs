@@ -29,6 +29,8 @@ impl Colours {
     }
 }
 
+const CODE_RADIUS: f32 = 10.;
+
 /// How far a list item's text sits from its marker's edge.
 pub(super) const LIST_INDENT: f32 = 14. * 1.9;
 
@@ -269,9 +271,9 @@ fn style() -> TextViewStyle {
         .with_list_item_gap(px(8.))
         .with_selection(SELECTION.into())
         .with_border(SEPARATOR.into())
-        .with_code_background(ink(0.035))
+        .with_code_background(code_fill())
         .with_code_border(SEPARATOR.into())
-        .with_code_block(StyleRefinement::default().rounded(px(10.)).border_1())
+        .with_code_block(StyleRefinement::default().rounded(px(CODE_RADIUS)).border_1())
         .with_aside_background(ink(0.035))
         .with_inline_code(HighlightStyle { color: Some(TEXT.into()), background_color: Some(FILL_4.into()), ..Default::default() })
         .with_blockquote(quote)
@@ -314,15 +316,29 @@ pub(crate) fn block(view: TextView, open: Open) -> TextView {
 }
 
 /// A fenced code block, selectable: language, wrap and copy over code that scrolls sideways, coloured once `colours` land.
-pub(super) fn code_block(doc: &Entity<TextViewState>, colours: Option<Colours>) -> TextView {
+/// A fenced block in its own rounded frame, or `unframed` to sit inside `run_frame` with what follows it.
+pub(super) fn code_block(doc: &Entity<TextViewState>, colours: Option<Colours>, unframed: bool) -> TextView {
+    let style = match unframed {
+        true => style().with_code_block(StyleRefinement::default().rounded(px(0.)).border_0()),
+        false => style(),
+    };
     TextView::new(doc)
-        .style(style())
+        .style(style)
         .when_some(colours, |view, colours| view.shared_code_block_highlighter(colours.highlighter))
         .selectable(true)
         .scrollable(false)
         .w_full()
         .text_size(px(12.5))
         .text_color(TEXT)
+}
+
+/// The frame a code block shares with its run, drawn as one block's would be.
+pub(super) fn run_frame() -> Div {
+    div().flex().flex_col().rounded(px(CODE_RADIUS)).border_1().border_color(SEPARATOR).overflow_hidden()
+}
+
+pub(super) fn code_fill() -> Hsla {
+    ink(0.035)
 }
 
 /// `code` refenced at column 0 with a fence longer than any backtick run inside it, so it parses back whole.

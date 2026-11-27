@@ -1020,7 +1020,7 @@ impl View {
                             highlight = Some((lang.to_string(), code.to_string()));
                         }
                         let doc = view.docs.code(&id, lang, &code, cx);
-                        let code_view = markdown::code_block(&doc, colours);
+                        let code_view = markdown::code_block(&doc, colours, view.runs.get(&id).is_some());
                         // Runs only once the fence closes: a block still streaming can be a cut-off command.
                         let steps = view.side.runs_in.as_ref().filter(|_| markdown::closed(text)).and_then(|_| super::steps::runnable(lang, &code));
                         let block = match steps {
@@ -1048,7 +1048,10 @@ impl View {
                                     let hide = cx.listener(move |this: &mut View, _: &ClickEvent, _, cx| this.hide_run(&row, cx));
                                     super::run_card::card(&id, run, copy(key.clone(), run.output().to_string(), cx), view.copied(&key), fix, hide, now)
                                 });
-                                div().flex().flex_col().child(code_view).children(card)
+                                match card {
+                                    Some(card) => markdown::run_frame().child(code_view).child(card),
+                                    None => div().child(code_view),
+                                }
                             }
                             None => div().child(code_view),
                         };

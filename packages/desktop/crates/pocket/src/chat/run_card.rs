@@ -242,21 +242,11 @@ where
                 .tooltip(move |window, cx| Tooltip::new(if shown { "Hide output" } else { "Show output" }).build(window, cx))
                 .on_click(hide),
         );
-    div()
-        .relative()
-        .mt(px(-4.))
-        .pt(px(8.))
-        .rounded_b(px(15.))
-        .border_1()
-        .border_t_0()
-        .border_color(MD_CODE_BORDER)
-        .bg(MD_CODE_BG)
-        .children(run.running().then(|| sweep(id)))
-        .children(output)
-        .child(status)
-        .with_animation(SharedString::from(format!("run-in-{}", run.seq)), Animation::new(REVEAL).with_easing(ease_out_quint()), |d, t| {
-            d.opacity(t).top(px(-4. * (1. - t)))
-        })
+    div().relative().bg(super::markdown::code_fill()).children(run.running().then(|| sweep(id))).children(output).child(status).with_animation(
+        SharedString::from(format!("run-in-{}", run.seq)),
+        Animation::new(REVEAL).with_easing(ease_out_quint()),
+        |d, t| d.opacity(t).top(px(-4. * (1. - t))),
+    )
 }
 
 /// The header's end of a runnable block: where it runs, what makes it risky, and its Run button.
