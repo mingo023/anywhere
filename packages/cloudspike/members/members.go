@@ -309,14 +309,15 @@ func (v *View) Accept(l Log) error {
 	return nil
 }
 
-// Subscribe calls f with each list Accept adopts until the returned stop.
-func (v *View) Subscribe(f func(State)) (stop func()) {
+// Subscribe calls f with each list Accept adopts until the returned stop. It
+// returns the list as it stood when f joined, so no change falls between.
+func (v *View) Subscribe(f func(State)) (now State, stop func()) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	id := v.next
 	v.next++
 	v.subs[id] = f
-	return func() {
+	return v.state, func() {
 		v.mu.Lock()
 		delete(v.subs, id)
 		v.mu.Unlock()

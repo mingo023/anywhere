@@ -15,6 +15,7 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"cloudspike/members"
@@ -88,12 +89,14 @@ func open(c *tls.Conn, v *members.View, peer *members.Member) (*Conn, error) {
 	}
 	c.SetDeadline(time.Time{})
 	key := peer.Key
-	m, ok := v.State().Has(key)
-	stop := v.Subscribe(func(s members.State) {
-		if now, ok := s.Has(key); !ok || now.Kind != m.Kind {
+	var kind atomic.Value
+	now, stop := v.Subscribe(func(s members.State) {
+		if m, ok := s.Has(key); !ok || m.Kind != kind.Load() {
 			go c.Close()
 		}
 	})
+	m, ok := now.Has(key)
+	kind.Store(m.Kind)
 	if !ok {
 		stop()
 		c.Close()
