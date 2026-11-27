@@ -931,6 +931,8 @@ const restart = (ws: Ws, agentId: string) => {
 };
 // A prompt sent mid-reply, which Claude takes once the reply's step ends, by agent.
 const steers = new Map<string, () => void>();
+// Prompts steered together reach the transcript in the same millisecond.
+let userSeq = 0;
 const steerLater = (agentId: string, run: () => void) => {
   const before = steers.get(agentId);
   steers.set(agentId, before ? () => (before(), run()) : run);
@@ -971,7 +973,7 @@ const hold = (ws: Ws, agentId: string) => {
 };
 // What a turn does with a prompt once pocketd lets it run.
 const takeTurn = (ws: Ws, agentId: string, text: string) => {
-  item(ws, agentId, { id: `u-${Date.now()}`, kind: "user", text });
+  item(ws, agentId, { id: `u-${Date.now()}-${++userSeq}`, kind: "user", text });
   reply(ws, agentId);
 };
 // `chunks` chunks 30ms apart into one item, as pocketd streams a reply.
@@ -1204,7 +1206,7 @@ const prompted = (ws: Ws, f: any) => {
   else if (!process.env.FIXTURE_DROP && f.text.startsWith("/")) item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
   else if (!process.env.FIXTURE_DROP) {
     const answer = () => {
-      item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
+      item(ws, f.agentId, { id: `u-${Date.now()}-${++userSeq}`, kind: "user", text: f.text });
       reply(ws, f.agentId);
     };
     if (streams.has(f.agentId)) steerLater(f.agentId, answer);
