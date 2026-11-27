@@ -32,6 +32,20 @@ function Answers {
   try { return $c.ConnectAsync('127.0.0.1', (Port)).Wait(500) } catch { return $false } finally { $c.Close() }
 }
 
+# Pair, uninstall and the desktop's probe run pocketd through the shim, as pocketd.exe's folder changes with each version.
+function WriteShim($exe) {
+  $bin = Join-Path $HomeDir 'bin'
+  New-Item -ItemType Directory -Force -Path $bin | Out-Null
+  [IO.File]::WriteAllText((Join-Path $bin 'pocketd.cmd'), "@set `"POCKET_HOME=$HomeDir`"`r`n@`"$exe`" %*`r`n")
+}
+
+# A pocketd the Windows app started never got a shim.
+function EnsureShim {
+  if (Test-Path (Join-Path $HomeDir 'bin\pocketd.cmd')) { return }
+  $listener = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort (Port) -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($listener) { WriteShim (Get-Process -Id $listener.OwningProcess).Path }
+}
+
 try {
   Step 'detect'
   # A 32-bit shell on ARM64 reports x86 and the real arch here.
@@ -39,6 +53,7 @@ try {
   $arch = switch ($cpu) { 'AMD64' { 'amd64' } 'ARM64' { 'arm64' } default { throw "unsupported CPU $cpu" } }
   $running = Answers
   if ($running -and -not $env:ANYWHERE_FORCE) {
+    EnsureShim
     Write-Output 'ANYWHERE running'
     exit 0
   }
@@ -88,12 +103,9 @@ try {
     if ($env:ANYWHERE_ARCHIVE) { Remove-Item -Force $env:ANYWHERE_ARCHIVE -ErrorAction SilentlyContinue }
   }
 
-  # A stable path for pair and uninstall: pocketd.exe's folder changes with each version.
   Step 'link'
   $exe = Join-Path $runtime 'pocketd.exe'
-  $bin = Join-Path $HomeDir 'bin'
-  New-Item -ItemType Directory -Force -Path $bin | Out-Null
-  [IO.File]::WriteAllText((Join-Path $bin 'pocketd.cmd'), "@set `"POCKET_HOME=$HomeDir`"`r`n@`"$exe`" %*`r`n")
+  WriteShim $exe
 
   Step 'service'
   & $exe service install --label $Label
