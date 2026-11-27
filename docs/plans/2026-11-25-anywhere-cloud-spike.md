@@ -13,7 +13,7 @@ The code is `packages/cloudspike`. Nothing in pocketd, the desktop or iOS uses i
 
 ## The goals
 
-Each test plays the cloud as an attacker. `scripts/mutate.sh` turns off 19 checks one at a time, and a test fails for each. It doesn't cover the genesis checks in `Replay`.
+Each test plays the cloud as an attacker. `scripts/mutate.sh` turns off 21 checks one at a time, and a test fails for each. It doesn't cover the genesis checks in `Replay`.
 
 | Goal | Holds? | Tests |
 |---|---|---|

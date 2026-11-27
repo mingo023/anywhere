@@ -137,3 +137,36 @@ func TestTheNextMemberCarriesAHiddenRemovalAndCutsTheRemovedOne(t *testing.T) {
 		t.Fatalf("phone's channel still open: %v", err)
 	}
 }
+
+func TestAChannelClosesWhenItsPeerIsReAddedAsAnotherKind(t *testing.T) {
+	mac, host := newDevice(members.Desktop), newDevice(members.Machine)
+	l := members.Genesis(mac.key, mac.m, nil).Add(mac.key, host.m)
+	hv := view(t, l)
+	s, c := link(host, hv, mac, view(t, l))
+	if s.err != nil || c.err != nil {
+		t.Fatal(s.err, c.err)
+	}
+	demoted := mac.m
+	demoted.Kind = members.Phone
+	if err := hv.Accept(l.Add(mac.key, demoted)); err != nil {
+		t.Fatal(err)
+	}
+	s.c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := s.c.Read(make([]byte, 1)); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("channel still open after the peer became a phone: %v", err)
+	}
+}
+
+func TestPeerIsTheMemberAsTheMergedLogHasIt(t *testing.T) {
+	mac, host := newDevice(members.Desktop), newDevice(members.Machine)
+	l := members.Genesis(mac.key, mac.m, nil).Add(mac.key, host.m)
+	demoted := mac.m
+	demoted.Kind = members.Phone
+	s, c := link(host, view(t, l), mac, view(t, l.Add(mac.key, demoted)))
+	if s.err != nil || c.err != nil {
+		t.Fatal(s.err, c.err)
+	}
+	if s.c.Peer.Kind != members.Phone {
+		t.Fatalf("peer kind = %q, want phone", s.c.Peer.Kind)
+	}
+}

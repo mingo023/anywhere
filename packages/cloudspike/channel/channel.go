@@ -88,17 +88,18 @@ func open(c *tls.Conn, v *members.View, peer *members.Member) (*Conn, error) {
 	}
 	c.SetDeadline(time.Time{})
 	key := peer.Key
+	m, ok := v.State().Has(key)
 	stop := v.Subscribe(func(s members.State) {
-		if _, ok := s.Has(key); !ok {
+		if now, ok := s.Has(key); !ok || now.Kind != m.Kind {
 			go c.Close()
 		}
 	})
-	if _, ok := v.State().Has(key); !ok {
+	if !ok {
 		stop()
 		c.Close()
 		return nil, members.ErrNotMember
 	}
-	return &Conn{Conn: c, Peer: *peer, stop: stop}, nil
+	return &Conn{Conn: c, Peer: m, stop: stop}, nil
 }
 
 // exchangeLogs is how a removal the cloud hid reaches a machine: inside TLS,

@@ -110,7 +110,7 @@ func (r *Relay) dial(w http.ResponseWriter, req *http.Request, account, host str
 	b := make([]byte, 16)
 	rand.Read(b)
 	id := hex.EncodeToString(b)
-	got := make(chan net.Conn, 1)
+	got := make(chan net.Conn)
 	r.mu.Lock()
 	r.pending[id] = got
 	r.mu.Unlock()
@@ -154,7 +154,12 @@ func (r *Relay) accept(w http.ResponseWriter, req *http.Request, id string) {
 		return
 	}
 	conn := &closeSignal{Conn: websocket.NetConn(req.Context(), c, websocket.MessageBinary), done: make(chan struct{})}
-	got <- conn
+	select {
+	case got <- conn:
+	case <-time.After(acceptWithin):
+		conn.Close()
+		return
+	}
 	// The splice runs in the dialler's handler; returning here would end this socket.
 	<-conn.done
 }

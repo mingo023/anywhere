@@ -18,10 +18,12 @@ TOKEN=$("$S/pocketd" pair --json | python3 -c 'import json,sys;print(json.load(s
 "$S/spike" demo -relay ws://127.0.0.1:$RELAY -target 127.0.0.1:$OWNER -listen 127.0.0.1:$LOCAL > "$S/demo.log" 2>&1 & DM=$!
 for i in $(seq 50); do nc -z 127.0.0.1 $LOCAL 2>/dev/null && break; sleep 0.2; done
 echo "== owner hello through relay (good token)"
-bun "$ROOT/packages/cloudspike/scripts/probe.ts" ws://127.0.0.1:$LOCAL/ "$TOKEN"; echo "exit $?"
+bun "$ROOT/packages/cloudspike/scripts/probe.ts" ws://127.0.0.1:$LOCAL/ "$TOKEN"; GOOD=$?; echo "exit $GOOD"
 echo "== owner hello through relay (bad token must be refused by pocketd)"
-bun "$ROOT/packages/cloudspike/scripts/probe.ts" ws://127.0.0.1:$LOCAL/ "not-a-token"; echo "exit $?"
+bun "$ROOT/packages/cloudspike/scripts/probe.ts" ws://127.0.0.1:$LOCAL/ "not-a-token"; BAD=$?; echo "exit $BAD"
 echo "== relay log"; cat "$S/relay.log"
 echo "== demo log"; cat "$S/demo.log"
 kill $DM $RL $PD 2>/dev/null; wait 2>/dev/null
 echo "scratch $S"
+[ "$GOOD" = 0 ] && [ "$BAD" = 2 ] || { echo "FAIL: want good=0 bad=2, got good=$GOOD bad=$BAD"; exit 1; }
+echo PASS

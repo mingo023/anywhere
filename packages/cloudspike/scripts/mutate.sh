@@ -29,5 +29,7 @@ mut members/members.go 's/if Commit\(nd\) != commit \{/if false {/' ./members "n
 mut channel/channel.go 's/cfg\.ClientAuth = tls\.RequireAnyClientCert/_ = cfg/' ./channel "server skips client cert"
 mut members/members.go 's/r != nil && \(len\(r\)/false \&\& r != nil \&\& (len(r)/' ./members "no genesis recovery signature"
 mut members/members.go 's/if len\(o\.By\) != ed25519\.PublicKeySize \|\| len\(o\.Member\.Key\) != ed25519\.PublicKeySize \|\| /if /' ./members "no key-length check"
+mut channel/channel.go 's/Peer: m, stop: stop/Peer: *peer, stop: stop/' ./channel "stale peer"
+mut channel/channel.go 's/!ok \|\| now\.Kind != m\.Kind/!ok || (now.Kind != m.Kind \&\& false)/' ./channel "kind change keeps channel"
 mut relay/relay.go 's/return nil, ErrOffline/return nil, err/' ./relay "offline not mapped"
 mut relay/relay.go 's/io\.Copy\(counting\{dst, sent, r\.tap\}, src\)/io.Copy(dst, src)/' ./relay "relay counts nothing"
