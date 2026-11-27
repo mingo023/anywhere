@@ -641,7 +641,7 @@ impl Sidebar {
             None => done_name(row_name(was, path, name.to_string(), state, selected, rf.reduce_motion), state),
         };
         let menu = RowMenu::Scratch(path.to_string());
-        let open = rf.menu.as_ref().is_some_and(|m| m.menu == menu);
+        let open = rf.menu.as_ref().is_some_and(|m| m.menu == menu) || self.hover.on_project(path);
         let trail = ui::row_trail(None, vec![menu_button(path, menu.clone(), rf.menu.as_ref(), Self::send, cx)], open);
         let key = path.to_string();
         let row = ui::worktree_row(id(format!("aside-tree:{path}")), "folder", label, selected, mark)
@@ -658,7 +658,13 @@ impl Sidebar {
                 cx.emit(SidebarEvent::SelectTree { project: key.clone(), tree: None, progress: false });
             }))
             .on_mouse_down(MouseButton::Right, open_on_right_click(menu, Self::send, cx));
-        self.holds(row, List::Threads, ix, path.to_string(), true, cx).into_any_element()
+        let pointed = path.to_string();
+        self.holds(row, List::Threads, ix, path.to_string(), true, cx)
+            .on_hover(cx.listener(move |this, over: &bool, _, cx| {
+                this.hover.point_project(&pointed, *over);
+                cx.notify();
+            }))
+            .into_any_element()
     }
 
     fn offline_card(&self, o: &OfflineFrame, cx: &mut Context<Self>) -> AnyElement {
