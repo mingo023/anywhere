@@ -300,8 +300,8 @@ pub fn diffstat(added: usize, removed: usize) -> Div {
         .gap(px(6.))
         .font_family(MONO)
         .text_size(px(11.))
-        .child(div().text_color(DIFF_ADD_TEXT).child(format!("+{added}")))
-        .child(div().text_color(DIFF_DEL_TEXT).child(format!("−{removed}")))
+        .child(div().text_color(SUCCESS_TEXT).child(format!("+{added}")))
+        .child(div().text_color(FAILED).child(format!("−{removed}")))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
