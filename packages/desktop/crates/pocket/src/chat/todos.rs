@@ -3,6 +3,9 @@ use chat::{Todo, TodoStatus};
 use gpui_kit::*;
 use theme::*;
 
+/// About nine rows; a longer list scrolls inside the card.
+const LIST_MAX_HEIGHT: f32 = 300.;
+
 /// How many todos are done, and how many there are.
 pub(crate) fn count(todos: &[Todo]) -> (usize, usize) {
     (todos.iter().filter(|t| t.status == TodoStatus::Done).count(), todos.len())
@@ -51,14 +54,16 @@ pub(crate) fn card(id: &str, todos: &[Todo]) -> Div {
         .child(icon("list", 15., TEXT_4))
         .child(div().flex_1().font_family(code_font()).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child("Tasks"))
         .child(pill);
-    div()
-        .rounded(px(12.))
-        .bg(FILL_1)
-        .border_1()
-        .border_color(SEPARATOR)
-        .overflow_hidden()
-        .child(header)
-        .child(div().py(px(4.)).flex().flex_col().children(todos.iter().enumerate().map(|(i, t)| item(id, i, t))))
+    div().rounded(px(12.)).bg(FILL_1).border_1().border_color(SEPARATOR).overflow_hidden().child(header).child(
+        div()
+            .id(SharedString::from(format!("{id}-todos")))
+            .max_h(px(LIST_MAX_HEIGHT))
+            .overflow_y_scroll()
+            .py(px(4.))
+            .flex()
+            .flex_col()
+            .children(todos.iter().enumerate().map(|(i, t)| item(id, i, t))),
+    )
 }
 
 #[cfg(test)]
