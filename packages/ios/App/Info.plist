@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Anywhere</string>
+	<string>Zoes</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -37,9 +37,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Anywhere scans the pairing code your Mac shows, and takes photos you attach in chat.</string>
+	<string>Zoes scans the pairing code your Mac shows, and takes photos you attach in chat.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Anywhere connects to your Mac to show and drive its agents.</string>
+	<string>Zoes connects to your Mac to show and drive its agents.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>

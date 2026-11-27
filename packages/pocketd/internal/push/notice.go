@@ -173,7 +173,7 @@ func AlertPayload(key []byte, n Notice, category, level string) (json.RawMessage
 		return nil, err
 	}
 	aps := map[string]any{
-		"alert":              map[string]string{"title": "Anywhere", "body": generic[n.Kind]},
+		"alert":              map[string]string{"title": "Zoes", "body": generic[n.Kind]},
 		"mutable-content":    1,
 		"interruption-level": level,
 		"badge":              n.Badge,

@@ -15,7 +15,7 @@ pub(crate) struct Host {
     pub status: Option<daemon::Status>,
     /// None until pocketd lists them.
     pub devices: Option<Vec<Device>>,
-    /// Whether the `anywhere` command points at this app, read when Settings opens.
+    /// Whether the `zoes` and `anywhere` commands point at this app, read when Settings opens.
     pub cli: bool,
     pub time: Entity<InputState>,
     pub port: Entity<InputState>,
@@ -214,7 +214,7 @@ impl Desktop {
             let result = cx.background_executor().spawn(async move { daemon::request(&json!({"op": "config-set", "key": "port", "text": text})) }).await;
             this.update_in(cx, |d, window, cx| {
                 if let Err(e) = result {
-                    d.fail(format!("Anywhere kept port {}: {e}", port_field(before)), cx);
+                    d.fail(format!("Zoes kept port {}: {e}", port_field(before)), cx);
                     d.store.phone.port = before;
                     d.settings.update(cx, |s, cx| s.host.port.update(cx, |f, cx| f.set_value(port_field(before), window, cx)));
                 }

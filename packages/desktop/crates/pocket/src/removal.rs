@@ -109,7 +109,7 @@ fn inspected(project: String, tree: String, reply: &Inspected, delete_branch: bo
 /// What a delete aimed at a pocketd without `worktrees.v1` says: `host`'s name, or `None` for this Mac's.
 fn outdated(host: Option<&str>) -> String {
     match host {
-        Some(name) => format!("Can't delete worktrees on {name}: Anywhere there is out of date. Update it on {name}, then try again."),
+        Some(name) => format!("Can't delete worktrees on {name}: Zoes there is out of date. Update it on {name}, then try again."),
         None => agents::OUTDATED.into(),
     }
 }
@@ -265,7 +265,7 @@ mod tests {
 
     #[test]
     fn a_delete_on_a_pocketd_too_old_to_do_it_names_its_host() {
-        assert_eq!(outdated(Some("devbox")), "Can't delete worktrees on devbox: Anywhere there is out of date. Update it on devbox, then try again.");
+        assert_eq!(outdated(Some("devbox")), "Can't delete worktrees on devbox: Zoes there is out of date. Update it on devbox, then try again.");
         assert_eq!(outdated(None), agents::OUTDATED);
     }
 

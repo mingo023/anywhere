@@ -3,8 +3,8 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key><string>dev.mingo.anywhere.pocketd</string>
-  <key>CFBundleName</key><string>Anywhere</string>
-  <key>CFBundleDisplayName</key><string>Anywhere</string>
+  <key>CFBundleName</key><string>Zoes</string>
+  <key>CFBundleDisplayName</key><string>Zoes</string>
   <key>CFBundleExecutable</key><string>pocketd</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>

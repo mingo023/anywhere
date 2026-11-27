@@ -27,10 +27,12 @@ func harnessEnv(home string) []string {
 	return []string{"POCKETD_RESTORE_SHELL=/bin/sh"}
 }
 
-// buildPlatformFakes links anywhere to pocketd and builds the fakes whose tests run only on unix.
+// buildPlatformFakes links zoes and anywhere to pocketd and builds the fakes whose tests run only on unix.
 func buildPlatformFakes(dir string) {
-	if err := os.Symlink(filepath.Join(dir, "pocketd"), filepath.Join(dir, "anywhere")); err != nil {
-		panic(err)
+	for _, name := range []string{"zoes", "anywhere"} {
+		if err := os.Symlink(filepath.Join(dir, "pocketd"), filepath.Join(dir, name)); err != nil {
+			panic(err)
+		}
 	}
 	buildFakeACP(filepath.Join(dir, "fake"))
 	buildFakePi(filepath.Join(dir, "fake"))
