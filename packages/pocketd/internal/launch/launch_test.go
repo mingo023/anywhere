@@ -631,3 +631,17 @@ func TestANewWorktreeTheOwnerMakesForAnAgentIsRecordedAsTheAgents(t *testing.T) 
 		t.Fatalf("a person's new worktree where an agent's was is still the agent's: %v", got)
 	}
 }
+
+// On Windows, Clean also turns the desktop's C:/ into git's C:\.
+func TestAnExistingWorktreeIsFoundByItsCleanedPath(t *testing.T) {
+	l, s := newWorktree(t, "")
+	c, err := worktree.Add(l.reg.Load(), s.Project, "calm-otter", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Checkout = proto.Checkout{Worktree: c.Path + string(filepath.Separator)}
+	path, _, fl := l.checkout(Who{Owner: true, Key: "owner"}, l.reg.Load(), s, nil, func(string, string) {})
+	if fl != nil || path != c.Path {
+		t.Fatalf("%q %+v", path, fl)
+	}
+}

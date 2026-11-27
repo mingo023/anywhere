@@ -292,10 +292,11 @@ func (l *Launcher) checkout(w Who, f registry.File, s proto.LaunchSpec, env []st
 		if err != nil {
 			return "", "", gitFailure(err)
 		}
-		if !slices.ContainsFunc(trees, func(t worktree.Worktree) bool { return t.Path == s.Checkout.Worktree }) {
+		at := slices.IndexFunc(trees, func(t worktree.Worktree) bool { return filepath.Clean(t.Path) == filepath.Clean(s.Checkout.Worktree) })
+		if at < 0 {
 			return "", "", fail("unknown_worktree", "This worktree isn't in the project anymore")
 		}
-		return s.Checkout.Worktree, "", trust(w, s, s.Checkout.Worktree, env)
+		return trees[at].Path, "", trust(w, s, trees[at].Path, env)
 	}
 	progress(proto.StepVerify, "")
 	if fl := trust(w, s, s.Project, env); fl != nil {
