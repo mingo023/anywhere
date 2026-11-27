@@ -222,7 +222,15 @@ impl Settings {
                 let project = project.clone();
                 div()
                     .id(("gh-account-option", j))
+                    .h(px(26.))
+                    .px(px(8.))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .rounded(px(5.))
                     .cursor_pointer()
+                    .hover(|d| d.bg(FILL_2))
+                    .text_color(TEXT)
                     .child(div().w(px(14.)).flex_none().when(chosen.as_ref() == Some(&account), |d| d.child(icon("check", 13., TEXT))))
                     .child(div().font_family(MONO).text_size(px(12.)).child(account.clone()))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -238,6 +246,11 @@ impl Settings {
             )
         });
         div()
+            .px(px(14.))
+            .py(px(7.))
+            .flex()
+            .items_center()
+            .gap(px(10.))
             .border_b(px(0.5))
             .border_color(SEPARATOR)
             .child(card.tile(20.))
