@@ -7,7 +7,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::Store;
 use theme::*;
 
-const REPO_URL: &str = "https://github.com/mingo023/anywhere";
+const REPO_URL: &str = "https://github.com/mingo023/zoes";
 const WAIT_SECS: u64 = 3 * 24 * 60 * 60;
 const THANKS: Duration = Duration::from_millis(1400);
 const POP: Duration = Duration::from_millis(420);
