@@ -28,7 +28,7 @@ fn index<T: PartialEq>(all: &[T], value: &T) -> usize {
 }
 
 pub(super) const ROWS: &[Setting] = &[
-    Setting::custom("gh", "GitHub", "GitHub CLI", |d, _, cx| d.gh_row(cx)).bare(),
+    Setting::custom("gh", "GitHub", "GitHub CLI", |d, s, cx| d.gh_row(s, cx)).bare(),
     Setting::custom("remote", "Repository", "Default remote", |d, s, cx| d.remote_row(s, cx))
         .resets(|s| s.git.remote.clone(), |s, d| s.git.remote = d.git.remote.clone())
         .hint("Where Push sends commits"),
@@ -164,7 +164,7 @@ impl Settings {
         )
     }
 
-    fn gh_row(&mut self, cx: &mut Context<Self>) -> Div {
+    fn gh_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
         let status = self.side.gh.status.clone().flatten();
         let (dot, title, detail) = gh_line(status.as_ref());
         let fix = match status {
@@ -192,7 +192,8 @@ impl Settings {
         let again = action("gh-check", "Check again")
             .when(checking, |d| d.opacity(0.5))
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::CheckGh)));
-        let status = row(title, None, again);
+        // The cards are opaque, so the search highlight `setting_row` paints behind them has to be on the row itself.
+        let status = row(title, None, again).when(self.found == Some(setting.id), |d| d.bg(ACCENT_TINT));
         if self.side.gh.rows.is_empty() {
             return super::card(vec![status]);
         }
