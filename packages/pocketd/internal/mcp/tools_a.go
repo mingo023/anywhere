@@ -189,11 +189,8 @@ func onHost(ctx context.Context, c *Call, t target) (string, error) {
 	}
 	want := cmp.Or(t.Project, c.Caller.Project)
 	path, isPath := hostPath(t.Project)
-	if isPath {
-		want = path
-	}
 	for _, p := range projects {
-		if p.Path == want || p.Name == want {
+		if listed, _ := hostPath(p.Path); p.Path == want || p.Name == want || isPath && listed == path {
 			return p.Path, nil
 		}
 	}
