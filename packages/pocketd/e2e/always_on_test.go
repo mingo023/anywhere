@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"cmp"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -38,7 +39,8 @@ func TestSecondServeExitsWithTheRunningPid(t *testing.T) {
 	h := Start(t)
 	pid, _ := os.ReadFile(filepath.Join(h.Home, "pocketd.lock"))
 	out, code := h.Pocketd("serve")
-	want := "pocketd is already running (pid " + strings.TrimSpace(string(pid)) + ") on " + h.Home + ". Stop it first, or use it."
+	exe, _ := filepath.EvalSymlinks(cmp.Or(h.exe, filepath.Join(binDir, "pocketd")))
+	want := "pocketd is already running (pid " + strings.TrimSpace(string(pid)) + ", " + exe + ") on " + h.Home + ". Stop it first, or use it."
 	if code != 75 || strings.TrimSpace(out) != want {
 		t.Fatalf("exit %d: %q, want %q", code, out, want)
 	}
