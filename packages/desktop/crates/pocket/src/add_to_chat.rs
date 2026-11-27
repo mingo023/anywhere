@@ -135,6 +135,16 @@ pub(crate) fn split_quote(prompt: &str) -> Option<(Quote, &str)> {
     Some((quote, rest.trim_start_matches('\n')))
 }
 
+/// Every quote a sent prompt opens with, in order, and what was typed after them.
+pub(crate) fn split_quotes(prompt: &str) -> (Vec<Quote>, &str) {
+    let (mut quotes, mut rest) = (Vec::new(), prompt);
+    while let Some((quote, after)) = split_quote(rest) {
+        quotes.push(quote);
+        rest = after;
+    }
+    (quotes, rest)
+}
+
 fn prose_quote<'a>(lead: &str, after: &'a str) -> Option<(Quote, &'a str)> {
     let (path, section) = match lead.strip_suffix("\")").and_then(|l| l.split_once(" (section \"")) {
         Some((path, section)) => (path, Some(section.to_string())),
@@ -545,7 +555,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Body, Choice, Quote, choices, default_target, input_bytes, split_quote, target_for};
+    use super::{Body, Choice, Quote, choices, default_target, input_bytes, split_quote, split_quotes, target_for};
     use crate::status::{Card, Kind, Status};
 
     fn diff(lines: (usize, usize), removed: bool, text: &str) -> Quote {
@@ -724,6 +734,7 @@ mod tests {
     #[test]
     fn a_prompt_that_doesnt_open_with_a_quote_has_none() {
         assert_eq!(split_quote("Fix CI"), None);
+        assert_eq!(split_quotes("Fix CI"), (vec![], "Fix CI"));
         assert_eq!(split_quote("Note:\n> keep this"), None);
         assert_eq!(split_quote("see src/a.rs:12\nthen fix it"), None);
         assert_eq!(split_quote("src/a.rs:12\n```rust\nlet a = 1;"), None);
@@ -733,5 +744,13 @@ mod tests {
     #[test]
     fn an_excerpt_shows_the_first_three_lines() {
         assert_eq!(Quote::code("a.rs", "1\n2\n3\n4\n", 0..8).unwrap().excerpt(), "1\n2\n3");
+    }
+
+    #[test]
+    fn several_quotes_read_back_in_order_before_the_question() {
+        let a = Quote::code("src/a.rs", "let a = 1;\n", 0..10).unwrap();
+        let b = Quote::prose("docs/b.md", "# Why\n\nBecause.", "Because.").unwrap();
+        let prompt = format!("{}\n\n{}\n\nwhich one?", a.payload(), b.payload());
+        assert_eq!(split_quotes(&prompt), (vec![a, b], "which one?"));
     }
 }

@@ -259,8 +259,8 @@ pub(crate) struct Draft {
     pub(crate) files: Vec<PathBuf>,
     /// Elements picked on a browser page, numbered by their place here.
     pub(crate) elements: Vec<web::Element>,
-    /// What "Add to chat" quoted, sent ahead of what's typed.
-    pub(crate) quote: Option<crate::add_to_chat::Quote>,
+    /// What "Add to chat" quoted, in the order added, sent ahead of what's typed.
+    pub(crate) quotes: Vec<crate::add_to_chat::Quote>,
 }
 
 pub(crate) struct PanelView {
@@ -374,24 +374,23 @@ impl Draft {
         !self.images.is_empty() || !self.files.is_empty() || !self.elements.is_empty()
     }
 
-    /// Holds `quote` unless one is already held, and returns what to type: the question, or the whole quote when it can't be held.
+    /// Holds `quote` after those already held, once, and returns the question to type.
     pub(crate) fn add_quote(&mut self, quote: &crate::add_to_chat::Quote, question: &str) -> String {
-        if self.quote.is_some() {
-            return quote.prompt(question);
+        if !self.quotes.contains(quote) {
+            self.quotes.push(quote.clone());
         }
-        self.quote = Some(quote.clone());
         question.trim().to_string()
     }
 
-    /// Empties the draft once sent. A command this app runs itself takes no quote, so the quote stays for the next prompt.
+    /// Empties the draft once sent. A command this app runs itself takes no quote, so the quotes stay for the next prompt.
     pub(crate) fn sent(&mut self, local_command: bool) {
-        let quote = self.quote.take().filter(|_| local_command);
+        let quotes = if local_command { std::mem::take(&mut self.quotes) } else { Vec::new() };
         self.clear();
-        self.quote = quote;
+        self.quotes = quotes;
     }
 
     pub(crate) fn sends_without_text(&self) -> bool {
-        self.has_attachments() || self.quote.is_some()
+        self.has_attachments() || !self.quotes.is_empty()
     }
 
     /// Attaches the dropped files where they lie: an image shows as itself, any other file as a card.
@@ -444,7 +443,7 @@ impl Draft {
         };
         let typed = typed.trim();
         let elements = (!self.elements.is_empty()).then(|| elements::block(&self.elements));
-        let quote = self.quote.as_ref().map(crate::add_to_chat::Quote::payload);
+        let quote = (!self.quotes.is_empty()).then(|| self.quotes.iter().map(crate::add_to_chat::Quote::payload).collect::<Vec<_>>().join("\n\n"));
         // A command's name must lead what it sends.
         let (first, second) = if chat::slash(typed).is_some() { (None, quote) } else { (quote, None) };
         let parts = [
@@ -1026,29 +1025,31 @@ mod tests {
     #[test]
     fn a_quote_leads_the_prompt_but_follows_a_command_and_counts_as_something_to_send() {
         let quote = crate::add_to_chat::Quote::code("src/a.rs", "let a = 1;\n", 0..10).unwrap();
-        let draft = Draft { quote: Some(quote.clone()), ..Draft::default() };
+        let draft = Draft { quotes: vec![quote.clone()], ..Draft::default() };
         assert_eq!(draft.prompt(" why? "), format!("{}\n\nwhy?", quote.payload()));
         assert_eq!(draft.prompt("/review"), format!("/review\n\n{}", quote.payload()));
         assert!(draft.sends_without_text() && !Draft::default().sends_without_text());
     }
 
     #[test]
-    fn a_second_quote_goes_into_the_text_so_the_first_isnt_lost() {
+    fn a_second_quote_joins_the_first_and_the_same_one_is_held_once() {
         let (a, b) = (crate::add_to_chat::Quote::code("a.rs", "x\n", 0..1).unwrap(), crate::add_to_chat::Quote::code("b.rs", "y\n", 0..1).unwrap());
         let mut draft = Draft::default();
         assert_eq!(draft.add_quote(&a, " why? "), "why?");
-        assert_eq!(draft.add_quote(&b, "and this?"), b.prompt("and this?"));
-        assert_eq!(draft.quote, Some(a));
+        assert_eq!(draft.add_quote(&b, "and this?"), "and this?");
+        draft.add_quote(&a, "");
+        assert_eq!(draft.quotes, [a.clone(), b.clone()]);
+        assert_eq!(draft.prompt("which?"), format!("{}\n\n{}\n\nwhich?", a.payload(), b.payload()));
     }
 
     #[test]
     fn a_command_the_app_runs_leaves_the_quote_for_the_next_prompt() {
         let quote = crate::add_to_chat::Quote::code("a.rs", "x\n", 0..1).unwrap();
-        let mut draft = Draft { quote: Some(quote.clone()), files: vec!["/a".into()], ..Draft::default() };
+        let mut draft = Draft { quotes: vec![quote.clone()], files: vec!["/a".into()], ..Draft::default() };
         draft.sent(true);
-        assert_eq!((draft.quote.clone(), draft.files.len()), (Some(quote), 0));
+        assert_eq!((draft.quotes.clone(), draft.files.len()), (vec![quote], 0));
         draft.sent(false);
-        assert_eq!(draft.quote, None);
+        assert!(draft.quotes.is_empty());
     }
 
     #[test]

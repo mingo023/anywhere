@@ -1,7 +1,7 @@
 use super::composer::{RADIUS, block_shade, code_shade};
 use super::mention::{hidden, paint_icons, tint};
 use super::selectable::selectable;
-use crate::add_to_chat::{Body, split_quote};
+use crate::add_to_chat::{Body, split_quotes};
 use crate::composer::element_card::element_card;
 use crate::composer::elements::heading_parts;
 use crate::composer::file_card::file_card;
@@ -169,7 +169,7 @@ pub(super) fn wrapped_lines(text: &str, size: f32, width: f32, window: &Window) 
 }
 
 fn typed(prompt: &str) -> &str {
-    split_quote(prompt).map_or(prompt, |(_, rest)| rest)
+    split_quotes(prompt).1
 }
 
 /// The lines plain `text` wraps to at `size` px in `width` px.
@@ -284,19 +284,25 @@ pub(super) fn bubble(
     here: &Path,
     toggle: Option<(Fold, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static)>,
     open_quote: impl Fn(&str, &mut Window, &mut App) + 'static,
-    quote_colours: Option<super::markdown::Styles>,
+    quote_colours: Vec<Option<super::markdown::Styles>>,
     window: &mut Window,
     cx: &mut App,
 ) -> Div {
-    let split = split_quote(&prompt);
-    let rest = split.as_ref().map_or(prompt.as_str(), |(_, rest)| rest);
-    let quote = split.as_ref().map(|(quote, _)| {
-        let at = match &quote.body {
-            Body::Code { lines, .. } | Body::Diff { lines, .. } => format!("{}:{}", quote.path, lines.0),
-            Body::Prose { .. } => quote.path.clone(),
-        };
-        super::quote_card::quote_card(id, quote, width, quote_colours, move |_, window, cx| open_quote(&at, window, cx))
-    });
+    let (quotes, rest) = split_quotes(&prompt);
+    let open_quote = std::rc::Rc::new(open_quote);
+    let mut colours = quote_colours.into_iter();
+    let quotes: Vec<_> = quotes
+        .iter()
+        .enumerate()
+        .map(|(i, quote)| {
+            let at = match &quote.body {
+                Body::Code { lines, .. } | Body::Diff { lines, .. } => format!("{}:{}", quote.path, lines.0),
+                Body::Prose { .. } => quote.path.clone(),
+            };
+            let open_quote = open_quote.clone();
+            super::quote_card::quote_card(id, i, quote, width, colours.next().flatten(), move |_, window, cx| open_quote(&at, window, cx))
+        })
+        .collect();
     let Sent { text, files, images, elements } = split_attachments(rest);
     let text = text.to_string();
     let attached = (!images.is_empty() || !files.is_empty() || !elements.is_empty()).then(|| {
@@ -408,9 +414,9 @@ pub(super) fn bubble(
         .flex()
         .flex_col()
         .items_end()
-        .gap(px(6.))
+        .gap(px(super::quote_card::GAP))
         .when(pending, |d| d.opacity(0.65))
-        .children(quote)
+        .children(quotes)
         .children(attached)
         .when(!text.is_empty(), |d| d.child(bubble))
 }

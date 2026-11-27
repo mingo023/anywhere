@@ -10,6 +10,8 @@ const MAX_W: f32 = 480.;
 const RAIL_ROOM: f32 = 28.;
 const RAIL_W: f32 = 17.;
 const SHOWN_LINES: usize = 2;
+/// The space between the cards and the bubble, which the rail spans.
+pub(super) const GAP: f32 = 6.;
 
 /// The grammar and text a card's code is coloured from: its shown lines, joined. None for prose and diffs, which keep their own colours.
 pub(super) fn colour_source(quote: &Quote) -> Option<(&'static str, String)> {
@@ -19,9 +21,10 @@ pub(super) fn colour_source(quote: &Quote) -> Option<(&'static str, String)> {
     }
 }
 
-/// `colours` are byte ranges into `colour_source`'s text.
+/// `colours` are byte ranges into `colour_source`'s text. Card `nth` past the first joins the rail the one above it starts.
 pub(super) fn quote_card(
     id: &str,
+    nth: usize,
     quote: &Quote,
     width: f32,
     colours: Option<Styles>,
@@ -61,11 +64,14 @@ pub(super) fn quote_card(
                 .into_any_element()
         }
     };
-    let rail =
-        div().absolute().top(relative(0.5)).bottom(px(-6.)).right(px(-RAIL_W)).w(px(RAIL_W)).border_t_1().border_r_1().border_color(RAIL).rounded_tr(px(10.));
+    let rail = div().absolute().bottom(px(-GAP)).right(px(-RAIL_W)).w(px(RAIL_W)).border_r_1().border_color(RAIL);
+    let rail = match nth {
+        0 => rail.top(relative(0.5)).border_t_1().rounded_tr(px(10.)),
+        _ => rail.top(px(-1.)).child(div().absolute().top(relative(0.5)).left_0().right_0().border_t_1().border_color(RAIL)),
+    };
     let path = quote.path.clone();
     div()
-        .id(SharedString::from(format!("{id}-quote")))
+        .id(SharedString::from(format!("{id}-quote-{nth}")))
         .relative()
         .min_w_0()
         .max_w(px(MAX_W.min(width * 0.7)))
