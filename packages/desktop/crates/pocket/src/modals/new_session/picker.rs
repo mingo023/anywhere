@@ -325,7 +325,7 @@ impl NewForm {
         let chip = ui::menu_chip("form-project", f.picker == Some(Picker::Project))
             .children(tile)
             .when(f.repo.is_none(), |d| d.child(icon("folder", 14., TEXT_3)))
-            .child(div().font_weight(FontWeight::MEDIUM).when(missing.is_some(), |d| d.text_color(TEXT_3)).child(name))
+            .child(div().max_w(px(200.)).truncate().font_weight(FontWeight::MEDIUM).when(missing.is_some(), |d| d.text_color(TEXT_3)).child(name))
             .when_some(missing, |d, tip| d.child(icon("warning", 13., WAITING_TEXT)).tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx)))
             .child(icon("chevron-down", 12., TEXT_4));
         let chip = ui::popover_trigger(
@@ -365,8 +365,10 @@ impl NewForm {
             _ => f.base_branch(),
         };
         let branch = ui::menu_chip("form-branch", f.picker == Some(Picker::Branch))
+            .flex_shrink(1.)
+            .min_w_0()
             .child(icon("branch", 14., TEXT_3))
-            .child(div().font_family(MONO).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(label))
+            .child(div().min_w_0().truncate().font_family(MONO).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(label))
             .child(icon("chevron-down", 12., TEXT_4));
         let branch = if side.blocker.is_some() {
             branch.opacity(0.5).cursor_default()
@@ -378,6 +380,6 @@ impl NewForm {
             )
         };
         let branch_menu = (f.picker == Some(Picker::Branch)).then(|| ui::dropdown(36., ui::menu_in("branch-menu-in", self.branch_picker(side.opens, cx))));
-        div().relative().child(branch).children(branch_menu)
+        div().relative().min_w_0().child(branch).children(branch_menu)
     }
 }

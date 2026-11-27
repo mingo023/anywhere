@@ -156,7 +156,7 @@ impl Render for NewForm {
         let composer = rich_keys(&self.prompt, composer, cx).children(list);
         let image = side.background.is_some();
         let veiled = |pill: Div| if image { div().rounded(px(8.)).bg(field::veil()).child(pill) } else { pill };
-        let (machine, project, checkout, branch) = (veiled(machine), veiled(project), checkout.map(veiled), branch.map(veiled));
+        let (machine, project, checkout, branch) = (veiled(machine), veiled(project), checkout.map(veiled), branch.map(|b| veiled(b).min_w_0()));
         let error = f.reply.error.clone().map(|(message, detail)| ui::failure(message, detail).w_full().max_w(px(600.)).mt(px(10.)));
         let footer = div()
             .w_full()
