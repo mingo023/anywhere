@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.67
+
+- fix(sidebar): Threads rows make room for ⋯; a No project send skips the blank frame (#436): (b86c76fd)
+- fix(chat): the Tasks list keeps the wheel until it reaches an end (#432): (58dad1a4)
+- fix(settings): lay out each project's GitHub account on one row (#435): (4da99a48)
+- fix(chat): sub-agent brief spans the dock; panes keep 360pt min (#433): (cae5e15f)
+- feat(settings): give Keyboard search its own row, name ⌃⌘1…9 Switch host (#431): (22e29cb6)
+- Link previews show a tilted Zoes desktop under the headline (#434): (7b120ed3)
+- fix(pocketd): the app's service retires a host service on its home (#429): (2ec12944)
+
 ## 0.1.66
 
 - feat(chat): show an Add to chat quote as a reply (#426): (afead340)
