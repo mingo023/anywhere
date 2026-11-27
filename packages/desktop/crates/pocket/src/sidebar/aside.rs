@@ -156,6 +156,8 @@ pub(crate) struct ScratchFrame {
 pub(crate) struct AsideFrame {
     pub(crate) width: f32,
     pub(crate) seam: bool,
+    /// The space's theme washes the window; the aside is clear over it.
+    pub(crate) washed: bool,
     pub(crate) reduce_motion: bool,
     pub(crate) unseen: usize,
     pub(crate) inbox: Option<Entity<Inbox>>,
@@ -869,6 +871,7 @@ impl Render for Sidebar {
                 .mb(px(6.))
                 .h(px(32.))
                 .rounded(px(10.))
+                .when(f.washed, |d| d.bg(crate::spaces::wash::card_fill()))
                 .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Palette)));
         let pages: Vec<_> = f
             .pages
@@ -900,7 +903,7 @@ impl Render for Sidebar {
         let body = div().id("aside-repos").track_scroll(&self.reorder.projects).flex_1().min_h_0().overflow_y_scroll().flex().flex_col().child(list);
         let scratch = f.scratch.as_ref().map(|s| self.scratch_section(s, f, cx));
         let aside = ui::side(div())
-            .bg(nav_fill())
+            .map(|d| if f.washed { d.bg(transparent_black()).border_r_0() } else { d.bg(nav_fill()) })
             .w(px(f.width))
             .flex_none()
             .h_full()

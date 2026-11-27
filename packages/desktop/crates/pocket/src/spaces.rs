@@ -4,6 +4,8 @@ pub(crate) mod cards;
 pub(crate) mod header;
 pub(crate) mod open;
 pub(crate) mod switcher;
+pub(crate) mod theme_card;
+pub(crate) mod wash;
 
 use crate::actions::SwitchSpace;
 use crate::desktop::Desktop;
@@ -233,6 +235,8 @@ pub(crate) struct Spaces {
     flash: Option<(String, Instant)>,
     /// The session each space showed when the sidebar left it.
     left: HashMap<Space, Spot>,
+    /// The appearance the space on screen's look last asked for; `None` left the app's.
+    pub(crate) look_dark: Option<bool>,
 }
 
 /// A session on screen: its project, and its tree, `None` for the project's main worktree.
@@ -240,7 +244,7 @@ pub(crate) type Spot = (String, Option<String>);
 
 impl Spaces {
     pub(crate) fn new(saved: Option<&str>) -> Self {
-        Self { shown: Space::on(saved), swipe: Swipe::default(), slide: None, switches: 0, flash: None, left: HashMap::new() }
+        Self { shown: Space::on(saved), swipe: Swipe::default(), slide: None, switches: 0, flash: None, left: HashMap::new(), look_dark: None }
     }
 
     pub(crate) fn current(&self, order: &[Space]) -> Space {

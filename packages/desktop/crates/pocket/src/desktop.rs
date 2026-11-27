@@ -757,6 +757,7 @@ impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_panels(cx);
         self.sync_pr_side(cx);
+        self.follow_space_look(window, cx);
         // A capture draws one frame a step, which would catch a glide midway.
         let (now, capturing, reduce_motion) = (Instant::now(), self.capturing, cx.reduce_motion() || self.capturing);
         // Not `||`: each steps every frame.
@@ -785,8 +786,19 @@ impl Render for Desktop {
         } else {
             crate::sidebar::column_shown(self.layout, self.screen).then(|| self.column_view(cx).into_any_element())
         };
-        let page = shown.then(|| if settings { self.settings.clone().into_any_element() } else { self.main_view(window, cx).into_any_element() });
+        let wash = shown.then(|| self.wash_layer(window)).flatten();
+        let page = shown.then(|| {
+            if settings {
+                self.settings.clone().into_any_element()
+            } else {
+                self.main_view(window, cx).when(wash.is_some(), |d| d.rounded(px(crate::spaces::wash::PAGE_RADIUS))).into_any_element()
+            }
+        });
         let workspace = (shown && self.screen == Screen::Sessions && self.sidebar.read(cx).unfocused() > 0.).then(|| self.workspace_side(cx));
+        let (page, workspace, lifted) = match wash {
+            Some(_) => (None, None, Some(crate::spaces::wash::lifted(page, workspace))),
+            None => (page, workspace, None),
+        };
         // The finder opened from the new-session page has no overlay under it.
         let overlay = if shown { self.overlay_view(cx).or_else(|| self.host_finder_view(cx)) } else { None };
         div()
@@ -897,10 +909,12 @@ impl Render for Desktop {
                 .on_action(cx.listener(Self::tree_menu_choose))
                 .on_action(cx.listener(Self::copy_worktree_path))
             })
+            .children(wash)
             .children(lead)
             .children(column)
             .children(page)
             .children(workspace)
+            .children(lifted)
             .children(overlay)
             .children(shown.then(|| self.chat_offers(cx)))
             .children(shown.then(|| self.chat_select_offer(cx)).flatten())

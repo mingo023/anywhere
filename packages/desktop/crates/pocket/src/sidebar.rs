@@ -40,6 +40,7 @@ use crate::sidebar::tree_card::Hover;
 use crate::spaces::Space;
 use crate::spaces::header::SpaceHeader;
 use crate::spaces::switcher::Switcher;
+use crate::spaces::theme_card::ThemeCard;
 use crate::status::{self, Card};
 use crate::util::{ago_long, basename, now_ms};
 use agents::Agents;
@@ -178,6 +179,7 @@ pub struct Sidebar {
     pub(crate) search: Entity<InputState>,
     pub(crate) sessions: Entity<SessionList>,
     pub(crate) space_header: Entity<SpaceHeader>,
+    pub(crate) theme_card: Entity<ThemeCard>,
     /// The space buttons in the aside's foot and in the compact rail, which can be on screen together while the layout animates.
     pub(crate) aside_spaces: Entity<Switcher>,
     pub(crate) rail_spaces: Entity<Switcher>,
@@ -219,13 +221,15 @@ impl Sidebar {
         let panel_view = cx.new(|_| Panel::default());
         let column = cx.new(|_| ColumnView::default());
         let header = cx.new(|cx| ProjectsHeader::new(window, cx));
-        let space_header = cx.new(|_| SpaceHeader::new());
+        let theme_card = cx.new(|_| ThemeCard::new());
+        let space_header = cx.new(|cx| SpaceHeader::new(theme_card.clone(), cx));
         let aside_spaces = cx.new(|_| Switcher::new("aside", false));
         let rail_spaces = cx.new(|_| Switcher::new("nav", true));
         Self {
             search,
             sessions,
             space_header,
+            theme_card,
             aside_spaces,
             rail_spaces,
             menu_at: None,
@@ -281,7 +285,7 @@ impl Sidebar {
     }
 
     pub(crate) fn menu_open(&self, cx: &App) -> bool {
-        self.picker.read(cx).open || self.inbox.read(cx).open || self.header.read(cx).menu_open() || self.space_header.read(cx).menu_open()
+        self.picker.read(cx).open || self.inbox.read(cx).open || self.header.read(cx).menu_open() || self.space_header.read(cx).menu_open(cx)
     }
 
     pub(crate) fn close(&mut self, fold: Fold, cx: &mut Context<Self>) {
@@ -306,12 +310,13 @@ impl Sidebar {
 
 impl Desktop {
     pub(crate) fn sidebar_subs(sidebar: &Entity<Sidebar>, window: &mut Window, cx: &mut Context<Self>) -> Vec<Subscription> {
-        let (search, sessions, space_header, aside, rail_spaces, picker, inbox, rail, panel_rail, panel_view, column, header) = {
+        let (search, sessions, space_header, theme_card, aside, rail_spaces, picker, inbox, rail, panel_rail, panel_view, column, header) = {
             let s = sidebar.read(cx);
             (
                 s.search.clone(),
                 s.sessions.clone(),
                 s.space_header.clone(),
+                s.theme_card.clone(),
                 s.aside_spaces.clone(),
                 s.rail_spaces.clone(),
                 s.picker.clone(),
@@ -335,6 +340,7 @@ impl Desktop {
             cx.subscribe_in(&inbox, window, Self::on_inbox_event),
             cx.observe(&inbox, |_, _, cx| cx.notify()),
             cx.subscribe_in(&space_header, window, Self::on_space_header_event),
+            cx.subscribe_in(&theme_card, window, Self::on_theme_card_event),
             cx.subscribe_in(&aside, window, Self::on_switcher_event),
             cx.subscribe_in(&rail_spaces, window, Self::on_switcher_event),
             cx.subscribe_in(&rail, window, Self::on_rail_event),
@@ -539,6 +545,7 @@ impl Desktop {
         AsideFrame {
             width: self.aside_width(),
             seam: self.overlay.is_none(),
+            washed: self.wash().is_some(),
             reduce_motion,
             unseen: crate::inbox::count(&self.agents),
             inbox: Inbox::hung_from(&self.sidebar.read(cx).inbox, self.layout, Layout::Sidebars, cx),

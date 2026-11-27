@@ -36,7 +36,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 350] = [
+const STEPS: [(&str, Step); 353] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -712,6 +712,20 @@ const STEPS: [(&str, Step); 350] = [
         d.sidebar.read(cx).space_header.clone().update(cx, |h, cx| h.open(cx));
     }),
     ("space-offline", |d, window, cx| d.switch_space(Space::Host("10-0-4-12".into()), window, cx)),
+    // `wash-dark` goes before `theme-card`: the card copies the look as it opens.
+    ("wash-devbox", |d, window, cx| {
+        let colours = theme::wash::page(1)[0].iter().map(|c| crate::spaces::wash::colour(theme::wash::Dot::from_hls(*c))).collect();
+        let look = store::prefs::sidebar::SpaceLook { colours, intensity: 0.55, grain: 0.3, ..Default::default() };
+        d.store.sidebar.space_looks.insert("devbox".into(), look);
+        d.switch_space(Space::Host("devbox".into()), window, cx);
+    }),
+    ("theme-card", |d, _, cx| d.open_theme_card(cx)),
+    ("wash-dark", |d, _, cx| {
+        if let Some(look) = d.store.sidebar.space_looks.get_mut("devbox") {
+            look.mode = store::prefs::sidebar::LookMode::Dark;
+        }
+        cx.notify();
+    }),
     ("space-empty", |d, window, cx| {
         d.store.projects.retain(|p| space_of(p) != Space::Host("devbox".into()));
         d.switch_space(Space::Host("devbox".into()), window, cx);
@@ -2099,6 +2113,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     });
     d.spaces.reset();
     d.sidebar.read(cx).space_header.clone().update(cx, |h, cx| h.reset(cx));
+    d.store.sidebar.space_looks.clear();
     d.updates.update = Update::Idle;
     d.terminals.update(cx, |t, _| {
         t.link.up();
