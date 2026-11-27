@@ -20,7 +20,7 @@ pub(crate) struct Hover {
     over: Option<(String, Instant, f32)>,
     /// The row under the pointer, even after a press.
     on: Option<String>,
-    /// The project row under the pointer, which lays out by it as rows do by `on`; apart from `on`, as a project's own Local row has its path.
+    /// The project or Threads folder row under the pointer, which lays out by it as rows do by `on`; apart from `on`, as a project's own Local row has its path.
     project: Option<String>,
     /// The row whose card shows, and whether it fades in rather than swapping for another's.
     shown: Option<(String, bool)>,

@@ -563,14 +563,14 @@ pub fn busy(id: impl Into<ElementId>, label: &'static str) -> Div {
 }
 
 /// A sidebar row's right end: its status mark, swapped for its buttons while the row is hovered or its menu is open.
-/// Only then do the buttons take their width, so the label runs to the row's end otherwise; while `open`, the mark
-/// gives up its width too, so a wide one, as a diff's counts, doesn't leave a gap before the buttons.
+/// While `open`, the buttons take their width and the mark gives up its own, so the label runs to the row's end otherwise.
+/// `open` must hold while the row is hovered: GPUI applies hover styles only when painting, so they can't make room.
 pub fn row_trail(mark: Option<AnyElement>, buttons: Vec<AnyElement>, open: bool) -> Div {
     let width = px(buttons.len() as f32 * 24. - 2.);
     div()
         .relative()
         .h_full()
-        .map(|d| if open { d.min_w(width) } else { d.group_hover(ROW_GROUP, |s| s.min_w(width)) })
+        .when(open, |d| d.min_w(width))
         .flex()
         .flex_none()
         .items_center()

@@ -19,6 +19,9 @@ use std::time::{Duration, Instant};
 use workspace::tree::PaneId;
 use workspace::{Doc, Place, Tab};
 
+/// How long a created terminal counts as starting before pocketd lists it; its 1s poll lists a live one well within this.
+const LISTED_WITHIN: Duration = Duration::from_secs(5);
+
 /// A spawn awaiting its terminal: the worktree to adopt it in, and where its tab goes.
 #[derive(Debug, PartialEq)]
 pub(crate) struct Intent(pub(crate) String, pub(crate) Place);
@@ -50,6 +53,8 @@ pub struct Terminals {
     pub(crate) setups: HashMap<String, String>,
     /// Terminals pocketd made for this window's creates, until pocketd lists them.
     pub(crate) created: HashMap<String, Created>,
+    /// When each of `created` was made: pocketd never lists one that exits first, and sends its exit only to a terminal's subscribers.
+    made: HashMap<String, Instant>,
     /// Chats asked for from a tab menu, by create request, with where their tab goes.
     pub(crate) tab_chats: HashMap<String, Place>,
     /// Terminals asked for from a tab menu that aren't chats, by create request, with where their tab goes.
@@ -83,6 +88,7 @@ impl Terminals {
             settle: None,
             setups: HashMap::new(),
             created: HashMap::new(),
+            made: HashMap::new(),
             tab_chats: HashMap::new(),
             tab_terms: HashMap::new(),
             requests: HashSet::new(),
@@ -164,13 +170,19 @@ impl Terminals {
             self.setups.insert(id.clone(), tree.clone());
         }
         let place = self.tab_chats.remove(request).or_else(|| self.tab_terms.remove(request)).unwrap_or(Place::Pane(None));
+        self.made.insert(id.clone(), Instant::now());
         self.created.insert(id, Created { tree, place });
+    }
+
+    pub(crate) fn starting_in(&self, tree: &str, now: Instant) -> bool {
+        self.created.iter().any(|(id, c)| c.tree == tree && self.made.get(id).is_some_and(|at| now - *at < LISTED_WITHIN))
     }
 
     /// Created terminals pocketd now lists, once.
     pub(crate) fn arrived(&mut self) -> Vec<(String, Created)> {
         let sessions = &self.sessions;
         let listed: Vec<String> = self.created.keys().filter(|id| sessions.get(id).is_some()).cloned().collect();
+        self.made.retain(|id, _| !listed.contains(id));
         listed.into_iter().filter_map(|id| self.created.remove_entry(&id)).collect()
     }
 
@@ -601,9 +613,10 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Created, Fit, Intent, Terminals, tab_agent};
+    use super::{Created, Fit, Intent, LISTED_WITHIN, Terminals, tab_agent};
     use daemon::{Info, Msg};
     use std::collections::HashMap;
+    use std::time::Instant;
     use workspace::Place;
     use workspace::tree::Edge;
 
@@ -715,6 +728,24 @@ mod tests {
         t.arrived();
         t.listed(vec![info("b")]);
         assert_eq!(t.setups, HashMap::from([("b".to_string(), "/v".to_string())]));
+    }
+
+    #[test]
+    fn a_tree_is_starting_from_its_terminal_made_until_pocketd_lists_it() {
+        let mut t = Terminals::new(Default::default());
+        t.created("r1", "a".into(), "/w".into(), false);
+        let now = Instant::now();
+        assert!(t.starting_in("/w", now) && !t.starting_in("/v", now));
+        t.listed(vec![info("a")]);
+        t.arrived();
+        assert!(!t.starting_in("/w", now));
+    }
+
+    #[test]
+    fn a_terminal_pocketd_never_lists_stops_starting_its_tree() {
+        let mut t = Terminals::new(Default::default());
+        t.created("r1", "a".into(), "/w".into(), false);
+        assert!(!t.starting_in("/w", Instant::now() + LISTED_WITHIN));
     }
 
     #[test]
