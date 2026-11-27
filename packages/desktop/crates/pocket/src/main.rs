@@ -103,10 +103,10 @@ fn main() {
         cx.bind_keys(keys::bindings());
         cx.on_action(|_: &actions::Quit, cx| cx.quit());
         let check = channel::is_release().then(|| [MenuItem::action("Check for Updates…", actions::CheckForUpdates), MenuItem::separator()]);
-        cx.set_menus([Menu::new("Anywhere").items(check.into_iter().flatten().chain([
+        cx.set_menus([Menu::new("Zoes").items(check.into_iter().flatten().chain([
             MenuItem::os_submenu("Services", SystemMenuType::Services),
             MenuItem::separator(),
-            MenuItem::action("Quit Anywhere", actions::Quit),
+            MenuItem::action("Quit Zoes", actions::Quit),
         ]))]);
         let primary = cx.primary_display().map(|d| d.id());
         let mut displays = cx.displays();
@@ -118,7 +118,7 @@ fn main() {
             display_id: displays.get(display).filter(|_| !capturing).map(|d| d.id()),
             window_min_size: Some(MIN_WINDOW),
             titlebar: Some(TitlebarOptions {
-                title: Some("Anywhere".into()),
+                title: Some("Zoes".into()),
                 appears_transparent: true,
                 traffic_light_position: Some(point(px(desktop::chrome::LIGHTS_AT), px(desktop::chrome::LIGHTS_AT))),
             }),

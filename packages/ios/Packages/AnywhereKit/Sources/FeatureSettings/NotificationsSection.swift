@@ -59,7 +59,7 @@ public struct NotificationsSection: View {
 
     private var denied: some View {
         VStack(alignment: .leading, spacing: Space.xs) {
-            Label("Notifications are off for Anywhere", systemImage: "bell.slash.fill")
+            Label("Notifications are off for Zoes", systemImage: "bell.slash.fill")
                 .foregroundStyle(Palette.failedText.color)
             #if os(iOS)
                 Button("Turn On in Settings") {
@@ -112,7 +112,7 @@ public struct NotificationsSection: View {
 
     nonisolated static func status(_ state: PushStore.State, permission: PushCenter.Permission) -> String {
         switch state {
-        case .unsupported: "Update Anywhere on this Mac to get notifications"
+        case .unsupported: "Update Zoes on this Mac to get notifications"
         case .waiting: permission == .denied ? "Notifications are off" : "Not registered yet"
         case .registering: "Registering…"
         case .registered: "Notifies this phone"

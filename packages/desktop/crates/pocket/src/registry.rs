@@ -59,7 +59,7 @@ fn host_moves(host: &str, user_home: &str, shared: &str) -> Vec<(String, String)
 /// What a change aimed at a pocketd without `registry.v2` says: `host`'s name, or `None` for this Mac's.
 pub(crate) fn outdated(host: Option<&str>) -> String {
     match host {
-        Some(name) => format!("Update Anywhere on {name}"),
+        Some(name) => format!("Update Zoes on {name}"),
         None => agents::OUTDATED.into(),
     }
 }
@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn a_change_for_an_outdated_host_names_it() {
-        assert_eq!(outdated(Some("devbox")), "Update Anywhere on devbox");
+        assert_eq!(outdated(Some("devbox")), "Update Zoes on devbox");
         assert_eq!(outdated(None), agents::OUTDATED);
     }
 

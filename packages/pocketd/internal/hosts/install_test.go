@@ -88,7 +88,7 @@ func TestAnArchiveOnThisMacWinsOverTheRelease(t *testing.T) {
 	if got, err := source(Platform{"linux", "arm64"}, "1.2.0", dist); err != nil || got != (Source{Archive: archive}) {
 		t.Errorf("%+v %v", got, err)
 	}
-	release := Source{Version: "1.2.0", URL: "https://github.com/mingo023/anywhere/releases/download/v1.2.0"}
+	release := Source{Version: "1.2.0", URL: "https://github.com/mingo023/zoes/releases/download/v1.2.0"}
 	if got, err := source(Platform{"darwin", "arm64"}, "1.2.0", dist); err != nil || got != release {
 		t.Errorf("%+v %v", got, err)
 	}
@@ -303,23 +303,25 @@ func TestAnUpdateLeavesAloneThePocketdOfAnywhereDevOrAnUploadedBuild(t *testing.
 	}
 }
 
-func TestAnUpdateReplacesTheAnywhereAppWhosePocketdRunsThere(t *testing.T) {
+func TestAnUpdateReplacesTheAppWhosePocketdRunsThereWhateverItsFolderIsCalled(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("only a Mac runs the app")
 	}
 	const newer = "#!/bin/sh\n# 1.2.0\necho '{\"version\": \"1.2.0\"}'\n"
 	dmg := releaseDMG(t, newer)
-	var app string
-	out, linked := forceUpdate(t, func(dir string) string {
-		app = filepath.Join(filepath.Dir(filepath.Dir(dir)), "Applications", "Anywhere.app")
-		return anywhereApp(t, app, "dev.mingo.anywhere", "#!/bin/sh\n")
-	}, serveRelease(t, dmg, fmt.Sprintf("%x  Anywhere.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
-	now, _ := os.ReadFile(filepath.Join(app, appPocketd))
-	if linked || string(now) != newer || !strings.HasSuffix(out, "ANYWHERE done\n") {
-		t.Errorf("linked %v, app's pocketd %q:\n%s", linked, now, out)
-	}
-	if left, _ := filepath.Glob(app + ".*"); len(left) > 0 {
-		t.Errorf("left beside the app: %v", left)
+	for _, folder := range []string{"Anywhere.app", "Zoes.app"} {
+		var app string
+		out, linked := forceUpdate(t, func(dir string) string {
+			app = filepath.Join(filepath.Dir(filepath.Dir(dir)), "Applications", folder)
+			return anywhereApp(t, app, "dev.mingo.anywhere", "#!/bin/sh\n")
+		}, serveRelease(t, dmg, fmt.Sprintf("%x  Anywhere.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
+		now, _ := os.ReadFile(filepath.Join(app, appPocketd))
+		if linked || string(now) != newer || !strings.HasSuffix(out, "ANYWHERE done\n") {
+			t.Errorf("%s: linked %v, app's pocketd %q:\n%s", folder, linked, now, out)
+		}
+		if left, _ := filepath.Glob(app + ".*"); len(left) > 0 {
+			t.Errorf("%s: left beside the app: %v", folder, left)
+		}
 	}
 }
 
@@ -388,9 +390,9 @@ func anywhereApp(t *testing.T, app, id, script string) string {
 
 func releaseDMG(t *testing.T, script string) []byte {
 	dir := t.TempDir()
-	anywhereApp(t, filepath.Join(dir, "stage", "Anywhere.app"), "dev.mingo.anywhere", script)
+	anywhereApp(t, filepath.Join(dir, "stage", "Zoes.app"), "dev.mingo.anywhere", script)
 	dmg := filepath.Join(dir, "Anywhere.dmg")
-	if b, err := exec.Command("hdiutil", "create", "-quiet", "-volname", "Anywhere", "-srcfolder", filepath.Join(dir, "stage"), "-format", "UDZO", dmg).CombinedOutput(); err != nil {
+	if b, err := exec.Command("hdiutil", "create", "-quiet", "-volname", "Zoes", "-srcfolder", filepath.Join(dir, "stage"), "-format", "UDZO", dmg).CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, b)
 	}
 	b, err := os.ReadFile(dmg)

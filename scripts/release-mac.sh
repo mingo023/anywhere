@@ -44,7 +44,7 @@ build() {
 }
 
 assemble() {
-  mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+  mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/en.lproj"
   cp "$OUT/pocket-desktop" "$APP/Contents/MacOS/pocket-desktop"
   cp "$OUT/anywhere-notch" "$APP/Contents/MacOS/anywhere-notch"
   cp "$DESKTOP/assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
@@ -55,6 +55,9 @@ assemble() {
 <dict>
   <key>CFBundleIdentifier</key><string>dev.mingo.anywhere</string>
   <key>CFBundleName</key><string>Anywhere</string>
+  <key>CFBundleDisplayName</key><string>Anywhere</string>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>LSHasLocalizedDisplayName</key><true/>
   <key>CFBundleExecutable</key><string>pocket-desktop</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -65,7 +68,10 @@ assemble() {
 </dict>
 </plist>
 PLIST
-  plutil -lint "$APP/Contents/Info.plist"
+  # Finder shows the localized name only while Info.plist's name matches the folder, and
+  # Sparkle keeps existing installs at Anywhere.app, so the plist stays Anywhere.
+  printf 'CFBundleName = "Zoes";\nCFBundleDisplayName = "Zoes";\n' > "$APP/Contents/Resources/en.lproj/InfoPlist.strings"
+  plutil -lint "$APP/Contents/Info.plist" "$APP/Contents/Resources/en.lproj/InfoPlist.strings"
   helper="$APP/Contents/Library/Helpers/AnywhereDaemon.app"
   mkdir -p "$helper/Contents/MacOS" "$helper/Contents/Resources" "$APP/Contents/Library/LaunchAgents"
   cp "$OUT/pocketd" "$helper/Contents/MacOS/pocketd"
@@ -112,12 +118,12 @@ sign() {
 make_dmg() {
   stage="$OUT/dmg"
   mkdir -p "$stage"
-  ditto "$APP" "$stage/Anywhere.app"
+  ditto "$APP" "$stage/Zoes.app"
   ln -s /Applications "$stage/Applications"
   # LZMA: about a quarter smaller than UDZO; mounts on macOS 10.15+.
   # On CI runners hdiutil can fail with "Resource busy" while the system still holds the staged files.
   for attempt in 1 2 3 4 5; do
-    hdiutil create -volname Anywhere -srcfolder "$stage" -format ULMO -ov "$DMG" && break
+    hdiutil create -volname Zoes -srcfolder "$stage" -format ULMO -ov "$DMG" && break
     [ "$attempt" = 5 ] && exit 1
     sleep $((attempt * 5))
   done

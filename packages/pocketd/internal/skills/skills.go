@@ -26,7 +26,7 @@ type Root struct {
 // Harness is an agent CLI whose slash commands can be read off disk.
 type Harness struct {
 	// Roots are the folders for an account's config dir, the user's home and a project's cwd, in the order the menu
-	// lists them; a name seen earlier wins.
+	// lists them; a name seen earlier wins. cwd is "" with no project.
 	Roots func(config, home, cwd string) []Root
 	// ByDir names a skill by its folder, as its CLI invokes it, rather than by its frontmatter's name.
 	ByDir bool
@@ -36,8 +36,10 @@ var harnesses = map[string]Harness{providers.Claude.ID: claude, providers.Codex.
 
 var codex = Harness{Roots: func(_, home, cwd string) []Root {
 	var roots []Root
-	for _, dir := range upToRepo(cwd) {
-		roots = append(roots, Root{Dir: filepath.Join(dir, ".agents", "skills"), Skills: true})
+	if cwd != "" {
+		for _, dir := range upToRepo(cwd) {
+			roots = append(roots, Root{Dir: filepath.Join(dir, ".agents", "skills"), Skills: true})
+		}
 	}
 	return append(roots, Root{Dir: filepath.Join(home, ".agents", "skills"), Skills: true}, Root{Dir: "/etc/codex/skills", Skills: true})
 }}

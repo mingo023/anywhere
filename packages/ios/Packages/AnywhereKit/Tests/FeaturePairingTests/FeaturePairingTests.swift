@@ -14,6 +14,12 @@ struct PairingEntryTests {
         #expect(link == PairingLink(host: "100.64.0.1:4517", code: code, name: "Studio"))
     }
 
+    @Test("a zoes pair link is read the same")
+    func zoesLink() {
+        let link = PairingEntry.link(from: "zoes://pair?v=1&h=100.64.0.1%3A4517&c=\(code)&n=Studio")
+        #expect(link == PairingLink(host: "100.64.0.1:4517", code: code, name: "Studio"))
+    }
+
     @Test("the line pocketd pair prints gives its host and code")
     func pocketdLine() {
         let line = "Scan with the iPhone Camera app, or enter  100.64.0.1:4517  \(code)  Expires at 15:04."
@@ -90,7 +96,7 @@ struct PairingFailureCopyTests {
     @Test("a Mac whose link ended says why: removed, or which side to update")
     func ended() {
         #expect(EndedView.copy(.revoked, mac: "Studio").title == "Removed from Studio")
-        #expect(EndedView.copy(.updateMac, mac: "Studio").title == "Update Anywhere on Studio")
+        #expect(EndedView.copy(.updateMac, mac: "Studio").title == "Update Zoes on Studio")
         #expect(EndedView.copy(.updatePhone, mac: "Studio").title == "Update this app")
     }
 

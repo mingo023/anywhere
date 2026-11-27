@@ -6,7 +6,7 @@ public enum PairingEntry {
     /// pocketd's port in a release build, for an address typed without one.
     public static let defaultPort = 4517
 
-    /// A scanned or pasted `anywhere://pair` link, or the "host code" pair `pocketd pair` prints.
+    /// A scanned or pasted `anywhere://pair` or `zoes://pair` link, or the "host code" pair `pocketd pair` prints.
     public nonisolated static func link(from text: String) -> PairingLink? {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if let link = PairingLink.parse(text) { return link }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// What an `anywhere://` link opens: from the scheme, a notification tap, or the Live Activity.
+/// What an `anywhere://` or `zoes://` link opens: from the scheme, a notification tap, or the Live Activity.
 public enum DeepLink: Hashable, Sendable {
     /// `anywhere://pair?…`; the pairing screen reads the link itself.
     case pair(URL)
@@ -9,8 +9,10 @@ public enum DeepLink: Hashable, Sendable {
     /// `anywhere://mac/<serverId>/agent/<agentId>`.
     case agent(mac: String, agentId: String)
 
+    private static let schemes: Set = ["anywhere", "zoes"]
+
     public static func parse(_ url: URL) -> DeepLink? {
-        guard url.scheme?.lowercased() == "anywhere" else { return nil }
+        guard let scheme = url.scheme?.lowercased(), schemes.contains(scheme) else { return nil }
         let host = url.host(percentEncoded: false)
         if host == "pair" { return .pair(url) }
         guard host == "mac" else { return nil }

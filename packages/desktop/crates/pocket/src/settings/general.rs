@@ -21,8 +21,8 @@ fn update_status(update: &Update, available: bool) -> (Option<Token>, String) {
 fn cli_status(available: bool, installed: bool) -> &'static str {
     match (available, installed) {
         (false, _) => "Comes with release builds on macOS",
-        (true, false) => "Adds anywhere to your PATH, and a skill for Claude and Codex",
-        (true, true) => "anywhere is on your PATH",
+        (true, false) => "Adds zoes to your PATH, and a skill for Claude and Codex",
+        (true, true) => "zoes is on your PATH",
     }
 }
 
@@ -40,8 +40,8 @@ fn index<T: PartialEq>(options: &[T], value: T, fallback: usize) -> usize {
 }
 
 pub(super) const ROWS: &[Setting] = &[
-    Setting::custom("update", "Software update", "Software update", |d, _, cx| d.update_row(cx)).hint("Check for a new version of Anywhere"),
-    Setting::custom("star", "Software update", "Star Anywhere on GitHub", |d, _, cx| d.star_row(cx)).hint(STAR_HINT),
+    Setting::custom("update", "Software update", "Software update", |d, _, cx| d.update_row(cx)).hint("Check for a new version of Zoes"),
+    Setting::custom("star", "Software update", "Star Zoes on GitHub", |d, _, cx| d.star_row(cx)).hint(STAR_HINT),
     Setting::switch("auto-install", "Software update", "Install updates automatically", |s| s.general.auto_install, |s, on| s.general.auto_install = on)
         .hint("Downloads in the background and installs the next time you quit")
         .effect(follow_updates),
@@ -71,7 +71,7 @@ pub(super) const ROWS: &[Setting] = &[
     .advanced()
     .effect(follow_updates),
     Setting::switch("open-at-login", "Startup & background", "Open at login", |s| s.general.open_at_login, |s, on| s.general.open_at_login = on)
-        .hint("Opens Anywhere when you log in to the Mac")
+        .hint("Opens Zoes when you log in to the Mac")
         .effect(|d, cx| d.open_at_login(cx)),
     Setting::switch("resume-agents", "Startup & background", "Resume agents after restart", |s| s.general.resume_agents, |s, on| s.general.resume_agents = on)
         .hint("Reopens agent sessions when the service or the Mac restarts")
@@ -87,8 +87,7 @@ pub(super) const ROWS: &[Setting] = &[
     Setting::custom("service", "Startup & background", "Background service", |d, _, cx| d.service_row(cx))
         .hint("Restart the service that hosts every terminal and agent")
         .advanced(),
-    Setting::custom("cli", "Startup & background", "Command line tool", |d, _, cx| d.cli_row(cx))
-        .hint("Lets scripts and agents outside Anywhere run its sessions"),
+    Setting::custom("cli", "Startup & background", "Command line tool", |d, _, cx| d.cli_row(cx)).hint("Lets scripts and agents outside Zoes run its sessions"),
     Setting::choice(
         "launch-layout",
         "Launch layout",
@@ -113,7 +112,7 @@ pub(super) const ROWS: &[Setting] = &[
         "close-window",
         "Quitting & sleep",
         "When the window closes",
-        &["Stay in the background", "Quit Anywhere"],
+        &["Stay in the background", "Quit Zoes"],
         Look::Dropdown,
         |s| usize::from(s.general.close_quits),
         |s, i| s.general.close_quits = i == 1,
@@ -253,12 +252,12 @@ impl Settings {
             .child(crate::star::glyph("settings-star-pop", thanked, 13., cx.reduce_motion()))
             .child(if thanked { "Thank you" } else { "Star" });
         let star = action("settings-star", label).on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::StarOnGithub)));
-        row("Star Anywhere on GitHub", Some(STAR_HINT), star)
+        row("Star Zoes on GitHub", Some(STAR_HINT), star)
     }
 
     fn update_row(&mut self, cx: &mut Context<Self>) -> Div {
         let (dot, status) = update_status(&self.side.update, self.side.updates_available);
-        let title = div().flex().flex_col().gap(px(1.)).child(format!("Anywhere {}", channel::version())).child(
+        let title = div().flex().flex_col().gap(px(1.)).child(format!("Zoes {}", channel::version())).child(
             div()
                 .flex()
                 .items_center()
@@ -339,7 +338,7 @@ mod tests {
     #[test]
     fn the_command_line_row_says_where_it_stands() {
         assert_eq!(cli_status(false, false), "Comes with release builds on macOS");
-        assert_eq!(cli_status(true, false), "Adds anywhere to your PATH, and a skill for Claude and Codex");
-        assert_eq!(cli_status(true, true), "anywhere is on your PATH");
+        assert_eq!(cli_status(true, false), "Adds zoes to your PATH, and a skill for Claude and Codex");
+        assert_eq!(cli_status(true, true), "zoes is on your PATH");
     }
 }

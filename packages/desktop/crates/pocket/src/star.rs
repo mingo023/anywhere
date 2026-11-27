@@ -7,7 +7,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::Store;
 use theme::*;
 
-const REPO_URL: &str = "https://github.com/mingo023/anywhere";
+const REPO_URL: &str = "https://github.com/mingo023/zoes";
 const WAIT_SECS: u64 = 3 * 24 * 60 * 60;
 const THANKS: Duration = Duration::from_millis(1400);
 const POP: Duration = Duration::from_millis(420);
@@ -97,7 +97,7 @@ impl Render for Star {
             .flex()
             .flex_col()
             .gap(px(2.))
-            .child(div().h(px(18.)).truncate().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child("Enjoying Anywhere?"))
+            .child(div().h(px(18.)).truncate().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child("Enjoying Zoes?"))
             .child(div().h(px(16.)).truncate().text_size(px(12.)).text_color(TEXT_2).child("A star helps others find it."));
         let label = if thanked {
             div()

@@ -104,7 +104,7 @@ impl Settings {
                         .text_size(px(12.))
                         .line_height(px(16.))
                         .text_color(TEXT_3)
-                        .child("Pair the Anywhere iPhone app to approve requests, read output and start sessions when you're away from the Mac."),
+                        .child("Pair the Zoes iPhone app to approve requests, read output and start sessions when you're away from the Mac."),
                 );
         }
         let now = now_ms();

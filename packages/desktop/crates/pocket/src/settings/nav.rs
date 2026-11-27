@@ -24,7 +24,6 @@ impl Settings {
                 let at = Section::ALL.iter().position(|a| *a == s).unwrap_or(0);
                 let count = hits.iter().find(|(h, _)| *h == s).map_or(0, |(_, rows)| rows.len());
                 let selected = !searching && self.section.nav() == s;
-                let changed = !searching && self.changed_in(s) > 0;
                 item(("settings-section", at), s.icon(), s.label(), selected)
                     .track_focus(&self.nav_focus[at])
                     .when(searching && count == 0, |d| d.opacity(0.45))
@@ -46,7 +45,6 @@ impl Settings {
                                 .child(count.to_string()),
                         )
                     })
-                    .when(changed, |d| d.child(div().ml_auto().child(ui::dot(6., TEXT_2))))
                     .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, window, cx| {
                         if let Some(next) = next_item(&ev.keystroke.key, at, Section::ALL.len()) {
                             window.focus(&this.nav_focus[next], cx);

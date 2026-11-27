@@ -155,7 +155,7 @@ func StartPayload(s State, mac, macName string, now time.Time, stale time.Durati
 	raw, _ := json.Marshal(map[string]any{"aps": map[string]any{
 		"timestamp": now.Unix(), "event": "start", "input-push-token": 1,
 		"attributes-type": "MacActivity", "attributes": map[string]string{"mac": mac, "macName": macName},
-		"content-state": s, "alert": map[string]string{"title": "Anywhere", "body": generic[NeedsYou]},
+		"content-state": s, "alert": map[string]string{"title": "Zoes", "body": generic[NeedsYou]},
 		"relevance-score": Relevance(s), "stale-date": now.Add(stale).Unix(),
 	}})
 	return raw

@@ -125,13 +125,13 @@ impl Render for Terminals {
                 vec![div().child("Not starting? In Terminal:").into_any_element(), div().font_family(MONO).child("pocketd daemon install").into_any_element()]
             }
             Some(Hint::LoginItems) => vec![
-                div().child("Anywhere's background service is off.").into_any_element(),
+                div().child("Zoes's background service is off.").into_any_element(),
                 ui::button("open-login-items", ui::Variant::Primary, None, "Open Login Items")
                     .mt(px(6.))
                     .on_click(|_, _, _| daemon::service::open_login_items())
                     .into_any_element(),
             ],
-            Some(Hint::Reopen) => vec![div().child("Not starting? Quit and reopen Anywhere.").into_any_element()],
+            Some(Hint::Reopen) => vec![div().child("Not starting? Quit and reopen Zoes.").into_any_element()],
         };
         match update {
             Some(update) => updating_page(update, &stale, tip, window, cx),
@@ -144,7 +144,7 @@ impl Render for Terminals {
                 .gap(px(6.))
                 .text_size(px(14.))
                 .text_color(TEXT_3)
-                .when(hint != Some(Hint::LoginItems), |d| d.child("Starting Anywhere's terminal service…"))
+                .when(hint != Some(Hint::LoginItems), |d| d.child("Starting Zoes's terminal service…"))
                 .children(tip),
         }
     }
@@ -170,7 +170,7 @@ fn updating_page(update: Update, stale: &str, tip: Vec<AnyElement>, window: &mut
         Update::Stuck => mascot(Look { eyes: DOWN, lit: false, ..STILL }).into_any_element(),
         Update::Back(_) => mascot(Look { eyes: (0., 0.), happy: true, ..STILL }).into_any_element(),
     };
-    let installed = done(format!("Anywhere {} installed", channel::version()));
+    let installed = done(format!("Zoes {} installed", channel::version()));
     let note = |el: Div| el.pl(px(26.)).text_size(px(13.)).line_height(px(19.)).text_color(TEXT_3);
     let (title, steps): (&str, Vec<Div>) = match update {
         Update::Waiting(waited) => {
@@ -178,7 +178,7 @@ fn updating_page(update: Update, stale: &str, tip: Vec<AnyElement>, window: &mut
                 .child(div().ml_auto().pl(px(16.)).font_family(MONO).text_size(px(12.)).text_color(TEXT_4).child(format!("{}s", waited.as_secs())));
             let tip = (!tip.is_empty()).then(|| note(div().flex().flex_col().gap(px(6.)).items_start()).children(tip));
             let resume = step(div().size(px(6.)).rounded_full().bg(TEXT_5), "Sessions resume when it's back", TEXT_4);
-            ("Updating Anywhere", [Some(installed), Some(updating), tip, Some(resume)].into_iter().flatten().collect())
+            ("Updating Zoes", [Some(installed), Some(updating), tip, Some(resume)].into_iter().flatten().collect())
         }
         Update::Stuck => (
             "The update needs a restart",
@@ -193,7 +193,7 @@ fn updating_page(update: Update, stale: &str, tip: Vec<AnyElement>, window: &mut
                     ),
             ],
         ),
-        Update::Back(_) => ("Updating Anywhere", vec![installed, done("Background service updated")]),
+        Update::Back(_) => ("Updating Zoes", vec![installed, done("Background service updated")]),
     };
     let opacity = if let Update::Back(t) = update { hand_back_opacity(t) } else { 1. };
     let text = div()

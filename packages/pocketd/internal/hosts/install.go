@@ -24,7 +24,7 @@ var bootstrapSh string
 var bootstrapPs1 string
 
 const (
-	releases  = "https://github.com/mingo023/anywhere/releases/download"
+	releases  = "https://github.com/mingo023/zoes/releases/download"
 	upload    = "upload.tar.gz"
 	uploadZip = "upload.zip"
 )

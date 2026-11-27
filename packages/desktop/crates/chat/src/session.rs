@@ -726,4 +726,39 @@ mod tests {
         s.update(backend, 2, &items, true, 4_000);
         assert!(!crate::busy(&s.transcript, &s.outgoing, true), "the compaction shows; status trails it");
     }
+
+    #[test]
+    fn a_new_sessions_opening_command_shows_until_its_echo_though_the_timeline_moves_first() {
+        let backend = for_provider("claude");
+        let mut s = Session::default();
+        s.outgoing.opening("/brainless fix it".into(), 0);
+        s.update(backend, 1, &[], false, 10);
+        assert_eq!(s.outgoing.echoed().count(), 1, "the timeline's first page only says the agent started");
+        s.update(backend, 2, &[], false, 5_000);
+        assert_eq!(s.outgoing.echoed().count(), 1, "status may not show work yet while Claude starts");
+        s.update(backend, 3, &[item(4_000, json!({"kind": "user", "text": "/brainless fix it"}))], true, 6_000);
+        assert!(s.outgoing.list().is_empty());
+        assert_eq!(s.rows.iter().filter(|r| matches!(r, Row::Prompt { .. } | Row::Pending(_))).count(), 1);
+    }
+
+    #[test]
+    fn a_new_sessions_opening_command_that_never_echoes_goes_once_the_agent_idles_after_it() {
+        let backend = for_provider("claude");
+        let mut s = Session::default();
+        s.outgoing.opening("/model opus".into(), 0);
+        s.update(backend, 1, &[], true, 10);
+        s.update(backend, 2, &[], false, 2_000);
+        assert!(s.outgoing.list().is_empty());
+    }
+
+    #[test]
+    fn a_new_sessions_opening_command_stops_reading_as_work_once_its_turn_ends() {
+        let backend = for_provider("claude");
+        let mut s = Session::default();
+        s.outgoing.opening("/brainless fix it".into(), 0);
+        s.update(backend, 1, &[], false, 10);
+        let items = vec![item(1_000, json!({"kind": "user", "text": "/brainless fix it"})), item(1_500, json!({"kind": "result", "ok": true}))];
+        s.update(backend, 2, &items, false, 2_000);
+        assert!(!crate::busy(&s.transcript, &s.outgoing, false), "status never showed the turn, but the transcript did");
+    }
 }

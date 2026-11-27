@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use theme::*;
 
+mod finding;
 mod sends;
 
 /// The transcript's reading width.
@@ -116,6 +117,8 @@ pub(crate) struct View {
     arrivals: crate::delegated::Arrivals,
     links_pr: bool,
     has_host_link: bool,
+    /// The find bar's search, while it's open.
+    finding: Option<finding::Finding>,
 }
 
 impl View {
@@ -183,6 +186,7 @@ impl View {
             arrivals: Default::default(),
             links_pr: false,
             has_host_link: false,
+            finding: None,
         }
     }
 
@@ -390,6 +394,7 @@ impl View {
             self.code.retain(|row| ids.contains(row.as_str()));
             // A group of reports keeps a document per report, keyed under its row's id.
             self.docs.retain(|key| ids.contains(key.split('|').next().unwrap_or(key)));
+            self.find_again();
         }
         self.session.outgoing.released()
     }
@@ -591,6 +596,7 @@ fn prompt_bubble(
     at: i64,
     dim: bool,
     under: Option<Div>,
+    found: Vec<(Range<usize>, Hsla)>,
     width: f32,
     here: &std::path::Path,
     window: &mut Window,
@@ -602,7 +608,7 @@ fn prompt_bubble(
         let row = id.to_string();
         (user_bubble::Fold { lines, toggled }, cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_expanded(&row, cx)))
     });
-    let bubble = user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), view.flashing(id), here, toggle, window, cx);
+    let bubble = user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), view.flashing(id), here, toggle, found, window, cx);
     let under = under.unwrap_or_else(|| {
         let key = format!("prompt:{id}");
         user_bubble::actions(id, view.copied(&key), copy(key, text.to_string(), cx), Some(at))
@@ -658,6 +664,7 @@ impl View {
             .child(sticky::below(cover.max(clip), rows))
             .children(sticky.map(|(card, _)| sticky::below(clip, card)))
             .children(timeline)
+            .children(finding::rail(self.find_ticks()))
             .children(pill)
     }
 
@@ -900,7 +907,8 @@ impl View {
         let inner = match &row {
             Row::Prompt { turn } => match t.turns.get(*turn).and_then(|t| t.prompt.as_ref()) {
                 Some(p) => {
-                    let bubble = prompt_bubble(view, &id, &p.text, p.at, false, None, width, &here, window, cx);
+                    let found = finding::found_in(&mut view.finding, ix, window);
+                    let bubble = prompt_bubble(view, &id, &p.text, p.at, false, None, found, width, &here, window, cx);
                     match delegated_by.filter(|_| *turn == 0) {
                         Some((by, label)) => div()
                             .flex()
@@ -1012,7 +1020,9 @@ impl View {
                         if start {
                             highlight = Some((lang.to_string(), code.to_string()));
                         }
-                        let block = div().child(markdown::code_block(&view.docs.code(&id, lang, &code, cx), colours));
+                        let doc = view.docs.code(&id, lang, &code, cx);
+                        finding::paint(&mut view.finding, ix, &id, true, &doc, window, cx);
+                        let block = div().child(markdown::code_block(&doc, colours));
                         let block = match reveal {
                             Some(_) => div()
                                 .child(block.with_animation(SharedString::from(format!("code-in-{id}")), Animation::new(reveal::FADE), |b, t| b.opacity(t))),
@@ -1028,6 +1038,7 @@ impl View {
                             _ => Default::default(),
                         };
                         let doc = view.docs.get(&id, text, reveal.is_some() || live(t, *turn), cx);
+                        finding::paint(&mut view.finding, ix, &id, false, &doc, window, cx);
                         div().child(markdown::block(TextView::new(&doc), open.clone()).plugin(pr_link::PrLinks {
                             peeks,
                             open: open.clone(),
@@ -1152,7 +1163,7 @@ impl View {
                     });
                     let under = under.or_else(|| s.outgoing.after_turn().any(|c| c.id == p.id).then(|| user_bubble::after_turn(who)));
                     let dim = p.delivery == Delivery::Failed || under.is_some();
-                    prompt_bubble(view, &id, &p.text, p.sent_at, dim, under, width, &here, window, cx).children(retry)
+                    prompt_bubble(view, &id, &p.text, p.sent_at, dim, under, Vec::new(), width, &here, window, cx).children(retry)
                 }
                 None => div(),
             },

@@ -315,7 +315,7 @@ impl Settings {
             }))
         });
         let why = (!may).then(|| {
-            div().px(px(10.)).pb(px(6.)).max_w(px(220.)).text_size(px(11.5)).line_height(px(15.)).text_color(TEXT_4).child("Anywhere keeps one agent on.")
+            div().px(px(10.)).pb(px(6.)).max_w(px(220.)).text_size(px(11.5)).line_height(px(15.)).text_color(TEXT_4).child("Zoes keeps one agent on.")
         });
         let page =
             ui::menu_row(("provider-menu-page", i), "sliders", "Settings\u{2026}", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -344,7 +344,7 @@ impl Settings {
             let name = self.agent_name(p);
             super::action(("provider-install", i), "Install\u{2026}").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 cx.write_to_clipboard(ClipboardItem::new_string(command.to_string()));
-                this.toast(Toast::tell(format!("Copied the install command for {name}. Run it in a terminal, then restart Anywhere.")), cx);
+                this.toast(Toast::tell(format!("Copied the install command for {name}. Run it in a terminal, then restart Zoes.")), cx);
             }))
         });
         div()
