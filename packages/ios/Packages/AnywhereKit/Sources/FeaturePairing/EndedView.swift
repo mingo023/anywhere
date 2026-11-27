@@ -72,15 +72,15 @@ public struct EndedView: View {
         case .revoked:
             Copy(
                 systemImage: "iphone.slash", title: "Removed from \(mac)",
-                message: "This iPhone was removed in Anywhere on the Mac. Pair again with a new code to come back.")
+                message: "This iPhone was removed in Zoes on the Mac. Pair again with a new code to come back.")
         case .updateMac:
             Copy(
-                systemImage: "arrow.down.circle", title: "Update Anywhere on \(mac)",
-                message: "The Mac's Anywhere is older than this app. Update it on the Mac, then try again.")
+                systemImage: "arrow.down.circle", title: "Update Zoes on \(mac)",
+                message: "The Mac's Zoes is older than this app. Update it on the Mac, then try again.")
         case .updatePhone:
             Copy(
                 systemImage: "arrow.down.app", title: "Update this app",
-                message: "\(mac) runs a newer Anywhere than this app speaks. Update it from the App Store.")
+                message: "\(mac) runs a newer Zoes than this app speaks. Update it from the App Store.")
         default:
             Copy(systemImage: "bolt.horizontal.circle", title: "Disconnected from \(mac)", message: "Try connecting again.")
         }

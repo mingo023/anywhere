@@ -54,7 +54,8 @@ actions!(
         FormatCode,
         FormatLink,
         BackToParent,
-        SettingsUp
+        SettingsUp,
+        FindInChat
     ]
 );
 
@@ -145,6 +146,9 @@ pub fn bindings() -> Vec<KeyBinding> {
         bind("cmd-0", ResetZoom, None),
         // gpui-base's `Input` binds ⌘F to its own search, so only the Settings page claims it.
         bind("cmd-f", FocusSearch, Some(settings::CONTEXT)),
+        bind("cmd-f", FindInChat, Some(crate::chat::CONTEXT)),
+        // The composer is an `Input`, whose own ⌘F binding sits deeper than the chat's.
+        bind("cmd-f", FindInChat, Some("Chat > Input")),
         bind("cmd-c", CopySelection, Some(keys::CONTEXT)),
         bind("cmd-a", SelectAll, Some(keys::CONTEXT)),
         bind("cmd-v", Paste, Some(keys::CONTEXT)),

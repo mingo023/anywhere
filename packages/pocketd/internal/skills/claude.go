@@ -10,13 +10,12 @@ import (
 )
 
 var claude = Harness{ByDir: true, Roots: func(config, _, cwd string) []Root {
-	project := filepath.Join(cwd, ".claude")
-	roots := []Root{
-		{Dir: filepath.Join(project, "skills"), Skills: true},
-		{Dir: filepath.Join(project, "commands")},
-		{Dir: filepath.Join(config, "skills"), Skills: true},
-		{Dir: filepath.Join(config, "commands")},
+	var roots []Root
+	if cwd != "" {
+		project := filepath.Join(cwd, ".claude")
+		roots = append(roots, Root{Dir: filepath.Join(project, "skills"), Skills: true}, Root{Dir: filepath.Join(project, "commands")})
 	}
+	roots = append(roots, Root{Dir: filepath.Join(config, "skills"), Skills: true}, Root{Dir: filepath.Join(config, "commands")})
 	for _, p := range plugins(config, cwd) {
 		roots = append(roots, Root{Dir: filepath.Join(p.dir, "skills"), Skills: true, Prefix: p.name + ":"}, Root{Dir: filepath.Join(p.dir, "commands"), Prefix: p.name + ":"})
 	}
@@ -26,7 +25,7 @@ var claude = Harness{ByDir: true, Roots: func(config, _, cwd string) []Root {
 type plugin struct{ name, dir string }
 
 // plugins are those installed for the user or for cwd and enabled by the user's settings or cwd's, the project's
-// overriding.
+// overriding; only the user's with no cwd.
 func plugins(config, cwd string) []plugin {
 	var installed struct {
 		Plugins map[string][]struct {
@@ -37,7 +36,11 @@ func plugins(config, cwd string) []plugin {
 	}
 	readJSON(filepath.Join(config, "plugins", "installed_plugins.json"), &installed)
 	enabled := map[string]bool{}
-	for _, path := range []string{filepath.Join(config, "settings.json"), filepath.Join(cwd, ".claude", "settings.json"), filepath.Join(cwd, ".claude", "settings.local.json")} {
+	settings := []string{filepath.Join(config, "settings.json")}
+	if cwd != "" {
+		settings = append(settings, filepath.Join(cwd, ".claude", "settings.json"), filepath.Join(cwd, ".claude", "settings.local.json"))
+	}
+	for _, path := range settings {
 		var s struct {
 			EnabledPlugins map[string]bool `json:"enabledPlugins"`
 		}
@@ -52,7 +55,7 @@ func plugins(config, cwd string) []plugin {
 			continue
 		}
 		for _, in := range installed.Plugins[id] {
-			if in.Scope == "user" || in.ProjectPath == cwd {
+			if in.Scope == "user" || (cwd != "" && in.ProjectPath == cwd) {
 				name, _, _ := strings.Cut(id, "@")
 				out = append(out, plugin{name, in.InstallPath})
 				break

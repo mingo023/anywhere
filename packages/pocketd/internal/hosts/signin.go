@@ -58,23 +58,35 @@ func (m *Manager) signIn(ctx context.Context, h Host, password string) Failure {
 	if err != nil {
 		return FailOther
 	}
-	stderr, ok := m.passwordSignIn(ctx, h, askpass, password, public, methodPassword)
-	if !ok && !takesPasswords(stderr) {
-		stderr, ok = m.passwordSignIn(ctx, h, askpass, password, public, methodKeyboardInteractive)
+	install := installKey
+	if h.Windows {
+		install = windowsInstallKey
 	}
-	if ok {
+	method := methodPassword
+	stderr, code := m.passwordSignIn(ctx, h, askpass, password, public, method, install)
+	if code != 0 && !takesPasswords(stderr) {
+		method = methodKeyboardInteractive
+		stderr, code = m.passwordSignIn(ctx, h, askpass, password, public, method, install)
+	}
+	if code == 0 {
 		return ""
+	}
+	// ssh exits 255 only when it fails itself, so the password worked and sh didn't: maybe a Windows host not yet probed.
+	if code > 0 && code != 255 && install == installKey {
+		if _, code = m.passwordSignIn(ctx, h, askpass, password, public, method, windowsInstallKey); code == 0 {
+			return ""
+		}
 	}
 	return classify(stderr)
 }
 
-// passwordSignIn runs the key install over one sign-in with method; ssh's stderr when it fails.
-func (m *Manager) passwordSignIn(ctx context.Context, h Host, askpass, password string, public []byte, method passwordMethod) (string, bool) {
+// passwordSignIn runs install over one sign-in with method: ssh's stderr and exit code, or -1 when ssh didn't finish.
+func (m *Manager) passwordSignIn(ctx context.Context, h Host, askpass, password string, public []byte, method passwordMethod, install string) (string, int) {
 	ctx, cancel := context.WithTimeout(ctx, signInTimeout)
 	defer cancel()
-	cmd, err := m.command(ctx, passwordArgs(h, m.paths.KnownHosts(h.ID), method, installKey))
+	cmd, err := m.command(ctx, passwordArgs(h, m.paths.KnownHosts(h.ID), method, install))
 	if err != nil {
-		return err.Error(), false
+		return err.Error(), -1
 	}
 	cmd.Env = append(cmd.Env, "SSH_ASKPASS="+askpass,
 		// Askpass even when pocketd was started from a terminal, whose tty ssh would otherwise prompt on.
@@ -87,9 +99,12 @@ func (m *Manager) passwordSignIn(ctx context.Context, h Host, askpass, password 
 	err = cmd.Run()
 	if ctx.Err() != nil {
 		// ssh's own wording, so classify calls it timed_out.
-		return "Operation timed out", false
+		return "Operation timed out", -1
 	}
-	return stderr.String(), err == nil
+	if err != nil && cmd.ProcessState == nil {
+		return stderr.String(), -1
+	}
+	return stderr.String(), cmd.ProcessState.ExitCode()
 }
 
 func writeAskpass(dir string) (string, error) {

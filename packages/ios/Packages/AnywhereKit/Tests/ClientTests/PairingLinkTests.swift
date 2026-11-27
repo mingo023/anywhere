@@ -17,6 +17,12 @@ struct PairingLinkTests {
         #expect(PairingLink.parse("anywhere://pair?v=1&h=127.0.0.1:4517&c=\(code)")?.name == "127.0.0.1:4517")
     }
 
+    @Test("a zoes link reads the same as an anywhere link")
+    func zoes() {
+        let link = "zoes://pair?v=1&h=100.77.122.82%3A4517&c=\(code)&n=Mingo%27s+MacBook+Pro"
+        #expect(PairingLink.parse(link) == PairingLink(host: "100.77.122.82:4517", code: code, name: "Mingo's MacBook Pro"))
+    }
+
     @Test("the link pocketd offers parses", arguments: ["anywhere://pair?v=1&h=100.64.0.1:4517&c=abcdefghijklmnopqrstuv"])
     func offered(_ link: String) {
         #expect(PairingLink.parse(link)?.host == "100.64.0.1:4517")
@@ -29,6 +35,9 @@ struct PairingLinkTests {
         "anywhere://pair?v=1&h=127.0.0.1:99999&c=\(code)",
         "anywhere://pair?v=1&h=%E0%A4%A&c=\(code)",
         "https://example.com/pair?v=1&h=127.0.0.1:4517&c=\(code)",
+        "http://pair?v=1&h=127.0.0.1:4517&c=\(code)",
+        "zoez://pair?v=1&h=127.0.0.1:4517&c=\(code)",
+        "zoes://pair?v=2&h=127.0.0.1:4517&c=\(code)",
     ])
     func refuses(_ link: String) {
         #expect(PairingLink.parse(link) == nil)

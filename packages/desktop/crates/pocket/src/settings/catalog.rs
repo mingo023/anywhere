@@ -350,11 +350,6 @@ pub(crate) fn reset(rows: &'static [Setting], store: &mut Store) -> Vec<&'static
     moved
 }
 
-/// How many of `rows` differ from their default, for the nav's dot and the change bar.
-pub(crate) fn changed_count(rows: &[Setting], store: &Store) -> usize {
-    rows.iter().filter(|r| r.is_changed(store)).count()
-}
-
 /// The row with `id` on any page, provider pages included.
 pub(crate) fn find(id: &str) -> Option<&'static Setting> {
     Section::ALL.into_iter().chain((0..agents::providers::COUNT).map(Section::Provider)).flat_map(|s| s.rows()).find(|r| r.id == id)
@@ -489,6 +484,7 @@ mod tests {
 
     #[test]
     fn a_row_is_changed_only_while_its_value_differs_from_the_default() {
+        let changed_count = |rows: &[Setting], store: &Store| rows.iter().filter(|r| r.is_changed(store)).count();
         let mut store = Store::default();
         assert_eq!(changed_count(ROWS, &store), 0);
         (store.sounds.all, store.appearance.mode) = (false, store::Mode::Dark);

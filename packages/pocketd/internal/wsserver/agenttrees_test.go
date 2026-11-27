@@ -269,8 +269,8 @@ func TestAFailedTeardownLeavesTheSubagentsWorktreesToo(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	os.MkdirAll(filepath.Join(tree("parent"), filepath.Dir(worktree.ConfigFile)), 0o755)
-	os.WriteFile(filepath.Join(tree("parent"), worktree.ConfigFile), []byte(`{"teardown":["exit 4"]}`), 0o644)
+	os.MkdirAll(worktree.ConfigDirIn(tree("parent")), 0o755)
+	os.WriteFile(worktree.ConfigPath(tree("parent"), worktree.ConfigFile), []byte(`{"teardown":["exit 4"]}`), 0o644)
 	helloWith(p, proto.CapWorkspace)
 	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(tree("parent")) + `,"deleteBranch":true,"force":true}`)
 	if m := p.reply("wd"); m["code"] != proto.CodeTeardownFailed {
@@ -288,12 +288,12 @@ func TestAPhonesDeleteRunsOnlyTheTeardownTheProjectsOwnCheckoutNames(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	os.MkdirAll(filepath.Join(c.Path, filepath.Dir(worktree.ConfigFile)), 0o755)
+	os.MkdirAll(worktree.ConfigDirIn(c.Path), 0o755)
 	script := "touch " + filepath.Join(b.root, "ran")
 	if runtime.GOOS == "windows" {
 		script = "New-Item -ItemType File '" + filepath.Join(b.root, "ran") + "'"
 	}
-	os.WriteFile(filepath.Join(c.Path, worktree.ConfigFile), []byte(`{"teardown":[`+q(script)+`]}`), 0o644)
+	os.WriteFile(worktree.ConfigPath(c.Path, worktree.ConfigFile), []byte(`{"teardown":[`+q(script)+`]}`), 0o644)
 	helloWith(p, proto.CapWorkspace)
 	p.send(`{"type":"worktree.delete","id":"wd","path":` + q(c.Path) + `,"deleteBranch":true,"force":true}`)
 	if m := p.reply("wd"); m["type"] != "ack" {

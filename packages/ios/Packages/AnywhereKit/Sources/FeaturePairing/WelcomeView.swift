@@ -11,7 +11,7 @@ struct WelcomeView: View {
             VStack(alignment: .leading, spacing: Space.xxl) {
                 VStack(alignment: .leading, spacing: Space.m) {
                     AppMark()
-                    Text("Anywhere").font(Typography.largeTitle).foregroundStyle(Palette.text.color)
+                    Text("Zoes").font(Typography.largeTitle).foregroundStyle(Palette.text.color)
                     Text("Watch and drive the coding agents on your Mac, from your iPhone")
                         .font(Typography.title3).foregroundStyle(Palette.text2.color)
                 }
@@ -19,7 +19,7 @@ struct WelcomeView: View {
                     Point(title: "Know when a session needs you", detail: "Approvals, questions, failures and finished runs, as they happen.") { StatusGlyph(.needsYou) }
                     Point(systemImage: "lock.shield", title: "Private link over Tailscale", detail: "Your iPhone reaches your Mac across your own tailnet.")
                 }
-                Text("On your Mac, open Anywhere → Settings → Phone → Pair a phone.")
+                Text("On your Mac, open Zoes → Settings → Phone → Pair a phone.")
                     .font(Typography.footnote).foregroundStyle(Palette.text3.color)
             }
             .padding(.horizontal, Space.xl)

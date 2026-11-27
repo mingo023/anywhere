@@ -182,10 +182,10 @@ impl Settings {
     fn service_off(&mut self, cx: &mut Context<Self>) -> Div {
         let starting = self.starting.is_some_and(|t| t.elapsed() < STARTING);
         let (title, line) = if starting {
-            ("Starting Anywhere\u{2019}s background service\u{2026}".to_string(), "This usually takes a few seconds".to_string())
+            ("Starting Zoes\u{2019}s background service\u{2026}".to_string(), "This usually takes a few seconds".to_string())
         } else {
             let missed = missed(&self.side.automations.items, now_ms());
-            ("Anywhere\u{2019}s background service is off".to_string(), off_line(missed, self.store.automations.grace_hours > 0))
+            ("Zoes\u{2019}s background service is off".to_string(), off_line(missed, self.store.automations.grace_hours > 0))
         };
         let start =
             (!starting).then(|| action("settings-start-service", "Start service").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.start_service(cx))));
@@ -220,7 +220,7 @@ impl Settings {
     fn runs_row(&mut self, cx: &mut Context<Self>) -> Div {
         let items = &self.side.automations.items;
         let next = up_next(items, 1).first().map(|&i| stamp(items[i].next_run_at, now_ms(), &Local));
-        let title = div().flex().items_center().gap(px(8.)).child(ui::dot(8., SUCCESS)).child("Anywhere's background service is on");
+        let title = div().flex().items_center().gap(px(8.)).child(ui::dot(8., SUCCESS)).child("Zoes's background service is on");
         let open = self.side.can_open_automations.then(|| {
             action("settings-open-automations", "Open Automations")
                 .gap(px(6.))

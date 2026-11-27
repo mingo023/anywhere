@@ -23,7 +23,7 @@ struct ConfirmView: View {
                 VStack(alignment: .leading, spacing: Space.m) {
                     Point(systemImage: "eye", title: "See sessions", detail: "Chats, changes and files on this Mac.")
                     Point(systemImage: "hand.tap", title: "Drive them", detail: "Send prompts, answer permissions and start new sessions.")
-                    Point(systemImage: "xmark.shield", title: "Remove it any time", detail: "On the Mac, in Anywhere → Settings → Phone.")
+                    Point(systemImage: "xmark.shield", title: "Remove it any time", detail: "On the Mac, in Zoes → Settings → Phone.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(Space.l)

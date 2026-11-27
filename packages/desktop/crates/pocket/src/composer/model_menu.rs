@@ -853,7 +853,7 @@ mod tests {
         assert_eq!(note("hermes", false, true, false), "Couldn't list Hermes Agent's models", "nothing was typed, so nothing failed to match");
         assert_eq!(
             note("omp", false, false, true),
-            "omp not found (curl -fsSL https://omp.sh/install | sh). Install it, or restart Anywhere if it is already installed."
+            "omp not found (curl -fsSL https://omp.sh/install | sh). Install it, or restart Zoes if it is already installed."
         );
     }
 

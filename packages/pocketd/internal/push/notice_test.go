@@ -101,7 +101,7 @@ func TestAnAlertShowsOnlyGenericTextAndSealsTheNotice(t *testing.T) {
 	}
 	json.Unmarshal(raw, &p)
 	alert := p.Aps["alert"].(map[string]any)
-	if alert["title"] != "Anywhere" || alert["body"] != "A session needs you" || p.Aps["mutable-content"] != 1.0 || p.Aps["category"] != "PERM" ||
+	if alert["title"] != "Zoes" || alert["body"] != "A session needs you" || p.Aps["mutable-content"] != 1.0 || p.Aps["category"] != "PERM" ||
 		p.Aps["interruption-level"] != "time-sensitive" || p.Aps["sound"] != "default" || p.Aps["thread-id"] != Opaque(key, "a1") || p.Aps["badge"] != 3.0 {
 		t.Fatalf("%v", p.Aps)
 	}

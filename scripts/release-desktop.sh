@@ -11,7 +11,7 @@ set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DESKTOP="$ROOT/packages/desktop"
 TARGET="${CARGO_TARGET_DIR:-$DESKTOP/target}"
-REPO=mingo023/anywhere
+REPO=mingo023/zoes
 
 fail() {
   echo "release-desktop: $*" >&2

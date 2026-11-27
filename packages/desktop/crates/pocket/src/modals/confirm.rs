@@ -172,7 +172,7 @@ impl ConfirmText {
             space,
             format!("Terminals and agents already open on {name} keep going there"),
             format!("Projects and files on {name} aren't touched"),
-            "Uninstall and remove also stops Anywhere's service there".into(),
+            "Uninstall and remove also stops Zoes's service there".into(),
         ]
         .into();
         Self { title: format!("Remove {name}?"), action: "Remove from this Mac", facts, dirty: 0, lost: 0, danger: true }
@@ -712,7 +712,7 @@ mod tests {
         assert_eq!((got.title.as_str(), got.action), ("Remove devbox?", "Remove from this Mac"));
         assert_eq!(
             got.detail(),
-            Some("It disconnects now. Its space and 2 projects leave the sidebar. Terminals and agents already open on devbox keep going there. Projects and files on devbox aren't touched. Uninstall and remove also stops Anywhere's service there.".into())
+            Some("It disconnects now. Its space and 2 projects leave the sidebar. Terminals and agents already open on devbox keep going there. Projects and files on devbox aren't touched. Uninstall and remove also stops Zoes's service there.".into())
         );
         assert_eq!(ConfirmText::remove_host("devbox", 0).facts[1], "Its space leaves the sidebar");
         assert_eq!(ConfirmText::remove_host("devbox", 1).facts[1], "Its space and project leave the sidebar");

@@ -18,7 +18,7 @@ struct MacSettingsView: View {
                     TimelineView(.explicit(host.reachabilityMarks)) { _ in Text(host.reachability(at: .now).label) }
                 }
                 LabeledContent("Address") { Text(host.credentials.host).font(Typography.codeSmall).textSelection(.enabled) }
-                if let version = host.hello?.version { LabeledContent("Anywhere", value: version) }
+                if let version = host.hello?.version { LabeledContent("Zoes", value: version) }
                 if let state = host.hostState {
                     LabeledContent("Tailscale", value: state.tailnet ? "Connected" : "Off")
                     LabeledContent("Keeping awake", value: state.keepingAwake ? "On" : "Off")
@@ -49,13 +49,13 @@ struct MacSettingsView: View {
             } header: {
                 Text("This iPhone can")
             } footer: {
-                Text("The Mac decides these in Anywhere → Settings → Phone.")
+                Text("The Mac decides these in Zoes → Settings → Phone.")
             }
 
             Section {
                 Button("Forget this Mac", role: .destructive) { forgetting = true }
             } footer: {
-                Text("This iPhone stops connecting to \(host.name). To remove it on the Mac too, revoke it in Anywhere → Settings → Phone.")
+                Text("This iPhone stops connecting to \(host.name). To remove it on the Mac too, revoke it in Zoes → Settings → Phone.")
             }
         }
         .formStyle(.grouped)

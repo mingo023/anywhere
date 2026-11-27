@@ -127,7 +127,7 @@ impl Inbox {
         let open = c.agent.clone();
         div()
             .id(id(format!("inbox-update:{}", c.agent)))
-            .group(group)
+            .group(group.clone())
             .relative()
             .h(px(40.))
             .px(px(10.))
@@ -140,8 +140,16 @@ impl Inbox {
             .hover(|s| s.bg(FILL_1))
             .child(div().w(px(16.)).flex().justify_center().child(icon("check", 13., SUCCESS)))
             .child(div().flex_1().min_w_0().truncate().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(c.title.clone()))
-            .child(div().flex_none().text_size(px(12.)).text_color(TEXT_3).child(c.project.clone()))
-            .child(div().w(px(28.)).flex_none().text_right().text_size(px(12.)).text_color(TEXT_4).child(ago(c.at, now)))
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(10.))
+                    .group_hover(group, |s| s.invisible())
+                    .child(div().max_w(px(120.)).truncate().text_size(px(12.)).text_color(TEXT_3).child(c.project.clone()))
+                    .child(div().w(px(28.)).flex_none().text_right().text_size(px(12.)).text_color(TEXT_4).child(ago(c.at, now))),
+            )
             .child(acts)
             .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(InboxEvent::Open(open.clone()))))
     }
