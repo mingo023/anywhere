@@ -19,13 +19,18 @@ const (
 
 type Lock struct{ f *os.File }
 
+// ErrRunning's Exe is "" where the OS can't say.
 type ErrRunning struct {
-	PID  int
-	Home string
+	PID       int
+	Home, Exe string
 }
 
 func (e ErrRunning) Error() string {
-	return fmt.Sprintf("pocketd is already running (pid %d) on %s. Stop it first, or use it.", e.PID, e.Home)
+	who := strconv.Itoa(e.PID)
+	if e.Exe != "" {
+		who += ", " + e.Exe
+	}
+	return fmt.Sprintf("pocketd is already running (pid %s) on %s. Stop it first, or use it.", who, e.Home)
 }
 
 func path(home string) string { return filepath.Join(home, "pocketd.lock") }
@@ -50,7 +55,7 @@ func Acquire(home string) (*Lock, error) {
 		f.Close()
 		if errors.Is(lockErr, errBusy) {
 			pid, _ := Holder(home)
-			return nil, ErrRunning{PID: pid, Home: home}
+			return nil, ErrRunning{PID: pid, Home: home, Exe: exe(pid)}
 		}
 		return nil, lockErr
 	}

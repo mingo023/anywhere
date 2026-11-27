@@ -54,6 +54,7 @@ import (
 	"pocketd/internal/push"
 	"pocketd/internal/reach"
 	"pocketd/internal/registry"
+	"pocketd/internal/service"
 	"pocketd/internal/shellenv"
 	"pocketd/internal/skills"
 	"pocketd/internal/state"
@@ -73,10 +74,16 @@ func serve(sock, handed string) error {
 			return err
 		}
 	}
+	launchd := os.Getenv("XPC_SERVICE_NAME") == config.Label()
+	var retired bool
+	var retireErr error
+	if launchd {
+		retired, retireErr = service.Retire(config.HostLabel(), home)
+	}
 	var held *lock.Lock
 	if inherited.LockFD > 0 {
 		held = lock.Adopt(inherited.LockFD, home)
-	} else if held, err = lock.Acquire(home); err != nil {
+	} else if held, err = acquire(home, retired); err != nil {
 		return err
 	}
 	defer held.Close()
@@ -98,6 +105,12 @@ func serve(sock, handed string) error {
 	log.SetOutput(logs)
 	detachConsole()
 	switch {
+	case retireErr != nil:
+		log.Printf("service: retiring %s: %v", config.HostLabel(), retireErr)
+	case retired:
+		log.Printf("service: retired %s, which ran this home's bin/pocketd", config.HostLabel())
+	}
+	switch {
 	case moveErr != nil:
 		log.Printf("home: moving %s to %s: %v", legacy, home, moveErr)
 	case home != legacy:
@@ -117,7 +130,6 @@ func serve(sock, handed string) error {
 		log.Printf("events: %v; serving without them", err)
 	}
 	defer evs.Close()
-	launchd := os.Getenv("XPC_SERVICE_NAME") == config.Label()
 	if launchd && config.Release() {
 		// The bundled plist can't name a log path under ~, so launchd drops stderr.
 		if f, err := os.OpenFile(filepath.Join(home, "logs", "launchd.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
@@ -501,6 +513,17 @@ func serve(sock, handed string) error {
 		return nil
 	}
 	return err
+}
+
+// acquire waits out a just-retired host service, which holds home's lock until it stops.
+func acquire(home string, retired bool) (*lock.Lock, error) {
+	for try := 0; ; try++ {
+		held, err := lock.Acquire(home)
+		if !retired || try == 50 || !errors.As(err, new(lock.ErrRunning)) {
+			return held, err
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // handedDown is what the pocketd before this one left: the file an upgrade's

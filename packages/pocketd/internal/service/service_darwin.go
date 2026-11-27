@@ -125,3 +125,38 @@ func Status(s Spec) (installed, running bool, err error) {
 	_, running = lock.Holder(s.Home)
 	return err == nil, running, nil
 }
+
+// Retire removes label's LaunchAgent if it runs home's bin/pocketd: updates before #300 put one on the app's home,
+// where it could win the lock at login and then never update. Unlike Uninstall it doesn't wait for the lock, which
+// the caller may hold.
+func Retire(label, home string) (bool, error) {
+	path, err := plistPath(label)
+	if err != nil {
+		return false, err
+	}
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return false, nil
+	}
+	out, err := exec.Command("plutil", "-extract", "ProgramArguments.0", "raw", path).Output()
+	if err != nil {
+		return false, fmt.Errorf("plutil %s: %v", path, err)
+	}
+	runs, err := os.Stat(string(bytes.TrimSpace(out)))
+	if err != nil {
+		return false, nil
+	}
+	own, err := os.Stat(filepath.Join(home, "bin", "pocketd"))
+	if err != nil || !os.SameFile(runs, own) {
+		return false, nil
+	}
+	domain, err := loadedIn(label)
+	if err != nil {
+		return false, err
+	}
+	if domain != "" {
+		if err := launchctl("bootout", domain+"/"+label); err != nil {
+			return false, err
+		}
+	}
+	return true, os.Remove(path)
+}
