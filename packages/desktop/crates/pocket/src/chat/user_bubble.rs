@@ -104,8 +104,10 @@ fn shown(text: &str) -> Shown {
 
 /// The prompt's text, its pills, its mentions' icons and its code's shades painted over it, its mentions' paths on hover and its
 /// links opening on a click.
-pub(super) fn styled(id: &str, text: &str) -> Div {
+pub(super) fn styled(id: &str, text: &str, found: &[(Range<usize>, Hsla)]) -> Div {
     let Shown { text, highlights, mentions, pills, links, code } = shown(text);
+    let found = found.iter().map(|(r, colour)| (r.clone(), HighlightStyle { background_color: Some(*colour), ..Default::default() }));
+    let highlights: Vec<_> = combine_highlights(highlights, found).collect();
     let text = SharedString::from(text);
     let styled = StyledText::new(text.clone()).with_highlights(highlights);
     let layout = styled.layout().clone();
@@ -141,6 +143,11 @@ pub(super) fn styled(id: &str, text: &str) -> Div {
         InteractiveText::new(SharedString::from(format!("{id}-text")), styled).tooltip(tip).on_click(ranges, move |ix, _, cx| cx.open_url(&targets[ix]));
     let shown = selectable(SharedString::from(format!("{id}-select")), text, layout.clone(), interactive);
     div().relative().child(shown).child(marks)
+}
+
+/// The text a prompt's bubble shows, which the find bar searches.
+pub(super) fn shown_text(prompt: &str) -> String {
+    shown(split_attachments(prompt).text).text
 }
 
 /// A skill's pill over `span`, sized as the composer's 20px pill on its 22px line.
@@ -278,6 +285,7 @@ pub(super) fn bubble(
     lit: bool,
     here: &Path,
     toggle: Option<(Fold, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static)>,
+    found: Vec<(Range<usize>, Hsla)>,
     window: &mut Window,
     cx: &mut App,
 ) -> Div {
@@ -316,18 +324,18 @@ pub(super) fn bubble(
         let (from, to) = if expanded { (clipped, full) } else { (full, clipped) };
         div()
             .overflow_hidden()
-            .child(styled(id, &text))
+            .child(styled(id, &text, &found))
             .with_animation(SharedString::from(format!("{id}-{expanded}")), grow(delta), move |d, t| d.h(px(from + (to - from) * t)))
             .into_any_element()
     } else if collapsed {
         div()
             .flex()
             .flex_col()
-            .child(div().h(px(LINE_HEIGHT * COLLAPSED_LINES as f32)).overflow_hidden().child(styled(id, &text)))
+            .child(div().h(px(LINE_HEIGHT * COLLAPSED_LINES as f32)).overflow_hidden().child(styled(id, &text, &found)))
             .child(div().h(px(LINE_HEIGHT)).child("..."))
             .into_any_element()
     } else {
-        div().whitespace_normal().child(styled(id, &text)).into_any_element()
+        div().whitespace_normal().child(styled(id, &text, &found)).into_any_element()
     };
     let expander = toggle.map(|(_, on_click)| {
         div().mt(px(8.)).flex().items_start().child(

@@ -1,6 +1,6 @@
 mod effects;
 mod paint;
-mod style;
+pub(crate) mod style;
 
 use super::launch;
 use crate::chat::composer::hand_focus;

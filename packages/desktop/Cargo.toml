@@ -119,7 +119,7 @@ gpui-pre-macos = { path = "vendor/gpui-pre-macos" }
 # gpui-pre-apple 0.3.11 blurring what lies behind a `backdrop_blur` element, for frosted popovers; upstream has no equivalent.
 # Reading the drawable back makes every layer `framebufferOnly = false`, where only debug test builds were.
 gpui-pre-apple = { path = "vendor/gpui-pre-apple" }
-# gpui-base 0.9.0 clipping editor text to the right of the gutter instead of hiding it under an opaque gutter, so the editor can be glass; drop once upstream does.
+# gpui-base 0.9.0 clipping editor text to the right of the gutter instead of hiding it under an opaque gutter, so the editor can be glass, and painting range highlights rounded with a halo; drop once upstream does.
 # It also renders markdown like pluk-inc/markdown-preview: its block spacing, code blocks, lists, tables, GitHub alerts and footnotes; upstream has no equivalent.
 # It also keeps the scrollbar of a table too wide to fit showing, so it reads as scrollable; upstream has no equivalent.
 # It also types the paths of files dropped on an editable input, with `on_drop_paths` to take some first and `drop_paths` for a box around it; upstream has no equivalent.
