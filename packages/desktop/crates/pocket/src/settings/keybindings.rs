@@ -751,17 +751,16 @@ impl Settings {
                 })),
         );
         let search = div()
-            .flex_1()
-            .h(px(28.))
-            .pl(px(9.))
-            .pr(px(3.))
+            .h(px(34.))
+            .pl(px(11.))
+            .pr(px(5.))
             .flex()
             .items_center()
-            .gap(px(6.))
-            .rounded(px(7.))
+            .gap(px(8.))
+            .rounded(px(8.))
             .bg(FILL_2)
-            .child(icon("search", 13., TEXT_3))
-            .child(div().flex_1().min_w_0().child(Input::new(&self.keyboard.search).appearance(false).p_0().text_size(px(12.5))))
+            .child(icon("search", 14., TEXT_3))
+            .child(div().flex_1().min_w_0().child(Input::new(&self.keyboard.search).appearance(false).p_0().text_size(px(13.))))
             .child(find);
         let (all, changed, unassigned) = rows;
         let filters = [Filter::All, Filter::Changed, Filter::Unassigned];
@@ -783,7 +782,8 @@ impl Settings {
             .child("Reset all…")
             .when(changed == 0, |d| d.opacity(0.5))
             .when(changed > 0, |d| d.on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Ask(Confirm::ResetSection(Section::Keyboard))))));
-        div().flex().items_center().gap(px(8.)).child(search).child(filter).child(reset)
+        let controls = div().flex().items_center().justify_between().gap(px(8.)).child(filter).child(reset);
+        div().flex().flex_col().gap(px(10.)).child(search).child(controls)
     }
 
     fn find_bar(&self, cx: &mut Context<Self>) -> Option<Div> {
