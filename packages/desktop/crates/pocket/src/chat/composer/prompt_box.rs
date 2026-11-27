@@ -3,7 +3,6 @@ use super::model_pill::Pill;
 use super::{
     ChatBoxEvent, ComposerState, INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, MIN_ROWS, attachments, frame_on, marks_overlay, pointer_left, send_button, shows_button,
 };
-use crate::composer::Draft;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
 use agents::Summary;
@@ -55,7 +54,7 @@ impl ComposerState {
         let view_only = locked.is_some();
         let held = self.holds(&agent.id);
         let (typed, draft) = self.draft_of(&agent.id, cx);
-        let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
+        let empty = typed.trim().is_empty() && !draft.is_some_and(crate::composer::Draft::sends_without_text);
         let typing = !empty || (held && self.input.read(cx).focus_handle(cx).is_focused(window));
         let action = chat::action(busy, stopping, empty);
         let blocked = !caps.allows(action);
@@ -88,6 +87,16 @@ impl ComposerState {
             )
         });
         let strip = draft.and_then(|d| attachments::strip(d, cx));
+        let quotes = draft.map(|d| d.quotes.clone()).unwrap_or_default();
+        let quotes: Vec<Div> = quotes
+            .iter()
+            .enumerate()
+            .map(|(i, q)| {
+                let (a, quote) = (agent.id.clone(), q.clone());
+                let remove = cx.listener(move |this, _: &ClickEvent, _, cx| this.edit_draft(&a, cx, |d| d.quotes.retain(|held| *held != quote)));
+                crate::composer::quote_strip::quote_strip(i, q, remove)
+            })
+            .collect();
         let input = if let Some(why) = locked {
             div().px(px(10.)).py(px(8.)).text_color(TEXT_3).child(why).into_any_element()
         } else if !held {
@@ -137,7 +146,15 @@ impl ComposerState {
                     cx.emit(ChatBoxEvent::Escape(t.clone()));
                 }
             }))
+            .capture_key_down(cx.listener(move |this, e: &KeyDownEvent, _, cx| {
+                if held && e.keystroke.key == "backspace" && !this.draft.quotes.is_empty() && this.input.read(cx).value().is_empty() {
+                    this.draft.quotes.pop();
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
             .children(suggestions)
+            .children(quotes)
             .children(strip)
             .child(text)
             .child(bar)

@@ -61,11 +61,7 @@ impl Quote {
         }
         let lo = text[..range.start].matches('\n').count() + 1;
         let lines = (lo, lo + selected.matches('\n').count());
-        let language = match language_for(path) {
-            "text" => "",
-            l => l,
-        };
-        Some(Quote { path: path.into(), body: Body::Code { lines, language, text: selected.into() } })
+        Some(Quote { path: path.into(), body: Body::Code { lines, language: language_of(path), text: selected.into() } })
     }
 
     /// Quotes `selected`, text rendered from the markdown `source`.
@@ -120,6 +116,94 @@ impl Quote {
             q => format!("{}\n\n{q}", self.payload()),
         }
     }
+}
+
+fn language_of(path: &str) -> &'static str {
+    match language_for(path) {
+        "text" => "",
+        l => l,
+    }
+}
+
+/// The quote a sent prompt opens with, read back from what `payload` wrote, and what was typed after it.
+pub(crate) fn split_quote(prompt: &str) -> Option<(Quote, &str)> {
+    let (head, after) = prompt.split_once('\n')?;
+    let (quote, rest) = match head.strip_suffix(':') {
+        Some(lead) => prose_quote(lead, after)?,
+        None => fenced_quote(head, after)?,
+    };
+    Some((quote, rest.trim_start_matches('\n')))
+}
+
+/// Every quote a sent prompt opens with, in order, and what was typed after them.
+pub(crate) fn split_quotes(prompt: &str) -> (Vec<Quote>, &str) {
+    let (mut quotes, mut rest) = (Vec::new(), prompt);
+    while let Some((quote, after)) = split_quote(rest) {
+        quotes.push(quote);
+        rest = after;
+    }
+    (quotes, rest)
+}
+
+fn prose_quote<'a>(lead: &str, after: &'a str) -> Option<(Quote, &'a str)> {
+    let (path, section) = match lead.strip_suffix("\")").and_then(|l| l.split_once(" (section \"")) {
+        Some((path, section)) => (path, Some(section.to_string())),
+        None => (lead, None),
+    };
+    if !names_a_file(path) {
+        return None;
+    }
+    let end = after.find("\n\n").unwrap_or(after.len());
+    let lines: Option<Vec<&str>> = after[..end].lines().map(|l| if l == ">" { Some("") } else { l.strip_prefix("> ") }).collect();
+    let text = lines?.join("\n");
+    (!text.trim().is_empty()).then(|| (Quote { path: path.into(), body: Body::Prose { section, text } }, &after[end..]))
+}
+
+fn fenced_quote<'a>(head: &str, after: &'a str) -> Option<(Quote, &'a str)> {
+    let (lead, diff) = head.strip_suffix(", uncommitted change").map_or((head, false), |l| (l, true));
+    let (lead, removed) = lead.strip_suffix(" (before)").map_or((lead, false), |l| (l, true));
+    let (path, lines) = lead.rsplit_once(':')?;
+    let lines: (usize, usize) = match lines.split_once('-') {
+        Some((lo, hi)) => (lo.parse().ok()?, hi.parse().ok()?),
+        None => (lines.parse().ok()?, lines.parse().ok()?),
+    };
+    let (fence, body) = after.split_once('\n')?;
+    let language = fence.strip_prefix("```")?;
+    let (text, rest) = if diff { fenced(body)? } else { counted(body, lines.1.checked_sub(lines.0)? + 1)? };
+    let text = text.to_string();
+    let body = match diff {
+        true if language == "diff" => Body::Diff { lines, removed, text },
+        true => return None,
+        false => Body::Code { lines, language: language_of(path), text },
+    };
+    (!path.is_empty()).then(|| (Quote { path: path.into(), body }, rest))
+}
+
+fn fenced(body: &str) -> Option<(&str, &str)> {
+    let mut from = 0;
+    while let Some(at) = body[from..].find("\n```").map(|at| from + at) {
+        let after = &body[at + 4..];
+        if closes_quote(after) {
+            return Some((&body[..at], after));
+        }
+        from = at + 4;
+    }
+    None
+}
+
+/// Code can hold a fence of its own, so its end is found by the line count in its header.
+fn counted(body: &str, lines: usize) -> Option<(&str, &str)> {
+    let end = body.match_indices('\n').nth(lines - 1).map(|(at, _)| at)?;
+    let after = body[end..].strip_prefix("\n```")?;
+    closes_quote(after).then(|| (&body[..end], after))
+}
+
+fn names_a_file(path: &str) -> bool {
+    basename(path).contains('.')
+}
+
+fn closes_quote(after_fence: &str) -> bool {
+    after_fence.is_empty() || after_fence.starts_with("\n\n")
 }
 
 pub(crate) fn blockquote(text: &str) -> String {
@@ -422,7 +506,13 @@ impl Desktop {
         let question = self.chat.read(cx).question(cx);
         match self.route(&terminal, cx) {
             Route::Chat if self.store.agents.send_now => self.chat_command(&target, chat::Command::Send(quote.prompt(&question)), cx),
-            Route::Chat => self.chat_add_text(&target, &quote.prompt(&question), window, cx),
+            Route::Chat => {
+                let text = self.chat_draft_edit(&target, cx, |d| d.add_quote(&quote, &question));
+                if !text.is_empty() {
+                    self.chat_add_text(&target, &text, window, cx);
+                }
+                cx.notify();
+            }
             Route::Paste => {
                 self.send_input(&terminal, &input_bytes(&quote.payload(), &question), cx);
                 if self.store.agents.send_now {
@@ -465,7 +555,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Body, Choice, Quote, choices, default_target, input_bytes, target_for};
+    use super::{Body, Choice, Quote, choices, default_target, input_bytes, split_quote, split_quotes, target_for};
     use crate::status::{Card, Kind, Status};
 
     fn diff(lines: (usize, usize), removed: bool, text: &str) -> Quote {
@@ -613,7 +703,54 @@ mod tests {
     }
 
     #[test]
+    fn a_sent_quote_reads_back_with_what_was_typed_after_it() {
+        let quotes = [
+            Quote::code("src/a.rs", "a\nb\nc\n", 2..5).unwrap(),
+            Quote::code("notes.txt", "hi", 0..2).unwrap(),
+            diff((27, 31), false, "+x\n-y"),
+            diff((4, 4), true, "-y"),
+            Quote::prose("docs/PLAN.md", "# Rollout\nShip it slowly.\n\nThen watch.", "Ship it slowly.\n\nThen watch.").unwrap(),
+            Quote::prose("README.md", "Intro text.", "Intro text.").unwrap(),
+        ];
+        for q in quotes {
+            assert_eq!(split_quote(&q.prompt("why?\n\nand this")), Some((q.clone(), "why?\n\nand this")));
+            assert_eq!(split_quote(&q.prompt("")), Some((q, "")));
+        }
+    }
+
+    #[test]
+    fn a_quoted_fence_inside_the_code_stays_in_the_code() {
+        let q = Quote::code("README.md", "```sh\nnpm i\n```\n", 0..16).unwrap();
+        assert_eq!(split_quote(&q.prompt("ok")), Some((q, "ok")));
+    }
+
+    #[test]
+    fn a_quoted_fence_followed_by_a_blank_line_stays_in_the_code() {
+        let source = "```sh\nnpm i\n```\n\nThen run it.\n";
+        let q = Quote::code("README.md", source, 0..source.len()).unwrap();
+        assert_eq!(split_quote(&q.prompt("ok")), Some((q, "ok")));
+    }
+
+    #[test]
+    fn a_prompt_that_doesnt_open_with_a_quote_has_none() {
+        assert_eq!(split_quote("Fix CI"), None);
+        assert_eq!(split_quotes("Fix CI"), (vec![], "Fix CI"));
+        assert_eq!(split_quote("Note:\n> keep this"), None);
+        assert_eq!(split_quote("see src/a.rs:12\nthen fix it"), None);
+        assert_eq!(split_quote("src/a.rs:12\n```rust\nlet a = 1;"), None);
+        assert_eq!(split_quote("src/a.rs:1, uncommitted change\n```rust\nx\n```"), None);
+    }
+
+    #[test]
     fn an_excerpt_shows_the_first_three_lines() {
         assert_eq!(Quote::code("a.rs", "1\n2\n3\n4\n", 0..8).unwrap().excerpt(), "1\n2\n3");
+    }
+
+    #[test]
+    fn several_quotes_read_back_in_order_before_the_question() {
+        let a = Quote::code("src/a.rs", "let a = 1;\n", 0..10).unwrap();
+        let b = Quote::prose("docs/b.md", "# Why\n\nBecause.", "Because.").unwrap();
+        let prompt = format!("{}\n\n{}\n\nwhich one?", a.payload(), b.payload());
+        assert_eq!(split_quotes(&prompt), (vec![a, b], "which one?"));
     }
 }

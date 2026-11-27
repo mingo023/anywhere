@@ -391,7 +391,7 @@ impl View {
                 self.list.remeasure_items(fold..changed.start);
             }
             let ids: HashSet<&str> = self.session.ids.iter().map(String::as_str).collect();
-            self.code.retain(|row| ids.contains(row.as_str()));
+            self.code.retain(|key| ids.contains(key.split('|').next().unwrap_or(key)));
             // A group of reports keeps a document per report, keyed under its row's id.
             self.docs.retain(|key| ids.contains(key.split('|').next().unwrap_or(key)));
             self.find_again();
@@ -599,6 +599,7 @@ fn prompt_bubble(
     found: Vec<(Range<usize>, Hsla)>,
     width: f32,
     here: &std::path::Path,
+    quote_colours: Vec<Option<markdown::Styles>>,
     window: &mut Window,
     cx: &mut Context<View>,
 ) -> Div {
@@ -608,12 +609,46 @@ fn prompt_bubble(
         let row = id.to_string();
         (user_bubble::Fold { lines, toggled }, cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_expanded(&row, cx)))
     });
-    let bubble = user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), view.flashing(id), here, toggle, found, window, cx);
+    let open = {
+        let this = cx.weak_entity();
+        move |at: &str, _: &mut Window, cx: &mut App| _ = this.update(cx, |_, cx| cx.emit(ViewEvent::Open(at.to_string(), markdown::Press::Follow)))
+    };
+    let bubble = user_bubble::bubble(
+        id,
+        text.to_string(),
+        width,
+        dim,
+        view.expanded.contains(id),
+        view.flashing(id),
+        here,
+        toggle,
+        open,
+        quote_colours,
+        found,
+        window,
+        cx,
+    );
     let under = under.unwrap_or_else(|| {
         let key = format!("prompt:{id}");
         user_bubble::actions(id, view.copied(&key), copy(key, text.to_string(), cx), Some(at))
     });
     div().flex().flex_col().items_end().gap(px(4.)).child(bubble).child(under)
+}
+
+/// The colours of the code each quote in a prompt holds, once worked out; the first ask for them is left in `highlight`.
+fn quote_colours(code: &mut Highlights, id: &str, prompt: &str, highlight: &mut Vec<(String, String, String)>) -> Vec<Option<markdown::Styles>> {
+    let (quotes, _) = crate::add_to_chat::split_quotes(prompt);
+    let colour = |(i, quote): (usize, &crate::add_to_chat::Quote)| {
+        let (lang, text) = super::quote_card::colour_source(quote)?;
+        // Kept under the row's id, as the row's code highlights are.
+        let key = format!("{id}|quote{i}");
+        let (colours, start) = code.get(&key, &text, is_dark());
+        if start {
+            highlight.push((key, lang.to_string(), text));
+        }
+        colours.map(|c| c.styles().clone())
+    };
+    quotes.iter().enumerate().map(colour).collect()
 }
 
 /// Whether a row opened or shut at `toggled` can still be easing to its height at `now`.
@@ -903,12 +938,13 @@ impl View {
             _ => None,
         };
 
-        let mut highlight = None;
+        let mut highlight = Vec::new();
         let inner = match &row {
             Row::Prompt { turn } => match t.turns.get(*turn).and_then(|t| t.prompt.as_ref()) {
                 Some(p) => {
                     let found = finding::found_in(&mut view.finding, ix, window);
-                    let bubble = prompt_bubble(view, &id, &p.text, p.at, false, None, found, width, &here, window, cx);
+                    let colours = quote_colours(&mut view.code, &id, &p.text, &mut highlight);
+                    let bubble = prompt_bubble(view, &id, &p.text, p.at, false, None, found, width, &here, colours, window, cx);
                     match delegated_by.filter(|_| *turn == 0) {
                         Some((by, label)) => div()
                             .flex()
@@ -1018,7 +1054,7 @@ impl View {
                     Some((lang, code)) => {
                         let (colours, start) = view.code.get(&id, &code, is_dark());
                         if start {
-                            highlight = Some((lang.to_string(), code.to_string()));
+                            highlight.push((id.clone(), lang.to_string(), code.to_string()));
                         }
                         let doc = view.docs.code(&id, lang, &code, cx);
                         finding::paint(&mut view.finding, ix, &id, true, &doc, window, cx);
@@ -1163,7 +1199,8 @@ impl View {
                     });
                     let under = under.or_else(|| s.outgoing.after_turn().any(|c| c.id == p.id).then(|| user_bubble::after_turn(who)));
                     let dim = p.delivery == Delivery::Failed || under.is_some();
-                    prompt_bubble(view, &id, &p.text, p.sent_at, dim, under, Vec::new(), width, &here, window, cx).children(retry)
+                    let colours = quote_colours(&mut view.code, &id, &p.text, &mut highlight);
+                    prompt_bubble(view, &id, &p.text, p.sent_at, dim, under, Vec::new(), width, &here, colours, window, cx).children(retry)
                 }
                 None => div(),
             },
@@ -1205,8 +1242,8 @@ impl View {
             .px(px(32.))
             .child(div().w_full().max_w(px(width)).min_w_0().child(inner))
             .into_any_element();
-        if let Some((lang, code)) = highlight {
-            self.highlight(&id, &lang, &code, cx);
+        for (key, lang, code) in highlight {
+            self.highlight(&key, &lang, &code, cx);
         }
         element
     }

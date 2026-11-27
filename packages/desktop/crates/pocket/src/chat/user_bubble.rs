@@ -1,6 +1,7 @@
 use super::composer::{RADIUS, block_shade, code_shade};
 use super::mention::{hidden, paint_icons, tint};
 use super::selectable::selectable;
+use crate::add_to_chat::{Body, split_quotes};
 use crate::composer::element_card::element_card;
 use crate::composer::elements::heading_parts;
 use crate::composer::file_card::file_card;
@@ -147,7 +148,7 @@ pub(super) fn styled(id: &str, text: &str, found: &[(Range<usize>, Hsla)]) -> Di
 
 /// The text a prompt's bubble shows, which the find bar searches.
 pub(super) fn shown_text(prompt: &str) -> String {
-    shown(split_attachments(prompt).text).text
+    shown(split_attachments(typed(prompt)).text).text
 }
 
 /// A skill's pill over `span`, sized as the composer's 20px pill on its 22px line.
@@ -166,12 +167,16 @@ fn paint_pill(span: Bounds<Pixels>, line: Pixels, window: &mut Window, cx: &mut 
 
 /// The lines `text` wraps to in a bubble at most `width * 0.78` wide.
 pub(super) fn lines(text: &str, width: f32, window: &Window) -> usize {
-    wrapped_lines(text, TEXT_SIZE, width * WIDTH - 32., window)
+    wrapped_lines(typed(text), TEXT_SIZE, width * WIDTH - 32., window)
 }
 
 /// The lines a prompt's `text` wraps to at `size` px in `width` px, as a bubble shows it.
 pub(super) fn wrapped_lines(text: &str, size: f32, width: f32, window: &Window) -> usize {
     text_lines(&shown(split_attachments(text).text).text, size, width, window)
+}
+
+fn typed(prompt: &str) -> &str {
+    split_quotes(prompt).1
 }
 
 /// The lines plain `text` wraps to at `size` px in `width` px.
@@ -285,11 +290,28 @@ pub(super) fn bubble(
     lit: bool,
     here: &Path,
     toggle: Option<(Fold, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static)>,
+    open_quote: impl Fn(&str, &mut Window, &mut App) + 'static,
+    quote_colours: Vec<Option<super::markdown::Styles>>,
     found: Vec<(Range<usize>, Hsla)>,
     window: &mut Window,
     cx: &mut App,
 ) -> Div {
-    let Sent { text, files, images, elements } = split_attachments(&prompt);
+    let (quotes, rest) = split_quotes(&prompt);
+    let open_quote = std::rc::Rc::new(open_quote);
+    let mut colours = quote_colours.into_iter();
+    let quotes: Vec<_> = quotes
+        .iter()
+        .enumerate()
+        .map(|(i, quote)| {
+            let at = match &quote.body {
+                Body::Code { lines, .. } | Body::Diff { lines, .. } => format!("{}:{}", quote.path, lines.0),
+                Body::Prose { .. } => quote.path.clone(),
+            };
+            let open_quote = open_quote.clone();
+            super::quote_card::quote_card(id, i, quote, width, colours.next().flatten(), move |_, window, cx| open_quote(&at, window, cx))
+        })
+        .collect();
+    let Sent { text, files, images, elements } = split_attachments(rest);
     let text = text.to_string();
     let attached = (!images.is_empty() || !files.is_empty() || !elements.is_empty()).then(|| {
         let fit = IMAGE_MAX_W.min(width * WIDTH - 2.);
@@ -395,12 +417,21 @@ pub(super) fn bubble(
             files.into_any_element()
         }
     });
-    div().w_full().flex().flex_col().items_end().gap(px(6.)).when(pending, |d| d.opacity(0.65)).children(attached).when(!text.is_empty(), |d| d.child(bubble))
+    div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .items_end()
+        .gap(px(super::quote_card::GAP))
+        .when(pending, |d| d.opacity(0.65))
+        .children(quotes)
+        .children(attached)
+        .when(!text.is_empty(), |d| d.child(bubble))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{needs_collapse, shown, tween};
+    use super::{needs_collapse, shown, shown_text, tween};
     use std::time::Duration;
 
     #[test]
@@ -460,5 +491,11 @@ mod tests {
         assert_eq!(tween(0.), Duration::from_millis(220));
         assert_eq!(tween(500.), Duration::from_millis(380));
         assert_eq!(tween(5000.), Duration::from_millis(850));
+    }
+
+    #[test]
+    fn find_reads_a_quoted_prompt_as_its_bubble_shows_it_without_the_quotes() {
+        let quote = crate::add_to_chat::Quote::code("src/a.rs", "let a = 1;\n", 0..10).unwrap();
+        assert_eq!(shown_text(&quote.prompt("why?")), "why?");
     }
 }
