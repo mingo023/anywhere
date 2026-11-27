@@ -367,7 +367,10 @@ func (m *Manager) bootstrap(ctx context.Context, h Host, src Source, force bool,
 			if p.Kind == ProgressDone || p.Kind == ProgressRunning || p.Kind == ProgressError {
 				last = p
 			}
-			on(p)
+			// Install reports the error this returns once the install has ended; a second one would bring back a panel the user dismissed.
+			if p.Kind != ProgressError {
+				on(p)
+			}
 		}
 	}
 	cmd.Wait()

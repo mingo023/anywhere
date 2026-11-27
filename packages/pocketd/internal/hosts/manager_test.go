@@ -24,10 +24,19 @@ func TestEditingAHostSavesItsNewTargetUnderTheSameID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Dir(m.paths.Token(devbox.ID)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(m.paths.Token(devbox.ID), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	over := Target{Kind: KindAlias, Name: "devbox", Port: 2222, User: "ops"}
 	e, err := m.Edit(devbox.ID, over)
 	if err != nil || e.ID != devbox.ID || e.Target != over {
 		t.Fatalf("%+v %v", e, err)
+	}
+	if _, err := os.Stat(m.paths.Token(devbox.ID)); !os.IsNotExist(err) {
+		t.Fatalf("the old machine's pairing stays: %v", err)
 	}
 	saved, err := Load(m.db)
 	if err != nil || len(saved) != 2 || saved[0].ID != devbox.ID || saved[0].Target != over {

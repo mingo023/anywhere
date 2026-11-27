@@ -189,6 +189,8 @@ func (m *Manager) Edit(id string, t Target) (Entry, error) {
 		return Entry{}, err
 	}
 	m.hosts = list
+	// A Windows host's pairing belongs to the old machine.
+	os.Remove(m.paths.Token(id))
 	// The supervisor reads the target on each connect, so a retry drops the old tunnel for one to t.
 	if s := m.sups[id]; s != nil {
 		s.retry()
