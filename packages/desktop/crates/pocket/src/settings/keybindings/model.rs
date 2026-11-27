@@ -46,7 +46,7 @@ pub(crate) fn label(action: &str) -> Option<(&'static str, Topic)> {
         "PrevTab" => ("Previous tab", Panels),
         "NextTab" => ("Next tab", Panels),
         "JumpToTab" => ("Jump to tab", Panels),
-        "SwitchSpace" => ("Switch space", Navigation),
+        "SwitchSpace" => ("Switch host", Navigation),
         "SplitRight" => ("Split right", Panels),
         "SplitDown" => ("Split down", Panels),
         "FocusPane" => ("Focus pane", Panels),
