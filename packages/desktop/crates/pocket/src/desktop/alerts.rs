@@ -184,6 +184,7 @@ impl Desktop {
             self.removals.forget(host);
         }
         self.agents.apply_from(host, ev);
+        self.chat_entries_steered(cx);
         if let Some(agent) = paged {
             self.handoff_paged(&agent, window, cx);
         }
