@@ -300,8 +300,8 @@ pub fn diffstat(added: usize, removed: usize) -> Div {
         .gap(px(6.))
         .font_family(MONO)
         .text_size(px(11.))
-        .child(div().text_color(DIFF_ADD_TEXT).child(format!("+{added}")))
-        .child(div().text_color(DIFF_DEL_TEXT).child(format!("−{removed}")))
+        .child(div().text_color(SUCCESS_TEXT).child(format!("+{added}")))
+        .child(div().text_color(FAILED).child(format!("−{removed}")))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1099,7 +1099,7 @@ pub fn meta_row(items: Vec<AnyElement>) -> Div {
     )
 }
 
-/// "+n −n" in the diff colors, as the top bar shows it.
+/// "+n −n" in the status colors, as the top bar shows it.
 pub fn meta_diff(added: usize, removed: usize, size: f32) -> Div {
     div()
         .flex()
@@ -1107,8 +1107,8 @@ pub fn meta_diff(added: usize, removed: usize, size: f32) -> Div {
         .gap(px(size * 0.6))
         .font_family(MONO)
         .text_size(px(size))
-        .child(div().text_color(DIFF_ADD_TEXT).child(format!("+{added}")))
-        .child(div().text_color(DIFF_DEL_TEXT).child(format!("−{removed}")))
+        .child(div().text_color(SUCCESS_TEXT).child(format!("+{added}")))
+        .child(div().text_color(FAILED).child(format!("−{removed}")))
 }
 
 pub fn meta_value(text: impl Into<SharedString>) -> Div {

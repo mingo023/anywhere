@@ -116,8 +116,8 @@ impl PrSide {
             .child(branch(base_branch(&pr.base).to_string()))
             .child(div().flex_none().text_color(TEXT_4).child("←"))
             .child(branch(repo.name.clone()))
-            .child(div().flex_none().text_color(DIFF_ADD_TEXT).child(format!("+{}", pr.additions)))
-            .child(div().flex_none().text_color(DIFF_DEL_TEXT).child(format!("−{}", pr.deletions)));
+            .child(div().flex_none().text_color(SUCCESS_TEXT).child(format!("+{}", pr.additions)))
+            .child(div().flex_none().text_color(FAILED).child(format!("−{}", pr.deletions)));
         let mut seen: Vec<(String, Review)> = pr.reviews.clone();
         seen.extend(pr.requested.iter().filter(|r| !pr.reviews.iter().any(|(w, _)| w == *r)).map(|r| (r.clone(), Review::Required)));
         let opened = (!pr.author.is_empty()).then(|| {
