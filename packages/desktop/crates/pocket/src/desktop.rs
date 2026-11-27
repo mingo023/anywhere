@@ -637,6 +637,7 @@ impl Desktop {
             && self.worktrees.get(p).is_some_and(|w| !w.is_empty())
             && self.place(cx).as_ref() == Some(&main)
             && !self.in_use(&main, cx)
+            && !self.terminals.read(cx).starting_in(&main)
     }
 
     /// The provider's Label from Settings, else its own name.

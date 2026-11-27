@@ -40,6 +40,7 @@
 // list, and answers project.*, worktree.track and settings.shared; devbox (with FIXTURE_HOST_AGENTS) sends an empty list.
 // FIXTURE_THREAD=1 (with FIXTURE_REGISTRY) lists ~/.anywhere/sessions/dainty-skink, a thread's folder another desktop made, so
 // desktop.json doesn't mark it, with a Claude session in it.
+// FIXTURE_THREAD_NAME=<name> names that folder instead.
 // FIXTURE_LOOSE=1 runs a Claude session in ~/Downloads and a shell in ~/notes, folders no project holds.
 // FIXTURE_EXPIRED=1 adds two Claude accounts whose login expired: one never read, one with stale usage.
 // FIXTURE_ONE_ACCOUNT=1 lists only the built-in Claude login.
@@ -51,6 +52,8 @@
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
+// FIXTURE_CREATE_MS holds pocketd's answer to a create that long, as starting a terminal takes a moment;
+// FIXTURE_LIST_MS leaves a created terminal out of pocketd's terminal list that long after it answers;
 // FIXTURE_THINK_MS holds a new session's reply that long after its prompt echoes, as Claude thinks before it answers;
 // FIXTURE_REFUSE_QUEUE=1 refuses every queue edit, cancel, reorder and send-now as pocketd does once the entry went out.
 // FIXTURE_REFUSE_STOP=1 refuses every stop the same way; FIXTURE_STOP_MS delays a stop's interrupted result, as Claude's lags. FIXTURE_CHUNKS sets how many 30ms chunks a reply streams in (default 40).
@@ -313,7 +316,7 @@ if (process.env.FIXTURE_LOOSE) {
   for (const d of ["Downloads", "notes"]) mkdirSync(join(home, d), { recursive: true });
   scenario.agents.push({ id: "loose", title: "Sort the downloads folder", provider: "claude", repo: "", cwd: join(home, "Downloads"), status: "running", ago: 2 });
 }
-const threadPath = join(home, ".anywhere", "sessions", "dainty-skink");
+const threadPath = join(home, ".anywhere", "sessions", process.env.FIXTURE_THREAD_NAME || "dainty-skink");
 if (process.env.FIXTURE_THREAD) {
   mkdirSync(threadPath, { recursive: true });
   git(threadPath, "init", "-q", "-b", "main");
@@ -1360,21 +1363,28 @@ Bun.serve({
       }
       // A session from the New session page: its terminal and agent appear, then the agent answers the prompt.
       if (f.type === "agent.create") {
-        const { project, checkout, provider, prompt } = f.spec;
-        const id = `new-${f.requestId}`;
-        const tree = checkout?.new?.name ? join(`${project}.worktrees`, checkout.new.name) : project;
-        mkdirSync(tree, { recursive: true });
-        sessions.push({ id, cmd: provider, args: [], cwd: tree, local: checkout?.local ?? "" });
-        summaries.push({ ...summaries[0], id, terminalId: id, title: prompt ?? "New session", cwd: tree, provider, status: "working", pinned: false, chatOnly: !!f.spec.chat, createdAt: Date.now(), updatedAt: Date.now() });
-        ws.send(JSON.stringify({ type: "agent.creating", id: f.id, requestId: f.requestId, terminalId: id, cwd: tree, setup: false }));
-        ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
-        ws.send(JSON.stringify({ type: "agent.created", id: f.id, requestId: f.requestId, agentId: id }));
-        if (prompt) {
-          setTimeout(() => {
-            item(ws, id, { id: `u-${Date.now()}`, kind: "user", text: prompt });
-            setTimeout(() => reply(ws, id), Number(process.env.FIXTURE_THINK_MS) || 0);
-          }, Number(process.env.FIXTURE_ECHO_MS) || 0);
-        }
+        const create = () => {
+          const { project, checkout, provider, prompt } = f.spec;
+          const id = `new-${f.requestId}`;
+          const tree = checkout?.new?.name ? join(`${project}.worktrees`, checkout.new.name) : project;
+          mkdirSync(tree, { recursive: true });
+          const terminal = { id, cmd: provider, args: [], cwd: tree, local: checkout?.local ?? "" };
+          if (process.env.FIXTURE_LIST_MS) setTimeout(() => sessions.push(terminal), Number(process.env.FIXTURE_LIST_MS));
+          else sessions.push(terminal);
+          summaries.push({ ...summaries[0], id, terminalId: id, title: prompt ?? "New session", cwd: tree, provider, status: "working", pinned: false, chatOnly: !!f.spec.chat, createdAt: Date.now(), updatedAt: Date.now() });
+          ws.send(JSON.stringify({ type: "agent.creating", id: f.id, requestId: f.requestId, terminalId: id, cwd: tree, setup: false }));
+          ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
+          ws.send(JSON.stringify({ type: "agent.created", id: f.id, requestId: f.requestId, agentId: id }));
+          if (prompt) {
+            setTimeout(() => {
+              item(ws, id, { id: `u-${Date.now()}`, kind: "user", text: prompt });
+              setTimeout(() => reply(ws, id), Number(process.env.FIXTURE_THINK_MS) || 0);
+            }, Number(process.env.FIXTURE_ECHO_MS) || 0);
+          }
+        };
+        const wait = Number(process.env.FIXTURE_CREATE_MS);
+        if (wait) setTimeout(create, wait);
+        else create();
       }
       // What pocketd sends when the agent is still resuming and can't take Esc yet.
       if (f.type === "agent.interrupt" && process.env.FIXTURE_REFUSE_STOP) ws.send(JSON.stringify({ type: "error", id: f.id, code: "agent_resuming", message: "This session is still resuming" }));

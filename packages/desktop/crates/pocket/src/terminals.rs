@@ -167,6 +167,10 @@ impl Terminals {
         self.created.insert(id, Created { tree, place });
     }
 
+    pub(crate) fn starting_in(&self, tree: &str) -> bool {
+        self.created.values().any(|c| c.tree == tree)
+    }
+
     /// Created terminals pocketd now lists, once.
     pub(crate) fn arrived(&mut self) -> Vec<(String, Created)> {
         let sessions = &self.sessions;
@@ -715,6 +719,16 @@ mod tests {
         t.arrived();
         t.listed(vec![info("b")]);
         assert_eq!(t.setups, HashMap::from([("b".to_string(), "/v".to_string())]));
+    }
+
+    #[test]
+    fn a_tree_is_starting_from_its_terminal_made_until_pocketd_lists_it() {
+        let mut t = Terminals::new(Default::default());
+        t.created("r1", "a".into(), "/w".into(), false);
+        assert!(t.starting_in("/w") && !t.starting_in("/v"));
+        t.listed(vec![info("a")]);
+        t.arrived();
+        assert!(!t.starting_in("/w"));
     }
 
     #[test]

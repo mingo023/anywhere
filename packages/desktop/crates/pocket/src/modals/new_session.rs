@@ -920,6 +920,8 @@ impl Desktop {
         self.fill_launch(&mut spec, pick, &folder, cx);
         self.store.save();
         self.select_tree(folder, None, cx);
+        // Stays up until pocketd answers, as in a project; under it the folder's empty checkout would reopen it.
+        self.new_form.update(cx, |f, cx| f.set_shown(true, cx));
         let Some(request) = self.send_create(spec.clone(), cx) else { return cx.notify() };
         self.creates.update(cx, |c, _| c.sent_in_place(request.clone(), spec["prompt"].as_str().unwrap_or_default()));
         self.new_form.update(cx, |f, cx| f.edit(cx, |d| d.reply.sent(request)));
