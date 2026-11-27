@@ -92,6 +92,8 @@ pub(crate) struct View {
     flash: Option<(String, Instant)>,
     /// Whether the user's last scroll left the list at its end, until the next render reads it.
     scrolled: Rc<Cell<Option<bool>>>,
+    /// When a wheel last scrolled the chat itself: a scroll area inside a row leaves the rest of that gesture to it.
+    wheeled: Rc<Cell<Option<Instant>>>,
     /// The fold that last settled, and when: its label fades in.
     settled: Option<(String, Instant)>,
     copied: Option<(String, Task<()>)>,
@@ -126,11 +128,14 @@ impl View {
         let list = ListState::new(0, ListAlignment::Bottom, px(320.));
         list.set_follow_mode(FollowMode::Tail);
         let scrolled = Rc::new(Cell::new(None));
+        let wheeled = Rc::new(Cell::new(None));
         list.set_scroll_handler({
             let scrolled = scrolled.clone();
+            let wheeled = wheeled.clone();
             let this = cx.weak_entity();
             move |e, _, cx| {
                 scrolled.set(Some(!e.is_scrolled));
+                wheeled.set(Some(Instant::now()));
                 let (this, away, top) = (this.clone(), e.is_scrolled, e.visible_range.start == 0);
                 cx.defer(move |cx| {
                     _ = this.update(cx, |v, cx| {
@@ -170,6 +175,7 @@ impl View {
             sent: None,
             flash: None,
             scrolled,
+            wheeled,
             settled: None,
             copied: None,
             expanded: HashSet::new(),
@@ -1022,7 +1028,7 @@ impl View {
                 _ => div(),
             },
             Row::Tasks { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
-                Some(Block::Todos { todos, .. }) => todos::card(&id, todos, window, cx),
+                Some(Block::Todos { todos, .. }) => todos::card(&id, todos, &view.wheeled, window, cx),
                 _ => div(),
             },
             Row::Text { turn, block, range } => {
