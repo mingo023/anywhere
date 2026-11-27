@@ -36,7 +36,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 349] = [
+const STEPS: [(&str, Step); 350] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -789,6 +789,10 @@ const STEPS: [(&str, Step); 349] = [
     ("settings-files", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Files, cx))),
     ("settings-browser", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Browser, cx))),
     ("settings-git", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Git, cx))),
+    ("gh-accounts-sample", |d, _, _| {
+        let accounts = ["octo-work", "octo-home", "octo-oss"].map(String::from).to_vec();
+        d.gh_accounts.checked(&git::github::GhStatus::Ready { version: "2.95.0".into(), login: accounts[0].clone(), accounts });
+    }),
     ("settings-diff", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Diff, cx))),
     ("settings-accounts", |d, _, cx| d.settings.update(cx, |s, cx| s.set_section(Section::Accounts, cx))),
     ("accounts-sample", |d, _, _| _ = d.accounts.lists.insert(None, accounts_sample())),
