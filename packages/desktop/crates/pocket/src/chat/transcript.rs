@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 use theme::*;
 
 mod finding;
+mod runs;
 mod sends;
 
 /// The transcript's reading width.
@@ -45,6 +46,8 @@ pub(crate) struct Side {
     pub(crate) send_now: bool,
     pub(crate) delegated_by: Option<(String, String)>,
     pub(crate) here: std::path::PathBuf,
+    /// Where a shell block runs: the agent's folder, when it's on this computer.
+    pub(crate) runs_in: Option<std::path::PathBuf>,
     pub(crate) pick_open: Option<String>,
     pub(crate) delegations: Vec<Delegation>,
     pub(crate) hosts: Option<(Vec<hosts::Host>, crate::fleet::Links)>,
@@ -64,6 +67,8 @@ pub(crate) enum ViewEvent {
     SendFix(Vec<String>, Vec<String>),
     Scrolled(bool),
     ReachedTop,
+    /// A run of a block failed and the user asks the agent to fix it, with this prompt.
+    AskFix(String),
 }
 
 impl EventEmitter<ViewEvent> for View {}
@@ -117,6 +122,7 @@ pub(crate) struct View {
     arrivals: crate::delegated::Arrivals,
     links_pr: bool,
     has_host_link: bool,
+    runs: runs::Runs,
     /// The find bar's search, while it's open.
     finding: Option<finding::Finding>,
 }
@@ -186,6 +192,7 @@ impl View {
             arrivals: Default::default(),
             links_pr: false,
             has_host_link: false,
+            runs: runs::Runs::default(),
             finding: None,
         }
     }
@@ -1022,7 +1029,41 @@ impl View {
                         }
                         let doc = view.docs.code(&id, lang, &code, cx);
                         finding::paint(&mut view.finding, ix, &id, true, &doc, window, cx);
-                        let block = div().child(markdown::code_block(&doc, colours));
+                        let code_view = markdown::code_block(&doc, colours, view.runs.get(&id).is_some());
+                        // Runs only once the fence closes: a block still streaming can be a cut-off command.
+                        let steps = view.side.runs_in.as_ref().filter(|_| markdown::closed(text)).and_then(|_| super::steps::runnable(lang, &code));
+                        let block = match steps {
+                            Some(steps) => {
+                                let now = Instant::now();
+                                let running = view.runs.get(&id).is_some_and(|r| r.running());
+                                let risk = steps.iter().find_map(|s| super::steps::risk(s));
+                                let armed = view.runs.armed(&id, now);
+                                let place = view.side.runs_in.as_deref().map(super::run_card::place).unwrap_or_default();
+                                let (row, this) = (id.clone(), this.clone());
+                                let code_view = code_view.code_block_actions(move |_, _, _| {
+                                    let (row, this, steps) = (row.clone(), this.clone(), steps.clone());
+                                    let button = super::run_card::button(&row.clone(), running, risk.is_some(), armed, move |_, _, cx| {
+                                        _ = this.update(cx, |v, cx| v.press_run(&row, steps.clone(), cx));
+                                    });
+                                    super::run_card::header(&place, risk, button)
+                                });
+                                let card = view.runs.get(&id).map(|run| {
+                                    let key = format!("run:{id}");
+                                    let fix = run.fix_prompt().map(|_| {
+                                        let row = id.clone();
+                                        (format!("Ask {who} to fix"), cx.listener(move |this: &mut View, _: &ClickEvent, _, cx| this.ask_fix(&row, cx)))
+                                    });
+                                    let row = id.clone();
+                                    let hide = cx.listener(move |this: &mut View, _: &ClickEvent, _, cx| this.hide_run(&row, cx));
+                                    super::run_card::card(&id, run, copy(key.clone(), run.output().to_string(), cx), view.copied(&key), fix, hide, now)
+                                });
+                                match card {
+                                    Some(card) => markdown::run_frame().child(code_view).child(card),
+                                    None => div().child(code_view),
+                                }
+                            }
+                            None => div().child(code_view),
+                        };
                         let block = match reveal {
                             Some(_) => div()
                                 .child(block.with_animation(SharedString::from(format!("code-in-{id}")), Animation::new(reveal::FADE), |b, t| b.opacity(t))),

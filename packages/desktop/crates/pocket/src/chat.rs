@@ -21,9 +21,12 @@ mod pr_link;
 pub(crate) mod question;
 mod question_marker;
 mod reveal;
+mod run_card;
+mod runner;
 pub(crate) mod selectable;
 mod selection;
 pub(crate) mod shimmer;
+mod steps;
 mod sticky;
 pub(crate) mod sub_agent;
 mod thinking;
@@ -279,6 +282,7 @@ impl Desktop {
             send_now: self.chat_caps(&agent.provider).send_now,
             delegated_by: self.delegated_by(id),
             here: self.store.home().join("attachments"),
+            runs_in: runner::runs_in(&agent.cwd, self.agents.observe_only()),
             pick_open: self.chats.dock.read(cx).pick.open_in(id).map(str::to_string),
             delegations: self.agents.delegations.of(id).to_vec(),
             hosts: has_host_link.then(|| (self.fleet.hosts.list.clone(), self.fleet.hosts.links.clone())),
@@ -308,6 +312,7 @@ impl Desktop {
             SendFix(checks, threads) => self.send_fix(checks, threads, cx),
             Scrolled(away) => self.delegated_scrolled(agent, *away, cx),
             ReachedTop => self.outbox.older(agent),
+            AskFix(prompt) => self.chat_add_text(agent, prompt, window, cx),
         }
     }
 

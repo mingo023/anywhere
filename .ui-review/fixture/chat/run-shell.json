@@ -1,0 +1,22 @@
+[
+ {
+  "id": "u1",
+  "kind": "user",
+  "text": "How do I check the build?"
+ },
+ {
+  "id": "a1",
+  "kind": "assistant",
+  "text": "Check the build in three steps:\n\n```sh\nmkdir -p build-out && cd build-out\nsleep 8\npwd\n```\n\nThis one fails on purpose:\n\n```bash\nls does-not-exist\n```\n\nThen clear the old output:\n\n```sh\nrm -rf build-output-that-does-not-exist\n```\n\nAnd push it once you've named the branch:\n\n```sh\ngit push -u origin <branch>\n```"
+ },
+ {
+  "id": "r1",
+  "kind": "result",
+  "ok": true,
+  "durationMs": 3000,
+  "usage": {
+   "inputTokens": 800,
+   "outputTokens": 120
+  }
+ }
+]
