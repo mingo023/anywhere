@@ -84,10 +84,17 @@ app_service() {
 }
 
 # retire_host removes the host service updates before #300 put on the app's home, where it raced the app's service for
-# the lock at login, then waits for the app's pocketd to hold the home.
+# the lock at login, then waits for the app's pocketd to hold the home. An install over ssh loaded it in the user domain.
+# bootout can return before that pocketd lets go of the home, and the app's would then exit and wait out its throttle.
 retire_host() {
   launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1
+  launchctl bootout "user/$(id -u)/$LABEL" >/dev/null 2>&1
   rm -f "$HOME/Library/LaunchAgents/$LABEL.plist"
+  i=0
+  while running "$bin" && ! app_owned "$bin" && [ "$i" -lt 50 ]; do
+    i=$((i + 1))
+    sleep 0.1
+  done
   launchctl kickstart "gui/$(id -u)/$APP_LABEL" >/dev/null 2>&1
   i=0
   until running "$bin" && app_owned "$bin"; do

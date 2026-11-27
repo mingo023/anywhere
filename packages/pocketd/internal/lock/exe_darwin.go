@@ -14,7 +14,7 @@ func exe(pid int) string {
 		return ""
 	}
 	path, _, _ := bytes.Cut(b[4:], []byte{0})
-	if real, err := filepath.EvalSymlinks(string(path)); err == nil {
+	if real, err := filepath.EvalSymlinks(string(path)); err == nil && filepath.IsAbs(string(path)) {
 		return real
 	}
 	return string(path)
