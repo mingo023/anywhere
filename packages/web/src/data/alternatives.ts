@@ -39,7 +39,7 @@ export type Faq = Alternative["faq"];
 /** Hub order; each page's "Other comparisons" follows it too. */
 export const alternatives: Alternative[] = [conductor, orca, paseo, t3Code, vibeKanban, claudeSquad, crystal, monocode, paradev, zeron, synara];
 
-const site = "https://getanywhere.dev";
+const site = "https://zoes.dev";
 const hubUrl = `${site}/alternatives/`;
 const dateModified = "2026-11-22";
 
@@ -48,8 +48,8 @@ export const altUrl = (slug: string) => `${site}/alternatives/${slug}`;
 const app = {
 	"@type": "SoftwareApplication",
 	"@id": `${site}/#app`,
-	name: "Anywhere",
-	alternateName: "Anywhere coding agent workspace",
+	name: "Zoes",
+	alternateName: "Zoes coding agent workspace",
 	description: "Free, open-source coding agent workspace for running Claude Code, Codex, Cursor and more coding agents side by side.",
 	url: site,
 	applicationCategory: "DeveloperApplication",
@@ -61,7 +61,7 @@ const app = {
 	sameAs: ["https://github.com/mingo023/anywhere", "https://x.com/immint023"],
 };
 
-const website = { "@type": "WebSite", "@id": `${site}/#website`, name: "Anywhere, coding agent workspace", url: site };
+const website = { "@type": "WebSite", "@id": `${site}/#website`, name: "Zoes, coding agent workspace", url: site };
 
 const crumbs = (items: { name: string; item: string }[]) =>
 	items.map((c, i) => ({ "@type": "ListItem", position: i + 1, ...c }));
@@ -82,7 +82,7 @@ export function alternativeGraph(alt: Alternative) {
 				"@type": "WebPage",
 				"@id": url,
 				url,
-				name: `${alt.name} alternative: Anywhere vs ${alt.name}`,
+				name: `${alt.name} alternative: Zoes vs ${alt.name}`,
 				description: alt.description,
 				inLanguage: "en",
 				dateModified,
@@ -96,7 +96,7 @@ export function alternativeGraph(alt: Alternative) {
 				"@type": "BreadcrumbList",
 				"@id": `${url}#breadcrumb`,
 				itemListElement: crumbs([
-					{ name: "Anywhere", item: `${site}/` },
+					{ name: "Zoes", item: `${site}/` },
 					{ name: "Alternatives", item: hubUrl },
 					{ name: alt.name, item: url },
 				]),
@@ -124,14 +124,14 @@ export function hubGraph(title: string, description: string, faq: Faq) {
 				breadcrumb: { "@id": `${hubUrl}#breadcrumb` },
 				mainEntity: {
 					"@type": "ItemList",
-					itemListElement: alternatives.map((alt, i) => ({ "@type": "ListItem", position: i + 1, name: `Anywhere vs ${alt.name}`, url: altUrl(alt.slug) })),
+					itemListElement: alternatives.map((alt, i) => ({ "@type": "ListItem", position: i + 1, name: `Zoes vs ${alt.name}`, url: altUrl(alt.slug) })),
 				},
 			},
 			{
 				"@type": "BreadcrumbList",
 				"@id": `${hubUrl}#breadcrumb`,
 				itemListElement: crumbs([
-					{ name: "Anywhere", item: `${site}/` },
+					{ name: "Zoes", item: `${site}/` },
 					{ name: "Alternatives", item: hubUrl },
 				]),
 			},

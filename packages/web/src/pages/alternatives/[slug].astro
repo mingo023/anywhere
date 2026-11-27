@@ -12,7 +12,7 @@ const path = `/alternatives/${alt.slug}`;
 const others = alternatives.filter((o) => o !== alt);
 ---
 <Alternatives title={alt.title} description={alt.description} path={path} graph={alternativeGraph(alt)} faq={alt.faq}>
-	<nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="/">Anywhere</a></li><li><a href="/alternatives/">Alternatives</a></li><li><a href={path} aria-current="page">{alt.name}</a></li></ol></nav>
+	<nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="/">Zoes</a></li><li><a href="/alternatives/">Alternatives</a></li><li><a href={path} aria-current="page">{alt.name}</a></li></ol></nav>
 	<h1 set:html={alt.h1} />
 	<p class="checked">Last checked: November 2026. {alt.name} facts come from <Fragment set:html={alt.sources} />. Something out of date? <a href="https://github.com/mingo023/anywhere/issues">Open an issue</a>.</p>
 	<p class="lede" set:html={alt.lede} />
@@ -23,11 +23,11 @@ const others = alternatives.filter((o) => o !== alt);
 	</figure>
 
 	{alt.sections.map((s) => <><h2 id={s.id} set:html={s.title} /><Fragment set:html={s.html} /></>)}
-	<h2 id="side-by-side">Anywhere vs {alt.name} at a glance</h2>
+	<h2 id="side-by-side">Zoes vs {alt.name} at a glance</h2>
 	<div class="table-wrap">
 	<table>
 		<thead>
-			<tr><th></th><th>Anywhere</th><th>{alt.name}</th></tr>
+			<tr><th></th><th>Zoes</th><th>{alt.name}</th></tr>
 		</thead>
 		<tbody>
 			{alt.table.map((row) => <tr>{row.map((cell) => <td set:html={cell} />)}</tr>)}
@@ -39,7 +39,7 @@ const others = alternatives.filter((o) => o !== alt);
 	<ul>
 		{alt.betterPick.map((item) => <li set:html={item} />)}
 	</ul>
-	<h2 id="why-anywhere">Why people pick Anywhere</h2>
+	<h2 id="why-anywhere">Why people pick Zoes</h2>
 	<ul>
 		{alt.whyAnywhere.map((item) => <li set:html={item} />)}
 	</ul>
@@ -47,8 +47,8 @@ const others = alternatives.filter((o) => o !== alt);
 	<section slot="after-cta" class="alt-others" aria-labelledby="other-comparisons">
 		<h2 id="other-comparisons">Other comparisons</h2>
 		<ul>
-			{others.map((o) => <li><a href={`/alternatives/${o.slug}`}><b>Anywhere vs {o.name}</b><Fragment set:html={o.summary} /></a></li>)}
+			{others.map((o) => <li><a href={`/alternatives/${o.slug}`}><b>Zoes vs {o.name}</b><Fragment set:html={o.summary} /></a></li>)}
 		</ul>
-		<p>All of them on one page: <a href="/alternatives/">Anywhere alternatives</a>.</p>
+		<p>All of them on one page: <a href="/alternatives/">Zoes alternatives</a>.</p>
 	</section>
 </Alternatives>

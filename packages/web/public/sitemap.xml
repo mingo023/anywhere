@@ -1,212 +1,212 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://getanywhere.dev/</loc>
+    <loc>https://zoes.dev/</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>weekly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/docs/</loc>
+    <loc>https://zoes.dev/docs/</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/docs/install</loc>
+    <loc>https://zoes.dev/docs/install</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/docs/cli</loc>
+    <loc>https://zoes.dev/docs/cli</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/docs/agents</loc>
+    <loc>https://zoes.dev/docs/agents</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/docs/sessions</loc>
+    <loc>https://zoes.dev/docs/sessions</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/docs/worktrees</loc>
+    <loc>https://zoes.dev/docs/worktrees</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/docs/review</loc>
+    <loc>https://zoes.dev/docs/review</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/docs/automations</loc>
+    <loc>https://zoes.dev/docs/automations</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/docs/board</loc>
+    <loc>https://zoes.dev/docs/board</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/docs/delegation</loc>
+    <loc>https://zoes.dev/docs/delegation</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/docs/hosts</loc>
+    <loc>https://zoes.dev/docs/hosts</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/docs/iphone</loc>
+    <loc>https://zoes.dev/docs/iphone</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/docs/architecture</loc>
+    <loc>https://zoes.dev/docs/architecture</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/blog/</loc>
+    <loc>https://zoes.dev/blog/</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>weekly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/blog/run-multiple-claude-code-agents-in-parallel</loc>
+    <loc>https://zoes.dev/blog/run-multiple-claude-code-agents-in-parallel</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/blog/conductor-alternative</loc>
+    <loc>https://zoes.dev/blog/conductor-alternative</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/blog/t3-code-alternative</loc>
+    <loc>https://zoes.dev/blog/t3-code-alternative</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/blog/crystal-alternative</loc>
+    <loc>https://zoes.dev/blog/crystal-alternative</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/blog/best-tools-run-multiple-coding-agents</loc>
+    <loc>https://zoes.dev/blog/best-tools-run-multiple-coding-agents</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/blog/coding-agents-keep-running-after-closing-window</loc>
+    <loc>https://zoes.dev/blog/coding-agents-keep-running-after-closing-window</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/blog/open-source-agent-workspace-no-paid-tier</loc>
+    <loc>https://zoes.dev/blog/open-source-agent-workspace-no-paid-tier</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/blog/native-mac-app-coding-agents-rust-gpui</loc>
+    <loc>https://zoes.dev/blog/native-mac-app-coding-agents-rust-gpui</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/blog/run-multiple-codex-agents-git-worktrees</loc>
+    <loc>https://zoes.dev/blog/run-multiple-codex-agents-git-worktrees</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/blog/script-claude-code-codex-from-cli</loc>
+    <loc>https://zoes.dev/blog/script-claude-code-codex-from-cli</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/blog/clean-up-coding-agent-worktrees</loc>
+    <loc>https://zoes.dev/blog/clean-up-coding-agent-worktrees</loc>
     <lastmod>2026-11-19</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/blog/vibe-kanban-alternative</loc>
+    <loc>https://zoes.dev/blog/vibe-kanban-alternative</loc>
     <lastmod>2026-11-21</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/blog/move-claude-code-session-to-remote-server</loc>
+    <loc>https://zoes.dev/blog/move-claude-code-session-to-remote-server</loc>
     <lastmod>2026-11-23</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/privacy</loc>
+    <loc>https://zoes.dev/privacy</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/support</loc>
+    <loc>https://zoes.dev/support</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/alternatives/</loc>
+    <loc>https://zoes.dev/alternatives/</loc>
     <lastmod>2026-11-22</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/alternatives/conductor</loc>
+    <loc>https://zoes.dev/alternatives/conductor</loc>
     <lastmod>2026-11-22</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/alternatives/orca</loc>
+    <loc>https://zoes.dev/alternatives/orca</loc>
     <lastmod>2026-11-22</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/alternatives/paseo</loc>
+    <loc>https://zoes.dev/alternatives/paseo</loc>
     <lastmod>2026-11-22</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/alternatives/t3-code</loc>
+    <loc>https://zoes.dev/alternatives/t3-code</loc>
     <lastmod>2026-11-22</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/alternatives/vibe-kanban</loc>
+    <loc>https://zoes.dev/alternatives/vibe-kanban</loc>
     <lastmod>2026-11-22</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/alternatives/claude-squad</loc>
+    <loc>https://zoes.dev/alternatives/claude-squad</loc>
     <lastmod>2026-11-22</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/alternatives/crystal</loc>
+    <loc>https://zoes.dev/alternatives/crystal</loc>
     <lastmod>2026-11-22</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/alternatives/monocode</loc>
+    <loc>https://zoes.dev/alternatives/monocode</loc>
     <lastmod>2026-11-22</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/alternatives/paradev</loc>
+    <loc>https://zoes.dev/alternatives/paradev</loc>
     <lastmod>2026-11-22</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/alternatives/zeron</loc>
+    <loc>https://zoes.dev/alternatives/zeron</loc>
     <lastmod>2026-11-22</lastmod>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://getanywhere.dev/alternatives/synara</loc>
+    <loc>https://zoes.dev/alternatives/synara</loc>
     <lastmod>2026-11-22</lastmod>
     <changefreq>monthly</changefreq>
   </url>

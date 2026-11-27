@@ -4,7 +4,7 @@ import Head from "../components/Head.astro";
 <!doctype html>
 <html lang="en">
 <head>
-  <Head title="Anywhere – orchestrate coding agents across agents and machines (open source)" description="Anywhere is a free, open-source coding agent workspace: one chat delegates work to Claude Code, Codex and eight more agents, hands sessions to another agent or machine with their context, and runs automations while you're away." path="/" rss themeColor="#09090a" fonts="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+  <Head title="Zoes – orchestrate coding agents across agents and machines (open source)" description="Zoes is a free, open-source coding agent workspace: one chat delegates work to Claude Code, Codex and eight more agents, hands sessions to another agent or machine with their context, and runs automations while you're away." path="/" rss themeColor="#09090a" fonts="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
     <link slot="icons" rel="apple-touch-icon" href="/assets/icon.png">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="demo/desktop.css">
@@ -42,7 +42,7 @@ import Head from "../components/Head.astro";
   <a class="skip" href="#main">Skip to content</a>
 
   <header class="nav">
-    <a class="brand" href="#top"><img src="assets/icon.png" alt="" width="24" height="24">Anywhere</a>
+    <a class="brand" href="#top"><img src="assets/icon.png" alt="" width="24" height="24">Zoes</a>
     <button class="menu-button" type="button" aria-controls="primary-nav" aria-expanded="false">Menu</button>
     <nav id="primary-nav" aria-label="Primary">
       <a href="#tour-window">Product</a>
@@ -50,7 +50,7 @@ import Head from "../components/Head.astro";
       <a href="/docs/">Docs</a>
     </nav>
     <div class="nav-actions">
-      <a class="gh" href="https://github.com/mingo023/anywhere" aria-label="Anywhere on GitHub">
+      <a class="gh" href="https://github.com/mingo023/anywhere" aria-label="Zoes on GitHub">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
       </a>
       <a class="btn primary small" href="#download">Download</a>
@@ -74,7 +74,7 @@ import Head from "../components/Head.astro";
         <p class="fine">macOS 13+, universal. Also on <a href="#download">Linux</a>.</p>
       </div>
 
-      <div class="agents" aria-label="Agents Anywhere runs">
+      <div class="agents" aria-label="Agents Zoes runs">
         <div class="agent-list"></div>
       </div>
 
@@ -113,7 +113,7 @@ import Head from "../components/Head.astro";
     <section class="tour" id="tour">
       <header class="intro">
         <h2>Status you can trust, <em>agents that keep running</em></h2>
-        <p>Anywhere hears status from the agents themselves, and a daemon keeps them alive when the window closes.</p>
+        <p>Zoes hears status from the agents themselves, and a daemon keeps them alive when the window closes.</p>
       </header>
       <div class="tour-cards">
         <article class="card feat status-card">
@@ -169,7 +169,7 @@ import Head from "../components/Head.astro";
           </div>
           <div class="feat-body">
             <h3>To another machine</h3>
-            <p>Hand a session to a connected host. Anywhere bundles the branch and uncommitted files, makes the worktree there, and moves the Claude Code or Codex conversation with it. Other agents start from a summary you can edit.</p>
+            <p>Hand a session to a connected host. Zoes bundles the branch and uncommitted files, makes the worktree there, and moves the Claude Code or Codex conversation with it. Other agents start from a summary you can edit.</p>
             <button class="btn ghost small" type="button" data-watch="handoff">Watch it in the window</button>
           </div>
         </article>
@@ -190,11 +190,11 @@ import Head from "../components/Head.astro";
 
     <section class="cli" id="cli">
       <header class="intro">
-        <span class="eyebrow">The <code>anywhere</code> command</span>
+        <span class="eyebrow">The <code>zoes</code> command</span>
         <h2>Script your agents <em>from any shell</em></h2>
         <p>Start sessions, send prompts, wait for results and manage Board tickets. Agents can call it too, so one agent can hand work to another.</p>
       </header>
-      <div class="term-window" aria-label="Terminal running the anywhere command">
+      <div class="term-window" aria-label="Terminal running the zoes command">
         <div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span>zsh — ~/code/orbit-web</span></div>
         <pre class="term-body"><code></code></pre>
       </div>
@@ -229,7 +229,7 @@ import Head from "../components/Head.astro";
         <div class="oss-copy">
           <span class="eyebrow">Open source</span>
           <h2>Free, open and <em>yours to run</em></h2>
-          <p class="oss-lede">Anywhere's own code is MIT licensed: the desktop app, the daemon, the iPhone app and the push relay. There is no account to make, no seat to buy and no feature held back for a paid plan. There never will be.</p>
+          <p class="oss-lede">Zoes's own code is MIT licensed: the desktop app, the daemon, the iPhone app and the push relay. There is no account to make, no seat to buy and no feature held back for a paid plan. There never will be.</p>
           <div class="ctas">
             <a class="btn primary" href="https://github.com/mingo023/anywhere">Star on GitHub</a>
             <a class="btn ghost" href="https://github.com/mingo023/anywhere/blob/main/LICENSE">Read the license</a>
@@ -245,7 +245,7 @@ import Head from "../components/Head.astro";
 
     <section class="download" id="download">
       <header class="intro">
-        <h2>Get Anywhere <em>for your desktop</em></h2>
+        <h2>Get Zoes <em>for your desktop</em></h2>
         <p>Free on every platform. Every build is on the <a href="https://github.com/mingo023/anywhere/releases">GitHub releases page</a>.</p>
       </header>
       <div class="download-grid">
@@ -275,14 +275,14 @@ import Head from "../components/Head.astro";
       <div class="faq-inner">
         <h2>Questions</h2>
         <div class="faq-list">
-          <details open><summary>What is Anywhere?</summary><p>A native desktop app for watching and driving many coding agents in one window. The window is Rust on GPUI, and a small Go daemon runs the agents. It runs on macOS 13 or later, with a build for Linux too. Windows machines can be remote hosts over SSH.</p></details>
-          <details><summary>Which coding agents does it support?</summary><p>Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. Anywhere runs the CLIs you already installed and signed in to.</p></details>
+          <details open><summary>What is Zoes?</summary><p>A native desktop app for watching and driving many coding agents in one window. The window is Rust on GPUI, and a small Go daemon runs the agents. It runs on macOS 13 or later, with a build for Linux too. Windows machines can be remote hosts over SSH.</p></details>
+          <details><summary>Which coding agents does it support?</summary><p>Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. Zoes runs the CLIs you already installed and signed in to.</p></details>
           <details><summary>Can I run multiple Claude Code or Codex agents at once?</summary><p>Yes. Sessions are grouped by project and git worktree. Each one is Working, Needs you, Done, Failed or Idle, and Needs you, Failed and Done show in the sidebar, the inbox, the Dock badge and notifications. Activity shows every session across projects in columns by status.</p></details>
-          <details><summary>Can one agent hand work to other agents?</summary><p>Yes. Anywhere's orchestrator gives each chat tools over MCP to start delegated sessions, wait for them and read their results. Each delegated session gets its own worktree, can run on another machine, and wakes its parent when it settles.</p></details>
-          <details><summary>Can I move a session to another machine or another agent?</summary><p>Yes. Hand a session to a connected host and Anywhere moves its branch, uncommitted files and Claude Code or Codex conversation there. A chat can also fork itself onto another agent, such as Claude Code onto Codex, with its conversation as context.</p></details>
+          <details><summary>Can one agent hand work to other agents?</summary><p>Yes. Zoes's orchestrator gives each chat tools over MCP to start delegated sessions, wait for them and read their results. Each delegated session gets its own worktree, can run on another machine, and wakes its parent when it settles.</p></details>
+          <details><summary>Can I move a session to another machine or another agent?</summary><p>Yes. Hand a session to a connected host and Zoes moves its branch, uncommitted files and Claude Code or Codex conversation there. A chat can also fork itself onto another agent, such as Claude Code onto Codex, with its conversation as context.</p></details>
           <details><summary>Do sessions keep running if I close the window?</summary><p>Yes. The daemon, pocketd, owns the terminals, so agents keep running. Automations also run while the desktop app is closed.</p></details>
           <details><summary>Can I answer an agent from my phone?</summary><p>Coming soon. A native SwiftUI app for iPhone and iPad pairs with your Mac over Tailscale, with push notifications and Live Activities.</p></details>
-          <details><summary>Is Anywhere free and open source?</summary><p>Yes. It is MIT licensed, with no account, no cloud tier and no premium tier. The source is at <a href="https://github.com/mingo023/anywhere">github.com/mingo023/anywhere</a>.</p></details>
+          <details><summary>Is Zoes free and open source?</summary><p>Yes. It is MIT licensed, with no account, no cloud tier and no premium tier. The source is at <a href="https://github.com/mingo023/anywhere">github.com/mingo023/anywhere</a>.</p></details>
         </div>
       </div>
     </section>
@@ -291,18 +291,18 @@ import Head from "../components/Head.astro";
       <video class="butterfly" src="assets/butterfly.mp4" muted loop playsinline preload="none" aria-hidden="true" tabindex="-1"></video>
       <div class="closing-inner">
         <img src="assets/icon.png" alt="" width="72" height="72">
-        <h2>Take your agents <em>anywhere</em></h2>
+        <h2>Your agents, always <em>within reach</em></h2>
         <div class="ctas">
           <a class="btn primary" href="https://github.com/mingo023/anywhere/releases/latest/download/Zoes.dmg">Download for Mac</a>
           <a class="btn ghost" href="/docs/">Get started</a>
         </div>
-        <p class="fine">Drag Anywhere to Applications. Signed, notarized and updated through Sparkle.</p>
+        <p class="fine">Drag Zoes to Applications. Signed, notarized and updated through Sparkle.</p>
       </div>
     </section>
   </main>
 
   <footer class="footer">
-    <span class="brand"><img src="assets/icon.png" alt="" width="20" height="20">Anywhere</span>
+    <span class="brand"><img src="assets/icon.png" alt="" width="20" height="20">Zoes</span>
     <span class="mit">MIT licensed. Free forever.</span>
     <nav aria-label="Footer">
       <a href="/docs/">Docs</a>
@@ -320,11 +320,11 @@ import Head from "../components/Head.astro";
   "@graph": [
     {
       "@type": "Organization",
-      "@id": "https://getanywhere.dev/#organization",
-      "name": "Anywhere",
-      "alternateName": "Anywhere coding agent workspace",
-      "url": "https://getanywhere.dev",
-      "logo": "https://getanywhere.dev/assets/icon.png",
+      "@id": "https://zoes.dev/#organization",
+      "name": "Zoes",
+      "alternateName": ["Zoes coding agent workspace", "Anywhere", "Anywhere coding agent workspace"],
+      "url": "https://zoes.dev",
+      "logo": "https://zoes.dev/assets/icon.png",
       "sameAs": [
         "https://github.com/mingo023/anywhere",
         "https://x.com/immint023"
@@ -332,18 +332,18 @@ import Head from "../components/Head.astro";
     },
     {
       "@type": "WebSite",
-      "@id": "https://getanywhere.dev/#website",
-      "name": "Anywhere, coding agent workspace",
-      "alternateName": "Anywhere",
-      "url": "https://getanywhere.dev",
+      "@id": "https://zoes.dev/#website",
+      "name": "Zoes, coding agent workspace",
+      "alternateName": ["Zoes", "Anywhere"],
+      "url": "https://zoes.dev",
       "publisher": {
-        "@id": "https://getanywhere.dev/#organization"
+        "@id": "https://zoes.dev/#organization"
       }
     },
     {
       "@type": "SoftwareApplication",
-      "name": "Anywhere",
-      "url": "https://getanywhere.dev",
+      "name": "Zoes",
+      "url": "https://zoes.dev",
       "description": "Free, open-source coding agent workspace: one chat delegates work to Claude Code, Codex, Cursor and more agents, on this Mac or other machines, and hands sessions off between agents and machines.",
       "operatingSystem": "macOS, Linux, iOS",
       "applicationCategory": "DeveloperApplication",
@@ -358,7 +358,7 @@ import Head from "../components/Head.astro";
         "https://github.com/mingo023/anywhere"
       ],
       "downloadUrl": "https://github.com/mingo023/anywhere/releases/latest/download/Zoes.dmg",
-      "softwareHelp": "https://getanywhere.dev/docs/",
+      "softwareHelp": "https://zoes.dev/docs/",
       "author": {
         "@type": "Person",
         "name": "Minh Ngo",
@@ -379,12 +379,12 @@ import Head from "../components/Head.astro";
         "Automations on a schedule or a local webhook, running while the app is closed",
         "Board tickets",
         "Remote SSH hosts on Mac, Linux and Windows",
-        "anywhere command line tool"
+        "zoes command line tool"
       ],
-      "@id": "https://getanywhere.dev/#app",
-      "alternateName": "Anywhere coding agent workspace",
+      "@id": "https://zoes.dev/#app",
+      "alternateName": ["Zoes coding agent workspace", "Anywhere", "Anywhere coding agent workspace"],
       "publisher": {
-        "@id": "https://getanywhere.dev/#organization"
+        "@id": "https://zoes.dev/#organization"
       }
     },
     {
@@ -392,7 +392,7 @@ import Head from "../components/Head.astro";
       "mainEntity": [
         {
           "@type": "Question",
-          "name": "What is Anywhere?",
+          "name": "What is Zoes?",
           "acceptedAnswer": {
             "@type": "Answer",
             "text": "A native desktop app for watching and driving many coding agents in one window. The window is Rust on GPUI, and a small Go daemon runs the agents. It runs on macOS 13 or later, with a build for Linux too. Windows machines can be remote hosts over SSH."
@@ -403,7 +403,7 @@ import Head from "../components/Head.astro";
           "name": "Which coding agents does it support?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. Anywhere runs the CLIs you already installed and signed in to."
+            "text": "Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. Zoes runs the CLIs you already installed and signed in to."
           }
         },
         {
@@ -419,7 +419,7 @@ import Head from "../components/Head.astro";
           "name": "Can one agent hand work to other agents?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Yes. Anywhere's orchestrator gives each chat tools over MCP to start delegated sessions, wait for them and read their results. Each delegated session gets its own worktree, can run on another machine, and wakes its parent when it settles."
+            "text": "Yes. Zoes's orchestrator gives each chat tools over MCP to start delegated sessions, wait for them and read their results. Each delegated session gets its own worktree, can run on another machine, and wakes its parent when it settles."
           }
         },
         {
@@ -427,7 +427,7 @@ import Head from "../components/Head.astro";
           "name": "Can I move a session to another machine or another agent?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Yes. Hand a session to a connected host and Anywhere moves its branch, uncommitted files and Claude Code or Codex conversation there. A chat can also fork itself onto another agent, such as Claude Code onto Codex, with its conversation as context."
+            "text": "Yes. Hand a session to a connected host and Zoes moves its branch, uncommitted files and Claude Code or Codex conversation there. A chat can also fork itself onto another agent, such as Claude Code onto Codex, with its conversation as context."
           }
         },
         {
@@ -448,7 +448,7 @@ import Head from "../components/Head.astro";
         },
         {
           "@type": "Question",
-          "name": "Is Anywhere free and open source?",
+          "name": "Is Zoes free and open source?",
           "acceptedAnswer": {
             "@type": "Answer",
             "text": "Yes. It is MIT licensed, with no account, no cloud tier and no premium tier. The source is at github.com/mingo023/anywhere."

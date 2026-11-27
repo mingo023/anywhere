@@ -3,37 +3,37 @@ import Alternatives from "../../layouts/Alternatives.astro";
 import DesktopDemo from "../../components/DesktopDemo.astro";
 import { alternatives, hubGraph, type Faq } from "../../data/alternatives";
 
-const title = "Anywhere alternatives: compare coding agent apps – Anywhere";
-const description = "Anywhere, the open-source coding agent workspace, compared fairly with Conductor, Orca, Paseo, T3 Code, Vibe Kanban, Claude Squad, Zeron, Synara and more.";
+const title = "Zoes alternatives: compare coding agent apps – Zoes";
+const description = "Zoes, the open-source coding agent workspace, compared fairly with Conductor, Orca, Paseo, T3 Code, Vibe Kanban, Claude Squad, Zeron, Synara and more.";
 const faq: Faq = [
-	{ q: "What are the alternatives to Anywhere?", a: "Other apps for running coding agents in parallel include Conductor, Orca, Paseo, T3 Code, Vibe Kanban, Claude Squad, Crystal (now Nimbalyst), MonoCode, Paradev, Zeron and Synara. Each has its own comparison page here." },
-	{ q: "Is Anywhere free?", a: "Yes. Anywhere is MIT licensed and costs nothing, with no account, no cloud tier and no premium tier. It runs the agent CLIs you already use and doesn't resell tokens." },
-	{ q: "Which Anywhere is this?", a: "This is Anywhere, the open-source coding agent workspace at getanywhere.dev, with source at github.com/mingo023/anywhere. It is a desktop app for running and reviewing many coding agents at once." },
+	{ q: "What are the alternatives to Zoes?", a: "Other apps for running coding agents in parallel include Conductor, Orca, Paseo, T3 Code, Vibe Kanban, Claude Squad, Crystal (now Nimbalyst), MonoCode, Paradev, Zeron and Synara. Each has its own comparison page here." },
+	{ q: "Is Zoes free?", a: "Yes. Zoes is MIT licensed and costs nothing, with no account, no cloud tier and no premium tier. It runs the agent CLIs you already use and doesn't resell tokens." },
+	{ q: "Is Zoes the same as Anywhere?", a: "Yes. Zoes was named Anywhere until November 2026. It is the open-source coding agent workspace at zoes.dev, with source at github.com/mingo023/anywhere. It is a desktop app for running and reviewing many coding agents at once." },
 ];
 ---
 <Alternatives title={title} description={description} path="/alternatives/" graph={hubGraph(title, description, faq)} faq={faq}>
-	<nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="/">Anywhere</a></li><li><a href="/alternatives/" aria-current="page">Alternatives</a></li></ol></nav>
-	<h1>Anywhere alternatives: how Anywhere compares with other coding agent apps</h1>
+	<nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="/">Zoes</a></li><li><a href="/alternatives/" aria-current="page">Alternatives</a></li></ol></nav>
+	<h1>Zoes alternatives: how Zoes compares with other coding agent apps</h1>
 	<p class="checked">Last checked: November 2026.</p>
-	<p class="lede"><a href="/">Anywhere</a>, the open-source coding agent workspace, is one of several apps for running coding agents in parallel. These pages compare it with the others, one at a time. Each page says where the other tool is stronger, and the facts come from that tool's own site, docs or repository.</p>
-	<p>Anywhere here means the coding agent app at getanywhere.dev, with its source at <a href="https://github.com/mingo023/anywhere">github.com/mingo023/anywhere</a>. It is a native macOS app with a Linux build, MIT licensed, with no account and no paid tier.</p>
+	<p class="lede"><a href="/">Zoes</a>, the open-source coding agent workspace, is one of several apps for running coding agents in parallel. These pages compare it with the others, one at a time. Each page says where the other tool is stronger, and the facts come from that tool's own site, docs or repository.</p>
+	<p>Zoes here means the coding agent app at zoes.dev, with its source at <a href="https://github.com/mingo023/anywhere">github.com/mingo023/anywhere</a>. It is a native macOS app with a Linux build, MIT licensed, with no account and no paid tier.</p>
 	<figure class="aw-embed">
-		<DesktopDemo screen="sessions" alt="The Anywhere desktop app showing agent sessions grouped by project and worktree" />
-		<figcaption>Anywhere's sessions view: chats and terminals grouped by project and worktree, each with its status. Click New session to start one, right here in the page.</figcaption>
+		<DesktopDemo screen="sessions" alt="The Zoes desktop app showing agent sessions grouped by project and worktree" />
+		<figcaption>Zoes's sessions view: chats and terminals grouped by project and worktree, each with its status. Click New session to start one, right here in the page.</figcaption>
 	</figure>
 
-	<h2 id="comparisons">Compare Anywhere</h2>
+	<h2 id="comparisons">Compare Zoes</h2>
 	<p>Pick a tool. Each page covers the main difference, a side-by-side table, and when the other tool is the better pick.</p>
 	<ul class="alt-list">
-		{alternatives.map((alt) => <li><a href={`/alternatives/${alt.slug}`}><b>{alt.name} alternative: Anywhere vs {alt.name}</b><span set:html={alt.summary} /></a></li>)}
+		{alternatives.map((alt) => <li><a href={`/alternatives/${alt.slug}`}><b>{alt.name} alternative: Zoes vs {alt.name}</b><span set:html={alt.summary} /></a></li>)}
 	</ul>
-	<h2 id="what-anywhere-is">What Anywhere does</h2>
+	<h2 id="what-anywhere-is">What Zoes does</h2>
 	<ul>
 		<li>Runs ten agent CLIs you already signed in to: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. See <a href="/docs/agents">Supported agents</a>.</li>
 		<li>Puts each session under a project and a git worktree, in a real terminal or as a chat, in tabs and splits. See <a href="/docs/sessions">Sessions</a> and <a href="/docs/worktrees">Worktrees</a>.</li>
 		<li>Shows every session as Working, Needs you, Done, Failed or Idle, with a Needs you inbox, a Dock badge and notifications.</li>
 		<li>Keeps the diff, the commit box and the pull request card beside the session. See <a href="/docs/review">Review</a>.</li>
-		<li>Adds a <a href="/docs/board">Board</a>, scheduled <a href="/docs/automations">automations</a>, <a href="/docs/delegation">delegated work</a>, <a href="/docs/hosts">SSH hosts</a> and the <a href="/docs/cli">anywhere command</a>.</li>
+		<li>Adds a <a href="/docs/board">Board</a>, scheduled <a href="/docs/automations">automations</a>, <a href="/docs/delegation">delegated work</a>, <a href="/docs/hosts">SSH hosts</a> and the <a href="/docs/cli">zoes command</a>.</li>
 		<li>Keeps sessions running after you close the window. An iPhone and iPad app is coming soon; see <a href="/docs/iphone">Pair an iPhone</a>.</li>
 	</ul>
 	<h2 id="how-we-compare">How these pages are written</h2>
@@ -41,7 +41,7 @@ const faq: Faq = [
 		<li>Only each tool's own site, docs, pricing page and repository. No third-party reviews.</li>
 		<li>"Not listed" means the sources we checked don't say, not that the feature is missing.</li>
 		<li>No star counts, scores or benchmarks. Every page has a section on when the other tool is the better pick.</li>
-		<li>Facts were checked in November 2026. These products ship weekly, so check the dates. To start from scratch, <a href="/docs/install">install Anywhere</a>, or read the roundup <a href="/blog/best-tools-run-multiple-coding-agents">best tools to run multiple coding agents</a>.</li>
+		<li>Facts were checked in November 2026. These products ship weekly, so check the dates. To start from scratch, <a href="/docs/install">install Zoes</a>, or read the roundup <a href="/blog/best-tools-run-multiple-coding-agents">best tools to run multiple coding agents</a>.</li>
 	</ul>
-	<Fragment slot="cta">Try Anywhere on your own repository. Free, MIT, no account.</Fragment>
+	<Fragment slot="cta">Try Zoes on your own repository. Free, MIT, no account.</Fragment>
 </Alternatives>

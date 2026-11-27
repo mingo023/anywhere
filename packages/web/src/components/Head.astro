@@ -27,9 +27,9 @@ const image = new URL("/assets/og.png", Astro.site).href;
 <meta name="description" content={description}>
 {article && <meta name="author" content={article.author}>}
 <link rel="canonical" href={url}>
-{rss && <link rel="alternate" type="application/rss+xml" title="Anywhere blog" href={new URL("/blog/rss.xml", Astro.site).href}>}
+{rss && <link rel="alternate" type="application/rss+xml" title="Zoes blog" href={new URL("/blog/rss.xml", Astro.site).href}>}
 <meta property="og:type" content={article ? "article" : "website"}>
-<meta property="og:site_name" content="Anywhere, coding agent workspace">
+<meta property="og:site_name" content="Zoes, coding agent workspace">
 <meta property="og:locale" content="en_US">
 <meta property="og:title" content={title}>
 <meta property="og:description" content={description}>
@@ -37,7 +37,7 @@ const image = new URL("/assets/og.png", Astro.site).href;
 <meta property="og:image" content={image}>
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
+<meta property="og:image:alt" content="Zoes on macOS, with agent sessions grouped by project and worktree">
 {article && <meta property="article:published_time" content={article.published}>}
 {article && <meta property="article:modified_time" content={article.modified}>}
 {article && <meta property="article:author" content={article.author}>}

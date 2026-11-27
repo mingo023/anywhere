@@ -140,16 +140,16 @@ document.addEventListener('phone:screen', (e) => {
     t.setAttribute('aria-selected', String(t.dataset.phone === e.detail));
     t.tabIndex = t.dataset.phone === e.detail ? 0 : -1;
   });
-  document.getElementById('phone-preview').setAttribute('aria-label', phoneTabs.find((t) => t.dataset.phone === e.detail)?.textContent || 'Anywhere on iPhone');
+  document.getElementById('phone-preview').setAttribute('aria-label', phoneTabs.find((t) => t.dataset.phone === e.detail)?.textContent || 'Zoes on iPhone');
 });
 
 const SCRIPT = [
-  ['cmd', 'id=$(anywhere session create --new-worktree dark-mode --provider claude \\\n    --prompt "Add a dark mode toggle to settings")'],
-  ['cmd', 'anywhere session list'],
+  ['cmd', 'id=$(zoes session create --new-worktree dark-mode --provider claude \\\n    --prompt "Add a dark mode toggle to settings")'],
+  ['cmd', 'zoes session list'],
   ['out', '7f3a9c2e-41d8-4b6a-9e0f-2c5d8a1b3e47  <span class="k">working</span>   claude  orbit-web      Add a dark mode toggle\n2b8e4f1a-9c3d-4e7b-8a2f-6d1c0e9b5a38  <span class="k">needsYou</span>  codex   fox-api        Cache invoice queries\n9d1c7e3b-2a4f-4c8e-b6d0-3f5a2e8c1b74  <span class="g">done</span>      claude  garden-mobile  Haptics on long press'],
-  ['cmd', 'anywhere session wait $id && echo ready for review'],
+  ['cmd', 'zoes session wait $id && echo ready for review'],
   ['out', '<span class="g">done</span>\nready for review'],
-  ['cmd', 'anywhere ticket create --project orbit-web --start "Cache the avatar images"'],
+  ['cmd', 'zoes ticket create --project orbit-web --start "Cache the avatar images"'],
   ['out', '<span class="c">c41e8b2d-7f3a-4d9c-a1e6-5b8f2c0d7e93</span>'],
 ];
 const code = document.querySelector('.term-body code');

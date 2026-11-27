@@ -1,11 +1,11 @@
 ---
 import Legal from "../layouts/Legal.astro";
 ---
-<Legal title="Privacy Policy – Anywhere, coding agent workspace" description="Privacy policy for Anywhere – Agent Remote, the iPhone and iPad app, and getanywhere.dev." path="/privacy">
+<Legal title="Privacy Policy – Zoes, coding agent workspace" description="Privacy policy for Zoes – Agent Remote, the iPhone and iPad app, and zoes.dev." path="/privacy">
     <article>
       <h1>Privacy Policy</h1>
-      <p class="meta">Last updated 18 November 2026</p>
-      <p>This policy covers Anywhere – Agent Remote, the iPhone and iPad app, and this website. The app is the companion to Anywhere on your Mac. It is published by Minh Ngo. The app has no accounts.</p>
+      <p class="meta">Last updated 26 November 2026</p>
+      <p>This policy covers Zoes – Agent Remote, the iPhone and iPad app, and this website. Zoes was named Anywhere until November 2026, and this policy covers both names. The app is the companion to Zoes on your Mac. It is published by Minh Ngo. The app has no accounts.</p>
 
       <h2>What stays on your Mac</h2>
       <p>The phone talks to your own Mac over your Tailscale network. Chat messages, prompts, file contents, diffs, git and GitHub data, photos you attach, and the name of this iPhone or iPad (the name your Mac lists for the paired device) go to that Mac. They are not sent to a server operated by the publisher, except as described under Notifications.</p>
@@ -14,7 +14,7 @@ import Legal from "../layouts/Legal.astro";
       <h2>Notifications</h2>
       <p>Push notifications and Live Activities go through a relay at <a href="https://push.getanywhere.dev">push.getanywhere.dev</a>, which the publisher operates. The relay holds the app's Apple Push key.</p>
       <p>The phone sends the relay its APNs device token, and the tokens used for Live Activities. The relay seals each token into a handle and does not store tokens in plaintext. The only record it keeps is rate counters, in memory.</p>
-      <p>Your Mac sends the notifications. The text of an alert is encrypted on the Mac with AES-256-GCM, under a key created on this phone and shared only with that Mac. A Notification Service Extension on the phone decrypts it. Until then, the relay and Apple can read the ciphertext, a fixed banner (the title is "Anywhere", and the body is a status such as "A session needs you"), a badge count, and an opaque id that is not the session's id. The session title, the project, and the line of the alert — which can include what a session asks to run, or the start of a reply — stay inside the ciphertext.</p>
+      <p>Your Mac sends the notifications. The text of an alert is encrypted on the Mac with AES-256-GCM, under a key created on this phone and shared only with that Mac. A Notification Service Extension on the phone decrypts it. Until then, the relay and Apple can read the ciphertext, a fixed banner (the title is the app's name, and the body is a status such as "A session needs you"), a badge count, and an opaque id that is not the session's id. The session title, the project, and the line of the alert — which can include what a session asks to run, or the start of a reply — stay inside the ciphertext.</p>
       <p>Live Activity updates are not encrypted. They include session counts, statuses, one session's id, and, when the Lock Screen can answer that session, a request id. If you turn on Show Commands, they also include the verb and a short subject of the ask. A Live Activity started by push also includes the Mac's name and id, and the same kind of fixed banner. The relay and Apple can read all of that.</p>
       <p>The relay sees the caller's IP address — the phone's when a token is registered, the Mac's when a notification is sent — and uses it for rate limiting.</p>
       <p>The default relay is <a href="https://push.getanywhere.dev">https://push.getanywhere.dev</a>. A Mac can use another one with <code>pocketd config set push.relay</code>.</p>

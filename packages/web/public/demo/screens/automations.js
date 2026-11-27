@@ -279,7 +279,7 @@ function autoPage(a) {
     ['Agent', AGENTS[a.agent][1]],
     ['Next run', a.enabled ? (next != null ? stamp(next) : 'When its webhook is called') : 'Paused'],
   ];
-  if (a.schedule.kind === 'webhook') rows.push(['Webhook', `<span class="mono">https://hooks.anywhere.dev/a/${a.id}x7f2</span>`]);
+  if (a.schedule.kind === 'webhook') rows.push(['Webhook', `<span class="mono">https://hooks.zoes.dev/a/${a.id}x7f2</span>`]);
   else rows.push(['If missed', 'Skipped if more than 12 hours late']);
   const bars = rs.slice(0, 6).reverse().map((r) => `<i class="s-${r.status}"></i>`).join('');
   const recent = rs.length

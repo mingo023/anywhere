@@ -320,11 +320,11 @@ function diffHTML(i) {
 // Pairing
 const ADDR = '100.101.7.24', CODE = 'K7M2QX9TLP4WZ8RN3YB6HD';
 function welcomeHTML() {
-  return `<div class="ph-scroll"><div class="ph-app">${devices}</div><h1>Anywhere</h1>
+  return `<div class="ph-scroll"><div class="ph-app">${devices}</div><h1>Zoes</h1>
       <p class="ph-lede">Watch and drive the coding agents on your Mac, from your iPhone</p>
       <div class="ph-feat"><span class="tl">${glyph('needs', 14)}</span><div><b>Know when a session needs you</b><p>Approvals, questions, failures and finished runs, as they happen.</p></div></div>
       <div class="ph-feat"><span class="tl">${shieldLock}</span><div><b>Private link over Tailscale</b><p>Your iPhone reaches your Mac across your own tailnet.</p></div></div>
-      <p class="ph-hint">On your Mac, open Anywhere → Settings → Phone → Pair a phone.</p></div>
+      <p class="ph-hint">On your Mac, open Zoes → Settings → Phone → Pair a phone.</p></div>
     <div class="ph-cta"><button class="ph-big primary" data-act="scan">${qr(18)}Scan pairing code</button><button class="ph-big" data-act="enter">Enter code instead</button><p class="ph-small">No Tailscale yet? <b>Get Tailscale</b></p></div>`;
 }
 function enterHTML() {
@@ -347,7 +347,7 @@ function confirmHTML() {
       <div class="ph-perms">
         <div class="ph-feat"><span class="tl">${eye}</span><div><b>See sessions</b><p>Chats, changes and files on this Mac.</p></div></div>
         <div class="ph-feat"><span class="tl">${tapHand}</span><div><b>Drive them</b><p>Send prompts, answer permissions and start new sessions.</p></div></div>
-        <div class="ph-feat"><span class="tl">${shieldX}</span><div><b>Remove it any time</b><p>On the Mac, in Anywhere → Settings → Phone.</p></div></div></div></div>
+        <div class="ph-feat"><span class="tl">${shieldX}</span><div><b>Remove it any time</b><p>On the Mac, in Zoes → Settings → Phone.</p></div></div></div></div>
     <div class="ph-cta"><button class="ph-big primary${state.pairing ? ' busy' : ''}" data-act="pair">${state.pairing ? '<i class="ph-spin"></i>' : 'Pair'}</button></div>`;
 }
 
@@ -371,7 +371,7 @@ const STATUS_ICONS = `<svg width="19" height="12" viewBox="0 0 19 12" fill="#fff
 figure.innerHTML = `<div class="ph-dev"><i class="ph-btn action"></i><i class="ph-btn up"></i><i class="ph-btn down"></i><i class="ph-btn power"></i>
   <div class="ph-bezel"><div class="ph-screen">
     <div class="ph-stack"></div>
-    <button class="ph-banner" data-act="banner" tabindex="-1" aria-hidden="true"><img src="assets/icon.png" alt=""><span class="bt"><b>Anywhere</b><span></span></span><time>now</time></button>
+    <button class="ph-banner" data-act="banner" tabindex="-1" aria-hidden="true"><img src="assets/icon.png" alt=""><span class="bt"><b>Zoes</b><span></span></span><time>now</time></button>
     <div class="ph-status" aria-hidden="true"><time>9:41</time><div class="ph-icons">${STATUS_ICONS}</div></div>
     <div class="ph-island"></div><div class="ph-home"></div>
   </div></div></div>`;

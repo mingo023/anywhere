@@ -1,28 +1,28 @@
 ---
 import Docs from "../../layouts/Docs.astro";
 ---
-<Docs title="How Anywhere runs on your machines – Anywhere, coding agent workspace" description="What runs where in Anywhere: pocketd, the desktop app, the iPhone app, the protocol, and the push relay." path="/docs/architecture">
+<Docs title="How Zoes runs on your machines – Zoes, coding agent workspace" description="What runs where in Zoes: pocketd, the desktop app, the iPhone app, the protocol, and the push relay." path="/docs/architecture">
 	<script is:inline slot="head" type="application/ld+json">
 {
 	"@context": "https://schema.org",
 	"@graph": [
 		{
 			"@type": "TechArticle",
-			"@id": "https://getanywhere.dev/docs/architecture#article",
-			"headline": "About how Anywhere runs on your machines",
-			"description": "What runs where in Anywhere: pocketd, the desktop app, the iPhone app, the protocol, and the push relay.",
+			"@id": "https://zoes.dev/docs/architecture#article",
+			"headline": "About how Zoes runs on your machines",
+			"description": "What runs where in Zoes: pocketd, the desktop app, the iPhone app, the protocol, and the push relay.",
 			"inLanguage": "en",
-			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
-			"image": "https://getanywhere.dev/assets/og.png",
-			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/docs/architecture" },
-			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+			"publisher": { "@type": "Organization", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/", "logo": { "@type": "ImageObject", "url": "https://zoes.dev/assets/icon.png" } },
+			"image": "https://zoes.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://zoes.dev/docs/architecture" },
+			"about": { "@type": "SoftwareApplication", "name": "Zoes", "alternateName": "Zoes coding agent workspace", "url": "https://zoes.dev/" }
 		},
 		{
 			"@type": "BreadcrumbList",
 			"itemListElement": [
-				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
-				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://getanywhere.dev/docs/" },
-				{ "@type": "ListItem", "position": 3, "name": "About how Anywhere runs on your machines", "item": "https://getanywhere.dev/docs/architecture" }
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://zoes.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://zoes.dev/docs/" },
+				{ "@type": "ListItem", "position": 3, "name": "About how Zoes runs on your machines", "item": "https://zoes.dev/docs/architecture" }
 			]
 		}
 	]
@@ -30,9 +30,9 @@ import Docs from "../../layouts/Docs.astro";
 	</script>
 			<article>
 				<p class="eyebrow">Explanation</p>
-				<h1>About how Anywhere runs on your machines</h1>
-				<p class="lede">Anywhere has no Anywhere account and no Anywhere server that your sessions pass through. The program that runs your agents runs on your own machine, and the apps talk to it directly. The one service the project runs is a push relay for iPhone notifications, and it stores no device tokens.</p>
-				<p>All of it is in one MIT-licensed repository, <a href="https://github.com/mingo023/anywhere">mingo023/anywhere</a>. There is no paid tier and no license check in the code. This page says what runs where, and lists every connection Anywhere makes to the network, so you can check that against the source.</p>
+				<h1>About how Zoes runs on your machines</h1>
+				<p class="lede">Zoes has no Zoes account and no Zoes server that your sessions pass through. The program that runs your agents runs on your own machine, and the apps talk to it directly. The one service the project runs is a push relay for iPhone notifications, and it stores no device tokens.</p>
+				<p>All of it is in one MIT-licensed repository, <a href="https://github.com/mingo023/anywhere">mingo023/anywhere</a>. There is no paid tier and no license check in the code. This page says what runs where, and lists every connection Zoes makes to the network, so you can check that against the source.</p>
 
 				<h2 id="pocketd-runs-the-sessions">pocketd runs the sessions</h2>
 				<p>pocketd is a Go program, in <code>packages/pocketd</code>. It owns the terminals, the sessions, the Board, the automations, and the connection to the phone. The desktop app shows what pocketd runs. It doesn't run agents itself.</p>
@@ -42,9 +42,9 @@ import Docs from "../../layouts/Docs.astro";
 					<li>On Linux it is a systemd user service.</li>
 					<li>On Windows it is a scheduled task.</li>
 				</ul>
-				<p>pocketd keeps its data in <code>~/.anywhere</code>. It listens in three places, all on your machine or your tailnet:</p>
+				<p>pocketd keeps its data in <code>~/.zoes</code>. The old <code>~/.anywhere</code> is a symlink to it. It listens in three places, all on your machine or your tailnet:</p>
 				<ul>
-					<li>A Unix socket, <code>~/.anywhere/pocketd.sock</code>, for the desktop app and the <code>anywhere</code> command. On Windows, also <code>127.0.0.1</code> port 4519.</li>
+					<li>A Unix socket, <code>~/.zoes/pocketd.sock</code>, for the desktop app and the <code>zoes</code> command. On Windows, also <code>127.0.0.1</code> port 4519.</li>
 					<li>Port 4517 on <code>127.0.0.1</code> and on the machine's Tailscale addresses, for phones. Set <code>listen</code> to <code>loopback</code> to keep it off the tailnet.</li>
 					<li>A port on <code>127.0.0.1</code> for the orchestrator's MCP server, which chat agents use to <a href="/docs/delegation">delegate work</a>.</li>
 				</ul>
@@ -55,11 +55,11 @@ import Docs from "../../layouts/Docs.astro";
 				<p>A host you add over SSH runs its own pocketd. pocketd on your machine reaches it through an <code>ssh</code> tunnel to the host's pocketd, and the host's projects show in the same sidebar.</p>
 
 				<h2 id="the-phone-connects-straight-to-the-mac">The phone connects straight to the Mac</h2>
-				<p>The iPhone and iPad app, coming soon, is native SwiftUI, in <code>packages/ios</code>. It connects to pocketd on your Mac over Tailscale, with no Anywhere server in between. pocketd refuses to pair a phone until Tailscale is running.</p>
+				<p>The iPhone and iPad app, coming soon, is native SwiftUI, in <code>packages/ios</code>. It connects to pocketd on your Mac over Tailscale, with no Zoes server in between. pocketd refuses to pair a phone until Tailscale is running.</p>
 				<p>A phone gets less than the desktop app. It never gets to run arbitrary commands or read arbitrary files. Every git, GitHub, and file request names a registered project, worktree, or Local, and pocketd runs a fixed command for it.</p>
 
 				<h2 id="one-protocol">One protocol</h2>
-				<p>The desktop app, the phone, and the <code>anywhere</code> command all speak the same WebSocket protocol to pocketd. <code>packages/protocol</code> is its TypeScript schema, kept in step with pocketd's Go types and the iPhone app's Swift types. It is a specification, not a running service. Each release still speaks the protocol of the release before it, so a phone and a Mac don't have to update at the same moment.</p>
+				<p>The desktop app, the phone, and the <code>zoes</code> command all speak the same WebSocket protocol to pocketd. <code>packages/protocol</code> is its TypeScript schema, kept in step with pocketd's Go types and the iPhone app's Swift types. It is a specification, not a running service. Each release still speaks the protocol of the release before it, so a phone and a Mac don't have to update at the same moment.</p>
 
 				<h2 id="the-push-relay">The push relay</h2>
 				<p>A push notification to an iPhone has to go through Apple, signed with the app's Apple push key. Putting that key in every copy of pocketd would hand it to every user, so pocketd never holds it. A small relay, <code>packages/pushrelay</code>, holds the key instead. The project runs it at <code>https://push.getanywhere.dev</code>.</p>
@@ -74,7 +74,7 @@ import Docs from "../../layouts/Docs.astro";
 				<p>pocketd sends a push only to a handle that a paired phone registered. Without a paired phone, it has nothing to send.</p>
 
 				<h2 id="every-network-connection">Every network connection</h2>
-				<p>This is every connection that Anywhere's own code makes, apart from links you open yourself. The agents you run make their own connections to their providers. Those are the agents' business, not Anywhere's.</p>
+				<p>This is every connection that Zoes's own code makes, apart from links you open yourself. The agents you run make their own connections to their providers. Those are the agents' business, not Zoes's.</p>
 				<div class="table-wrap">
 				<table>
 					<thead>
@@ -94,9 +94,9 @@ import Docs from "../../layouts/Docs.astro";
 					</tbody>
 				</table>
 				</div>
-				<p>Anywhere's own code has no analytics, telemetry, or crash reporting.</p>
+				<p>Zoes's own code has no analytics, telemetry, or crash reporting.</p>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="prev" href="/docs/cli"><span>Previous</span>The anywhere command</a>
+				<a class="prev" href="/docs/cli"><span>Previous</span>The zoes command</a>
 			</nav>
 </Docs>
