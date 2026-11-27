@@ -49,6 +49,8 @@ func TestProvider(t *testing.T) {
 		{[]string{"omp"}, "omp"},
 		{[]string{"/tmp/opencode-probe/node_modules/.bin/opencode", "-s", "ses_e3718c6a5ffe3QQaS0lf2sqsXb"}, "opencode"},
 		{[]string{"opencode.exe"}, "opencode"},
+		{[]string{"C:/Users/me/AppData/Roaming/npm/codex.cmd", "resume"}, "codex"},
+		{[]string{"C:/tools/claude.bat"}, "claude"},
 		{[]string{"opencode", "serve", "--port", "4096"}, ""},
 		{[]string{"opencode", "acp"}, ""},
 		{[]string{"opencode", "run", "fix it"}, ""},
@@ -150,6 +152,11 @@ func TestAgentProcIsTheFirstMatchInPidOrder(t *testing.T) {
 		{[]proc.Proc{{Pid: 800, Argv: hermesArgv("--tui")}, {Pid: 801, Argv: []string{"node", "--expose-gc", "/Users/me/.hermes/hermes-agent/ui-tui/dist/entry.js"}}}, "hermes", 800},
 		{[]proc.Proc{{Pid: 900, Argv: []string{"/bin/pocketd", "pipe", "/bin/hermes", "acp"}}, {Pid: 901, Argv: hermesArgv("acp")}}, "hermes", 900},
 		{[]proc.Proc{{Pid: 950, Argv: hermesArgv("acp")}}, "", 0},
+		{[]proc.Proc{
+			{Pid: 960, Argv: []string{"C:/Users/me/.anywhere/runtime/0.1.66/pocketd.exe", "pipe", "C:/Users/me/AppData/Local/node/claude.cmd", "-p", "--input-format", "stream-json"}},
+			{Pid: 961, Argv: []string{"C:/WINDOWS/system32/cmd.exe", "/c", "C:/Users/me/AppData/Local/node/claude.cmd", "-p"}},
+			{Pid: 962, Argv: []string{"C:/Users/me/AppData/Local/node/node_modules/@anthropic-ai/claude-code/bin/claude.exe", "-p"}},
+		}, "claude", 960},
 	} {
 		provider, p, ok := agentProc(c.procs)
 		if provider != c.provider || p.Pid != c.pid || ok != (c.pid != 0) {
