@@ -1322,13 +1322,11 @@ Bun.serve({
         queues.set(f.agentId, list.sort((a, b) => a.order - b.order));
         publish(ws, f.agentId);
       }
+      // As pocketd: the entry leaves the list once it goes into the turn, and the agent takes it only as the step underway ends.
       if (f.type === "queue.send_now") {
         const e = take(ws, f.agentId, f.entryId);
-        if (e) {
-          clearInterval(streams.get(f.agentId));
-          streams.delete(f.agentId);
-          takeTurn(ws, f.agentId, e.text);
-        }
+        if (e && streams.has(f.agentId)) steers.set(f.agentId, () => takeTurn(ws, f.agentId, e.text));
+        else if (e) takeTurn(ws, f.agentId, e.text);
       }
       if (f.type === "agent.commands") {
         const commands = [
