@@ -331,19 +331,19 @@ func TestAnUpdateReplacesTheAppWhosePocketdLaunchdStartedAsPlainPocketd(t *testi
 	}
 	const newer = "#!/bin/sh\n# 1.2.0\necho '{\"version\": \"1.2.0\"}'\n"
 	dmg := releaseDMG(t, newer)
-	sleep, err := os.ReadFile("/bin/sleep")
-	if err != nil {
+	src := filepath.Join(t.TempDir(), "hold.c")
+	if err := os.WriteFile(src, []byte("#include <unistd.h>\nint main(void) { sleep(30); return 0; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var app string
 	out, linked := forceUpdateHeld(t, "dev.mingo.anywhere.test.host.pocketd", func(dir string) *exec.Cmd {
 		app = filepath.Join(filepath.Dir(filepath.Dir(dir)), "Applications", "Anywhere.app")
-		exe := anywhereApp(t, app, "dev.mingo.anywhere", string(sleep))
-		// A copied system binary keeps Apple's signature, which the kernel then refuses.
-		if b, err := exec.Command("codesign", "-f", "-s", "-", exe).CombinedOutput(); err != nil {
+		exe := anywhereApp(t, app, "dev.mingo.anywhere", "")
+		// Built rather than a copy of /bin/sleep: macOS 15 kills a re-signed copy of a system binary.
+		if b, err := exec.Command("cc", "-o", exe, src).CombinedOutput(); err != nil {
 			t.Fatalf("%v: %s", err, b)
 		}
-		return &exec.Cmd{Path: exe, Args: []string{"pocketd", "30"}}
+		return &exec.Cmd{Path: exe, Args: []string{"pocketd"}}
 	}, serveRelease(t, dmg, fmt.Sprintf("%x  Zoes.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
 	now, _ := os.ReadFile(filepath.Join(app, appPocketd))
 	if linked || string(now) != newer || !strings.HasSuffix(out, "ANYWHERE done\n") {
