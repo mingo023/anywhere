@@ -20,7 +20,7 @@ func writeIn(t *testing.T, dir, name, body string) {
 
 func TestTheProjectSettingsTeardownWinsOverTheReposConfig(t *testing.T) {
 	project, tree := t.TempDir(), t.TempDir()
-	writeIn(t, tree, ConfigFile, `{"teardown":["make down"]}`)
+	writeIn(t, tree, filepath.Join(ConfigDir, ConfigFile), `{"teardown":["make down"]}`)
 	if got := Teardown("docker compose down", project, tree); got != "docker compose down" {
 		t.Fatalf("got %q", got)
 	}
@@ -31,8 +31,8 @@ func TestTheProjectSettingsTeardownWinsOverTheReposConfig(t *testing.T) {
 
 func TestTheProjectCheckoutsConfigStandsInWhenTheTreesNamesNoTeardown(t *testing.T) {
 	project, tree := t.TempDir(), t.TempDir()
-	writeIn(t, tree, ConfigFile, `{"setup":["make"]}`)
-	writeIn(t, project, ConfigFile, `{"teardown":["a","b"]}`)
+	writeIn(t, tree, filepath.Join(ConfigDir, ConfigFile), `{"setup":["make"]}`)
+	writeIn(t, project, filepath.Join(ConfigDir, ConfigFile), `{"teardown":["a","b"]}`)
 	if got := Teardown("", project, tree); got != "a\nb" {
 		t.Fatalf("got %q", got)
 	}
@@ -43,15 +43,15 @@ func TestTheConfigsTeardownWinsOverTheTeardownScriptAndTheTreesScriptOverTheProj
 		t.Skip("a teardown script never runs on Windows, where sessions run PowerShell")
 	}
 	project, tree := t.TempDir(), t.TempDir()
-	writeIn(t, project, TeardownScript, "exit 0")
-	if got := Teardown("", project, tree); got != "bash '"+filepath.Join(project, TeardownScript)+"'" {
+	writeIn(t, project, filepath.Join(ConfigDir, TeardownScript), "exit 0")
+	if got := Teardown("", project, tree); got != "bash '"+filepath.Join(project, ConfigDir, TeardownScript)+"'" {
 		t.Fatalf("project's script, got %q", got)
 	}
-	writeIn(t, tree, TeardownScript, "exit 0")
-	if got := Teardown("", project, tree); got != "bash '"+filepath.Join(tree, TeardownScript)+"'" {
+	writeIn(t, tree, filepath.Join(ConfigDir, TeardownScript), "exit 0")
+	if got := Teardown("", project, tree); got != "bash '"+filepath.Join(tree, ConfigDir, TeardownScript)+"'" {
 		t.Fatalf("tree's script, got %q", got)
 	}
-	writeIn(t, project, ConfigFile, `{"teardown":["make down"]}`)
+	writeIn(t, project, filepath.Join(ConfigDir, ConfigFile), `{"teardown":["make down"]}`)
 	if got := Teardown("", project, tree); got != "make down" {
 		t.Fatalf("config, got %q", got)
 	}
@@ -59,7 +59,7 @@ func TestTheConfigsTeardownWinsOverTheTeardownScriptAndTheTreesScriptOverTheProj
 
 func TestARepoWithoutConfigOrScriptHasNoTeardown(t *testing.T) {
 	project, tree := t.TempDir(), t.TempDir()
-	writeIn(t, tree, ConfigFile, `{"teardown": not json`)
+	writeIn(t, tree, filepath.Join(ConfigDir, ConfigFile), `{"teardown": not json`)
 	if got := Teardown("", project, tree); got != "" {
 		t.Fatalf("got %q", got)
 	}
@@ -70,11 +70,11 @@ func TestTheTeardownIsToldTheProjectAndTheTree(t *testing.T) {
 		t.Skip("no /bin/sh on Windows")
 	}
 	project, tree := t.TempDir(), t.TempDir()
-	if err := RunTeardown("/bin/sh", `echo "$ANYWHERE_ROOT_PATH $ANYWHERE_WORKSPACE_PATH $ANYWHERE_WORKSPACE_NAME" > seen`, project, tree, os.Environ(), 10*time.Second); err != nil {
+	if err := RunTeardown("/bin/sh", `echo "$ANYWHERE_ROOT_PATH $ANYWHERE_WORKSPACE_PATH $ANYWHERE_WORKSPACE_NAME $ZOES_ROOT_PATH $ZOES_WORKSPACE_PATH $ZOES_WORKSPACE_NAME" > seen`, project, tree, os.Environ(), 10*time.Second); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(tree, "seen"))
-	if got, want := strings.TrimSpace(string(raw)), project+" "+tree+" "+filepath.Base(tree); got != want {
+	if got, want := strings.TrimSpace(string(raw)), strings.Join([]string{project, tree, filepath.Base(tree), project, tree, filepath.Base(tree)}, " "); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }

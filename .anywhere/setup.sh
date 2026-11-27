@@ -4,7 +4,7 @@
 # cp -c clones on APFS: instant and takes no space; cargo then rebuilds only the workspace crates.
 set -euo pipefail
 shopt -s nullglob
-root="$ANYWHERE_ROOT_PATH"
+root="${ANYWHERE_ROOT_PATH:-$ZOES_ROOT_PATH}"
 
 mkdir -p third_party
 for dep in "$root"/third_party/*; do
