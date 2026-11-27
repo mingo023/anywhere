@@ -14,6 +14,7 @@ VERSION='@@VERSION@@'
 URL='@@URL@@'
 DIR="$HOME/@@HOME_DIR@@"
 LABEL='@@LABEL@@'
+APP_LABEL='@@APP_LABEL@@'
 
 say() { echo "ANYWHERE $*"; }
 fail() {
@@ -76,6 +77,32 @@ update_app() {
     fail "can't replace $app: $out"
   }
   rm -rf "$app.old"
+}
+
+# app_service: whether launchd knows an Anywhere app service on DIR.
+app_service() {
+  [ "$os" = darwin ] && [ -n "$APP_LABEL" ] && launchctl print "gui/$(id -u)/$APP_LABEL" >/dev/null 2>&1
+}
+
+# retire_host removes the host service updates before #300 put on the app's home, where it raced the app's service for
+# the lock at login, then waits for the app's pocketd to hold the home. An install over ssh loaded it in the user domain.
+# bootout can return before that pocketd lets go of the home, and the app's would then exit and wait out its throttle.
+retire_host() {
+  launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1
+  launchctl bootout "user/$(id -u)/$LABEL" >/dev/null 2>&1
+  rm -f "$HOME/Library/LaunchAgents/$LABEL.plist"
+  i=0
+  while running "$bin" && ! app_owned "$bin" && [ "$i" -lt 50 ]; do
+    i=$((i + 1))
+    sleep 0.1
+  done
+  launchctl kickstart "gui/$(id -u)/$APP_LABEL" >/dev/null 2>&1
+  i=0
+  until running "$bin" && app_owned "$bin"; do
+    i=$((i + 1))
+    [ "$i" -le 30 ] || fail "the Anywhere app's pocketd didn't start in 30s; see $DIR/logs"
+    sleep 1
+  done
 }
 
 wait_for_version() {
@@ -170,6 +197,16 @@ main() {
   fi
 
   say step link
+  if app_service; then
+    retire_host
+    if [ -z "$force" ]; then
+      say running
+      exit 0
+    fi
+    update_app
+    wait_for_version "$VERSION"
+    exit 0
+  fi
   if [ -n "$force" ] && running "$bin" && app_owned "$bin"; then
     update_app
     wait_for_version "$VERSION"

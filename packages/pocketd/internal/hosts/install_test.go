@@ -382,6 +382,43 @@ func TestAnAppUpdateThatCantMoveTheAppLeavesItThere(t *testing.T) {
 	}
 }
 
+func TestAnUpdateOnAMacWithTheAppsServiceRetiresTheHostServiceThenUpdatesTheApp(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only a Mac runs the app")
+	}
+	const newer = "#!/bin/sh\n# 1.2.0\necho '{\"version\": \"1.2.0\"}'\n"
+	dmg := releaseDMG(t, newer)
+	stubs := t.TempDir()
+	calls := filepath.Join(stubs, "calls")
+	if err := os.WriteFile(filepath.Join(stubs, "launchctl"), []byte("#!/bin/sh\necho \"$*\" >> "+calls+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var app, agent string
+	out, linked := forceUpdateAs(t, config.HostLabel(), func(dir string) string {
+		agent = filepath.Join(filepath.Dir(dir), "Library", "LaunchAgents", config.HostLabel()+".plist")
+		if err := os.MkdirAll(filepath.Dir(agent), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(agent, []byte("<plist/>\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		app = filepath.Join(filepath.Dir(filepath.Dir(dir)), "Applications", "Anywhere.app")
+		return anywhereApp(t, app, "dev.mingo.anywhere", "#!/bin/sh\n")
+	}, serveRelease(t, dmg, fmt.Sprintf("%x  Anywhere.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1", "PATH="+stubs+":"+os.Getenv("PATH"))
+	got, _ := os.ReadFile(calls)
+	now, _ := os.ReadFile(filepath.Join(app, appPocketd))
+	_, stat := os.Stat(agent)
+	uid := os.Getuid()
+	for _, want := range []string{fmt.Sprintf("bootout gui/%d/%s", uid, config.HostLabel()), fmt.Sprintf("kickstart gui/%d/%s", uid, config.Label())} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("no launchctl %s in:\n%s", want, got)
+		}
+	}
+	if linked || !os.IsNotExist(stat) || string(now) != newer || !strings.HasSuffix(out, "ANYWHERE done\n") {
+		t.Errorf("linked %v, host plist left %v, app's pocketd %q:\n%s", linked, stat == nil, now, out)
+	}
+}
+
 const appPocketd = "Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd"
 
 func anywhereApp(t *testing.T, app, id, script string) string {
@@ -450,6 +487,10 @@ func TestAnUpdateReplacesThePocketdItsOwnServiceRuns(t *testing.T) {
 // the resolved path. An earlier update's bin/pocketd is already there. Every pocketd it runs is a stub, so nothing
 // reaches launchd or systemd.
 func forceUpdate(t *testing.T, running func(dir string) string, releaseURL string, env ...string) (out string, linked bool) {
+	return forceUpdateAs(t, "dev.mingo.anywhere.test.host.pocketd", running, releaseURL, env...)
+}
+
+func forceUpdateAs(t *testing.T, label string, running func(dir string) string, releaseURL string, env ...string) (out string, linked bool) {
 	if runtime.GOOS == "windows" {
 		t.Skip("bootstrap.sh runs on unix hosts")
 	}
@@ -498,7 +539,7 @@ func forceUpdate(t *testing.T, running func(dir string) string, releaseURL strin
 		t.Fatal(err)
 	}
 	defer func() { holder.Process.Kill(); holder.Wait() }()
-	rendered, err := fill(bootstrapSh, "1.2.0", releaseURL, ".cp", "dev.mingo.anywhere.test.host.pocketd")
+	rendered, err := fill(bootstrapSh, "1.2.0", releaseURL, ".cp", label)
 	if err != nil {
 		t.Fatal(err)
 	}

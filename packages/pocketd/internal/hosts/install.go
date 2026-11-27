@@ -208,6 +208,13 @@ func label(remoteDir string) string {
 	return config.HostLabel() + "." + strings.TrimLeft(remoteDir, ".")
 }
 
+func appLabel(label string) string {
+	if label == config.HostLabel() {
+		return config.Label()
+	}
+	return ""
+}
+
 // fill refuses values holding anything but safe characters rather than escape them: the placeholders sit in quoted literals.
 func fill(script, version, url, dir, label string) (string, error) {
 	safe := func(v string) bool {
@@ -225,6 +232,7 @@ func fill(script, version, url, dir, label string) (string, error) {
 		"@@URL@@", url,
 		"@@HOME_DIR@@", dir,
 		"@@LABEL@@", label,
+		"@@APP_LABEL@@", appLabel(label),
 		"@@PORT@@", strconv.Itoa(config.DefaultOwnerPort()),
 	).Replace(script), nil
 }
