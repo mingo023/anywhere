@@ -227,15 +227,26 @@ impl Desktop {
         }
     }
 
-    fn entry_do(&mut self, agent: &str, entry: &str, send: impl FnOnce(&Self)) {
+    fn entry_do(&mut self, agent: &str, entry: &str, send: impl FnOnce(&mut Self)) {
         if self.agents.queues.of(agent).iter().any(|e| e.id == entry) {
             send(self);
         }
     }
 
     pub(crate) fn chat_entry_send_now(&mut self, agent: &str, entry: &str, _: &mut Window, cx: &mut Context<Self>) {
-        self.entry_do(agent, entry, |this| this.outbox.queue_send_now(agent, entry));
+        self.entry_do(agent, entry, |this| {
+            this.outbox.queue_send_now(agent, entry);
+            this.agents.queues.send_now(agent, entry);
+        });
         cx.notify();
+    }
+
+    pub(crate) fn chat_entries_steered(&mut self, cx: &mut Context<Self>) {
+        for (agent, text) in self.agents.queues.take_steered() {
+            if let Some(v) = self.chats.views.get(&agent) {
+                v.update(cx, |v, _| v.steer(text, None));
+            }
+        }
     }
 
     pub(crate) fn chat_entry_cancel(&mut self, agent: &str, entry: &str, _: &mut Window, cx: &mut Context<Self>) {

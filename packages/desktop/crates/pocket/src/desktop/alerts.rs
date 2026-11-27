@@ -184,6 +184,7 @@ impl Desktop {
             self.removals.forget(host);
         }
         self.agents.apply_from(host, ev);
+        self.chat_entries_steered(cx);
         if let Some(agent) = paged {
             self.handoff_paged(&agent, window, cx);
         }
@@ -273,6 +274,7 @@ impl Desktop {
                 cx.notify();
             }
             Event::QueueFailed { agent, reason, text } => {
+                self.agents.queues.refused(&agent);
                 // Only pocketd's list says what the queue holds now.
                 self.outbox.queue_list(&agent);
                 if let Some(text) = text {
