@@ -67,7 +67,7 @@ public struct SettingsView: View {
             } header: {
                 Text("About")
             } footer: {
-                Text("Anywhere talks to your Macs over your own tailnet. Nothing passes through a server but encrypted notifications.")
+                Text("Zoes talks to your Macs over your own tailnet. Nothing passes through a server but encrypted notifications.")
             }
         }
         .formStyle(.grouped)

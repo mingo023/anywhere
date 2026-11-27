@@ -54,7 +54,7 @@ const BASE: &[(&str, &str, &str)] = &[
 const SYSTEM: &[(&str, &str)] = &[
     ("cmd-tab", "switching apps"),
     ("cmd-space", "Spotlight"),
-    ("cmd-h", "Hide Anywhere"),
+    ("cmd-h", "Hide Zoes"),
     ("cmd-m", "Minimize"),
     ("cmd-alt-h", "Hide others"),
     ("ctrl-cmd-q", "Lock Screen"),
@@ -614,7 +614,7 @@ mod tests {
     fn keys_macos_takes_are_refused() {
         assert_eq!(
             first(&Custom::default(), "Toggle sidebar", Slot::New, "cmd-h"),
-            (Level::Refuse, "macOS uses ⌘H for Hide Anywhere. Pick another shortcut.".into())
+            (Level::Refuse, "macOS uses ⌘H for Hide Zoes. Pick another shortcut.".into())
         );
     }
 

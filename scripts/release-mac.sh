@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds a signed, notarized and stapled Anywhere.dmg in packages/desktop/target/release-mac (ADR 0004).
+# Builds a signed, notarized and stapled Zoes.dmg in packages/desktop/target/release-mac (ADR 0004).
 # --publish also builds the standalone pocketd archives for hosts (scripts/package-pocketd.sh, package-pocketd-windows.sh) and uploads them with it.
 # Usage: scripts/release-mac.sh <version> [--publish]    e.g. 0.1.0
 # --publish needs CHANGELOG.md's section for the version, tag v<version> at HEAD, a clean tree, gh logged in
@@ -15,7 +15,7 @@ DESKTOP="$ROOT/packages/desktop"
 TARGET="${CARGO_TARGET_DIR:-$DESKTOP/target}"
 OUT="$DESKTOP/target/release-mac"
 APP="$OUT/Anywhere.app"
-DMG="$OUT/Anywhere.dmg"
+DMG="$OUT/Zoes.dmg"
 REPO=mingo023/anywhere
 # Sparkle's EdDSA public key (generate_keys -p). Every shipped build trusts it, so it never changes.
 SPARKLE_PUBLIC_KEY=/NXXAgxXzG2c2Z1qs9ZuJ4g+xu/qRV7JzAJeFWIp+GA=
@@ -44,7 +44,7 @@ build() {
 }
 
 assemble() {
-  mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+  mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/en.lproj"
   cp "$OUT/pocket-desktop" "$APP/Contents/MacOS/pocket-desktop"
   cp "$OUT/anywhere-notch" "$APP/Contents/MacOS/anywhere-notch"
   cp "$DESKTOP/assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
@@ -55,6 +55,9 @@ assemble() {
 <dict>
   <key>CFBundleIdentifier</key><string>dev.mingo.anywhere</string>
   <key>CFBundleName</key><string>Anywhere</string>
+  <key>CFBundleDisplayName</key><string>Anywhere</string>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>LSHasLocalizedDisplayName</key><true/>
   <key>CFBundleExecutable</key><string>pocket-desktop</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -65,7 +68,10 @@ assemble() {
 </dict>
 </plist>
 PLIST
-  plutil -lint "$APP/Contents/Info.plist"
+  # Finder shows the localized name only while Info.plist's name matches the folder, and
+  # Sparkle keeps existing installs at Anywhere.app, so the plist stays Anywhere.
+  printf 'CFBundleName = "Zoes";\nCFBundleDisplayName = "Zoes";\n' > "$APP/Contents/Resources/en.lproj/InfoPlist.strings"
+  plutil -lint "$APP/Contents/Info.plist" "$APP/Contents/Resources/en.lproj/InfoPlist.strings"
   helper="$APP/Contents/Library/Helpers/AnywhereDaemon.app"
   mkdir -p "$helper/Contents/MacOS" "$helper/Contents/Resources" "$APP/Contents/Library/LaunchAgents"
   cp "$OUT/pocketd" "$helper/Contents/MacOS/pocketd"
@@ -112,12 +118,12 @@ sign() {
 make_dmg() {
   stage="$OUT/dmg"
   mkdir -p "$stage"
-  ditto "$APP" "$stage/Anywhere.app"
+  ditto "$APP" "$stage/Zoes.app"
   ln -s /Applications "$stage/Applications"
   # LZMA: about a quarter smaller than UDZO; mounts on macOS 10.15+.
   # On CI runners hdiutil can fail with "Resource busy" while the system still holds the staged files.
   for attempt in 1 2 3 4 5; do
-    hdiutil create -volname Anywhere -srcfolder "$stage" -format ULMO -ov "$DMG" && break
+    hdiutil create -volname Zoes -srcfolder "$stage" -format ULMO -ov "$DMG" && break
     [ "$attempt" = 5 ] && exit 1
     sleep $((attempt * 5))
   done
@@ -146,8 +152,8 @@ notarize() {
 # This version's CHANGELOG section, for the GitHub release and the appcast. It runs first so a missing section fails before a long build.
 release_notes() {
   mkdir -p "$OUT"
-  awk -v v="## $VERSION" '$0 == v { on = 1; next } on && /^## / { exit } on' "$ROOT/CHANGELOG.md" 2>/dev/null | sed '/./,$!d' > "$OUT/Anywhere.md"
-  if [ ! -s "$OUT/Anywhere.md" ]; then
+  awk -v v="## $VERSION" '$0 == v { on = 1; next } on && /^## / { exit } on' "$ROOT/CHANGELOG.md" 2>/dev/null | sed '/./,$!d' > "$OUT/Zoes.md"
+  if [ ! -s "$OUT/Zoes.md" ]; then
     echo "release-mac: CHANGELOG.md has no ## $VERSION section; run scripts/changelog-draft.sh $VERSION and edit it" >&2
     exit 1
   fi
@@ -176,11 +182,11 @@ publish() {
   "$ROOT/scripts/package-pocketd-windows.sh" "$VERSION"
   hosts=$(find "$ROOT/packages/pocketd/dist" -name 'pocketd-*.tar.gz*' -o -name 'pocketd-windows-*.zip*')
   # A desktop updating a Mac host whose pocketd the app there runs checks the DMG against this (bootstrap.sh).
-  (cd "$OUT" && shasum -a 256 Anywhere.dmg > Anywhere.dmg.sha256)
+  (cd "$OUT" && shasum -a 256 Zoes.dmg > Zoes.dmg.sha256)
   case "$VERSION" in
     *-*)
       # shellcheck disable=SC2086
-      gh release create "$tag" "$DMG" "$DMG.sha256" $hosts --repo "$REPO" --verify-tag --prerelease --title "Anywhere $VERSION" --notes-file "$OUT/Anywhere.md"
+      gh release create "$tag" "$DMG" "$DMG.sha256" $hosts --repo "$REPO" --verify-tag --prerelease --title "Anywhere $VERSION" --notes-file "$OUT/Zoes.md"
       return
       ;;
   esac
@@ -191,8 +197,8 @@ publish() {
   if git -C "$ROOT" tag -l 'v*' | grep -v -- - | grep -vqx "$tag"; then
     gh release download --repo "$REPO" --pattern appcast.xml --dir "$feed"
   fi
-  cp "$DMG" "$feed/Anywhere.dmg"
-  cp "$OUT/Anywhere.md" "$feed/Anywhere.md"
+  cp "$DMG" "$feed/Zoes.dmg"
+  cp "$OUT/Zoes.md" "$feed/Zoes.md"
   set -- --download-url-prefix "https://github.com/$REPO/releases/download/$tag/" --embed-release-notes --maximum-deltas 0 --link "https://github.com/$REPO/releases"
   # CI passes the private key in the environment; on the maintainer's Mac it's in the login Keychain.
   if [ -n "${ANYWHERE_SPARKLE_KEY:-}" ]; then
@@ -201,7 +207,7 @@ publish() {
     "$ROOT/third_party/sparkle/bin/generate_appcast" "$@" "$feed"
   fi
   # shellcheck disable=SC2086
-  gh release create "$tag" "$DMG" "$DMG.sha256" "$feed/appcast.xml" $hosts --repo "$REPO" --verify-tag --latest --title "Anywhere $VERSION" --notes-file "$OUT/Anywhere.md"
+  gh release create "$tag" "$DMG" "$DMG.sha256" "$feed/appcast.xml" $hosts --repo "$REPO" --verify-tag --latest --title "Anywhere $VERSION" --notes-file "$OUT/Zoes.md"
 }
 
 main() {

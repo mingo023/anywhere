@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"io/fs"
 	"net"
 	"os"
@@ -171,8 +172,8 @@ func TestTheNextStartMakesTheLinkACrashLeftUnmade(t *testing.T) {
 	}
 	user := t.TempDir()
 	t.Setenv("HOME", user)
-	legacy, home := filepath.Join(user, LegacyHomeName()), filepath.Join(user, HomeName())
-	write(t, legacy, "config.json={}", moving+"=")
+	legacy, home := filepath.Join(user, LegacyHomeNames()[0]), filepath.Join(user, HomeName())
+	write(t, legacy, "config.json={}", moving+"="+legacy)
 	os.MkdirAll(filepath.Dir(home), 0o700)
 	os.Rename(legacy, home)
 	if got, err := MoveLegacyHome(DefaultHome()); got != home || err != nil {
@@ -254,9 +255,185 @@ func TestMoveLegacyHomeHandsBackTheNewHome(t *testing.T) {
 	}
 	user := t.TempDir()
 	t.Setenv("HOME", user)
-	legacy := filepath.Join(user, LegacyHomeName())
+	legacy := filepath.Join(user, LegacyHomeNames()[0])
 	write(t, legacy, "config.json={}")
-	if got, err := MoveLegacyHome(legacy); got != filepath.Join(user, ".anywhere", "dev") || err != nil {
+	if got, err := MoveLegacyHome(legacy); got != filepath.Join(user, ".zoes", "dev") || err != nil {
 		t.Fatal(got, err)
+	}
+}
+
+// lay makes each entry of layout under user: "a/b/" a folder, "a -> b" a link to user/b.
+func lay(t *testing.T, user string, layout ...string) {
+	t.Helper()
+	for _, e := range layout {
+		if from, to, ok := strings.Cut(e, " -> "); ok {
+			if err := os.Symlink(filepath.Join(user, to), filepath.Join(user, from)); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := os.MkdirAll(filepath.Join(user, e), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// at points the user's home at a fresh folder and the build at channel.
+func at(t *testing.T, ch string) string {
+	if runtime.GOOS == "windows" {
+		t.Skip("pocketd keeps its legacy home on Windows")
+	}
+	user, _ := filepath.EvalSymlinks(t.TempDir())
+	t.Setenv("HOME", user)
+	t.Setenv("POCKET_HOME", "")
+	channel = ch
+	t.Cleanup(func() { channel = "" })
+	return user
+}
+
+// The desktop reads the same table in daemon.rs, so both find the same home.
+func TestEachLayoutHasTheHomeTheDesktopFindsToo(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "homes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Name         string
+		Layout       []string
+		Release, Dev string
+	}
+	if err := json.Unmarshal(raw, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cases {
+		for ch, want := range map[string]string{"release": c.Release, "": c.Dev} {
+			user := at(t, ch)
+			lay(t, user, c.Layout...)
+			if got := DefaultHome(); got != filepath.Join(user, want) {
+				t.Errorf("%s, %q build: %s, want %s", c.Name, ch, got, want)
+			}
+		}
+	}
+}
+
+func TestAnAnywhereHomeMovesToZoesAndOldPathsStillLeadThere(t *testing.T) {
+	user := at(t, "release")
+	lay(t, user, ".anywhere/dev/", ".coding-pocket -> .anywhere")
+	write(t, filepath.Join(user, ".anywhere"), "state/pocketd.db=db", "dev/desktop.json=d")
+	home := DefaultHome()
+	got, err := MoveLegacyHome(home)
+	zoes := filepath.Join(user, ".zoes")
+	if got != zoes || err != nil {
+		t.Fatal(got, err)
+	}
+	linked(t, home, zoes)
+	for _, old := range []string{".anywhere/state/pocketd.db", ".coding-pocket/state/pocketd.db", ".anywhere/dev/desktop.json"} {
+		if _, err := os.Stat(filepath.Join(user, old)); err != nil {
+			t.Error(err)
+		}
+	}
+	if DefaultHome() != zoes || SharedHome() != zoes {
+		t.Fatal(DefaultHome(), SharedHome())
+	}
+	want := []Move{{filepath.Join(user, ".coding-pocket"), zoes}, {filepath.Join(user, ".anywhere"), zoes}}
+	if got := Moved(); !slices.Equal(got, want) {
+		t.Fatal(got)
+	}
+	channel = ""
+	if DefaultHome() != filepath.Join(zoes, "dev") {
+		t.Fatal("the dev home moved with it", DefaultHome())
+	}
+}
+
+func TestAHomeFromBeforeAnywhereMovesStraightToZoesWithWhatAnywhereKept(t *testing.T) {
+	user := at(t, "release")
+	write(t, filepath.Join(user, ".coding-pocket"), "state/pocketd.db=db")
+	write(t, filepath.Join(user, ".anywhere"), "accounts/claude/a/x=1")
+	home := DefaultHome()
+	if home != filepath.Join(user, ".coding-pocket") {
+		t.Fatal(home)
+	}
+	zoes := filepath.Join(user, ".zoes")
+	if got, err := MoveLegacyHome(home); got != zoes || err != nil {
+		t.Fatal(got, err)
+	}
+	linked(t, filepath.Join(user, ".coding-pocket"), zoes)
+	linked(t, filepath.Join(user, ".anywhere"), zoes)
+	want := []string{"accounts", "accounts/claude", "accounts/claude/a", "accounts/claude/a/x=1", "state", "state/pocketd.db=db"}
+	if got := tree(t, zoes); !slices.Equal(got, want) {
+		t.Fatal(got)
+	}
+	if DefaultHome() != zoes {
+		t.Fatal(DefaultHome())
+	}
+}
+
+func TestAHomeThatCantMoveStaysWhereDefaultHomeFindsIt(t *testing.T) {
+	user := at(t, "release")
+	write(t, filepath.Join(user, ".coding-pocket"), "state/pocketd.db=db")
+	write(t, filepath.Join(user, ".anywhere"), "state/other=x")
+	home := DefaultHome()
+	if got, err := MoveLegacyHome(home); got != home || err == nil {
+		t.Fatal(got, err)
+	}
+	if DefaultHome() != home {
+		t.Fatal("the next start looks somewhere else:", DefaultHome())
+	}
+	if got := tree(t, home); !slices.Equal(got, []string{"state", "state/pocketd.db=db"}) {
+		t.Fatal(got)
+	}
+}
+
+func TestADevHomeWaitsInsideAnywhereForTheReleaseHomeToMove(t *testing.T) {
+	user := at(t, "")
+	lay(t, user, ".anywhere/dev/", ".anywhere/worktrees/")
+	home := DefaultHome()
+	if home != filepath.Join(user, ".anywhere", "dev") {
+		t.Fatal(home)
+	}
+	if got, err := MoveLegacyHome(home); got != home || err != nil {
+		t.Fatal(got, err)
+	}
+	if _, err := os.Lstat(filepath.Join(user, ".zoes")); err == nil {
+		t.Fatal("a dev start made ~/.zoes before the release home moved there")
+	}
+	if SharedHome() != filepath.Join(user, ".anywhere") || len(Moved()) != 0 {
+		t.Fatal(SharedHome(), Moved())
+	}
+}
+
+func TestAPocketHomeNamingAnyLegacyHomeCountsAsUnset(t *testing.T) {
+	user := at(t, "release")
+	lay(t, user, ".zoes/", ".anywhere -> .zoes")
+	for _, set := range []string{".anywhere", ".coding-pocket/"} {
+		t.Setenv("POCKET_HOME", filepath.Join(user, set))
+		if Home() != filepath.Join(user, ".zoes") {
+			t.Error(set, Home())
+		}
+	}
+}
+
+func TestRehomeSwapsOnlyAWholeLeadingHome(t *testing.T) {
+	moves := []Move{{"/u/.anywhere", "/u/.zoes"}}
+	for in, want := range map[string]string{
+		"/u/.anywhere":                 "/u/.zoes",
+		"/u/.anywhere/worktrees/app/x": "/u/.zoes/worktrees/app/x",
+		"/u/.anywhere-other/x":         "/u/.anywhere-other/x",
+		"//m1/u/.anywhere/worktrees/x": "//m1/u/.anywhere/worktrees/x",
+		"/w/app/.anywhere/config.json": "/w/app/.anywhere/config.json",
+		"":                             "",
+	} {
+		if got := Rehome(moves, in); got != want {
+			t.Errorf("%q: %q", in, got)
+		}
+	}
+}
+
+func TestAccountsStayWhereTheyWereMadeSoClaudeFindsItsKeychainItem(t *testing.T) {
+	user := at(t, "release")
+	if AccountsDir() != filepath.Join(user, ".zoes", "accounts") {
+		t.Fatal("a fresh install", AccountsDir())
+	}
+	lay(t, user, ".zoes/accounts/", ".anywhere -> .zoes")
+	if AccountsDir() != filepath.Join(user, ".anywhere", "accounts") {
+		t.Fatal("after the move", AccountsDir())
 	}
 }

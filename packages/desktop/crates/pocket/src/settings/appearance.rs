@@ -252,13 +252,14 @@ pub(crate) fn choose_background(setting: &'static Setting, cx: &mut Context<Desk
         let Some(from) = paths.into_iter().next() else { return };
         let Ok(before) = this.read_with(cx, |d, _| d.store.appearance.background.clone()) else { return };
         let replaced = before.clone().map(PathBuf::from);
-        let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).filter(|h| !h.is_empty()).map(PathBuf::from);
-        let kept = match (store::backgrounds::is_image(&from), home) {
+        let shared =
+            std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).filter(|h| !h.is_empty()).map(|h| daemon::home::shared_home(h.as_ref()));
+        let kept = match (store::backgrounds::is_image(&from), shared) {
             (false, _) => Err("Pick a PNG, JPEG, WebP or GIF image.".into()),
             (true, None) => Err("Couldn't find your home folder to keep the image in.".into()),
-            (true, Some(home)) => cx
+            (true, Some(shared)) => cx
                 .background_executor()
-                .spawn(async move { store::backgrounds::keep(&home, &from, replaced.as_deref()) })
+                .spawn(async move { store::backgrounds::keep(&shared, &from, replaced.as_deref()) })
                 .await
                 .map_err(|e| format!("Couldn't use the image: {e}")),
         };

@@ -102,7 +102,7 @@ fn gh_line(status: Option<&GhStatus>) -> (Option<Token>, &'static str, String) {
         }
         Some(GhStatus::Ready { version, login, .. }) => (Some(SUCCESS), "GitHub CLI is ready", format!("gh {version} · signed in as {login} on github.com")),
         Some(GhStatus::SignedOut { version }) => {
-            (Some(WAITING_DOT), "GitHub CLI isn't signed in", format!("gh {version} · sign in once and Anywhere uses the same account"))
+            (Some(WAITING_DOT), "GitHub CLI isn't signed in", format!("gh {version} · sign in once and Zoes uses the same account"))
         }
         Some(GhStatus::Missing) => {
             (Some(FAILED), "GitHub CLI isn't installed", "Pull requests, checks and review status need gh. Git itself still works.".into())
@@ -199,7 +199,7 @@ impl Settings {
             .border_color(SEPARATOR)
             .text_size(px(12.))
             .text_color(TEXT_3)
-            .child("Each project's pull requests and new terminals use its account. Anywhere picks the one with the most access to the repo.");
+            .child("Each project's pull requests and new terminals use its account. Zoes picks the one with the most access to the repo.");
         let rows: Vec<Div> = (0..self.side.gh.rows.len()).map(|i| self.gh_account_row(i, cx)).collect();
         div().flex().flex_col().child(caption).children(rows)
     }

@@ -63,7 +63,7 @@
 ## Download
 
 - [Source on GitHub](https://github.com/mingo023/anywhere): Code, issues, releases and the MIT license.
-- [Latest macOS DMG](https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg): Universal, signed and notarized, updated through Sparkle.
+- [Latest macOS DMG](https://github.com/mingo023/anywhere/releases/latest/download/Zoes.dmg): Universal, signed and notarized, updated through Sparkle.
 
 ## Optional
 

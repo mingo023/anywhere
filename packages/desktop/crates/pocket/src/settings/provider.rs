@@ -85,7 +85,7 @@ const fn rows<const P: usize>() -> [Setting; 9] {
         args_row::<P, 2>()
             .hint("Used to clone a previous session without changing it. Put {sessionId} where its id belongs, or leave empty if the agent can't fork")
             .under(|s| !Args::Fork.default_text(LaunchPick::PROVIDERS[P]).is_empty() || s.agents.provider(LaunchPick::PROVIDERS[P]).fork_args.is_some()),
-        Setting::custom(ROW_IDS[P][8], STATUS, "How Anywhere reads status", |_, s, _| row(s.label, Some(&status_source(LaunchPick::PROVIDERS[P])), div())),
+        Setting::custom(ROW_IDS[P][8], STATUS, "How Zoes reads status", |_, s, _| row(s.label, Some(&status_source(LaunchPick::PROVIDERS[P])), div())),
     ]
 }
 
@@ -263,7 +263,7 @@ impl Desktop {
                 cx.background_executor().spawn(async move { daemon::request(&serde_json::json!({"op": "config-set", "key": key, "text": sent})) }).await;
             this.update_in(cx, |d, window, cx| {
                 if let Err(e) = result {
-                    d.fail(format!("Anywhere kept the {} {}: {e}", d.agent_name(p), f.noun()), cx);
+                    d.fail(format!("Zoes kept the {} {}: {e}", d.agent_name(p), f.noun()), cx);
                     // A newer edit has its own request; putting `before` back would undo it.
                     if f.text(&d.store.agents, p) == text {
                         f.set(&mut d.store.agents, p, before);

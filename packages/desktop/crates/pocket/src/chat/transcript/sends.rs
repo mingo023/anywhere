@@ -27,7 +27,7 @@ impl View {
     }
 
     pub(crate) fn echo(&mut self, prompt: String) {
-        self.session.outgoing.push(prompt, false, now_ms());
+        self.session.outgoing.opening(prompt, now_ms());
     }
 
     pub(crate) fn send(&mut self, text: String, working: bool, request: Option<String>) {

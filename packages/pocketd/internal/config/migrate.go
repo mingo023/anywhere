@@ -8,34 +8,76 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"time"
 )
 
 /**
- * MoveLegacyHome moves the legacy home into HomeName when home is it, and returns the home to use from then on.
- * Call it holding home's lock. It leaves a symlink at the legacy path, since running agents, holders and host
+ * MoveLegacyHome moves the legacy home into HomeName when home is one, and returns the home to use from then on.
+ * Call it holding home's lock. Every newer legacy folder moves in first, so a failure leaves home where
+ * DefaultHome still finds it. It leaves a symlink at each legacy path, since running agents, holders and host
  * services hold paths under it. If moving fails it puts back what it moved and returns home with the error; once
  * everything has moved it returns the new home, with any error from replacing the legacy folder by the symlink.
  * Called with the new home, it makes the symlink a crash left unmade.
  * Windows keeps its legacy home: a symlink needs Developer Mode, and the held lock file can't be renamed.
  */
 func MoveLegacyHome(home string) (string, error) {
-	user, _ := os.UserHomeDir()
-	to := filepath.Join(user, HomeName())
 	if runtime.GOOS == "windows" {
 		return home, nil
 	}
-	if filepath.Clean(home) == to {
-		return home, relink(legacyHome(), to)
+	legacy, to := moves()
+	home = filepath.Clean(home)
+	if home == to {
+		return home, relink(to)
 	}
-	if filepath.Clean(home) != legacyHome() {
+	if !slices.Contains(legacy, home) {
 		return home, nil
 	}
-	moved, err := migrate(home, to)
-	if !moved {
-		return home, err
+	for i, l := range slices.Backward(legacy) {
+		if l != home && !holds(legacy, i, to) {
+			continue
+		}
+		moved, err := migrate(l, to)
+		if l == home && moved {
+			return to, err
+		}
+		if l == home || err != nil {
+			return home, err
+		}
 	}
-	return to, err
+	return home, nil
+}
+
+// Move is a legacy home that now leads into the home it moved into.
+type Move struct{ From, To string }
+
+// Moved is every legacy home that leads into where it moved, the release home's first.
+func Moved() []Move {
+	user, _ := os.UserHomeDir()
+	var out []Move
+	add := func(legacy []string, to string) {
+		h, err := os.Stat(to)
+		for _, l := range legacy {
+			if fi, lerr := os.Stat(l); l != to && err == nil && lerr == nil && os.SameFile(fi, h) {
+				out = append(out, Move{From: l, To: to})
+			}
+		}
+	}
+	add(under(releaseLegacy), filepath.Join(user, ".zoes"))
+	if !Release() {
+		add(moves())
+	}
+	return out
+}
+
+// Rehome is path with a moved home in front of it swapped for where that went.
+func Rehome(moves []Move, path string) string {
+	for _, m := range moves {
+		if rest, ok := strings.CutPrefix(path, m.From); ok && (rest == "" || rest[0] == filepath.Separator) {
+			return m.To + rest
+		}
+	}
+	return path
 }
 
 /**
@@ -52,7 +94,7 @@ func migrate(legacy, home string) (moved bool, err error) {
 		if err := os.MkdirAll(filepath.Dir(home), 0o700); err != nil {
 			return false, err
 		}
-		if err := os.WriteFile(filepath.Join(legacy, moving), nil, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(legacy, moving), []byte(legacy), 0o600); err != nil {
 			return false, err
 		}
 		if err := os.Rename(legacy, home); err != nil {
@@ -75,7 +117,7 @@ func migrate(legacy, home string) (moved bool, err error) {
 	// Clients read these and a second pocketd takes the lock at the legacy path until it's a symlink.
 	last := []string{"desktop.json", "config.json", "pocketd.lock"}
 	slices.SortStableFunc(list, func(a, b fs.DirEntry) int { return slices.Index(last, a.Name()) - slices.Index(last, b.Name()) })
-	if err := os.WriteFile(filepath.Join(home, moving), nil, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, moving), []byte(legacy), 0o600); err != nil {
 		return false, err
 	}
 	var done []string
@@ -109,7 +151,7 @@ func replace(legacy, home string) error {
 	return link(legacy, home)
 }
 
-// moving marks a home whose legacy folder is gone but may not be a symlink yet.
+// moving marks a home whose legacy folder, the path it holds, is gone but may not be a symlink yet.
 const moving = ".moving-from-legacy"
 
 func link(legacy, home string) error {
@@ -123,11 +165,13 @@ func link(legacy, home string) error {
 }
 
 // relink finishes a move that stopped between taking legacy's folder away and putting the symlink there.
-func relink(legacy, home string) error {
-	if _, err := os.Stat(filepath.Join(home, moving)); err != nil {
+func relink(home string) error {
+	raw, err := os.ReadFile(filepath.Join(home, moving))
+	if err != nil {
 		return nil
 	}
-	if _, err := os.Lstat(legacy); errors.Is(err, fs.ErrNotExist) {
+	legacy := string(raw)
+	if _, err := os.Lstat(legacy); filepath.IsAbs(legacy) && errors.Is(err, fs.ErrNotExist) {
 		return link(legacy, home)
 	}
 	return os.Remove(filepath.Join(home, moving))

@@ -17,7 +17,7 @@ import (
 
 // openHosts links the hosts saved in db until ctx ends, keeping what runs on them in mirror; nil serves none.
 func openHosts(ctx context.Context, db *sql.DB, home string, env func() []string, name string, mirror hosts.Mirror) *hosts.Manager {
-	m, err := hosts.Open(db, hosts.Paths{Home: home, RemoteDir: config.HomeName(), LegacyDir: config.LegacyHomeName()}, env, versionString(), name)
+	m, err := hosts.Open(db, hosts.Paths{Home: home, RemoteDir: config.HomeName(), LegacyDirs: config.LegacyHomeNames()}, env, versionString(), name)
 	if err != nil {
 		log.Printf("hosts: %v; serving none", err)
 		return nil

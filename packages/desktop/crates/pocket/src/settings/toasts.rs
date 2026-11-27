@@ -218,7 +218,7 @@ impl Settings {
         cx.notify();
     }
 
-    /// The toasts, centred above the change bar.
+    /// The toasts, centred at the page's foot.
     pub(crate) fn toasts_view(&self, cx: &mut Context<Self>) -> Option<Div> {
         let shown = self.toasts.shown();
         if shown.is_empty() {
@@ -259,7 +259,7 @@ impl Settings {
                 .children(button)
                 .with_animation(("toast-in", id as usize), Animation::new(MENU_IN).with_easing(ease_out_quint()), |d, p| d.opacity(p).mt(px(8. * (1. - p))))
         });
-        Some(div().absolute().left_0().right_0().bottom(px(66.)).flex().flex_col().items_center().gap(px(8.)).children(toasts))
+        Some(div().absolute().left_0().right_0().bottom(px(16.)).flex().flex_col().items_center().gap(px(8.)).children(toasts))
     }
 }
 

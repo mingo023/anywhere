@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 )
 
@@ -22,21 +23,23 @@ var channel string
 
 func Release() bool { return channel == "release" }
 
-// HomeName is a path hosts' shells read too, so its separator is always /.
+// HomeName is where the home goes, under the user's home. Hosts' shells read it too, so its separator is always /.
 func HomeName() string {
 	if Release() {
-		return ".anywhere"
+		return ".zoes"
 	}
-	return ".anywhere/dev"
+	return ".zoes/dev"
 }
 
-// LegacyHomeName is the home before ~/.anywhere; MoveLegacyHome empties it.
-func LegacyHomeName() string {
+// LegacyHomeNames are the homes before HomeName, oldest first.
+func LegacyHomeNames() []string {
 	if Release() {
-		return ".coding-pocket"
+		return releaseLegacy
 	}
-	return ".coding-pocket-dev"
+	return []string{".coding-pocket-dev", ".anywhere/dev"}
 }
+
+var releaseLegacy = []string{".coding-pocket", ".anywhere"}
 
 func Label() string {
 	if Release() {
@@ -69,31 +72,91 @@ func DefaultOwnerPort() int {
 	return 4520
 }
 
-// Home is POCKET_HOME, else DefaultHome. POCKET_HOME naming the legacy home counts as unset: host services set it.
+// Home is POCKET_HOME, else DefaultHome. POCKET_HOME naming a legacy home counts as unset: host services set it.
 func Home() string {
-	if h := os.Getenv("POCKET_HOME"); h != "" && filepath.Clean(h) != legacyHome() {
+	if h := os.Getenv("POCKET_HOME"); h != "" && !slices.Contains(under(LegacyHomeNames()), filepath.Clean(h)) {
 		return h
 	}
 	return DefaultHome()
 }
 
-// DefaultHome is the legacy home while it still holds one, else HomeName.
+// DefaultHome is the oldest legacy home still holding the home, else where it goes.
 func DefaultHome() string {
-	user, _ := os.UserHomeDir()
-	home := filepath.Join(user, HomeName())
-	l, err := os.Stat(legacyHome())
-	if err != nil || !l.IsDir() {
-		return home
-	}
-	if h, err := os.Stat(home); err == nil && os.SameFile(l, h) {
-		return home
-	}
-	return legacyHome()
+	return current(moves())
 }
 
-func legacyHome() string {
+// SharedHome holds the worktrees and Scratch folders of every channel, and the dev home: ~/.anywhere until the release
+// home is ~/.zoes.
+func SharedHome() string {
 	user, _ := os.UserHomeDir()
-	return filepath.Join(user, LegacyHomeName())
+	if zoes := filepath.Join(user, ".zoes"); current(under(releaseLegacy), zoes) == zoes {
+		return zoes
+	}
+	return filepath.Join(user, ".anywhere")
+}
+
+// AccountsDir holds the managed accounts of every channel. It stays under ~/.anywhere where they were made there:
+// Claude Code names an account's Keychain item by its config folder's path.
+func AccountsDir() string {
+	user, _ := os.UserHomeDir()
+	if made := filepath.Join(user, ".anywhere", "accounts"); exists(made) {
+		return made
+	}
+	return filepath.Join(SharedHome(), "accounts")
+}
+
+// moves is the legacy homes that move into this channel's home, oldest first, and that home. A dev home inside the
+// release home moves with it.
+func moves() ([]string, string) {
+	if Release() {
+		user, _ := os.UserHomeDir()
+		return under(releaseLegacy), filepath.Join(user, ".zoes")
+	}
+	return under([]string{".coding-pocket-dev"}), filepath.Join(SharedHome(), "dev")
+}
+
+// current is the oldest of legacy still holding the home, else home.
+func current(legacy []string, home string) string {
+	for i, l := range legacy {
+		if holds(legacy, i, home) {
+			return l
+		}
+	}
+	return home
+}
+
+// holds is whether legacy[i] is a home of its own: a folder that leads neither into home nor, as the link a move
+// leaves, into a newer legacy home.
+func holds(legacy []string, i int, home string) bool {
+	l, err := os.Stat(legacy[i])
+	if err != nil || !l.IsDir() || same(l, home) {
+		return false
+	}
+	return !isLink(legacy[i]) || !slices.ContainsFunc(legacy[i+1:], func(n string) bool { return same(l, n) })
+}
+
+func isLink(path string) bool {
+	fi, err := os.Lstat(path)
+	return err == nil && fi.Mode()&fs.ModeSymlink != 0
+}
+
+func same(fi fs.FileInfo, path string) bool {
+	o, err := os.Stat(path)
+	return err == nil && os.SameFile(fi, o)
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func under(names []string) []string {
+	user, _ := os.UserHomeDir()
+	paths := make([]string, len(names))
+	for i, n := range names {
+		paths[i] = filepath.Join(user, n)
+	}
+	return paths
 }
 
 func Sock() string {

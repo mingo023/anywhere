@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.65
+
+- fix(settings): drop the change bar and nav dots, align the alerts heading (#420): (4a1bd5a1)
+- fix(hosts): sign in to a Windows host with a password (#418): (5a7a7b4c)
+
 ## 0.1.64
 
 - fix: run pocketd, its CLI and the desktop on Windows (#411): (04b8568a)

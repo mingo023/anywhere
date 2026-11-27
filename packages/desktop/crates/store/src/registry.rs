@@ -197,8 +197,18 @@ mod tests {
         let mut s = Store::default();
         let host = ["//m1/Users/me/.anywhere/sessions/dainty-skink", "//m1/Users/me/app", "//m1/Users/me/.anywhere/sessions/a/b"];
         s.apply_registry(Some("m1"), &list(&host.map(|p| ("", p))));
-        s.apply_registry(None, &list(&[("", "/Users/me/.anywhere/sessions/calm-river"), ("", "/Users/me/.anywhere/sessions-other/x")]));
-        assert_eq!(s.scratches(), ["/Users/me/.anywhere/sessions/calm-river", "//m1/Users/me/.anywhere/sessions/dainty-skink"]);
+        s.apply_registry(
+            None,
+            &list(&[
+                ("", "/Users/me/.anywhere/sessions/calm-river"),
+                ("", "/Users/me/.anywhere/sessions-other/x"),
+                ("", "/Users/me/.zoes/sessions/brave-otter"),
+            ]),
+        );
+        assert_eq!(
+            s.scratches(),
+            ["/Users/me/.zoes/sessions/brave-otter", "/Users/me/.anywhere/sessions/calm-river", "//m1/Users/me/.anywhere/sessions/dainty-skink"]
+        );
     }
 
     #[test]

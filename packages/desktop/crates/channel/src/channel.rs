@@ -4,21 +4,21 @@
 
 struct Identity {
     home_dir_name: &'static str,
-    legacy_home_dir_name: &'static str,
+    legacy_home_dir_names: &'static [&'static str],
     bundle_id: &'static str,
     daemon_label: &'static str,
 }
 
 const RELEASE: Identity = Identity {
-    home_dir_name: ".anywhere",
-    legacy_home_dir_name: ".coding-pocket",
+    home_dir_name: ".zoes",
+    legacy_home_dir_names: &[".coding-pocket", ".anywhere"],
     bundle_id: "dev.mingo.anywhere",
     daemon_label: "dev.mingo.anywhere.pocketd",
 };
 
 const DEV: Identity = Identity {
-    home_dir_name: ".anywhere/dev",
-    legacy_home_dir_name: ".coding-pocket-dev",
+    home_dir_name: ".zoes/dev",
+    legacy_home_dir_names: &[".coding-pocket-dev", ".anywhere/dev"],
     bundle_id: "dev.mingo.anywhere.dev",
     daemon_label: "dev.mingo.anywhere.dev.pocketd",
 };
@@ -36,9 +36,9 @@ pub fn home_dir_name() -> &'static str {
     identity(is_release()).home_dir_name
 }
 
-/// The home before `~/.anywhere`; pocketd moves it on its first start.
-pub fn legacy_home_dir_name() -> &'static str {
-    identity(is_release()).legacy_home_dir_name
+/// The homes before `home_dir_name`, oldest first; pocketd moves the one in use on its first start.
+pub fn legacy_home_dir_names() -> &'static [&'static str] {
+    identity(is_release()).legacy_home_dir_names
 }
 
 pub fn bundle_id() -> &'static str {
@@ -73,13 +73,13 @@ mod tests {
     #[test]
     fn release_keeps_the_names_installed_copies_depend_on() {
         let r = identity(true);
-        assert_eq!((r.home_dir_name, r.bundle_id, r.daemon_label), (".anywhere", "dev.mingo.anywhere", "dev.mingo.anywhere.pocketd"));
+        assert_eq!((r.home_dir_name, r.bundle_id, r.daemon_label), (".zoes", "dev.mingo.anywhere", "dev.mingo.anywhere.pocketd"));
     }
 
     #[test]
     fn a_plain_build_is_dev() {
         assert!(!is_release());
-        assert_eq!(home_dir_name(), ".anywhere/dev");
+        assert_eq!(home_dir_name(), ".zoes/dev");
         assert_eq!(version(), "dev");
     }
 }

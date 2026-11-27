@@ -170,8 +170,8 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             packages/desktop/target
-          key: cargo-ci-${{ steps.rust.outputs.rustc }}-${{ hashFiles('packages/desktop/Cargo.lock', 'packages/desktop/Cargo.toml') }}
-          restore-keys: cargo-ci-${{ steps.rust.outputs.rustc }}-
+          key: cargo-ci-${{ github.event.repository.name }}-${{ steps.rust.outputs.rustc }}-${{ hashFiles('packages/desktop/Cargo.lock', 'packages/desktop/Cargo.toml') }}
+          restore-keys: cargo-ci-${{ github.event.repository.name }}-${{ steps.rust.outputs.rustc }}-
 
       # Checkout stamps every file with now, which cargo reads as every path crate having changed since the cache
       # was built. Files still as target/sources lists them go back to before it.

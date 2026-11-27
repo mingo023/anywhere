@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds the Linux or Windows desktop: pocket-desktop with pocketd beside it, which installs itself as the
 # user's service on first launch (crates/daemon/src/service/bundled.rs), packed as
-# packages/desktop/target/release-<target>/Anywhere-<target>.tar.gz (.zip on Windows). Unsigned, no auto-update.
+# packages/desktop/target/release-<target>/Zoes-<target>.tar.gz (.zip on Windows). Unsigned, no auto-update.
 # Usage: scripts/release-desktop.sh <version> <linux-amd64|linux-arm64|windows-amd64> [--publish]    e.g. 0.1.0 linux-amd64
 # Linux builds for the machine it runs on.
 # Windows builds on Windows: gpui compiles its release shaders with the SDK's fxc.exe. It needs cargo-zigbuild.
@@ -11,7 +11,7 @@ set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DESKTOP="$ROOT/packages/desktop"
 TARGET="${CARGO_TARGET_DIR:-$DESKTOP/target}"
-REPO=mingo023/anywhere
+REPO=mingo023/zoes
 
 fail() {
   echo "release-desktop: $*" >&2
@@ -31,31 +31,31 @@ build() {
   case "$PLATFORM" in
     linux-*)
       (cd "$DESKTOP" && ANYWHERE_CHANNEL=release ANYWHERE_VERSION="$VERSION" cargo build --profile dist -p pocket)
-      cp "$TARGET/dist/pocket-desktop" "$OUT/Anywhere/"
+      cp "$TARGET/dist/pocket-desktop" "$OUT/Zoes/"
       cc=cc
       exe=
       ;;
     windows-amd64)
       (cd "$DESKTOP" && ANYWHERE_CHANNEL=release ANYWHERE_VERSION="$VERSION" cargo zigbuild --profile dist -p pocket --target x86_64-pc-windows-gnu)
-      cp "$TARGET/x86_64-pc-windows-gnu/dist/pocket-desktop.exe" "$OUT/Anywhere/"
+      cp "$TARGET/x86_64-pc-windows-gnu/dist/pocket-desktop.exe" "$OUT/Zoes/"
       # The GNU target links wry's WebView2 loader as a DLL, which Windows doesn't ship; without it the app won't start.
       # Cargo 1.100 moved build-script output from build/<crate>-<hash>/out to build/<crate>/<hash>/out; match both.
-      cp "$(find "$TARGET/x86_64-pc-windows-gnu/dist/build" -path '*webview2-com-sys*/out/x64/WebView2Loader.dll' | head -n 1)" "$OUT/Anywhere/"
+      cp "$(find "$TARGET/x86_64-pc-windows-gnu/dist/build" -path '*webview2-com-sys*/out/x64/WebView2Loader.dll' | head -n 1)" "$OUT/Zoes/"
       cc="zig cc -target x86_64-windows-gnu"
       exe=.exe
       ;;
   esac
   (cd "$ROOT/packages/pocketd" && CGO_ENABLED=1 GOOS="${PLATFORM%-*}" GOARCH="${PLATFORM#*-}" CC="$cc" go build -trimpath \
-    -ldflags "-s -w -X main.version=$VERSION -X pocketd/internal/config.channel=release" -o "$OUT/Anywhere/pocketd$exe" ./cmd/pocketd)
+    -ldflags "-s -w -X main.version=$VERSION -X pocketd/internal/config.channel=release" -o "$OUT/Zoes/pocketd$exe" ./cmd/pocketd)
 }
 
 pack() {
   case "$PLATFORM" in
-    linux-*) ARCHIVE="$OUT/Anywhere-$PLATFORM.tar.gz"; tar -C "$OUT" -czf "$ARCHIVE" Anywhere ;;
+    linux-*) ARCHIVE="$OUT/Zoes-$PLATFORM.tar.gz"; tar -C "$OUT" -czf "$ARCHIVE" Zoes ;;
     # Git Bash on the Windows runner has 7-Zip but no zip.
     windows-*)
-      ARCHIVE="$OUT/Anywhere-$PLATFORM.zip"
-      if command -v zip >/dev/null; then (cd "$OUT" && zip -qr "$ARCHIVE" Anywhere); else (cd "$OUT" && 7z a -tzip "$ARCHIVE" Anywhere >/dev/null); fi
+      ARCHIVE="$OUT/Zoes-$PLATFORM.zip"
+      if command -v zip >/dev/null; then (cd "$OUT" && zip -qr "$ARCHIVE" Zoes); else (cd "$OUT" && 7z a -tzip "$ARCHIVE" Zoes >/dev/null); fi
       ;;
   esac
 }
@@ -88,7 +88,7 @@ main() {
   esac
   OUT="$DESKTOP/target/release-$PLATFORM"
   rm -rf "$OUT"
-  mkdir -p "$OUT/Anywhere"
+  mkdir -p "$OUT/Zoes"
   if [ "$PUBLISH" = 1 ]; then check_tag; fi
   build
   pack

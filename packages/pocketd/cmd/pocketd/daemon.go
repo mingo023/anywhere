@@ -29,7 +29,7 @@ type installCheck struct {
 // refusal says why install must not go ahead, or "" if it may.
 func (c installCheck) refusal() string {
 	if strings.Contains(c.Exe, ".app/Contents/") {
-		return fmt.Sprintf("%s ships inside Anywhere.app, which runs it as a Login Item. Turn Anywhere on in System Settings > General > Login Items instead.", c.Exe)
+		return fmt.Sprintf("%s ships inside the Zoes app, which runs it as a Login Item. Turn Zoes on in System Settings > General > Login Items instead.", c.Exe)
 	}
 	for _, dir := range c.Temp {
 		if strings.HasPrefix(c.Exe, dir+string(filepath.Separator)) {

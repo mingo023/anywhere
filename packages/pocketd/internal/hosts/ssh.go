@@ -21,6 +21,29 @@ const (
 	installKey = `sh -c 'umask 077; mkdir -p ~/.ssh; chmod 700 ~/.ssh; touch ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys; key=$(cat); grep -qxF "$key" ~/.ssh/authorized_keys && exit; [ -z "$(tail -c1 ~/.ssh/authorized_keys)" ] || echo >> ~/.ssh/authorized_keys; printf "%s\n" "$key" >> ~/.ssh/authorized_keys'`
 )
 
+// windowsInstallKey is installKey for Windows, whose sshd reads an administrator's keys only from ProgramData,
+// and only while that file grants nobody but Administrators and SYSTEM.
+var windowsInstallKey = powershell(`$ErrorActionPreference = 'Stop'
+$key = [Console]::In.ReadToEnd().Trim()
+$admin = [Security.Principal.WindowsIdentity]::GetCurrent().Groups.Value -contains 'S-1-5-32-544'
+if ($admin) {
+  $file = Join-Path $env:ProgramData 'ssh\administrators_authorized_keys'
+} else {
+  $dir = Join-Path $HOME '.ssh'
+  $null = New-Item -ItemType Directory -Force $dir
+  $file = Join-Path $dir 'authorized_keys'
+}
+$old = ''
+if (Test-Path $file) { $old = [IO.File]::ReadAllText($file) }
+if (($old -split '\r?\n') -notcontains $key) {
+  if ($old -and -not $old.EndsWith([string][char]10)) { $key = [Environment]::NewLine + $key }
+  [IO.File]::AppendAllText($file, $key + [Environment]::NewLine)
+}
+if ($admin) {
+  icacls $file /inheritance:r /grant '*S-1-5-32-544:F' /grant '*S-1-5-18:F' | Out-Null
+  exit $LASTEXITCODE
+}`)
+
 type Failure string
 
 const (

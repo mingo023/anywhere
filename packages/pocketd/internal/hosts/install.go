@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -23,7 +24,7 @@ var bootstrapSh string
 var bootstrapPs1 string
 
 const (
-	releases  = "https://github.com/mingo023/anywhere/releases/download"
+	releases  = "https://github.com/mingo023/zoes/releases/download"
 	upload    = "upload.tar.gz"
 	uploadZip = "upload.zip"
 )
@@ -201,7 +202,7 @@ func bootstrapCommand(dir string, env []string, uploaded bool) string {
 
 // label names one service per app folder, so a test install never takes over the real one.
 func label(remoteDir string) string {
-	if remoteDir == config.HomeName() || remoteDir == config.LegacyHomeName() {
+	if remoteDir == config.HomeName() || slices.Contains(config.LegacyHomeNames(), remoteDir) {
 		return config.HostLabel()
 	}
 	return config.HostLabel() + "." + strings.TrimLeft(remoteDir, ".")
@@ -418,23 +419,30 @@ func (m *Manager) uninstall(ctx context.Context, h Host) error {
 	return nil
 }
 
-// remoteDir is the folder pocketd lives in on h: the legacy one until it resolves to RemoteDir, as pocketd leaves it
-// once it moved its home, else RemoteDir.
+// remoteDir is the folder pocketd lives in on h, as config.DefaultHome finds it there: the oldest legacy one that
+// leads neither into RemoteDir nor, as the link pocketd leaves once it moved its home, into a newer one; else RemoteDir.
 func (m *Manager) remoteDir(ctx context.Context, h Host, windows bool) (string, error) {
-	legacy, current := m.paths.LegacyDir, m.paths.RemoteDir
-	if legacy == "" {
+	legacy, current := m.paths.LegacyDirs, m.paths.RemoteDir
+	if len(legacy) == 0 {
 		return current, nil
 	}
-	command := fmt.Sprintf(`sh -c 'if [ -d "$HOME/%[1]s" ] && [ "$(cd "$HOME/%[1]s" && pwd -P)" != "$(cd "$HOME/%[2]s" 2>/dev/null && pwd -P)" ]; then echo %[1]s; else echo %[2]s; fi'`, legacy, current)
+	command := fmt.Sprintf(`sh -c 'real() { (cd "$HOME/$1" 2>/dev/null && pwd -P); }; cur=$(real %[2]s); set -- %[1]s; `+
+		`while [ $# -gt 0 ]; do d=$1; shift; r=$(real "$d") || continue; [ "$r" = "$cur" ] && continue; `+
+		`if [ -L "$HOME/$d" ]; then for n; do [ "$r" = "$(real "$n")" ] && continue 2; done; fi; echo "$d"; exit; done; echo %[2]s'`,
+		strings.Join(legacy, " "), current)
 	if windows {
 		// pocketd never moves its home on Windows, so a legacy folder there is still the home.
-		command = powershell(fmt.Sprintf("if (Test-Path (Join-Path $HOME %s)) { %s } else { %s }", psQuote(legacy), psQuote(legacy), psQuote(current)))
+		script := "$d = " + psQuote(current)
+		for _, l := range slices.Backward(legacy) {
+			script += fmt.Sprintf("; if (Test-Path (Join-Path $HOME %s)) { $d = %[1]s }", psQuote(l))
+		}
+		command = powershell(script + "; $d")
 	}
 	stdout, stderr, _, err := m.run(ctx, h, command, nil)
 	if err != nil {
 		return "", err
 	}
-	if dir := lastLine(stdout); dir == legacy || dir == current {
+	if dir := lastLine(stdout); dir == current || slices.Contains(legacy, dir) {
 		return dir, nil
 	}
 	return "", fmt.Errorf("Couldn't tell where pocketd lives on %s: %s", h.Name, lastLine(stderr))

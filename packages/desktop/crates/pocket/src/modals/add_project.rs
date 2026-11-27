@@ -451,7 +451,7 @@ impl RepoForm {
                 cx.notify();
             }));
         let p = path.to_string();
-        let remove = row("repo-remove", "trash", "Remove from Anywhere\u{2026}", FAILED, "Files and worktrees stay on disk".into())
+        let remove = row("repo-remove", "trash", "Remove from Zoes\u{2026}", FAILED, "Files and worktrees stay on disk".into())
             .rounded_b(px(12.))
             .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(RepoEvent::Remove(p.clone()))));
         let mut rows = vec![reset.into_any_element()];

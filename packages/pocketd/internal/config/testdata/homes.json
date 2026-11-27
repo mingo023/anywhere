@@ -1,0 +1,10 @@
+[
+  {"name": "a fresh install", "layout": [], "release": ".zoes", "dev": ".zoes/dev"},
+  {"name": "a home from before ~/.anywhere", "layout": [".coding-pocket/"], "release": ".coding-pocket", "dev": ".anywhere/dev"},
+  {"name": "a home from before ~/.anywhere, beside accounts there", "layout": [".coding-pocket/", ".anywhere/accounts/"], "release": ".coding-pocket", "dev": ".anywhere/dev"},
+  {"name": "a home moved to ~/.anywhere", "layout": [".anywhere/dev/", ".coding-pocket -> .anywhere", ".coding-pocket-dev -> .anywhere/dev"], "release": ".anywhere", "dev": ".anywhere/dev"},
+  {"name": "a dev home not moved yet", "layout": [".anywhere/", ".coding-pocket-dev/"], "release": ".anywhere", "dev": ".coding-pocket-dev"},
+  {"name": "a home moved to ~/.zoes", "layout": [".zoes/dev/", ".anywhere -> .zoes", ".coding-pocket -> .anywhere"], "release": ".zoes", "dev": ".zoes/dev"},
+  {"name": "a stray ~/.zoes beside the home", "layout": [".anywhere/", ".zoes/"], "release": ".anywhere", "dev": ".anywhere/dev"},
+  {"name": "a home the user linked to another disk", "layout": ["disk/", ".anywhere -> disk", ".coding-pocket -> .anywhere"], "release": ".anywhere", "dev": ".anywhere/dev"}
+]

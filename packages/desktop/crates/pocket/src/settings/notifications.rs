@@ -96,8 +96,7 @@ impl Settings {
     /// The two master switches, then one row per event with a Banner and a Sound toggle, then the on-screen switch.
     fn alerts_group(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let (banners, sounds, on_screen) = (setting("banners")?, setting("sounds")?, setting("on-screen")?);
-        let heading =
-            div().px(px(14.)).pt(px(12.)).pb(px(2.)).text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_2).child("When an agent\u{2026}");
+        let heading = div().px(px(14.)).py(px(8.)).text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_2).child("When an agent\u{2026}");
         let mut rows = vec![self.setting_row(banners, cx), self.setting_row(sounds, cx), heading];
         for event in EVENTS {
             rows.push(self.event_row(event, cx));
@@ -198,7 +197,7 @@ fn denied_banner() -> Div {
         .flex()
         .flex_col()
         .gap(px(2.))
-        .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child("Notifications are off for Anywhere in macOS"))
+        .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child("Notifications are off for Zoes in macOS"))
         .child(
             div()
                 .text_size(px(12.))

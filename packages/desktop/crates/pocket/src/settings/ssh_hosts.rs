@@ -85,7 +85,7 @@ pub(super) struct Target {
 }
 
 /// What a host's row says while an older pocketd, which doesn't link hosts, runs here.
-const UPDATE_SERVICE: &str = "Update Anywhere\u{2019}s background service to manage hosts";
+const UPDATE_SERVICE: &str = "Update Zoes\u{2019}s background service to manage hosts";
 
 /// What a host's row says about its link.
 fn link_line(link: Option<&Link>, name: &str) -> String {

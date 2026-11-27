@@ -93,7 +93,7 @@ fn settled(line: &str) -> Div {
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(SUCCESS_TEXT)
         .child(icon("check", 14., SUCCESS_TEXT))
-        .child(line.to_string())
+        .child(div().min_w_0().child(line.to_string()))
 }
 
 fn asked_text(p: &Permission, what: String) -> String {
@@ -114,7 +114,7 @@ impl Inbox {
             .text_size(px(12.))
             .text_color(TEXT_2)
             .child(ui::repo_tile(&c.mark, 20., false, None))
-            .child(div().flex_none().text_size(px(13.)).text_color(TEXT).child(c.project.clone()))
+            .child(div().truncate().text_size(px(13.)).text_color(TEXT).child(c.project.clone()))
             .child(div().text_color(TEXT_6).child("·"))
             .child(
                 div()
@@ -201,7 +201,7 @@ impl Inbox {
                 field()
                     .id(id(format!("inbox-reply:{agent}")))
                     .cursor_text()
-                    .child(div().flex_1().text_size(px(13.)).text_color(TEXT_4).child(placeholder.clone()))
+                    .child(div().flex_1().truncate().text_size(px(13.)).text_color(TEXT_4).child(placeholder.clone()))
                     .on_click(
                         cx.listener(move |this, _: &ClickEvent, window, cx| this.start_reply(Replying::Prompt(agent.clone()), placeholder.clone(), window, cx)),
                     ),
@@ -216,7 +216,7 @@ impl Inbox {
                 .flex()
                 .flex_wrap()
                 .child(div().font_weight(FontWeight::SEMIBOLD).text_color(FAILED_TEXT).child("Turn failed.\u{a0}"))
-                .child(error.to_string()),
+                .child(div().min_w_0().child(error.to_string())),
         );
         let (a, b) = (c.agent.clone(), c.agent.clone());
         let retry_btn = (retry && !self.observe_only)
@@ -247,8 +247,8 @@ impl Inbox {
                     .text_size(px(13.))
                     .line_height(px(18.))
                     .text_color(TEXT)
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child(format!("{}\u{a0}", p.tool_name)))
-                    .child(verb.replacen("Wants", "wants", 1)),
+                    .child(div().min_w_0().font_weight(FontWeight::SEMIBOLD).child(format!("{}\u{a0}", p.tool_name)))
+                    .child(div().min_w_0().child(verb.replacen("Wants", "wants", 1))),
             )
             .when(n > 1, |d| d.child(div().flex_none().pt(px(2.)).font_family(MONO).text_size(px(11.)).text_color(TEXT_2).child(format!("{} of {n}", i + 1))));
         let expanded = self.answers.expanded(&request);

@@ -6,17 +6,12 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
 	"pocketd/internal/shellenv"
 )
-
-// TeardownScript is the script a repo can keep instead of naming its teardown in ConfigFile. It may be gitignored,
-// so only the project's own checkout has it.
-const TeardownScript = ".anywhere/teardown.sh"
 
 // Teardown is the script deleting the Worktree at tree runs first: own, the project settings' teardown, else the one
 // the repo names in ConfigFile, else its TeardownScript run with bash (never on Windows); each tree's before the
@@ -26,7 +21,7 @@ func Teardown(own, project, tree string) string {
 		return own
 	}
 	for _, dir := range []string{tree, project} {
-		raw, err := os.ReadFile(filepath.Join(dir, ConfigFile))
+		raw, err := os.ReadFile(ConfigPath(dir, ConfigFile))
 		var c struct {
 			Teardown []string `json:"teardown"`
 		}
@@ -38,7 +33,7 @@ func Teardown(own, project, tree string) string {
 		return ""
 	}
 	for _, dir := range []string{tree, project} {
-		script := filepath.Join(dir, TeardownScript)
+		script := ConfigPath(dir, TeardownScript)
 		if fi, err := os.Stat(script); err == nil && fi.Mode().IsRegular() {
 			return "bash '" + strings.ReplaceAll(script, "'", `'\''`) + "'"
 		}

@@ -374,8 +374,6 @@ pub struct Settings {
     pub(crate) side: Side,
     pub(crate) toasts: Toasts,
     pub(crate) saves: Saves,
-    /// How many rows differ from their default, per `Section::ALL`; counted when the store changes, not per frame.
-    changed: Vec<usize>,
     /// The store changed since the fields last followed it.
     resync: bool,
     /// Each nav item's focus, per `Section::ALL`, so arrows can move it.
@@ -458,7 +456,6 @@ impl Settings {
             side: Side::default(),
             toasts: Toasts::default(),
             saves: Saves::default(),
-            changed: Section::ALL.iter().map(|s| catalog::changed_count(s.rows(), store)).collect(),
             resync: false,
             nav_focus: Section::ALL.iter().map(|_| cx.focus_handle().tab_stop(true)).collect(),
             focus: HashMap::new(),
@@ -472,7 +469,6 @@ impl Settings {
             return;
         }
         if let Some(store) = store {
-            self.changed = Section::ALL.iter().map(|s| catalog::changed_count(s.rows(), &store)).collect();
             (self.store, self.resync) = (store, true);
         }
         self.live = live.unwrap_or_else(|| self.live.clone());
@@ -619,14 +615,6 @@ impl Settings {
         match self.fields.get(id).or(self.numbers.get(id)) {
             Some(field) => field.input.update(cx, |f, cx| f.focus(window, cx)),
             None => window.focus(&self.control_focus(id, cx), cx),
-        }
-    }
-
-    /// How many rows of `section` differ from their default.
-    pub(crate) fn changed_in(&self, section: Section) -> usize {
-        match Section::ALL.iter().position(|s| *s == section) {
-            Some(i) => self.changed.get(i).copied().unwrap_or(0),
-            None => catalog::changed_count(section.rows(), &self.store),
         }
     }
 
@@ -1265,33 +1253,6 @@ impl Settings {
         div().flex_1().min_w_0().flex().flex_col().child(title).children(subtitle)
     }
 
-    /// "3 changes from default in General · Review & reset…", floated over the page's foot while anything differs.
-    fn change_bar(&mut self, section: Section, cx: &mut Context<Self>) -> Option<Div> {
-        let n = self.changed_in(section);
-        if n == 0 || section == Section::Keyboard {
-            return None;
-        }
-        let what = if n == 1 { "change" } else { "changes" };
-        let review = action("settings-reset", "Review & reset\u{2026}")
-            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Ask(Confirm::ResetSection(section)))));
-        let bar = ui::pop(div())
-            .id("settings-change-bar")
-            .occlude()
-            .pl(px(14.))
-            .pr(px(6.))
-            .py(px(6.))
-            .flex()
-            .items_center()
-            .gap(px(12.))
-            .rounded(px(12.))
-            .text_size(px(12.5))
-            .text_color(TEXT_2)
-            .whitespace_nowrap()
-            .child(div().flex().items_center().gap(px(6.)).child(ui::dot(6., TEXT)).child(format!("{n} {what} from default in {}", section.label())))
-            .child(review);
-        Some(div().absolute().left_0().right_0().bottom(px(16.)).flex().justify_center().child(bar))
-    }
-
     fn settings_page(&mut self, cx: &mut Context<Self>) -> Div {
         self.reach.settle();
         let section = self.section;
@@ -1325,7 +1286,6 @@ impl Settings {
             .child(head)
             .children(actions)
             .children(advanced);
-        let changes = (!searching).then(|| self.change_bar(section, cx)).flatten();
         let column = column.w_full().max_w(px(704.)).px(px(32.)).pt(px(22.)).pb(px(96.)).flex().flex_col().gap(px(22.));
         ui::page(div())
             .relative()
@@ -1344,7 +1304,6 @@ impl Settings {
                     .track_scroll(&self.reach.body)
                     .child(div().w_full().flex().justify_center().child(column)),
             )
-            .children(changes)
             .children(self.toasts_view(cx))
     }
 }

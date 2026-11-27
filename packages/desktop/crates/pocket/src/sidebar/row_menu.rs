@@ -365,7 +365,7 @@ impl Desktop {
                 let first = if kept {
                     row("aside-menu-settings", "settings", "Project settings…", MenuAction::ProjectSettings(p.clone()))
                 } else {
-                    row("aside-menu-keep", "check", "Keep in Anywhere", MenuAction::Keep(p.clone()))
+                    row("aside-menu-keep", "check", "Keep in Zoes", MenuAction::Keep(p.clone()))
                 };
                 let mut rows = vec![first];
                 if kept {
@@ -382,7 +382,7 @@ impl Desktop {
                 }
                 rows.extend([
                     MenuItem::Divider,
-                    danger("aside-menu-remove", "x", if kept { "Remove from Anywhere" } else { "Remove" }, MenuAction::RemoveProject(p)),
+                    danger("aside-menu-remove", "x", if kept { "Remove from Zoes" } else { "Remove" }, MenuAction::RemoveProject(p)),
                 ]);
                 rows
             }

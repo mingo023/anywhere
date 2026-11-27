@@ -28,7 +28,7 @@ func command(argv0 string) string {
 }
 
 func main() {
-	if command(os.Args[0]) == "anywhere" {
+	if name := command(os.Args[0]); name == "zoes" || name == "anywhere" {
 		os.Exit(anywhereMain(os.Args[1:], os.Stdout, os.Stderr))
 	}
 	if len(os.Args) < 2 {

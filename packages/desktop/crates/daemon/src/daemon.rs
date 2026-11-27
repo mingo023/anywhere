@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 pub use uds_windows::UnixStream;
 
 pub mod cli;
+pub mod home;
 pub mod service;
 
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
@@ -237,16 +238,9 @@ fn sock_path_in(env: impl Fn(&str) -> Option<String>) -> PathBuf {
         return s.into();
     }
     let user = PathBuf::from(env(HOME).unwrap_or_default());
-    let legacy = user.join(channel::legacy_home_dir_name());
-    let set = env("POCKET_HOME").map(PathBuf::from).filter(|h| *h != legacy);
-    let home = set.unwrap_or_else(|| default_home(&legacy, &user.join(channel::home_dir_name())));
-    home.join("pocketd.sock")
-}
-
-/// The legacy home while it still holds one, else `home`. Mirrors `config.DefaultHome` in pocketd.
-fn default_home(legacy: &Path, home: &Path) -> PathBuf {
-    let moved = std::fs::canonicalize(legacy).ok().zip(std::fs::canonicalize(home).ok()).is_some_and(|(l, h)| l == h);
-    if legacy.is_dir() && !moved { legacy.to_path_buf() } else { home.to_path_buf() }
+    let legacy = |h: &PathBuf| channel::legacy_home_dir_names().iter().any(|l| user.join(l) == *h);
+    let set = env("POCKET_HOME").map(PathBuf::from).filter(|h| !legacy(h));
+    set.unwrap_or_else(|| home::default_home(&user)).join("pocketd.sock")
 }
 
 fn resolve_cwd(cwd: &str, home: &str) -> String {
@@ -785,20 +779,13 @@ mod tests {
     }
 
     #[test]
-    fn the_legacy_home_stays_the_home_until_pocketd_moves_it() {
-        let user = std::env::temp_dir().join(format!("pocket-default-home-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&user);
-        let (legacy, home) = (user.join(channel::legacy_home_dir_name()), user.join(channel::home_dir_name()));
-        std::fs::create_dir_all(&user).unwrap();
-        assert_eq!(default_home(&legacy, &home), home);
-        std::fs::create_dir(&legacy).unwrap();
-        assert_eq!(default_home(&legacy, &home), legacy);
-        std::fs::remove_dir(&legacy).unwrap();
-        std::fs::create_dir_all(&home).unwrap();
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&home, &legacy).unwrap();
-        assert_eq!(default_home(&legacy, &home), home);
-        std::fs::remove_dir_all(&user).unwrap();
+    fn a_pocket_home_naming_a_legacy_home_counts_as_unset() {
+        let env = |k: &str| match k {
+            "POCKET_HOME" => Some(format!("/h/{}/", channel::legacy_home_dir_names()[1])),
+            HOME => Some("/h".into()),
+            _ => None,
+        };
+        assert_eq!(sock_path_in(env), PathBuf::from("/h").join(channel::home_dir_name()).join("pocketd.sock"));
     }
 
     #[test]

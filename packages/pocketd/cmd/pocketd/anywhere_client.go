@@ -16,7 +16,7 @@ import (
 	"pocketd/internal/proto"
 )
 
-var errInsideTerminal = errors.New("a process inside an Anywhere terminal can only read sessions; run this from outside Anywhere")
+var errInsideTerminal = errors.New("a process inside a Zoes terminal can only read sessions; run this from outside Zoes")
 
 // client is one conn to pocketd's WebSocket protocol over its unix socket,
 // where a process outside every Terminal is the owner.
@@ -40,7 +40,7 @@ func dialClient(ctx context.Context, sock string) (*client, error) {
 	}}}
 	ws, _, err := websocket.Dial(ctx, "ws://localhost/", &websocket.DialOptions{HTTPClient: unix})
 	if err != nil {
-		return nil, fmt.Errorf("can't reach Anywhere's service at %s: %w", sock, err)
+		return nil, fmt.Errorf("can't reach Zoes's service at %s: %w", sock, err)
 	}
 	// agent.list and a timeline page can be far over the 32KB default.
 	ws.SetReadLimit(-1)

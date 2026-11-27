@@ -128,7 +128,7 @@ impl Settings {
             .text_size(px(12.))
             .line_height(px(16.))
             .text_color(TEXT_3)
-            .child("New sessions start on the selected account, unless their project picks one in Settings \u{203a} Projects. Usage is checked every 5 minutes while Anywhere is open.");
+            .child("New sessions start on the selected account, unless their project picks one in Settings \u{203a} Projects. Usage is checked every 5 minutes while Zoes is open.");
         div().flex().flex_col().gap(px(22.)).child(toolbar).children(groups.collect::<Vec<_>>()).child(caption)
     }
 

@@ -468,7 +468,8 @@ impl Desktop {
                 d.host_finder.update(cx, |f, cx| f.host_back(&id, window, cx));
                 d.handoff_host_back(&id, cx);
                 d.clone_form.update(cx, |f, cx| f.fetch_home(window, cx));
-                d.open_host_agents(&id, &endpoint, info.user_home, window, cx);
+                let shared = hosts::remote::shared_dir(&info);
+                d.open_host_agents(&id, &endpoint, info.user_home, shared, window, cx);
                 d.check_accounts(Some(id.clone()), true, cx);
                 if !d.daemon.has(&id) {
                     d.open_host_session(id, endpoint, window, cx);

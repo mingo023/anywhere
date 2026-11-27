@@ -153,3 +153,18 @@ func js(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
 }
+
+func TestWithNoProjectOnlyTheAccountsAndHomesSkillsAreListed(t *testing.T) {
+	config, home := t.TempDir(), t.TempDir()
+	t.Chdir(t.TempDir())
+	write(t, filepath.Join(".claude", "skills", "stray", "SKILL.md"), "---\n---\n")
+	write(t, filepath.Join(".agents", "skills", "stray", "SKILL.md"), "---\n---\n")
+	write(t, filepath.Join(config, "skills", "ship", "SKILL.md"), "---\n---\n")
+	write(t, filepath.Join(home, ".agents", "skills", "review", "SKILL.md"), "---\n---\n")
+	if got := names(Scan("claude", config, home, "")); !reflect.DeepEqual(got, []string{"ship"}) {
+		t.Fatalf("claude: %v", got)
+	}
+	if got := names(Scan("codex", "", home, "")); !reflect.DeepEqual(got, []string{"review"}) {
+		t.Fatalf("codex: %v", got)
+	}
+}

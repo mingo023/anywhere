@@ -1,0 +1,114 @@
+[
+ {
+  "id": "u1",
+  "kind": "user",
+  "text": "Ship the desktop app."
+ },
+ {
+  "id": "a1",
+  "kind": "assistant",
+  "text": "Planning it out."
+ },
+ {
+  "id": "k1",
+  "kind": "tasks",
+  "items": [
+   {
+    "text": "1. Trace affected subsystem (Hermes probes 1-5)",
+    "status": "completed"
+   },
+   {
+    "text": "2. Architect for the shape",
+    "status": "completed"
+   },
+   {
+    "text": "3. Throughput checkpoint",
+    "status": "completed"
+   },
+   {
+    "text": "4. Build control plane + feature matrix",
+    "status": "completed"
+   },
+   {
+    "text": "5. Verify against real Hermes",
+    "status": "completed"
+   },
+   {
+    "text": "6. Spike: Hermes calls the MCP gateway over its real Rust transport, with a bespoke plugin tool that reads the user's workspace and writes the result back into the shared store without a second round trip",
+    "status": "completed"
+   },
+   {
+    "text": "7. Spike: user/workspace data isolation",
+    "status": "completed"
+   },
+   {
+    "text": "Fix A: unguessable session ids",
+    "status": "completed"
+   },
+   {
+    "text": "Fix B: authenticate bridge callers",
+    "status": "completed"
+   },
+   {
+    "text": "Fix C: block cron delivery into Bot Chat",
+    "status": "completed"
+   },
+   {
+    "text": "Fix D: longer profile-name hash",
+    "status": "completed"
+   },
+   {
+    "text": "Verify fixes live + upstream issue drafts",
+    "status": "completed"
+   },
+   {
+    "text": "D1 Scaffold desktop repo",
+    "status": "completed"
+   },
+   {
+    "text": "D2 Runtime install + supervisor + egress allowlist",
+    "status": "completed"
+   },
+   {
+    "text": "D3 Port engine + store + IPC contract",
+    "status": "completed"
+   },
+   {
+    "text": "D4 Local computer tools",
+    "status": "completed"
+   },
+   {
+    "text": "D5 MCP OAuth + bespoke plugins",
+    "status": "completed"
+   },
+   {
+    "text": "D6 UI per prototype",
+    "status": "completed"
+   },
+   {
+    "text": "D7 E2E tests on real Hermes + packaged build + README",
+    "status": "completed"
+   },
+   {
+    "text": "D8 Release notes",
+    "status": "completed"
+   },
+   {
+    "text": "D9 Signed installer",
+    "status": "in_progress"
+   },
+   {
+    "text": "D10 Telemetry opt-in",
+    "status": "pending"
+   },
+   {
+    "text": "D11 Docs site",
+    "status": "pending"
+   },
+   {
+    "text": "D12 Hand-off review",
+    "status": "pending"
+   }
+  ]
+ }
+]

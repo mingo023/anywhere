@@ -16,10 +16,15 @@ import (
 	"pocketd/internal/proto"
 )
 
-// anywhere runs the `anywhere` command from h.Repo, as a process outside every Terminal.
 func (h *Harness) anywhere(args ...string) (stdout, stderr string, code int) {
 	h.t.Helper()
-	cmd := exec.Command(filepath.Join(binDir, "anywhere"), args...)
+	return h.command("anywhere", args...)
+}
+
+// command runs zoes or anywhere from h.Repo, as a process outside every Terminal.
+func (h *Harness) command(name string, args ...string) (stdout, stderr string, code int) {
+	h.t.Helper()
+	cmd := exec.Command(filepath.Join(binDir, name), args...)
 	cmd.Env, cmd.Dir = h.Env, h.Repo
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
@@ -49,10 +54,23 @@ func TestAnywhereReadsTheLastReply(t *testing.T) {
 	})
 }
 
-func TestAnywhereWithoutArgumentsPrintsUsage(t *testing.T) {
+func TestZoesAndAnywhereAreTheSameCommand(t *testing.T) {
 	h := Start(t, launchReady(""))
-	if _, errOut, code := h.anywhere(); code != 2 || !strings.HasPrefix(errOut, "usage: anywhere") {
-		t.Fatalf("exited %d: %s", code, errOut)
+	zoes, errOut, code := h.command("zoes", "project", "list", "--json")
+	if code != 0 || !strings.Contains(zoes, h.Repo) {
+		t.Fatalf("zoes exited %d: %s %s", code, zoes, errOut)
+	}
+	if anywhere, _, _ := h.anywhere("project", "list", "--json"); anywhere != zoes {
+		t.Fatalf("anywhere printed %s, zoes %s", anywhere, zoes)
+	}
+}
+
+func TestTheCommandWithoutArgumentsPrintsUsage(t *testing.T) {
+	h := Start(t, launchReady(""))
+	for _, name := range []string{"zoes", "anywhere"} {
+		if _, errOut, code := h.command(name); code != 2 || !strings.HasPrefix(errOut, "usage: zoes") {
+			t.Fatalf("%s exited %d: %s", name, code, errOut)
+		}
 	}
 }
 
@@ -339,13 +357,29 @@ func TestPocketdBringsAnInstalledSkillUpToDateWhenItStarts(t *testing.T) {
 	if out, code := h.Pocketd("skill", "install"); code != 0 {
 		t.Fatalf("install exited %d: %s", code, out)
 	}
-	skill := filepath.Join(h.Home, ".claude", "skills", "anywhere", "SKILL.md")
+	skill := filepath.Join(h.Home, ".claude", "skills", "zoes", "SKILL.md")
 	if err := os.WriteFile(skill, []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	h.Restart()
-	if got, _ := os.ReadFile(skill); !strings.Contains(string(got), "name: anywhere") {
+	if got, _ := os.ReadFile(skill); !strings.Contains(string(got), "name: zoes") {
 		t.Fatalf("got %s", got)
+	}
+}
+
+func TestPocketdMovesTheAnywhereSkillAnOlderBuildInstalledToZoes(t *testing.T) {
+	h := Start(t)
+	old := filepath.Join(h.Home, ".agents", "skills", "anywhere", "SKILL.md")
+	os.MkdirAll(filepath.Dir(old), 0o755)
+	if err := os.WriteFile(old, []byte("---\nname: anywhere\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.Restart()
+	if got, _ := os.ReadFile(filepath.Join(h.Home, ".agents", "skills", "zoes", "SKILL.md")); !strings.Contains(string(got), "name: zoes") {
+		t.Fatalf("got %s", got)
+	}
+	if _, err := os.Stat(filepath.Dir(old)); !os.IsNotExist(err) {
+		t.Fatalf("the anywhere skill stayed: %v", err)
 	}
 }
 

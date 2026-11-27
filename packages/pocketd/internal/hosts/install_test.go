@@ -3,6 +3,7 @@ package hosts
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -87,7 +88,7 @@ func TestAnArchiveOnThisMacWinsOverTheRelease(t *testing.T) {
 	if got, err := source(Platform{"linux", "arm64"}, "1.2.0", dist); err != nil || got != (Source{Archive: archive}) {
 		t.Errorf("%+v %v", got, err)
 	}
-	release := Source{Version: "1.2.0", URL: "https://github.com/mingo023/anywhere/releases/download/v1.2.0"}
+	release := Source{Version: "1.2.0", URL: "https://github.com/mingo023/zoes/releases/download/v1.2.0"}
 	if got, err := source(Platform{"darwin", "arm64"}, "1.2.0", dist); err != nil || got != release {
 		t.Errorf("%+v %v", got, err)
 	}
@@ -195,8 +196,10 @@ func TestOnlyTheAppsOwnFolderGetsTheAppsServiceName(t *testing.T) {
 	if got := label(".coding-pocket-e2e"); got != config.HostLabel()+".coding-pocket-e2e" {
 		t.Errorf("%s", got)
 	}
-	if got := label(config.LegacyHomeName()); got != config.HostLabel() {
-		t.Errorf("an update on a host that hasn't moved its home names a second service: %s", got)
+	for _, l := range config.LegacyHomeNames() {
+		if got := label(l); got != config.HostLabel() {
+			t.Errorf("an update on a host that hasn't moved its home names a second service: %s", got)
+		}
 	}
 }
 
@@ -209,7 +212,7 @@ func TestAHostKeepsUsingTheLegacyFolderUntilItsPocketdMovesIt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "ssh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	m, err := openManager(t, Paths{Home: t.TempDir(), RemoteDir: ".anywhere", LegacyDir: ".coding-pocket"}, func() []string { return []string{"PATH=" + bin + ":/bin:/usr/bin"} }, "1.2.0", "Mac")
+	m, err := openManager(t, Paths{Home: t.TempDir(), RemoteDir: ".zoes", LegacyDirs: []string{".coding-pocket", ".anywhere"}}, func() []string { return []string{"PATH=" + bin + ":/bin:/usr/bin"} }, "1.2.0", "Mac")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,34 +220,33 @@ func TestAHostKeepsUsingTheLegacyFolderUntilItsPocketdMovesIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy, current := filepath.Join(home, ".coding-pocket"), filepath.Join(home, ".anywhere")
-	dir := func() string {
-		t.Helper()
-		d, err := m.remoteDir(context.Background(), e.Host, false)
-		if err != nil {
-			t.Fatal(err)
+	raw, err := os.ReadFile(filepath.Join("..", "config", "testdata", "homes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Name    string
+		Layout  []string
+		Release string
+	}
+	if err := json.Unmarshal(raw, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cases {
+		entries, _ := os.ReadDir(home)
+		for _, e := range entries {
+			os.RemoveAll(filepath.Join(home, e.Name()))
 		}
-		return d
-	}
-	if got := dir(); got != ".anywhere" {
-		t.Errorf("a new host: %s", got)
-	}
-	os.Mkdir(legacy, 0o700)
-	if got := dir(); got != ".coding-pocket" {
-		t.Errorf("a host that hasn't moved: %s", got)
-	}
-	os.Remove(legacy)
-	os.Mkdir(current, 0o700)
-	os.Symlink(current, legacy)
-	if got := dir(); got != ".anywhere" {
-		t.Errorf("a host that has moved: %s", got)
-	}
-	elsewhere := filepath.Join(home, "disk")
-	os.Mkdir(elsewhere, 0o700)
-	os.Remove(legacy)
-	os.Symlink(elsewhere, legacy)
-	if got := dir(); got != ".coding-pocket" {
-		t.Errorf("a legacy home the user linked to another disk: %s", got)
+		for _, l := range c.Layout {
+			if from, to, ok := strings.Cut(l, " -> "); ok {
+				os.Symlink(filepath.Join(home, to), filepath.Join(home, from))
+			} else {
+				os.MkdirAll(filepath.Join(home, l), 0o700)
+			}
+		}
+		if got, err := m.remoteDir(context.Background(), e.Host, false); err != nil || got != c.Release {
+			t.Errorf("%s: %s %v, want %s", c.Name, got, err, c.Release)
+		}
 	}
 }
 
@@ -301,23 +303,42 @@ func TestAnUpdateLeavesAloneThePocketdOfAnywhereDevOrAnUploadedBuild(t *testing.
 	}
 }
 
-func TestAnUpdateReplacesTheAnywhereAppWhosePocketdRunsThere(t *testing.T) {
+func TestAnUpdateReplacesTheAppWhosePocketdRunsThereWhateverItsFolderIsCalled(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("only a Mac runs the app")
 	}
 	const newer = "#!/bin/sh\n# 1.2.0\necho '{\"version\": \"1.2.0\"}'\n"
 	dmg := releaseDMG(t, newer)
+	for _, folder := range []string{"Anywhere.app", "Zoes.app"} {
+		var app string
+		out, linked := forceUpdate(t, func(dir string) string {
+			app = filepath.Join(filepath.Dir(filepath.Dir(dir)), "Applications", folder)
+			return anywhereApp(t, app, "dev.mingo.anywhere", "#!/bin/sh\n")
+		}, serveRelease(t, dmg, fmt.Sprintf("%x  Zoes.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
+		now, _ := os.ReadFile(filepath.Join(app, appPocketd))
+		if linked || string(now) != newer || !strings.HasSuffix(out, "ANYWHERE done\n") {
+			t.Errorf("%s: linked %v, app's pocketd %q:\n%s", folder, linked, now, out)
+		}
+		if left, _ := filepath.Glob(app + ".*"); len(left) > 0 {
+			t.Errorf("%s: left beside the app: %v", folder, left)
+		}
+	}
+}
+
+func TestAnUpdateTakesTheAppTheDMGHoldsWhateverItsName(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only a Mac runs the app")
+	}
+	const newer = "#!/bin/sh\n# 1.2.0\necho '{\"version\": \"1.2.0\"}'\n"
+	dmg := releaseDMGWithApp(t, "Anywhere.app", newer)
 	var app string
-	out, linked := forceUpdate(t, func(dir string) string {
+	out, _ := forceUpdate(t, func(dir string) string {
 		app = filepath.Join(filepath.Dir(filepath.Dir(dir)), "Applications", "Anywhere.app")
 		return anywhereApp(t, app, "dev.mingo.anywhere", "#!/bin/sh\n")
-	}, serveRelease(t, dmg, fmt.Sprintf("%x  Anywhere.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
+	}, serveRelease(t, dmg, fmt.Sprintf("%x  Zoes.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
 	now, _ := os.ReadFile(filepath.Join(app, appPocketd))
-	if linked || string(now) != newer || !strings.HasSuffix(out, "ANYWHERE done\n") {
-		t.Errorf("linked %v, app's pocketd %q:\n%s", linked, now, out)
-	}
-	if left, _ := filepath.Glob(app + ".*"); len(left) > 0 {
-		t.Errorf("left beside the app: %v", left)
+	if string(now) != newer || !strings.HasSuffix(out, "ANYWHERE done\n") {
+		t.Errorf("app's pocketd %q:\n%s", now, out)
 	}
 }
 
@@ -330,7 +351,7 @@ func TestAnAppUpdateWhoseDMGFailsItsChecksumKeepsTheAppThere(t *testing.T) {
 	out, _ := forceUpdate(t, func(dir string) string {
 		app = filepath.Join(filepath.Dir(filepath.Dir(dir)), "Applications", "Anywhere.app")
 		return anywhereApp(t, app, "dev.mingo.anywhere", "#!/bin/sh\n# old\n")
-	}, serveRelease(t, dmg, strings.Repeat("ab", 32)+"  Anywhere.dmg\n"), "ANYWHERE_ALLOW_HTTP=1")
+	}, serveRelease(t, dmg, strings.Repeat("ab", 32)+"  Zoes.dmg\n"), "ANYWHERE_ALLOW_HTTP=1")
 	now, _ := os.ReadFile(filepath.Join(app, appPocketd))
 	if string(now) != "#!/bin/sh\n# old\n" || !strings.Contains(out, "ANYWHERE error checksum mismatch") {
 		t.Errorf("app's pocketd %q:\n%s", now, out)
@@ -351,7 +372,7 @@ func TestAnAppUpdateThatCantMoveTheAppLeavesItThere(t *testing.T) {
 		}
 		t.Cleanup(func() { exec.Command("chflags", "nouchg", app).Run() })
 		return exe
-	}, serveRelease(t, dmg, fmt.Sprintf("%x  Anywhere.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
+	}, serveRelease(t, dmg, fmt.Sprintf("%x  Zoes.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
 	now, _ := os.ReadFile(filepath.Join(app, appPocketd))
 	if string(now) != "#!/bin/sh\n# old\n" || !strings.Contains(out, "ANYWHERE error can't replace "+app) {
 		t.Errorf("app's pocketd %q:\n%s", now, out)
@@ -385,10 +406,14 @@ func anywhereApp(t *testing.T, app, id, script string) string {
 }
 
 func releaseDMG(t *testing.T, script string) []byte {
+	return releaseDMGWithApp(t, "Zoes.app", script)
+}
+
+func releaseDMGWithApp(t *testing.T, appName, script string) []byte {
 	dir := t.TempDir()
-	anywhereApp(t, filepath.Join(dir, "stage", "Anywhere.app"), "dev.mingo.anywhere", script)
-	dmg := filepath.Join(dir, "Anywhere.dmg")
-	if b, err := exec.Command("hdiutil", "create", "-quiet", "-volname", "Anywhere", "-srcfolder", filepath.Join(dir, "stage"), "-format", "UDZO", dmg).CombinedOutput(); err != nil {
+	anywhereApp(t, filepath.Join(dir, "stage", appName), "dev.mingo.anywhere", script)
+	dmg := filepath.Join(dir, "Zoes.dmg")
+	if b, err := exec.Command("hdiutil", "create", "-quiet", "-volname", "Zoes", "-srcfolder", filepath.Join(dir, "stage"), "-format", "UDZO", dmg).CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, b)
 	}
 	b, err := os.ReadFile(dmg)
@@ -401,9 +426,9 @@ func releaseDMG(t *testing.T, script string) []byte {
 func serveRelease(t *testing.T, dmg []byte, sums string) string {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/Anywhere.dmg":
+		case "/Zoes.dmg":
 			w.Write(dmg)
-		case "/Anywhere.dmg.sha256":
+		case "/Zoes.dmg.sha256":
 			io.WriteString(w, sums)
 		default:
 			http.NotFound(w, r)

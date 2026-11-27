@@ -1,6 +1,8 @@
 package claude
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,6 +79,29 @@ func Transcript(cwd, session string, env []string) string {
 		return ""
 	}
 	return filepath.Join(root, strings.Map(dash, cwd), session+".jsonl")
+}
+
+// LinkMoved gives each transcripts dir in projects of a cwd under from, a folder that moved to to, a link named for
+// the cwd under to, so a claude resuming there finds the sessions from before. A name already taken is left alone.
+func LinkMoved(projects, from, to string) error {
+	old, now := strings.Map(dash, from+"/"), strings.Map(dash, to+"/")
+	entries, err := os.ReadDir(projects)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		rest, ok := strings.CutPrefix(e.Name(), old)
+		if !ok || !e.IsDir() {
+			continue
+		}
+		if err := os.Symlink(e.Name(), filepath.Join(projects, now+rest)); err != nil && !errors.Is(err, fs.ErrExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 // SameProject says whether claudes in cwds a and b keep their transcripts in
