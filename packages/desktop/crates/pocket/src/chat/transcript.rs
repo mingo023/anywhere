@@ -1022,7 +1022,7 @@ impl View {
                 _ => div(),
             },
             Row::Tasks { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
-                Some(Block::Todos { todos, .. }) => todos::card(&id, todos),
+                Some(Block::Todos { todos, .. }) => todos::card(&id, todos, window, cx),
                 _ => div(),
             },
             Row::Text { turn, block, range } => {
