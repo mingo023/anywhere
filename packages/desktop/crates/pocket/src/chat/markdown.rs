@@ -95,6 +95,11 @@ impl Docs {
         doc
     }
 
+    /// `key`'s document, prose or code, if one was made.
+    pub(super) fn held(&self, key: &str) -> Option<&Entity<TextViewState>> {
+        self.text.get(key).or_else(|| self.code.get(key))
+    }
+
     pub(super) fn retain(&mut self, keep: impl Fn(&str) -> bool) {
         self.text.retain(|key, _| keep(key));
         self.code.retain(|key, _| keep(key));

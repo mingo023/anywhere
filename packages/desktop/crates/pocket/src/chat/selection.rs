@@ -1,4 +1,4 @@
-use super::markdown::Press;
+use super::markdown::{self, Press};
 use crate::add_to_chat::blockquote;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
@@ -14,6 +14,7 @@ pub(crate) struct Select {
 
 pub(crate) enum SelectEvent {
     OpenLink { agent: String, link: String },
+    OpenIn { link: String, browser: Browser },
     Quote { agent: String, text: String },
     Menu { agent: String, at: Point<Pixels> },
 }
@@ -57,9 +58,9 @@ impl Select {
         }
     }
 
-    pub(crate) fn menu(&mut self, agent: String, at: Point<Pixels>, link: Option<String>, writable: bool, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn menu(&mut self, agent: String, at: Point<Pixels>, link: Option<Link>, writable: bool, window: &mut Window, cx: &mut Context<Self>) {
         let text = TextSelection::selected_text(window, cx).trim().to_string();
-        let shown = !items(!text.is_empty(), link.is_some(), writable).is_empty();
+        let shown = !items(!text.is_empty(), link.as_ref().map(|l| l.other_browser), writable).is_empty();
         self.offer = shown.then_some(Offer { agent, at, text, kind: Kind::Menu { link } });
         cx.notify();
     }
@@ -67,11 +68,12 @@ impl Select {
     fn pick(&mut self, item: Item, cx: &mut Context<Self>) {
         let Some(Offer { agent, text, kind, .. }) = self.offer.take() else { return };
         let link = match kind {
-            Kind::Menu { link } => link,
+            Kind::Menu { link } => link.map(|l| l.url),
             Kind::Pill => None,
         };
         match (item, link) {
             (Item::OpenLink, Some(link)) => cx.emit(SelectEvent::OpenLink { agent, link }),
+            (Item::OpenIn(browser), Some(link)) => cx.emit(SelectEvent::OpenIn { link, browser }),
             (Item::CopyLink, Some(link)) => cx.write_to_clipboard(ClipboardItem::new_string(link)),
             (Item::Copy, _) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
             (Item::AddToChat, _) => cx.emit(SelectEvent::Quote { agent, text }),
@@ -144,14 +146,16 @@ impl Select {
             Kind::Menu { link } => {
                 let mut menu = ui::pop(div().id("chat-select-menu")).w(px(220.)).p(px(6.)).flex().flex_col().occlude().on_mouse_down_out(close);
                 let mut prev = None;
-                for item in items(!offer.text.is_empty(), link.is_some(), writable) {
-                    let group = matches!(item, Item::OpenLink | Item::CopyLink);
+                for item in items(!offer.text.is_empty(), link.as_ref().map(|l| l.other_browser), writable) {
+                    let group = matches!(item, Item::OpenLink | Item::OpenIn(_) | Item::CopyLink);
                     if prev.is_some_and(|p| p != group) {
                         menu = menu.child(ui::menu_divider());
                     }
                     prev = Some(group);
                     let row = match item {
                         Item::OpenLink => ui::menu_row("chat-select-open-link", "external", "Open link", None),
+                        Item::OpenIn(Browser::InApp) => ui::menu_row("chat-select-open-in-app", "globe", "Open in in-app browser", None),
+                        Item::OpenIn(Browser::System) => ui::menu_row("chat-select-open-in-system", "laptop", "Open in system browser", None),
                         Item::CopyLink => ui::menu_row("chat-select-copy-link", "copy", "Copy link address", None),
                         Item::Copy => ui::menu_row("chat-select-copy", "copy", "Copy", Some("⌘C")),
                         Item::AddToChat => {
@@ -177,21 +181,42 @@ pub(crate) struct Offer {
 
 enum Kind {
     Pill,
-    Menu { link: Option<String> },
+    Menu { link: Option<Link> },
+}
+
+pub(crate) struct Link {
+    url: String,
+    /// The browser "Open link" doesn't use, offered beside it; None when the link isn't a web page.
+    other_browser: Option<Browser>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Browser {
+    InApp,
+    System,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Item {
     OpenLink,
+    OpenIn(Browser),
     CopyLink,
     Copy,
     AddToChat,
 }
 
-pub(crate) fn items(selected: bool, link: bool, writable: bool) -> Vec<Item> {
+/// The browser a link may also open in: the one the "Open links in" setting doesn't pick, for a web page only.
+fn other_browser(web: bool, system_browser: bool) -> Option<Browser> {
+    web.then_some(if system_browser { Browser::InApp } else { Browser::System })
+}
+
+/// `link` is None without a link under the pointer, else the browser it may also open in.
+pub(crate) fn items(selected: bool, link: Option<Option<Browser>>, writable: bool) -> Vec<Item> {
     let mut items = Vec::new();
-    if link {
-        items.extend([Item::OpenLink, Item::CopyLink]);
+    if let Some(other_browser) = link {
+        items.push(Item::OpenLink);
+        items.extend(other_browser.map(Item::OpenIn));
+        items.push(Item::CopyLink);
     }
     if selected {
         items.push(Item::Copy);
@@ -221,12 +246,16 @@ impl Desktop {
 
     pub(super) fn chat_link(&mut self, agent: &str, link: &str, cwd: &str, press: Press, window: &mut Window, cx: &mut Context<Self>) {
         match press {
-            Press::Menu => self.offer_menu(agent.to_string(), window.mouse_position(), Some(link.to_string()), window, cx),
+            Press::Menu => {
+                let web = matches!(markdown::target(link, cwd, &self.host_agents.home_of(cwd)), markdown::Target::Web(_));
+                let other_browser = other_browser(web, self.store.terminal.system_browser);
+                self.offer_menu(agent.to_string(), window.mouse_position(), Some(Link { url: link.to_string(), other_browser }), window, cx)
+            }
             Press::Follow => self.chat_open(agent, link, cwd, window, cx),
         }
     }
 
-    fn offer_menu(&mut self, agent: String, at: Point<Pixels>, link: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+    fn offer_menu(&mut self, agent: String, at: Point<Pixels>, link: Option<Link>, window: &mut Window, cx: &mut Context<Self>) {
         self.close_menus(cx);
         let writable = !self.agents.observe_only();
         self.chats.select.update(cx, |s, cx| s.menu(agent, at, link, writable, window, cx));
@@ -238,6 +267,8 @@ impl Desktop {
                 let cwd = self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default();
                 self.chat_open(agent, link, &cwd, window, cx);
             }
+            SelectEvent::OpenIn { link, browser: Browser::InApp } => self.open_browser(Some(link.clone()), window, cx),
+            SelectEvent::OpenIn { link, browser: Browser::System } => cx.open_url(link),
             SelectEvent::Quote { agent, text } => self.quote_in_chat(agent, text, window, cx),
             SelectEvent::Menu { agent, at } => self.offer_menu(agent.clone(), *at, None, window, cx),
         }
@@ -272,28 +303,41 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Item, items, pill_at, quoted};
+    use super::{Browser, Item, items, other_browser, pill_at, quoted};
     use gpui_kit::{point, px};
 
     #[test]
     fn a_selection_offers_copy_and_add_to_chat() {
-        assert_eq!(items(true, false, true), [Item::Copy, Item::AddToChat]);
+        assert_eq!(items(true, None, true), [Item::Copy, Item::AddToChat]);
     }
 
     #[test]
     fn a_link_offers_open_and_copy_address_before_the_selection() {
-        assert_eq!(items(false, true, true), [Item::OpenLink, Item::CopyLink]);
-        assert_eq!(items(true, true, true), [Item::OpenLink, Item::CopyLink, Item::Copy, Item::AddToChat]);
+        assert_eq!(items(false, Some(None), true), [Item::OpenLink, Item::CopyLink]);
+        assert_eq!(items(true, Some(None), true), [Item::OpenLink, Item::CopyLink, Item::Copy, Item::AddToChat]);
+    }
+
+    #[test]
+    fn a_web_link_offers_the_browser_the_setting_doesnt_pick_and_another_link_offers_none() {
+        assert_eq!(other_browser(true, false), Some(Browser::System));
+        assert_eq!(other_browser(true, true), Some(Browser::InApp));
+        assert_eq!(other_browser(false, true), None);
+    }
+
+    #[test]
+    fn a_web_link_also_offers_the_browser_open_link_does_not_use() {
+        assert_eq!(items(false, Some(Some(Browser::InApp)), true), [Item::OpenLink, Item::OpenIn(Browser::InApp), Item::CopyLink]);
+        assert_eq!(items(false, Some(Some(Browser::System)), true), [Item::OpenLink, Item::OpenIn(Browser::System), Item::CopyLink]);
     }
 
     #[test]
     fn an_observer_can_copy_but_not_add_to_chat() {
-        assert_eq!(items(true, false, false), [Item::Copy]);
+        assert_eq!(items(true, None, false), [Item::Copy]);
     }
 
     #[test]
     fn nothing_selected_and_no_link_offers_nothing() {
-        assert_eq!(items(false, false, true), []);
+        assert_eq!(items(false, None, true), []);
     }
 
     #[test]

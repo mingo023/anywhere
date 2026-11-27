@@ -11,6 +11,7 @@
 // pocketd links two SSH hosts: devbox (online, 1.4.2) and 10.0.4.12 (pocketd stopped there). Reconnecting 10.0.4.12 finds it refusing the
 // user's keys; it takes the password hunter2; an install there stops at Verify. An added host comes online after 400ms.
 // FIXTURE_HOST_ADD=connecting|failed leaves an added host linking for good, or refuses its keys, instead of coming online.
+// FIXTURE_FAILED_ERROR=<text> is the error a failed session ends with, in place of "exit 1".
 // FIXTURE_NO_HOSTS=1 leaves out hosts.v1, as a pocketd older than the hosts move, with devbox saved in desktop.json.
 // FIXTURE_HOST_FILES=1 runs devbox's own pocketd on its socket, answering status, the file reads the host finder makes, file writes and git in its
 // repositories; devbox's app-ios is a project, the twin of this Mac's, and 10.0.4.12 (retrying) holds one called api.
@@ -340,6 +341,7 @@ const asking = (a: Agent): Item[] => {
 };
 // Only Activity's screens show a turn's prompt and steps; the others keep the one result they were reviewed with.
 const turns = name === "activity";
+const failedError = process.env.FIXTURE_FAILED_ERROR ?? "exit 1";
 // As pocketd pages: the newest `limit` items (200 unless asked), sub-agents' included.
 const held = new Map<string, { seq: number }[]>();
 const paged = (items: { seq: number }[], limit = 200) => {
@@ -347,7 +349,7 @@ const paged = (items: { seq: number }[], limit = 200) => {
   return { items: page, hasOlder: page.length < items.length };
 };
 const timeline = (a: Agent) => a.id === CHAT_AGENT ? stamp(a.id, firstChat) : process.env.FIXTURE_HANDOFF && a.id === "fix" ? handoffTurns.map((t, i) => ({ id: `fix-${i}`, seq: i, ts: now - (40 - i) * 60_000, kind: t.kind, text: t.text.replace("<fix>", cwd(a)) })) : turns && a.waiting ? stamp(a.id, asking(a)) : [...(turns && a.failed ? [{ id: `${a.id}-user`, seq: 0, ts: now - (a.ago + 1) * 60_000, kind: "user", text: a.title }] : []), {
-  id: `${a.id}-result`, seq: 1, ts: now - a.ago * 60_000, kind: "result", ok: !a.failed, error: a.failed ? "exit 1" : "",
+  id: `${a.id}-result`, seq: 1, ts: now - a.ago * 60_000, kind: "result", ok: !a.failed, error: a.failed ? failedError : "",
   usage: { inputTokens: (100 - left[a.provider]) * 2000, cacheReadTokens: 0 },
 }];
 // pocketd counts each summary's recap from its last turn; the timeline is loaded only when a chat opens.
@@ -357,7 +359,7 @@ for (const [i, a] of scenario.agents.entries()) {
   const turn = own.slice(from);
   const paths = (kinds: string[]) => new Set(turn.filter((x: any) => x.call && kinds.includes(x.call.detail?.kind)).map((x: any) => x.call.detail.path)).size;
   const recap = { asked: turn[0]?.kind === "user" ? turn[0].text : undefined, read: paths(["read"]) || undefined, edited: paths(["edit", "write"]) || undefined, said: turn.findLast((x: any) => x.kind === "assistant")?.text };
-  Object.assign(summaries[i], { recap, ...(a.failed && { error: "exit 1" }) });
+  Object.assign(summaries[i], { recap, ...(a.failed && { error: failedError }) });
 }
 
 const children = scenario.agents.flatMap((a) => (a.children ?? []).map((argv, i) => ({ id: `${a.id}-tab${i}`, parent: a.id, argv, cwd: cwd(a) })));
@@ -1272,6 +1274,9 @@ Bun.serve({
           const items = timeline(a);
           held.set(a.id, items);
           ws.send(JSON.stringify({ type: "agent.timeline", id: f.id, agentId: a.id, ...paged(items, f.limit) }));
+        } else if (summaries.some((s) => s.id === f.agentId)) {
+          // As pocketd: a session just created answers with what it has so far, nothing until its prompt echoes.
+          ws.send(JSON.stringify({ type: "agent.timeline", id: f.id, agentId: f.agentId, ...paged([], f.limit) }));
         }
         if (a?.id === CHAT_AGENT && firstChat.at(-1)?.kind === "user") reply(ws, a.id);
         if (a?.id === CHAT_AGENT && process.env.FIXTURE_CHAT === "permissions") ask(ws, a.id, "permission");

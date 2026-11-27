@@ -147,7 +147,7 @@ impl Inbox {
                     .items_center()
                     .gap(px(10.))
                     .group_hover(group, |s| s.invisible())
-                    .child(div().flex_none().text_size(px(12.)).text_color(TEXT_3).child(c.project.clone()))
+                    .child(div().max_w(px(120.)).truncate().text_size(px(12.)).text_color(TEXT_3).child(c.project.clone()))
                     .child(div().w(px(28.)).flex_none().text_right().text_size(px(12.)).text_color(TEXT_4).child(ago(c.at, now))),
             )
             .child(acts)
