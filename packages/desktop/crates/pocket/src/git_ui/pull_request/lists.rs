@@ -16,8 +16,8 @@ fn size(additions: u32, deletions: u32) -> Div {
         .gap(px(5.))
         .font_family(MONO)
         .text_size(px(11.5))
-        .child(div().text_color(SUCCESS_TEXT).child(format!("+{additions}")))
-        .child(div().text_color(FAILED_TEXT).child(format!("−{deletions}")))
+        .child(div().text_color(DIFF_ADD_TEXT).child(format!("+{additions}")))
+        .child(div().text_color(DIFF_DEL_TEXT).child(format!("−{deletions}")))
 }
 
 /// The card's `overflow_hidden` clips to a rectangle, so the end rows round their own hover.
