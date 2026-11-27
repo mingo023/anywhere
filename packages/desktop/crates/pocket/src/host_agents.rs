@@ -24,6 +24,14 @@ impl HostAgents {
             (Some(host), _) => self.homes.get(host).cloned().unwrap_or_else(|| "~".into()),
         }
     }
+
+    /// The home on `host`, or this Mac with none, as a key; `None` for a host not yet heard from.
+    pub(crate) fn home_key(&self, host: Option<&str>) -> Option<String> {
+        match host {
+            None => Some(crate::modals::form::home()),
+            Some(id) => self.homes.get(id).map(|home| hosts::place(id, home)),
+        }
+    }
 }
 
 impl Desktop {

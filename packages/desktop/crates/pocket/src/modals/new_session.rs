@@ -468,6 +468,11 @@ impl NewForm {
         self.draft.repo.as_deref()
     }
 
+    /// The session starts in a new Scratch folder, made when it's sent.
+    pub(crate) fn no_project(&self) -> bool {
+        self.draft.no_project()
+    }
+
     /// pocketd's caps change on every connect.
     pub(crate) fn offer_locals(&mut self, offered: bool) {
         self.draft.locals_offered = offered;
