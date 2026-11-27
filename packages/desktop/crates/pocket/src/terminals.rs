@@ -181,6 +181,7 @@ impl Terminals {
     /// Records an exit and returns whether its pane should close. Only a failed setup or a killed terminal stays so it can be read: a shell's `exit` passes on its last command's status, so any other code means nothing went wrong.
     pub(crate) fn exited(&mut self, m: &Msg) -> bool {
         self.sessions.apply(m);
+        self.created.remove(&m.id);
         let setup = self.setups.remove(&m.id).is_some();
         let killed = self.killed(&m.id);
         self.sessions.get(&m.id).is_some_and(|s| !killed && !(setup && s.failed()))
@@ -728,6 +729,14 @@ mod tests {
         assert!(t.starting_in("/w") && !t.starting_in("/v"));
         t.listed(vec![info("a")]);
         t.arrived();
+        assert!(!t.starting_in("/w"));
+    }
+
+    #[test]
+    fn a_terminal_that_exits_before_it_is_listed_stops_starting() {
+        let mut t = Terminals::new(Default::default());
+        t.created("r1", "a".into(), "/w".into(), false);
+        t.exited(&exit("a", 1));
         assert!(!t.starting_in("/w"));
     }
 
