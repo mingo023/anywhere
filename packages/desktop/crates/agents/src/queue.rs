@@ -58,11 +58,6 @@ impl Queues {
         self.sending_now.insert((agent.to_string(), entry.to_string()));
     }
 
-    /// pocketd refused a queue change of `agent`'s, so an entry sent now stays queued and later goes as its own turn.
-    pub fn refused(&mut self, agent: &str) {
-        self.sending_now.retain(|(id, _)| id != agent);
-    }
-
     pub fn take_steered(&mut self) -> Vec<(String, String)> {
         std::mem::take(&mut self.steered)
     }
@@ -188,16 +183,6 @@ mod tests {
         assert!(q.take_steered().is_empty());
         q.replace("a1", vec![]);
         assert!(q.take_steered().is_empty(), "an entry not sent now leaves unshown");
-    }
-
-    #[test]
-    fn an_entry_whose_send_now_pocketd_refused_leaves_unshown() {
-        let mut q = Queues::default();
-        q.replace("a1", vec![entry("a", 1., "pending")]);
-        q.send_now("a1", "a");
-        q.refused("a1");
-        q.replace("a1", vec![]);
-        assert!(q.take_steered().is_empty(), "it went later as a turn of its own, which shows its prompt");
     }
 
     #[test]

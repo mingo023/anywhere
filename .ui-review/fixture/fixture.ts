@@ -1325,7 +1325,9 @@ Bun.serve({
       // As pocketd: the entry leaves the list once it goes into the turn, and the agent takes it only as the step underway ends.
       if (f.type === "queue.send_now") {
         const e = take(ws, f.agentId, f.entryId);
-        if (e && streams.has(f.agentId)) steers.set(f.agentId, () => takeTurn(ws, f.agentId, e.text));
+        const before = steers.get(f.agentId);
+        const user = () => item(ws, f.agentId, { id: `u-${Date.now()}-${e?.id}`, kind: "user", text: e?.text });
+        if (e && streams.has(f.agentId)) steers.set(f.agentId, before ? () => (before(), user()) : () => takeTurn(ws, f.agentId, e.text));
         else if (e) takeTurn(ws, f.agentId, e.text);
       }
       if (f.type === "agent.commands") {

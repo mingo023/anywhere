@@ -274,7 +274,6 @@ impl Desktop {
                 cx.notify();
             }
             Event::QueueFailed { agent, reason, text } => {
-                self.agents.queues.refused(&agent);
                 // Only pocketd's list says what the queue holds now.
                 self.outbox.queue_list(&agent);
                 if let Some(text) = text {
