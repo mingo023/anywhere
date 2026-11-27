@@ -60,6 +60,7 @@ type Environment struct {
 type Environments interface {
 	List() []Environment
 	Projects(ctx context.Context, id string) ([]proto.Project, error)
+	AddProject(ctx context.Context, id, path string) error
 	Remove(id string) error
 	Card(session string, l proto.HostLink) error
 }
