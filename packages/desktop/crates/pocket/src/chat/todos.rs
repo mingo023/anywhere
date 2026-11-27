@@ -1,10 +1,16 @@
 use super::tool_detail::TEXT_SIZE;
 use chat::{Todo, TodoStatus};
 use gpui_kit::*;
+use std::cell::Cell;
+use std::rc::Rc;
+use std::time::{Duration, Instant};
 use theme::*;
 
 /// About nine rows; a longer list scrolls inside the card.
 const LIST_MAX_HEIGHT: f32 = 300.;
+
+/// The longest pause between wheel events of one gesture, momentum included.
+const GESTURE_GAP: Duration = Duration::from_millis(500);
 
 /// How many todos are done, and how many there are.
 pub(crate) fn count(todos: &[Todo]) -> (usize, usize) {
@@ -40,8 +46,22 @@ fn item(id: &str, i: usize, t: &Todo) -> Div {
     div().flex().items_start().gap(px(10.)).px(px(12.)).py(px(6.)).child(mark).child(text.child(t.text.clone()))
 }
 
+/// Whether a wheel moved the list's offset from `before` to `now`, given its `max` scroll: the list's
+/// own scroll runs first and leaves `now` unclamped.
+fn moved(before: f32, now: f32, max: f32) -> bool {
+    now.clamp(-max, 0.) != before
+}
+
+/// Whether the list owns a wheel event: one that `began` a gesture, the rest of a gesture it owned
+/// `last`, or any while the `chat` wheel is still. A chat fling that carries the card under the pointer
+/// stays the chat's.
+fn owns(began: bool, last: Option<Instant>, chat: Option<Instant>, now: Instant) -> bool {
+    let recent = |t: Option<Instant>| t.is_some_and(|t| now.duration_since(t) < GESTURE_GAP);
+    began || recent(last) || !recent(chat)
+}
+
 /// The turn's todo list as a card: what's done, what's on, what's next.
-pub(crate) fn card(id: &str, todos: &[Todo]) -> Div {
+pub(crate) fn card(id: &str, todos: &[Todo], chat: &Rc<Cell<Option<Instant>>>, window: &mut Window, cx: &mut App) -> Div {
     let pill = div().rounded_full().bg(FILL_4).px(px(8.)).py(px(2.)).font_family(code_font()).text_size(px(10.5)).text_color(TEXT_3).child(progress(todos));
     let header = div()
         .flex()
@@ -54,11 +74,31 @@ pub(crate) fn card(id: &str, todos: &[Todo]) -> Div {
         .child(icon("list", 15., TEXT_4))
         .child(div().flex_1().font_family(code_font()).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child("Tasks"))
         .child(pill);
+    let (scroll, last) =
+        window.use_keyed_state(SharedString::from(format!("{id}-todos-scroll")), cx, |_, _| (ScrollHandle::new(), Rc::new(Cell::new(None)))).read(cx).clone();
+    let chat = chat.clone();
+    let clamped = |s: &ScrollHandle| f32::from(s.offset().y).clamp(-f32::from(s.max_offset().y), 0.);
+    let before = Rc::new(Cell::new(clamped(&scroll)));
     div().rounded(px(12.)).bg(FILL_1).border_1().border_color(SEPARATOR).overflow_hidden().child(header).child(
         div()
             .id(SharedString::from(format!("{id}-todos")))
             .max_h(px(LIST_MAX_HEIGHT))
             .overflow_y_scroll()
+            .track_scroll(&scroll)
+            // Keeps the chat still until the list reaches its end.
+            .on_scroll(move |e, _, cx| {
+                let now = Instant::now();
+                let began = e.touch_phase == TouchPhase::Started;
+                if !owns(began, last.get(), chat.get(), now) {
+                    scroll.set_offset(point(px(0.), px(before.get())));
+                    return;
+                }
+                last.set(Some(now));
+                if moved(before.get(), f32::from(scroll.offset().y), f32::from(scroll.max_offset().y)) {
+                    cx.stop_propagation();
+                }
+                before.set(clamped(&scroll));
+            })
             .py(px(4.))
             .flex()
             .flex_col()
@@ -68,7 +108,7 @@ pub(crate) fn card(id: &str, todos: &[Todo]) -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{count, progress};
+    use super::{GESTURE_GAP, count, moved, owns, progress};
     use chat::{Todo, TodoStatus};
 
     #[test]
@@ -83,5 +123,26 @@ mod tests {
         let t = |status| Todo { text: "x".into(), status };
         assert_eq!(progress(&[t(TodoStatus::Done), t(TodoStatus::Active), t(TodoStatus::Pending)]), "1 of 3");
         assert_eq!(progress(&[t(TodoStatus::Done), t(TodoStatus::Done)]), "Complete");
+    }
+
+    #[test]
+    fn a_wheel_stays_in_the_list_until_it_reaches_an_end() {
+        assert!(moved(-40., -20., 100.), "scrolled up with rows above");
+        assert!(moved(-10., 10., 100.), "reached the top on the way");
+        assert!(!moved(0., 20., 100.), "already at the top");
+        assert!(moved(-60., -80., 100.), "scrolled down with rows below");
+        assert!(!moved(-100., -120., 100.), "already at the bottom");
+        assert!(!moved(0., 20., 0.), "a list that doesn't scroll");
+    }
+
+    #[test]
+    fn the_list_leaves_the_chat_the_rest_of_its_gesture() {
+        let t = std::time::Instant::now();
+        let soon = t + GESTURE_GAP / 2;
+        assert!(owns(false, None, None, t), "a wheel with no phase, the chat still");
+        assert!(owns(false, None, Some(t), t + GESTURE_GAP), "a pause in a gesture over the list");
+        assert!(!owns(false, None, Some(t), soon), "a chat fling arriving over the list");
+        assert!(owns(true, None, Some(t), soon), "a new trackpad gesture over the list");
+        assert!(owns(false, Some(t), Some(t), soon), "the rest of a gesture begun over the list, after a chat fling");
     }
 }
