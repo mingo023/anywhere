@@ -378,6 +378,17 @@ impl Fleet {
         installed
     }
 
+    /// Drops what belonged to the machine a host reached before `entries` pointed it elsewhere.
+    fn retarget(&mut self, entries: &[agents::hosts::Entry]) {
+        for e in entries {
+            if self.hosts.list.iter().any(|h| h.id == e.id && h.target != e.target) {
+                self.installs.remove(&e.id);
+                self.stuck.remove(&e.id);
+                self.pending.forget(&e.id);
+            }
+        }
+    }
+
     fn remove(&mut self, id: &str) {
         self.hosts.forget(id);
         self.sessions.remove(id);
@@ -401,13 +412,13 @@ impl Desktop {
     pub(crate) fn on_hosts(&mut self, ev: agents::Event, window: &mut Window, cx: &mut Context<Self>) {
         use agents::Event;
         let turns = match ev {
-            Event::Hosts(entries) => self.fleet.hosts.replace(entries),
+            Event::Hosts(entries) => {
+                self.fleet.retarget(&entries);
+                self.fleet.hosts.replace(entries)
+            }
             Event::HostUpdate { request, host } => {
                 let id = host.id.clone();
-                if self.fleet.hosts.list.iter().any(|h| h.id == id && h.target != host.target) {
-                    self.fleet.stuck.remove(&id);
-                    self.fleet.installs.remove(&id);
-                }
+                self.fleet.retarget(std::slice::from_ref(&host));
                 let turns = self.fleet.hosts.update(host).into_iter().collect();
                 match self.fleet.asked.remove(&request) {
                     Some(Asked::Add { password }) => {
