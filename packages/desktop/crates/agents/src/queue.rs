@@ -58,6 +58,11 @@ impl Queues {
         self.sending_now.insert((agent.to_string(), entry.to_string()));
     }
 
+    /// A removed entry went nowhere, even if a Send now of it failed before.
+    pub fn cancel(&mut self, agent: &str, entry: &str) {
+        self.sending_now.remove(&(agent.to_string(), entry.to_string()));
+    }
+
     pub fn take_steered(&mut self) -> Vec<(String, String)> {
         std::mem::take(&mut self.steered)
     }
@@ -183,6 +188,17 @@ mod tests {
         assert!(q.take_steered().is_empty());
         q.replace("a1", vec![]);
         assert!(q.take_steered().is_empty(), "an entry not sent now leaves unshown");
+    }
+
+    #[test]
+    fn an_entry_removed_after_its_send_now_failed_leaves_unshown() {
+        let mut q = Queues::default();
+        q.replace("a1", vec![entry("a", 1., "pending")]);
+        q.send_now("a1", "a");
+        q.replace("a1", vec![entry("a", 1., "pending")]);
+        q.cancel("a1", "a");
+        q.replace("a1", vec![]);
+        assert!(q.take_steered().is_empty());
     }
 
     #[test]

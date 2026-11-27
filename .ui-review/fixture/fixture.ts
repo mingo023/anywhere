@@ -931,6 +931,10 @@ const restart = (ws: Ws, agentId: string) => {
 };
 // A prompt sent mid-reply, which Claude takes once the reply's step ends, by agent.
 const steers = new Map<string, () => void>();
+const steerLater = (agentId: string, run: () => void) => {
+  const before = steers.get(agentId);
+  steers.set(agentId, before ? () => (before(), run()) : run);
+};
 const REPLY = "The transcript jumped because a finished tool's row grew by its output before the list measured it. Rows now keep their height until the next frame measures them, so the list stays pinned to the bottom while text streams in.";
 const CODE_REPLY = "The fold in Rust:\n\n```rust\npub fn fold(items: &[Item]) -> Vec<Row> {\n    let mut rows = Vec::with_capacity(items.len());\n    for item in items {\n        match item.kind.as_str() {\n            \"tool\" => push_tool(&mut rows, item),\n            \"text\" => rows.push(Row::Text { id: item.id.clone() }),\n            _ => rows.push(Row::from(item)),\n        }\n    }\n    rows.dedup_by(|a, b| a.id() == b.id());\n    rows\n}\n```\n\nRows keep their ids, so the list keeps its place.";
 // As pocketd's queue: a prompt sent with the queue mode while the agent works waits here, and the next turn takes it once the agent is idle.
@@ -1203,7 +1207,7 @@ const prompted = (ws: Ws, f: any) => {
       item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
       reply(ws, f.agentId);
     };
-    if (streams.has(f.agentId)) steers.set(f.agentId, answer);
+    if (streams.has(f.agentId)) steerLater(f.agentId, answer);
     else answer();
   }
 };
@@ -1325,9 +1329,7 @@ Bun.serve({
       // As pocketd: the entry leaves the list once it goes into the turn, and the agent takes it only as the step underway ends.
       if (f.type === "queue.send_now") {
         const e = take(ws, f.agentId, f.entryId);
-        const before = steers.get(f.agentId);
-        const user = () => item(ws, f.agentId, { id: `u-${Date.now()}-${e?.id}`, kind: "user", text: e?.text });
-        if (e && streams.has(f.agentId)) steers.set(f.agentId, before ? () => (before(), user()) : () => takeTurn(ws, f.agentId, e.text));
+        if (e && streams.has(f.agentId)) steerLater(f.agentId, () => takeTurn(ws, f.agentId, e.text));
         else if (e) takeTurn(ws, f.agentId, e.text);
       }
       if (f.type === "agent.commands") {
@@ -1392,6 +1394,8 @@ Bun.serve({
         setTimeout(() => {
           clearInterval(streams.get(f.agentId));
           streams.delete(f.agentId);
+          // As pocketd's Stop: Claude drops the prompts sent mid-turn it hadn't taken.
+          steers.delete(f.agentId);
           item(ws, f.agentId, { id: `r-${Date.now()}`, kind: "result", ok: false, durationMs: 0, error: "Interrupted" });
           update(ws, f.agentId, "idle");
           hold(ws, f.agentId);

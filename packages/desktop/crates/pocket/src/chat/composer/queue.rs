@@ -250,7 +250,10 @@ impl Desktop {
     }
 
     pub(crate) fn chat_entry_cancel(&mut self, agent: &str, entry: &str, _: &mut Window, cx: &mut Context<Self>) {
-        self.entry_do(agent, entry, |this| this.outbox.queue_cancel(agent, entry));
+        self.entry_do(agent, entry, |this| {
+            this.outbox.queue_cancel(agent, entry);
+            this.agents.queues.cancel(agent, entry);
+        });
         cx.notify();
     }
 
