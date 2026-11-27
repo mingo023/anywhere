@@ -88,7 +88,7 @@ pub(crate) fn card(id: &str, todos: &[Todo], chat: &Rc<Cell<Option<Instant>>>, w
             // Keeps the chat still until the list reaches its end.
             .on_scroll(move |e, _, cx| {
                 let now = Instant::now();
-                let began = e.touch_phase == TouchPhase::Started || matches!(e.delta, ScrollDelta::Lines(_));
+                let began = e.touch_phase == TouchPhase::Started;
                 if !owns(began, last.get(), chat.get(), now) {
                     scroll.set_offset(point(px(0.), px(before.get())));
                     return;
@@ -142,7 +142,7 @@ mod tests {
         assert!(owns(false, None, None, t), "a wheel with no phase, the chat still");
         assert!(owns(false, None, Some(t), t + GESTURE_GAP), "a pause in a gesture over the list");
         assert!(!owns(false, None, Some(t), soon), "a chat fling arriving over the list");
-        assert!(owns(true, None, Some(t), soon), "a new gesture or a wheel notch over the list");
+        assert!(owns(true, None, Some(t), soon), "a new trackpad gesture over the list");
         assert!(owns(false, Some(t), Some(t), soon), "the rest of a gesture begun over the list, after a chat fling");
     }
 }
