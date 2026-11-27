@@ -149,12 +149,12 @@ func Retire(label, home string) (bool, error) {
 	if err != nil || !os.SameFile(runs, own) {
 		return false, nil
 	}
-	domain, err := loadedIn(label)
-	if err != nil {
-		return false, err
-	}
-	if domain != "" {
-		if err := launchctl("bootout", domain+"/"+label); err != nil {
+	// An install over ssh before a screen login loads it in the user domain, and that login loads it in gui too.
+	for _, d := range domains() {
+		if exec.Command("launchctl", "print", d+"/"+label).Run() != nil {
+			continue
+		}
+		if err := launchctl("bootout", d+"/"+label); err != nil {
 			return false, err
 		}
 	}
