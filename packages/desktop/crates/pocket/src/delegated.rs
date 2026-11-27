@@ -264,8 +264,7 @@ mod tests {
     }
 
     fn unreachable_with(link: Option<Link>, d: &Delegation) -> Option<String> {
-        let list =
-            [Host { id: "gpu".into(), name: "GPU box".into(), target: Target::Alias { name: "gpu".into() }, windows: false, socket: Default::default() }];
+        let list = [Host { id: "gpu".into(), name: "GPU box".into(), target: Target::alias("gpu"), windows: false, socket: Default::default() }];
         unreachable_host(d, &list, &Links(link.into_iter().map(|l| ("gpu".to_string(), l)).collect()))
     }
 

@@ -316,6 +316,9 @@ pub(crate) enum HostsAct {
     CloseAdd,
     Add,
     DismissInstall(String),
+    OpenEdit(String),
+    CloseEdit,
+    SaveEdit,
 }
 
 pub(crate) enum AccountsAct {
@@ -1504,6 +1507,11 @@ impl Desktop {
     }
 
     fn on_hosts_act(&mut self, act: &HostsAct, window: &mut Window, cx: &mut Context<Self>) {
+        if let HostsAct::Retry(id) | HostsAct::OpenPassword(id) = act
+            && self.fleet.edit.host.as_ref() == Some(id)
+        {
+            self.close_edit_host(cx);
+        }
         match act {
             HostsAct::Open(space) => self.switch_space(space.clone(), window, cx),
             HostsAct::Install { id, update } => self.install_host(id, *update, cx),
@@ -1524,6 +1532,9 @@ impl Desktop {
                 self.fleet.installs.remove(id);
                 cx.notify();
             }
+            HostsAct::OpenEdit(id) => self.open_edit_host(id, window, cx),
+            HostsAct::CloseEdit => self.close_edit_host(cx),
+            HostsAct::SaveEdit => self.save_edit_host(window, cx),
         }
     }
 

@@ -21,6 +21,11 @@ fail() {
   say error "$*"
   exit 1
 }
+# fail_final: fail with what trying again can't fix.
+fail_final() {
+  say final "$*"
+  exit 1
+}
 
 # running: whether a pocketd answers on DIR's socket, asked through the pocketd at $1.
 running() {
@@ -57,7 +62,7 @@ version_of() {
 update_app() {
   app=${from%/Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd}
   if [ "$app" = "$from" ] || [ -z "$URL" ] || [ "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist" 2>/dev/null)" != dev.mingo.anywhere ]; then
-    fail "pocketd here runs from $from, which an update can't replace; update the Anywhere app on this Mac instead"
+    fail_final "pocketd here runs from $from, which an update can't replace; update the Anywhere app on this Mac instead"
   fi
   fetch "$URL/Zoes.dmg" "$tmp/Zoes.dmg" || fail "download $URL/Zoes.dmg failed"
   fetch "$URL/Zoes.dmg.sha256" "$tmp/dmg.sha256" || fail "download $URL/Zoes.dmg.sha256 failed"

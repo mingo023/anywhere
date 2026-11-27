@@ -111,6 +111,8 @@ pub(crate) struct HostRow {
     pub(crate) colour: Option<u32>,
     pub(crate) install: Option<Checklist>,
     pub(crate) notice: Option<String>,
+    /// Its update can't run from here.
+    pub(crate) stuck: bool,
 }
 
 pub(crate) struct AddFormSide {
@@ -123,6 +125,14 @@ pub(crate) struct AddFormSide {
     pub(crate) error: Option<String>,
     pub(crate) suggestions: Vec<String>,
     pub(crate) picked: Option<String>,
+}
+
+pub(crate) struct EditSide {
+    pub(crate) host: Option<String>,
+    pub(crate) address: Entity<InputState>,
+    pub(crate) port: Entity<InputState>,
+    pub(crate) user: Entity<InputState>,
+    pub(crate) error: Option<String>,
 }
 
 pub(crate) struct PasswordSide {
@@ -139,6 +149,7 @@ pub(crate) struct HostsSide {
     pub(crate) rows: Vec<HostRow>,
     pub(crate) form: Option<AddFormSide>,
     pub(crate) password: Option<PasswordSide>,
+    pub(crate) edit: Option<EditSide>,
 }
 
 #[derive(Default)]
@@ -283,12 +294,14 @@ impl Desktop {
                     colour: self.space_colour(&space, &order),
                     install: self.fleet.installs.get(&h.id).cloned(),
                     notice: self.fleet.notices.get(&h.id).cloned(),
+                    stuck: self.fleet.stuck.contains(&h.id),
                     host: h.clone(),
                 }
             })
             .collect();
         let form = &self.fleet.form;
         let password = &self.fleet.password;
+        let edit = &self.fleet.edit;
         HostsSide {
             read_only: self.hosts_read_only(),
             saved: self.store.hosts.iter().map(|h| h["name"].as_str().unwrap_or_default().to_string()).collect(),
@@ -309,6 +322,13 @@ impl Desktop {
                 input: password.input.clone(),
                 error: password.error.clone(),
                 signing_in: password.signing_in,
+            }),
+            edit: Some(EditSide {
+                host: edit.host.clone(),
+                address: edit.address.clone(),
+                port: edit.port.clone(),
+                user: edit.user.clone(),
+                error: edit.error.clone(),
             }),
         }
     }

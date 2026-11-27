@@ -11,6 +11,8 @@
 // pocketd links two SSH hosts: devbox (online, 1.4.2) and 10.0.4.12 (pocketd stopped there). Reconnecting 10.0.4.12 finds it refusing the
 // user's keys; it takes the password hunter2; an install there stops at Verify. An added host comes online after 400ms.
 // FIXTURE_HOST_ADD=connecting|failed leaves an added host linking for good, or refuses its keys, instead of coming online.
+// FIXTURE_HOST_INSTALL=failed|final fails each install at Verify, retryably or as this Mac's app-owned pocketd that an update can't replace.
+// host.edit moves a host to a new target under the same id, and it comes online after 400ms.
 // FIXTURE_FAILED_ERROR=<text> is the error a failed session ends with, in place of "exit 1".
 // FIXTURE_NO_HOSTS=1 leaves out hosts.v1, as a pocketd older than the hosts move, with devbox saved in desktop.json.
 // FIXTURE_HOST_FILES=1 runs devbox's own pocketd on its socket, answering status, the file reads the host finder makes, file writes and git in its
@@ -435,7 +437,7 @@ const deleteTree = (f: { path: string; deleteBranch?: boolean }) => {
   if (tracked.includes(f.path)) tracked.splice(tracked.indexOf(f.path), 1);
 };
 
-type HostTarget = { kind: "alias"; name: string } | { kind: "address"; addr: string; port: number; user?: string; keyFile?: string };
+type HostTarget = { kind: "alias"; name: string; port?: number; user?: string } | { kind: "address"; addr: string; port: number; user?: string; keyFile?: string };
 type Host = { id: string; name: string; target: HostTarget; socket: string; link: { state: string; version?: string; uptime?: number; failure?: string } };
 const hostEntry = (id: string, name: string, target: HostTarget, link: Host["link"]): Host => ({ id, name, target, socket: join(pocket, "hosts", `${id}.sock`), link });
 const ONLINE = { state: "online", version: "1.4.2", uptime: 3 * 86_400 };
@@ -475,7 +477,23 @@ const hostVerb = (ws: Ws, f: { type: string; id: string; hostId: string; target:
   } else if (f.type === "host.sign_in") ws.send(JSON.stringify({ type: "error", id: f.id, code: "host_ssh", detail: "auth", message: "Wrong password." }));
   if (f.type === "host.install") {
     ack();
-    for (const progress of [{ kind: "step", step: "detect" }, { kind: "step", step: "verify" }]) ws.send(JSON.stringify({ type: "host.progress", hostId: f.hostId, update: !!f.update, progress }));
+    const fail = process.env.FIXTURE_HOST_INSTALL;
+    const end =
+      fail === "final"
+        ? [{ kind: "error", text: "pocketd here runs from /Applications/Anywhere.app, which an update can't replace; update the Anywhere app on this Mac instead", final: true }]
+        : fail === "failed"
+          ? [{ kind: "error", text: "pocketd didn't answer after starting" }]
+          : [];
+    for (const progress of [{ kind: "step", step: "detect" }, { kind: "step", step: "verify" }, ...end]) ws.send(JSON.stringify({ type: "host.progress", hostId: f.hostId, update: !!f.update, progress }));
+  }
+  if (f.type === "host.edit") {
+    const h = hosts.find((h) => h.id === f.hostId);
+    if (!h) return ws.send(JSON.stringify({ type: "error", id: f.id, code: "unknown_host", message: "That host isn't added" }));
+    const taken = hosts.find((o) => o !== h && JSON.stringify(o.target) === JSON.stringify(f.target));
+    if (taken) return ws.send(JSON.stringify({ type: "error", id: f.id, code: "host_exists", message: `${taken.name} is already added` }));
+    Object.assign(h, { target: f.target, link: { state: "connecting" } });
+    pushHost(ws, h, f.id);
+    setTimeout(() => setLink(ws, h.id, ONLINE), 400);
   }
   if (f.type === "host.remove") {
     const at = hosts.findIndex((h) => h.id === f.hostId);

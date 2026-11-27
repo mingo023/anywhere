@@ -30,6 +30,7 @@ func TestBootstrapsLinesBecomeProgressAndTheRestIsLog(t *testing.T) {
 		"ANYWHERE warn linger is off":                     {Kind: ProgressWarn, Text: "linger is off"},
 		"ANYWHERE warn":                                   {Kind: ProgressWarn},
 		"ANYWHERE error checksum mismatch: got a, want b": {Kind: ProgressError, Text: "checksum mismatch: got a, want b"},
+		"ANYWHERE final update the app instead":           {Kind: ProgressError, Text: "update the app instead", Final: true},
 		"ANYWHERE running":                                {Kind: ProgressRunning},
 		"ANYWHERE done":                                   {Kind: ProgressDone},
 	} {
@@ -297,7 +298,7 @@ func TestAnUpdateLeavesAloneThePocketdOfAnywhereDevOrAnUploadedBuild(t *testing.
 			}
 			continue
 		}
-		if linked || !strings.Contains(out, "ANYWHERE error pocketd here runs from "+exe+", which an update can't replace") {
+		if linked || !strings.Contains(out, "ANYWHERE final pocketd here runs from "+exe+", which an update can't replace") {
 			t.Errorf("%s: linked %v:\n%s", name, linked, out)
 		}
 	}

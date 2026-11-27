@@ -39,11 +39,13 @@ pub struct Checklist {
     marks: [Mark; Step::ALL.len()],
     pub warnings: Vec<String>,
     pub outcome: Option<Outcome>,
+    /// Its failure is one trying again can't fix.
+    pub stuck: bool,
 }
 
 impl Checklist {
     pub fn new(update: bool) -> Self {
-        Self { update, marks: [Mark::Pending; Step::ALL.len()], warnings: Vec::new(), outcome: None }
+        Self { update, marks: [Mark::Pending; Step::ALL.len()], warnings: Vec::new(), outcome: None, stuck: false }
     }
 
     /// Records `progress`; what comes after the outcome is dropped.
@@ -61,6 +63,10 @@ impl Checklist {
             Progress::Running => self.finish(Outcome::Reused),
             Progress::Done => self.finish(Outcome::Installed),
             Progress::Error(text) => self.fail(text),
+            Progress::Final(text) => {
+                self.stuck = self.outcome.is_none();
+                self.fail(text);
+            }
         }
     }
 
@@ -147,6 +153,15 @@ mod tests {
         assert_eq!(list.warnings, ["linger is off"]);
         assert_eq!(list.outcome, Some(Outcome::Failed("systemctl failed".into())));
         assert!(!list.succeeded());
+    }
+
+    #[test]
+    fn a_final_error_fails_the_list_for_good_and_a_plain_one_can_be_tried_again() {
+        let stuck = run(&[Progress::Step(Step::Link), Progress::Final("update the Anywhere app on this Mac instead".into())]);
+        assert_eq!(marks(&stuck)[0], (Step::Link, Mark::Failed));
+        assert!(stuck.stuck);
+        let plain = run(&[Progress::Step(Step::Link), Progress::Error("timed out".into()), Progress::Final("late".into())]);
+        assert!(!plain.stuck, "what comes after the outcome is dropped");
     }
 
     #[test]
