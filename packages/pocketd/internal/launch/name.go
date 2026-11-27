@@ -38,14 +38,14 @@ var (
 var errNoNaming = errors.New("naming: this agent has no headless run to name with")
 
 func generate(provider, exe, prompt string, env []string) (naming.Result, error) {
-	argv := naming.Command(provider, exe, prompt)
+	argv := naming.Command(provider, exe)
 	if argv == nil {
 		return naming.Result{}, errNoNaming
 	}
 	if !filepath.IsAbs(exe) {
 		argv = InShell(shellOf(env), argv)
 	}
-	return naming.Generate(context.Background(), argv, env)
+	return naming.Generate(context.Background(), argv, prompt, env)
 }
 
 // Prompted names a's session from a prompt typed into it. A create names

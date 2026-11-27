@@ -27,9 +27,14 @@ func invoked(argv []string) []string {
 	return argv
 }
 
-// named is the name of the command argv runs.
+// named is the name of the command argv runs. npm installs an agent on Windows as a .cmd shim.
 func named(argv []string) string {
-	return strings.TrimSuffix(filepath.Base(argv[0]), ".exe")
+	base := filepath.Base(argv[0])
+	switch ext := filepath.Ext(base); strings.ToLower(ext) {
+	case ".exe", ".cmd", ".bat":
+		return strings.TrimSuffix(base, ext)
+	}
+	return base
 }
 
 func Provider(argv []string) string {

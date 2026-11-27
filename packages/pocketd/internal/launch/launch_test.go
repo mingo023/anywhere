@@ -133,9 +133,9 @@ func shellsWith(t *testing.T) map[string][]string {
 	home, bin := t.TempDir(), t.TempDir()
 	os.WriteFile(filepath.Join(bin, "cc"), []byte("#!/bin/sh\necho compiler\n"), 0o755)
 	os.WriteFile(filepath.Join(bin, "real"), []byte("#!/bin/sh\n"), 0o755)
-	os.WriteFile(filepath.Join(home, ".zshenv"), []byte("cc() { echo \"$@\"; }\n"), 0o644)
+	os.WriteFile(filepath.Join(home, ".zshenv"), []byte("cc() { echo \"$@\"; cat; }\n"), 0o644)
 	os.MkdirAll(filepath.Join(home, ".config", "fish", "functions"), 0o755)
-	os.WriteFile(filepath.Join(home, ".config", "fish", "functions", "cc.fish"), []byte("function cc; echo $argv; end\n"), 0o644)
+	os.WriteFile(filepath.Join(home, ".config", "fish", "functions", "cc.fish"), []byte("function cc; echo $argv; cat; end\n"), 0o644)
 	envs := map[string][]string{}
 	for _, shell := range []string{"/bin/zsh", "fish"} {
 		if path, err := exec.LookPath(shell); err == nil {
@@ -629,5 +629,19 @@ func TestANewWorktreeTheOwnerMakesForAnAgentIsRecordedAsTheAgents(t *testing.T) 
 	l.filled(Who{Owner: true}, reg.Load(), spec(false), "/wt/agent", quiet)
 	if got := reg.Load().AgentWorktrees; len(got) != 0 {
 		t.Fatalf("a person's new worktree where an agent's was is still the agent's: %v", got)
+	}
+}
+
+// On Windows, Clean also turns the desktop's C:/ into git's C:\.
+func TestAnExistingWorktreeIsFoundByItsCleanedPath(t *testing.T) {
+	l, s := newWorktree(t, "")
+	c, err := worktree.Add(l.reg.Load(), s.Project, "calm-otter", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Checkout = proto.Checkout{Worktree: c.Path + string(filepath.Separator)}
+	path, _, fl := l.checkout(Who{Owner: true, Key: "owner"}, l.reg.Load(), s, nil, func(string, string) {})
+	if fl != nil || path != c.Path {
+		t.Fatalf("%q %+v", path, fl)
 	}
 }
