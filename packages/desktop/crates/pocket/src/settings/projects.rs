@@ -229,7 +229,7 @@ impl Settings {
         self.projects.sync_hints(projects, hosts, window, cx);
     }
 
-    fn machine(&self, host: &Option<String>) -> Option<&Machine> {
+    pub(super) fn machine(&self, host: &Option<String>) -> Option<&Machine> {
         self.side.machines.iter().find(|m| m.host == *host)
     }
 
@@ -276,10 +276,6 @@ impl Settings {
 
     fn group_header(&self, host: &Option<String>, machine: Option<&Machine>, open: bool, total: usize, cx: &mut Context<Self>) -> Stateful<Div> {
         let key = host.clone().unwrap_or_default();
-        let (name, glyph, colour, state) = match machine {
-            Some(m) => (m.name.clone(), m.glyph, m.colour, m.state),
-            None => (key.clone(), "server", None, MachineState::Offline),
-        };
         let fold = host.clone();
         div()
             .id(SharedString::from(format!("projects-fold-{key}")))
@@ -291,10 +287,7 @@ impl Settings {
             .cursor_pointer()
             .tab_index(0)
             .child(icon(if open { "chevron-down" } else { "chevron-right" }, 11., TEXT_3))
-            .child(tile(glyph, colour, 18.))
-            .child(div().truncate().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_2).child(name))
-            .child(pill(state.label(), state))
-            .child(div().text_size(px(12.)).text_color(TEXT_3).child(total.to_string()))
+            .child(machine_heading(host, machine, total))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.projects.toggle(fold.clone());
                 cx.notify();
@@ -433,6 +426,22 @@ impl Settings {
             .child(div().relative().child(add).children(menu.map(|m| ui::dropdown(30., m))))
             .child(clone)
     }
+}
+
+pub(super) fn machine_heading(host: &Option<String>, machine: Option<&Machine>, total: usize) -> Div {
+    let (name, glyph, colour, state) = match machine {
+        Some(m) => (m.name.clone(), m.glyph, m.colour, m.state),
+        None => (host.clone().unwrap_or_default(), "server", None, MachineState::Offline),
+    };
+    div()
+        .min_w_0()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .child(tile(glyph, colour, 18.))
+        .child(div().truncate().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_2).child(name))
+        .child(pill(state.label(), state))
+        .child(div().text_size(px(12.)).text_color(TEXT_3).child(total.to_string()))
 }
 
 /// What a machine's card ends with.

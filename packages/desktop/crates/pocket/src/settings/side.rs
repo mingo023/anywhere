@@ -190,7 +190,7 @@ impl Desktop {
             theme_edits: self.themes.edits,
             theme_error: self.themes.error.clone(),
             projects: projects.iter().map(|p| self.project_card(p, cx)).collect(),
-            machines: if on(Section::Projects) { self.machines(&projects) } else { Vec::new() },
+            machines: if on(Section::Projects) || on(Section::Git) { self.machines(&projects) } else { Vec::new() },
             models: self.models.clone(),
             hosts: if on(Section::Hosts) { self.hosts_side() } else { HostsSide::default() },
             accounts: if on(Section::Accounts) { self.accounts_side(cx) } else { AccountsSide::default() },

@@ -312,9 +312,9 @@ pub(super) fn results(words: &[String], inputs: &Inputs) -> Vec<Group> {
 }
 
 /// The scroll offset, zero or less, that puts a row `height` tall `top` below the start of the content in the middle of a
-/// viewport `view` tall, kept inside the scrollable `max`.
+/// viewport `view` tall, or its top at the top when it's taller, kept inside the scrollable `max`.
 fn centred(top: f32, height: f32, view: f32, max: f32) -> f32 {
-    (-(top - (view - height) / 2.)).clamp(-max.abs(), 0.)
+    (-(top - ((view - height) / 2.).max(0.))).clamp(-max.abs(), 0.)
 }
 
 /// The page's scroll and where the row a result opened sits in it, so the page can bring the row to the middle.
@@ -900,6 +900,11 @@ mod tests {
         assert_eq!(centred(500., 40., 400., 2000.), -320.);
         assert_eq!(centred(100., 40., 400., 2000.), 0.);
         assert_eq!(centred(1900., 40., 400., 1500.), -1500.);
+    }
+
+    #[test]
+    fn a_row_taller_than_the_view_is_scrolled_to_its_top() {
+        assert_eq!(centred(500., 900., 400., 2000.), -500.);
     }
 
     #[test]
