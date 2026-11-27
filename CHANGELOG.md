@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.66
+
+- feat(chat): show an Add to chat quote as a reply (#426): (afead340)
+- docs(web): rename Anywhere to Zoes across the site, docs, blog and legal pages (#413): (9441394c)
+- feat(pocketd): move the data home from ~/.anywhere to ~/.zoes (#419): (4c80b0fa)
+- feat(rebrand): the app shows as Zoes, and zoes joins the anywhere command (#417): (54ab1b33)
+- feat(worktree): read repo config from .zoes/ and set ZOES_* in sessions (#416): (7944d6ea)
+- feat(ios): open zoes:// links beside anywhere:// (#415): (2d92140b)
+- fix(composer): list skills in the Threads + composer before it has a project (#422): (0493c749)
+- fix(chat): keep a new session's slash prompt until it echoes (#423): (02ed72a2)
+- feat(chat): a link's right-click menu offers the other browser (#424): (3f7d9678)
+- feat(chat): find in a chat with ⌘F (#427): (8805dd0c)
+- fix(chat, inbox): scroll a long Tasks list, wrap long inbox text (#425): (d5641716)
+
 ## 0.1.65
 
 - fix(settings): drop the change bar and nav dots, align the alerts heading (#420): (4a1bd5a1)
