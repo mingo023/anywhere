@@ -426,6 +426,8 @@ impl Desktop {
         // After `set_project`, whose space switch reads whether the new-session page was up.
         if moved {
             self.set_project(Some(p), cx);
+        } else {
+            self.follow_space(&p, cx);
         }
         self.screen = Screen::Sessions;
         self.new_form.update(cx, |f, cx| f.set_shown(false, cx));
@@ -625,7 +627,7 @@ impl Desktop {
         {
             return None;
         }
-        self.place(cx)
+        self.place(cx).filter(|tree| self.shows_session(tree))
     }
 
     /// A git project's main checkout on screen with nothing open in it, once the saved layouts are back: the new session page stands in for its empty panes.
@@ -647,7 +649,10 @@ impl Desktop {
 
     /// The workspace panel shows beside the page.
     pub(crate) fn workspace_shown(&self, cx: &App) -> bool {
-        self.screen == Screen::Sessions && self.sidebar.read(cx).unfocused() > 0.
+        self.screen == Screen::Sessions
+            && self.sidebar.read(cx).unfocused() > 0.
+            && self.locked_space().is_none()
+            && self.place(cx).is_none_or(|tree| self.shows_session(&tree))
     }
 
     fn main_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
@@ -669,6 +674,7 @@ impl Desktop {
             }
             Some(tree) => self.panels_view(&tree, window, cx),
             None if self.terminals.read(cx).link.is_down() || self.terminals.read(cx).link.update(now).is_some() => self.link_page(cx),
+            None if self.screen == Screen::Sessions && self.locked_space().is_some() => self.offline_page(&self.space(), cx),
             None if self.new_form.read(cx).shown() && self.screen == Screen::Sessions => self.new_session_page(cx),
             None => match self.screen_view(cx) {
                 Some(page) => page,
@@ -760,6 +766,7 @@ fn replaced_on_disk(cx: &App) -> Task<bool> {
 
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.track_reach(window, cx);
         self.sync_panels(cx);
         self.sync_pr_side(cx);
         self.follow_space_look(window, cx);

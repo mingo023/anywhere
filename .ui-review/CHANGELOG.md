@@ -47,6 +47,13 @@
   4. [low] PR detail (23, 24): no file count, diffstat, commit time or check duration; PullRequest on the wire has none of them
   5. [low] Welcome (01): product name "Zoes" where the design says "Anywhere"; the app already uses Zoes everywhere
 - not counted: 42-component-sheet (a sheet of parts laid out differently from the design's board, not a screen); 01/21/22 light bottom spacing comes from the missing home indicator
+## 2026-11-28 · 9523737a · incremental
+- passed: Offline and Failed status layout, resting mascot pose, button order and variants, sidebar locks, and status dot placement. The locked Board retained its page and the sidebar locks.
+- failed: host-offline
+- designs: host-offline=bc3d04c56df0 (Frozen, `?v=1`)
+- trigger: `spaces/offline.rs`, `sidebar/aside.rs`, `sidebar/header.rs`, `mascot.rs`, and the new prototype. Reviewed the supplied scope directly because `host-offline` has no config entry.
+- findings: The Failed note renders the SSH command as body text (`spaces/offline.rs:81`). Locked rows use 50% opacity (40% in Frozen, `sidebar/aside.rs:908)). The mascot glow spreads farther from the silhouette (`mascot.rs:69`).
+- evidence: `.ui-review/shots/verify/host-offline/review/`. Raw pixel diffs were 2.71% (Offline) and 2.95% (Failed) with the window mock at 1392×768 inside the 1440×900 browser viewport. Used the supplied app captures and native point sizes for spacing. The app omits the disabled rail and plus shown by the mock, as specified for this review.
 
 ## 2026-11-27 · 050158ab · host-theme Wash variant (per-space colour + theme card), first check
 - passed: menu (Edit theme… row replaces Color swatches, right position), mac/plain (no look → no wash, correct baseline)

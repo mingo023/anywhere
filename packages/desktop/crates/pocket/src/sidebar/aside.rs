@@ -131,14 +131,6 @@ pub(crate) enum Body {
 }
 
 #[derive(PartialEq)]
-pub(crate) struct OfflineFrame {
-    pub(crate) glyph: &'static str,
-    pub(crate) title: String,
-    pub(crate) note: String,
-    pub(crate) reconnect: Option<String>,
-}
-
-#[derive(PartialEq)]
 pub(crate) enum ScratchRow {
     Loose { path: String, title: String, folder: String, selected: bool, state: Option<ui::State>, was: Option<(String, Instant)> },
     Folder { ix: usize, path: String, name: String, selected: bool, state: Option<ui::State>, was: Option<(String, Instant)>, renames: bool },
@@ -164,7 +156,8 @@ pub(crate) struct AsideFrame {
     pub(crate) screen: Screen,
     pub(crate) pages: Vec<(&'static str, &'static str, Screen)>,
     pub(crate) scratch: Option<ScratchFrame>,
-    pub(crate) offline: Option<OfflineFrame>,
+    /// The space's machine can't be reached: its rows show but don't act.
+    pub(crate) locked: bool,
     pub(crate) body: Body,
     pub(crate) slide: Option<(u64, Heading)>,
     pub(crate) update: Update,
@@ -196,7 +189,6 @@ pub(crate) enum SidebarEvent {
     Swipe(ScrollEvent),
     RestartToUpdate,
     DismissWhatsNew,
-    Reconnect(String),
     OpenFolder,
     CloneProject,
     AddHost,
@@ -385,7 +377,7 @@ impl Sidebar {
         let (target, pointed, git) = (path.to_string(), path.to_string(), p.git);
         let row = ui::repo_row(("aside-repo", i), chevron, &p.name, &p.mark, p.selected, p.state)
             .child(trail)
-            .when(p.offline, |row| row.opacity(0.5))
+            .when(p.offline && !rf.locked, |row| row.opacity(0.5))
             .when(p.lit, |row| row.bg(FILL_3))
             .when(p.flashed, |row| row.bg(ACCENT_BG))
             .on_hover(cx.listener(move |this, over: &bool, _, cx| {
@@ -571,9 +563,14 @@ impl Sidebar {
             .children(roll)
             .when(!open && s.count > 0, |d| d.child(ui::group_count(s.count)))
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::ToggleScratch)));
-        let new = icon_button_sized("aside-scratch-new", "plus", 22., TEXT_3)
-            .rounded(px(6.))
-            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::NewScratch)));
+        let new = if rf.locked {
+            lock().into_any_element()
+        } else {
+            icon_button_sized("aside-scratch-new", "plus", 22., TEXT_3)
+                .rounded(px(6.))
+                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::NewScratch)))
+                .into_any_element()
+        };
         let head = section_head().pl(px(6.)).child(toggle).child(new);
         let height = fold::stacked((0..s.count).map(|_| ui::SIDEBAR_ROW_H), 1.).min(ui::SIDEBAR_ROW_H * MAX_ROWS);
         let (mut folders, mut loose) = (Vec::new(), Vec::new());
@@ -600,7 +597,8 @@ impl Sidebar {
             .gap(px(1.))
             .children(folders)
             .children(loose);
-        div().flex().flex_col().flex_none().child(head).child(fold::springing("aside-scratch-fold", open, height, div().child(list)))
+        let list = if rf.locked { inert(list) } else { div().child(list) };
+        div().flex().flex_col().flex_none().child(head).child(fold::springing("aside-scratch-fold", open, height, list))
     }
 
     #[expect(clippy::too_many_arguments, reason = "a view helper takes each part it draws")]
@@ -666,43 +664,6 @@ impl Sidebar {
                 this.hover.point_project(&pointed, *over);
                 cx.notify();
             }))
-            .into_any_element()
-    }
-
-    fn offline_card(&self, o: &OfflineFrame, cx: &mut Context<Self>) -> AnyElement {
-        let reconnect = o.reconnect.clone().map(|target| {
-            div().flex().child(
-                ui::button("space-offline-reconnect", ui::Variant::Secondary, Some("reload"), "Reconnect")
-                    .h(px(26.))
-                    .text_size(px(12.5))
-                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Reconnect(target.clone())))),
-            )
-        });
-        div()
-            .mt(px(4.))
-            .mb(px(10.))
-            .px(px(12.))
-            .py(px(10.))
-            .flex()
-            .flex_col()
-            .gap(px(8.))
-            .rounded(px(10.))
-            .bg(FILL_2)
-            .text_size(px(12.))
-            .text_color(TEXT_3)
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .text_size(px(12.5))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(TEXT)
-                    .child(icon(o.glyph, 13., TEXT_3))
-                    .child(o.title.clone()),
-            )
-            .child(o.note.clone())
-            .children(reconnect)
             .into_any_element()
     }
 
@@ -886,7 +847,9 @@ impl Render for Sidebar {
             Body::Empty(name) => name.iter().map(|n| self.empty_space(n, cx)).collect(),
             Body::Sections(s) => self.sections(s, f, cx),
         };
-        let list = div().flex().flex_col().gap(px(1.)).children(f.offline.as_ref().map(|o| self.offline_card(o, cx))).children(sections);
+        let list = div().flex().flex_col().gap(px(1.)).children(sections);
+        let list = if f.locked { inert(list) } else { list };
+        let locked = f.locked;
         let list = match f.slide {
             Some((n, heading)) => list
                 .with_animation(
@@ -894,7 +857,7 @@ impl Render for Sidebar {
                     Animation::new(Duration::from_millis(SLIDE_MS)).with_easing(ease_out_quint()),
                     move |d, t| {
                         let off = 24. * heading.sign() * (1. - t);
-                        d.opacity(t).ml(px(off)).mr(px(-off))
+                        d.opacity(t * if locked { LOCKED } else { 1. }).ml(px(off)).mr(px(-off))
                     },
                 )
                 .into_any_element(),
@@ -935,4 +898,16 @@ impl Render for Sidebar {
 /// `d` carries a project from another section than `to`.
 fn moves_into(d: &DragRow, to: Section) -> bool {
     matches!(d.list, List::Projects(from) if from != to)
+}
+
+const LOCKED: f32 = 0.4;
+
+/// A section head's lock: the space's machine can't be reached, so its buttons are gone.
+pub(crate) fn lock() -> Div {
+    div().size(px(22.)).flex().flex_none().items_center().justify_center().child(icon("lock", 13., TEXT_4))
+}
+
+/// `list` dimmed under a cover that takes its presses but lets it scroll, as a locked space's rows show but don't act.
+fn inert(list: impl IntoElement) -> Div {
+    div().relative().opacity(LOCKED).child(list).child(div().absolute().inset_0().block_mouse_except_scroll())
 }

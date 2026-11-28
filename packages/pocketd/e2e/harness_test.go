@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -129,12 +130,16 @@ func Start(t *testing.T, opts ...func(*Harness)) *Harness {
 }
 
 // endHolders ends the Terminals that outlive the pocketds on home: its own,
-// and those of a host pocketd fakessh started with home as its HOME.
+// and those of a host pocketd fakessh started with home as its HOME, whose
+// home sits deeper (home/.zoes/dev).
 func endHolders(home string) {
-	dirs, _ := filepath.Glob(filepath.Join(home, "*", "holders"))
-	for _, dir := range append(dirs, holder.Dir(home)) {
-		holder.EndAll(dir, 0)
-	}
+	filepath.WalkDir(home, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() && d.Name() == "holders" {
+			holder.EndAll(path, 0)
+			return filepath.SkipDir
+		}
+		return nil
+	})
 }
 
 // up starts pocketd, again if another process takes the free port before pocketd listens on it.

@@ -5,7 +5,8 @@ use gpui_kit::*;
 use theme::*;
 
 pub(crate) fn quote_strip(nth: usize, quote: &Quote, remove: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Div {
-    let prose = matches!(quote.body, Body::Prose { .. });
+    let chat = matches!(quote.body, Body::Chat { .. });
+    let prose = chat || matches!(quote.body, Body::Prose { .. });
     let first = quote.excerpt().lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default().to_string();
     div()
         .mx(px(10.))
@@ -33,7 +34,7 @@ pub(crate) fn quote_strip(nth: usize, quote: &Quote, remove: impl Fn(&ClickEvent
                         .flex()
                         .gap(px(6.))
                         .child("Quoting")
-                        .child(div().min_w_0().truncate().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(quote.label())),
+                        .when(!chat, |d| d.child(div().min_w_0().truncate().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(quote.label()))),
                 )
                 .child(div().mt(px(1.)).truncate().text_color(TEXT_2).when(!prose, |d| d.font_family(code_font()).text_size(px(11.5))).child(first)),
         )

@@ -136,6 +136,23 @@ impl Composer {
             let (this, prompt, attachments) = (cx.weak_entity(), prompt.clone(), attachments.to_path_buf());
             move |item, window, cx| paste_in(&this, &prompt, &attachments, item, window, cx)
         });
+        let quotes: Vec<Div> = self
+            .draft
+            .quotes
+            .iter()
+            .enumerate()
+            .map(|(i, q)| {
+                let quote = q.clone();
+                quote_strip::quote_strip(
+                    i,
+                    q,
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.draft.quotes.retain(|held| *held != quote);
+                        cx.notify();
+                    }),
+                )
+            })
+            .collect();
         let pick = chips.launch.pick.clone();
         let attach = attach_button(
             "composer-attach",
@@ -164,6 +181,15 @@ impl Composer {
                 let prompt = prompt.clone();
                 move |_, window, cx| prompt.update(cx, |s, cx| s.focus(window, cx))
             })
+            .capture_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
+                let prompt = this.prompt.read(cx);
+                if e.keystroke.key == "backspace" && !this.draft.quotes.is_empty() && prompt.value().is_empty() && prompt.focus_handle(cx).is_focused(window) {
+                    this.draft.quotes.pop();
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
+            .children(quotes)
             .children(attached)
             .child(prompt_text().child(textarea).child(marks_overlay(prompt)))
             .child(bar)

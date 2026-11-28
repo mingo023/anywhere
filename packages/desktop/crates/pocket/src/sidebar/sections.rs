@@ -176,7 +176,7 @@ impl Desktop {
     }
 
     pub(super) fn projects_header(&self, cx: &mut Context<Self>) -> Entity<ProjectsHeader> {
-        let frame = HeaderFrame { sort: self.store.sections.sort, host: self.space_host_name(&self.space()) };
+        let frame = HeaderFrame { sort: self.store.sections.sort, host: self.space_host_name(&self.space()), locked: self.locked_space().is_some() };
         let header = self.sidebar.read(cx).header.clone();
         header.update(cx, |h, cx| h.set(frame, cx));
         header
