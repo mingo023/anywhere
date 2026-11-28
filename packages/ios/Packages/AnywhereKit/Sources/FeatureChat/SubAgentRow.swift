@@ -42,7 +42,7 @@ struct SubAgentRow: View {
             }
             .font(ChatFont.caption)
             .foregroundStyle(Palette.text4.color)
-            Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(Palette.text4.color)
+            LucideIcon(.chevronRight, size: 11).foregroundStyle(Palette.text4.color)
         }
         .font(ChatFont.small)
         .frame(minHeight: 26)
@@ -59,8 +59,8 @@ struct AgentMark: View {
             switch mark {
             case .starting: Circle().strokeBorder(Palette.text5.color, style: StrokeStyle(lineWidth: 1.5, dash: [2, 2]))
             case .running: GradientSpinner(size: 12)
-            case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.success.color)
-            case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.failed.color)
+            case .done: LucideIcon(.circleCheck, size: 13).foregroundStyle(Palette.success.color)
+            case .failed: LucideIcon(.circleX, size: 13).foregroundStyle(Palette.failed.color)
             }
         }
         .font(.system(size: 12))

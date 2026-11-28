@@ -14,7 +14,7 @@ struct TextRow: View {
         let _ = BodyCount.hit("TextRow")
         VStack(alignment: .leading, spacing: 6) {
             if text.planHeader {
-                Label("Plan", systemImage: "checklist").font(ChatFont.small.weight(.medium)).foregroundStyle(Palette.text2.color)
+                Label("Plan", lucide: .listChecks, size: 14).font(ChatFont.small.weight(.medium)).foregroundStyle(Palette.text2.color)
             }
             if text.revealing {
                 RevealText(text: text, reveal: reveal, onLink: onLink)

@@ -17,12 +17,12 @@ struct QueueTray: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Image(systemName: "list.bullet").font(.system(size: 12))
+                LucideIcon(.listFlat, size: 14)
                 Text("\(sends.count) queued").fontWeight(.semibold).foregroundStyle(Palette.text.color)
                 Text(paused ? "paused" : "send in order after this turn")
                 Spacer(minLength: 0)
                 if paused {
-                    Button(action: resume) { Label("Resume", systemImage: "play.fill").hitTarget() }
+                    Button(action: resume) { Label("Resume", lucide: .play, size: 12).hitTarget() }
                         .buttonStyle(.plain)
                         .accessibilityHint("Sends the queued messages in order")
                 }
@@ -40,8 +40,8 @@ struct QueueTray: View {
                         Button { steer(p.id) } label: { Text("Steer").hitTarget() }
                             .font(ChatFont.caption.weight(.medium)).accessibilityHint("Sends it into the turn underway")
                     }
-                    Button { edit(p.id) } label: { Image(systemName: "pencil").hitTarget() }.accessibilityLabel("Edit queued message")
-                    Button { remove(p.id) } label: { Image(systemName: "xmark").hitTarget() }.accessibilityLabel("Remove queued message")
+                    Button { edit(p.id) } label: { LucideIcon(.pencil, size: 14).hitTarget() }.accessibilityLabel("Edit queued message")
+                    Button { remove(p.id) } label: { LucideIcon(.close, size: 14).hitTarget() }.accessibilityLabel("Remove queued message")
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Palette.text3.color)

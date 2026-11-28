@@ -55,7 +55,7 @@ struct BubbleBody: View {
                         } label: {
                             HStack(spacing: Space.xs) {
                                 Text(expanded ? "Show less" : "Show more")
-                                Image(systemName: expanded ? "chevron.up" : "chevron.down").imageScale(.small)
+                                LucideIcon(expanded ? .chevronUp : .chevronDown, size: 12)
                             }
                             .font(ChatFont.caption.weight(.medium))
                             .foregroundStyle(Palette.text3.color)
@@ -89,7 +89,7 @@ struct BubbleText: View {
             switch s.kind {
             case .plain: Text("\(acc)\(Text(verbatim: s.text))")
             case .command: Text("\(acc)\(Text(verbatim: s.text).foregroundStyle(Palette.command.color))")
-            case .mention: Text("\(acc)\(Text("\(Image(systemName: "doc")) \(s.text)").foregroundStyle(Palette.mention.color))")
+            case .mention: Text("\(acc)\(Text("\(Image.lucide(.file, size: 13)) \(s.text)").foregroundStyle(Palette.mention.color))")
             }
         }
     }
@@ -104,7 +104,7 @@ struct ImageTiles: View {
         HStack(spacing: Space.xs) {
             ForEach(paths, id: \.self) { path in
                 VStack(spacing: 2) {
-                    Image(systemName: "photo").font(.system(size: 16))
+                    LucideIcon(.imagePlus, size: 18)
                     Text(FileChip.name(path)).font(.system(size: 8)).lineLimit(1).truncationMode(.middle)
                 }
                 .foregroundStyle(Palette.text3.color)

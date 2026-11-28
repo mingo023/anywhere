@@ -59,7 +59,7 @@ struct AccountChip: View {
                 HStack {
                     Text("Switch account · \(accounts.count - 1) more")
                     Spacer()
-                    Image(systemName: "chevron.right")
+                    LucideIcon(.chevronRight, size: 14)
                 }
                 .font(ChatFont.small)
                 .frame(minHeight: 32)
@@ -91,7 +91,7 @@ struct AccountChip: View {
             Button {
                 switching = false
             } label: {
-                Label("Usage", systemImage: "chevron.left").font(ChatFont.small)
+                Label("Usage", lucide: .chevronLeft, size: 14).font(ChatFont.small)
             }
             .buttonStyle(.plain)
             ForEach(accounts) { a in
@@ -100,7 +100,7 @@ struct AccountChip: View {
                     open = false
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "checkmark").opacity(a.id == current.id ? 1 : 0)
+                        LucideIcon(.check, size: 14).opacity(a.id == current.id ? 1 : 0)
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 Text(a.name)

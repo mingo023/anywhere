@@ -4,8 +4,8 @@ import Domain
 import SwiftUI
 import Wire
 
-/// The model and its effort, "Opus 4.5 High", shortened to what `fit` leaves room for; a menu of both once pocketd takes
-/// `agent.settings`.
+/// The model and its effort as two pills, "Opus 4.5" "High", shortened to what `fit` leaves room for; a menu of both once
+/// pocketd takes `agent.settings`.
 @MainActor
 struct ModelPillView: View {
     let agent: AgentSummary
@@ -31,11 +31,13 @@ struct ModelPillView: View {
 
     private var label: some View {
         let (model, effort) = ModelPill.label(agent)
-        return PillLabel(opens: editable) {
-            BrandMark(agent.provider, size: 13)
-            if fit < .icons { Text(model).foregroundStyle(Palette.text.color) }
-            if fit == .full, let effort { Text(effort).fontWeight(.regular).foregroundStyle(Palette.text3.color) }
+        return HStack(spacing: 6) {
+            PillLabel {
+                if fit == .icons { BrandMark(agent.provider, size: 13) } else { Text(model) }
+            }
+            if fit == .full, let effort { PillLabel { Text(effort) } }
         }
+        .accessibilityElement(children: .combine)
         .accessibilityLabel([model, effort].compactMap(\.self).joined(separator: " "))
     }
 }
@@ -55,7 +57,7 @@ struct ModelChoices: View {
                     Button {
                         pick(nil, effort)
                     } label: {
-                        if agent.effort == effort { Label(ModelPill.effortLabel(effort), systemImage: "checkmark") } else { Text(ModelPill.effortLabel(effort)) }
+                        if agent.effort == effort { Label(ModelPill.effortLabel(effort), lucide: .check) } else { Text(ModelPill.effortLabel(effort)) }
                     }
                 }
             }
@@ -70,7 +72,7 @@ struct ModelChoices: View {
                     Button {
                         pick(alias, nil)
                     } label: {
-                        if ModelPill.runs(agent, alias) { Label(modelName(alias), systemImage: "checkmark") } else { Text(modelName(alias)) }
+                        if ModelPill.runs(agent, alias) { Label(modelName(alias), lucide: .check) } else { Text(modelName(alias)) }
                     }
                 }
             }

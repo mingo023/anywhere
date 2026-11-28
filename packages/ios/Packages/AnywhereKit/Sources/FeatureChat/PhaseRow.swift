@@ -20,8 +20,7 @@ struct PhaseRow: View {
                     actions.toggle(phase.id, false)
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: phase.open && !phase.live ? "chevron.down" : phase.glyph.symbol)
-                            .font(.system(size: 11, weight: .medium)).frame(width: 14)
+                        if phase.open && !phase.live { LucideIcon(.chevronDown, size: 13).frame(width: 14) } else { GlyphMark(glyph: phase.glyph).frame(width: 14) }
                         Text(phase.title).lineLimit(1).shimmer(phase.live)
                     }
                     .font(ChatFont.small)
@@ -80,7 +79,7 @@ struct ThinkingStep: View {
         VStack(alignment: .leading, spacing: 2) {
             Button(action: toggle) {
                 HStack(spacing: 6) {
-                    Image(systemName: open ? "chevron.down" : Glyph.bulb.symbol).font(.system(size: 11)).frame(width: 14)
+                    if open { LucideIcon(.chevronDown, size: 13).frame(width: 14) } else { GlyphMark(glyph: .bulb).frame(width: 14) }
                     Text(live ? "Thinking" : thought ?? "Thought").shimmer(live)
                 }
                 .font(ChatFont.small)

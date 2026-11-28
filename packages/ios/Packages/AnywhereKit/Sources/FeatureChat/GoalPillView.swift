@@ -24,15 +24,15 @@ struct GoalPillView: View {
                 }
                 if pauses {
                     if active {
-                        Button("Pause the goal", systemImage: "stop.fill") { send("pause") }
+                        Button { send("pause") } label: { Label("Pause the goal", lucide: .stop) }
                     } else {
-                        Button("Resume the goal", systemImage: "play.fill") { send("resume") }
+                        Button { send("resume") } label: { Label("Resume the goal", lucide: .play) }
                     }
                 }
-                Button("Clear the goal", systemImage: "xmark") { send("clear") }
+                Button { send("clear") } label: { Label("Clear the goal", lucide: .close) }
             } label: {
-                PillLabel(opens: false, fill: active ? Palette.goalBackground : Palette.fill2) {
-                    Image(systemName: "sparkles").font(.system(size: 11))
+                PillLabel(fill: active ? Palette.goalBackground : Palette.fill3) {
+                    LucideIcon(.sparkle, size: 13)
                     if fit == .full { Text(words).shimmer(active && !reduceMotion) }
                 }
                 .accessibilityLabel(words)

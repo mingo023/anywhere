@@ -4,7 +4,7 @@ import MarkdownView
 import Stores
 import SwiftUI
 
-/// The chat over a store: the transcript, an offline strip while the Mac is away, and the composer under it.
+/// The chat over a store: its bar, a network strip while the Mac is away, the transcript, and the composer under it.
 @MainActor
 struct ChatScreen: View {
     let store: ChatStore
@@ -19,6 +19,10 @@ struct ChatScreen: View {
     var live = true
     /// The status of the tree the agent runs in, for the bar.
     var git: TreeChanges?
+    /// The screens the bar's menu opens.
+    var menu: [ChatMenuItem] = []
+    /// Stands in for the Mac's link in gallery scenes.
+    var net: ChatNet?
     @State private var mapOpen = false
     @State private var showing: String?
     /// Taps on the transcript, which close the suggest list.
@@ -27,37 +31,40 @@ struct ChatScreen: View {
 
     var body: some View {
         let _ = BodyCount.hit("ChatScreen")
-        GeometryReader { screen in
-            VStack(spacing: 0) {
-                TranscriptView(store: store, showing: $showing, openLink: openLink, openAgent: openAgent)
-                    .simultaneousGesture(
-                        TapGesture().onEnded {
-                            outsideTaps += 1
-                            focus = nil
-                        }
-                    )
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 6).onChanged { drag in
-                            if focus != nil && Composer.hidesKeyboard(dragged: drag.translation.height) { focus = nil }
-                        }
-                    )
-                if let host {
-                    TimelineView(.explicit(host.reachabilityMarks)) { _ in
-                        if let asOf = host.staleAsOf(at: .now) { NetStrip(.offline, NetStrip.offline(mac: machine, asOf: asOf)).padding(.horizontal, Inset.margin).padding(.vertical, Space.xs) }
+        ChatNetwork(host: host, forced: net) { net in
+            GeometryReader { screen in
+                VStack(spacing: 0) {
+                    ChatTopBar(
+                        title: store.summary?.title ?? "Chat", subtitle: ChatTitle.subtitle(store.summary, busy: store.busy, mac: machine), git: git,
+                        menu: menu)
+                    if let net {
+                        ChatStrip(net: net, mac: machine) { host?.scene(active: true) }
+                            .padding(.horizontal, Inset.margin).padding(.top, Space.s)
                     }
+                    TranscriptView(store: store, showing: $showing, openLink: openLink, openAgent: openAgent)
+                        .simultaneousGesture(
+                            TapGesture().onEnded {
+                                outsideTaps += 1
+                                focus = nil
+                            }
+                        )
+                        .simultaneousGesture(
+                            DragGesture(minimumDistance: 6).onChanged { drag in
+                                if focus != nil && Composer.hidesKeyboard(dragged: drag.translation.height) { focus = nil }
+                            }
+                        )
+                        .opacity(net?.frozen == true ? 0.5 : 1)
+                    ComposerView(
+                        store: store, machine: machine, height: screen.size.height, outsideTaps: outsideTaps, show: show, mapOpen: $mapOpen,
+                        openLink: openLink, focus: $focus, frozen: net?.frozen == true)
                 }
-                ComposerView(
-                    store: store, machine: machine, height: screen.size.height, outsideTaps: outsideTaps, show: show, mapOpen: $mapOpen,
-                    openLink: openLink, focus: $focus)
+                .coordinateSpace(name: ComposerView.space)
             }
-            .coordinateSpace(name: ComposerView.space)
         }
         .screenBackground()
-        .barTitle(store.summary?.title ?? "Chat", subtitle: ChatTitle.subtitle(store.summary, busy: store.busy, mac: machine), git: git)
         #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
         #endif
-        .chatBar()
         .viewed(store, live: live)
         .onChange(of: store.revealing, initial: true) { _, id in
             guard let id else { return }

@@ -62,7 +62,7 @@ struct RowView: View, Equatable {
         case .question(let value): QuestionMarker(value: value)
         case .compacted(let auto): CompactedRow(auto: auto)
         case .end(let end): EndRow(end: end, actions: actions)
-        case .live(let live): LiveRow(live: live, provider: provider)
+        case .live(let live): LiveRow(live: live)
         case .working: Text("Sending…").font(ChatFont.small).foregroundStyle(Palette.text3.color).shimmer().padding(.top, 6)
         case .pending(let p): PendingBubble(pending: p, actions: actions)
         }
