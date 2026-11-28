@@ -22,6 +22,7 @@ import SwiftUI
 @MainActor
 func everyScene() -> [GalleryScene] {
     AppShellGallery.scenes + PairingGallery.scenes + SettingsGallery.scenes + NotificationsGallery.scenes + SessionsGallery.scenes
+        + LaunchGallery.scenes
         + ChatGallery.scenes + TerminalGallery.scenes + GitGallery.scenes + GitHubGallery.scenes + FilesGallery.scenes
         + MarkdownGallery.scenes + CodeGallery.scenes + LiveActivityGallery.scenes + DesignSystemGallery.scenes
 }
