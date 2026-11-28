@@ -121,14 +121,10 @@ public enum ChatGallery {
         return p
     }
 
-    /// Every fold, phase and step opened, to show the work they hide.
+    /// Every step opened, to show its diff, error or thought.
     @MainActor
     static func opened(_ s: ChatStore) -> ChatStore {
-        for id in s.session.ids where id.hasSuffix("#fold") || id.contains("#p") { s.toggle(id, false) }
-        for case .phase(let turn, let blocks) in s.session.rows {
-            let id = s.session.ids[s.session.rows.firstIndex(of: .phase(turn: turn, blocks: blocks))!]
-            for b in blocks { s.toggle("\(id)/\(b)", false) }
-        }
+        for case (.phase, let id) in zip(s.session.rows, s.session.ids) { s.toggle(id, false) }
         return s
     }
 

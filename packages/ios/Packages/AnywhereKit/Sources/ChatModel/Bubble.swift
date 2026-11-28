@@ -1,10 +1,10 @@
 /// The user's prompt as its bubble shows it.
 public enum Bubble {
     public static let collapsedLines = 5
-    public static let lineHeight: Double = 24
-    public static let textSize: Double = 16
+    public static let lineHeight: Double = 22
+    public static let textSize: Double = 17
     /// A bubble's widest, of the reading width.
-    public static let width = 0.78
+    public static let width = 0.88
 
     /// A run of a prompt's text, and how it shows.
     public struct Segment: Hashable, Sendable {

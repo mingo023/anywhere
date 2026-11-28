@@ -54,8 +54,6 @@ public final class ChatStore: HostStore {
     @ObservationIgnored var asked: (session: NewSession, draft: Draft)?
     /// Messages being let out as they stream, by message id.
     public private(set) var reveals: [String: Reveal] = [:]
-    /// A reply that just settled, by its fold's row id, so its label fades in.
-    public private(set) var settled: (row: String, at: Seconds)?
     /// Bumped by each send the chat pins a quarter down; `steers` by each send into the pinned prompt's turn.
     public private(set) var sends = 0
     public private(set) var steers = 0
@@ -313,13 +311,11 @@ public final class ChatStore: HostStore {
     public func flush() {
         flushing = false
         let before = textLengths(session.transcript)
-        let tail = session.liveTail.map { session.transcript.turns[$0].id }
         let working = summary.map(Composer.working) ?? false
         let hint = min(unchanged, items.count)
         unchanged = items.count
         if session.update(revision, items, working: working, now: clock(), unchanged: hint) != nil {
             let now = Date.timeIntervalSinceReferenceDate
-            if let turn = settledTail(tail, session.transcript) { settled = ("\(turn)#fold", now) }
             let background = inBackground(session.transcript.turns[...]).map(\.call)
             if background != self.background { self.background = background }
             let agents = spawned(session.transcript)
@@ -895,12 +891,6 @@ public final class ChatStore: HostStore {
     // MARK: Rows
 
     public func toggle(_ id: String, _ fallback: Bool) { session.toggle(id, fallback) }
-
-    /// Opens what hides `row`: the shut fold over it and its shut phase.
-    public func show(_ row: Int) {
-        if let fold = session.shutFoldOver(row) { session.toggle(fold, false) }
-        if session.shutPhase(row), session.rows.indices.contains(row) { session.toggle(session.ids[row], false) }
-    }
 
     /// Everything the agent did is held and folded: the first page came, no older one is left and no refold is due.
     public var whole: Bool { loaded && !hasOlder && !flushing }

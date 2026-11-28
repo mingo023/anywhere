@@ -30,7 +30,7 @@ extension ChatGallery {
                         model: "claude-sonnet-4-5", title: "Fix flaky checkout test", branch: "flaky-checkout")
                     return AnyView(NavigationStack {
                         ChatScreen(
-                            store: frame.settled ? unfolded(chat) : chat, machine: "MacBook Pro", host: host, openLink: { _ in }, live: false,
+                            store: chat, machine: "MacBook Pro", host: host, openLink: { _ in }, live: false,
                             git: host.git.changes(cwd), menu: [ChatMenuItem(title: "Changes", icon: .fileDiff) {}], net: frame.net)
                     })
                 }
@@ -61,12 +61,6 @@ extension ChatGallery {
 
         /// The turn is over, its work shown open; else it is under way, and the agent works or waits on an answer.
         var settled: Bool { requests.isEmpty && status != .working }
-    }
-
-    /// The reply's fold and phases open, as the design lists its steps; a step's own diff stays shut.
-    @MainActor private static func unfolded(_ s: ChatStore) -> ChatStore {
-        for id in s.session.ids where id.hasSuffix("#fold") || id.contains("#p") { s.toggle(id, false) }
-        return s
     }
 
     private static var branchStatus: GitStatus {

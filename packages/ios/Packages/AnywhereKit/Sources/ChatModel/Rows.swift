@@ -1,9 +1,9 @@
 /// One list row; ids are stable across refreshes so the list keeps measured heights.
 public enum Row: Hashable, Sendable {
     case prompt(turn: Int)
-    /// The line heading a reply: who worked and for how long. It opens the reply's phases.
+    /// Where a reply begins, which the live line and the reply's footer go by. It draws nothing.
     case fold(turn: Int)
-    /// A run of work: thinking and tool calls.
+    /// One step of work on its own line: a thought, a tool call or a sub-agent, with any todos updated after it.
     case phase(turn: Int, blocks: Range<Int>)
     /// Sub-agents and commands that finished in the background, heading the turn the agent began itself to report on them.
     case notice(turn: Int)
@@ -78,7 +78,8 @@ func rowsFrom(_ rows: inout [Row], _ t: Transcript, _ from: Int, pending: Int, s
             for b in lead..<work {
                 let block = turn.blocks[b]
                 if isWork(block) {
-                    if phase == nil { phase = b }
+                    flush(&rows, ix, &phase, b)
+                    phase = b
                 } else if case .todos = block {
                 } else {
                     flush(&rows, ix, &phase, b)
@@ -135,12 +136,6 @@ func workEnd(_ turn: Turn) -> Int {
     turn.blocks.lastIndex(where: isWork).map { $0 + 1 } ?? 0
 }
 
-/// Whether block `block` of `turn` is text the agent wrote between its steps rather than its answer.
-public func narrates(_ turn: Turn, _ block: Int) -> Bool {
-    guard block < workEnd(turn), block < turn.blocks.count, case .text = turn.blocks[block] else { return false }
-    return true
-}
-
 private func isCompacted(_ b: Block) -> Bool {
     if case .compacted = b { true } else { false }
 }
@@ -185,12 +180,6 @@ public func atWorkOn(_ t: Transcript, _ turns: Range<Int>) -> Bool {
 public func liveTail(_ t: Transcript) -> Int? {
     guard !t.turns.isEmpty, let fold = foldOf(t, t.turns.count - 1) else { return nil }
     return atWorkOn(t, 0..<t.turns.count) ? fold : nil
-}
-
-/// The turn whose fold held the live line before, `before`, once `t`'s no longer does: its reply just settled.
-public func settledTail(_ before: String?, _ t: Transcript) -> String? {
-    guard let before else { return nil }
-    return liveTail(t).map { t.turns[$0].id } != before ? before : nil
 }
 
 /// Sub-agents and commands still running in `turns` after their own turn ended, the ones working in the background, with
@@ -294,59 +283,20 @@ func working(_ turn: Turn) -> Bool {
     turn.end == nil && (turn.prompt != nil || !turn.blocks.allSatisfy(isCompacted))
 }
 
-/// 16 over the first row and 14 at each exchange; within one, 6 between parts, 10 between markdown blocks of one
-/// message, and none above a phase, whose rail runs on from the fold, or "Sending…", which brings its own.
+/// 16 over the first row and 14 at each exchange; within one, 6 between parts, 14 between markdown blocks of one
+/// message, 8 above a run of tool lines and 10 below it, none between its lines or above "Sending…", which brings its own.
 public func topGap(_ prev: Row?, _ row: Row) -> Double {
     guard let prev else { return 16 }
     switch (prev, row) {
     case (_, .prompt), (_, .pending), (.pending, .live): return 14
-    case (_, .phase), (_, .working): return 0
-    case (.text(let a, let x, _), .text(let b, let y, _)) where a == b && x == y: return 10
+    case (.phase, .phase), (_, .working): return 0
+    case (_, .phase): return 8
+    case (.phase, .text): return 10
+    case (.text(let a, let x, _), .text(let b, let y, _)) where a == b && x == y: return 14
     case (_, .tasks): return 12
     case (_, .question), (_, .compacted), (_, .notice), (_, .note): return 8
     default: return 6
     }
-}
-
-/// A phase's headline: what the work did, as "Edited a.rs · Ran 2 commands", in the present tense while `live`;
-/// sub-agents go by their own state, as "Using a subagent".
-public func phaseTitle(_ blocks: ArraySlice<Block>, live: Bool) -> String {
-    let calls = blocks.compactMap(\.call)
-    var edited: [String] = []
-    for c in calls {
-        switch c.kind {
-        case .edit(let path, _), .write(let path, _): if !edited.contains(path) { edited.append(path) }
-        default: break
-        }
-    }
-    let explored = calls.contains {
-        switch $0.kind {
-        case .read, .search, .fetch: true
-        default: false
-        }
-    }
-    let ran = calls.filter { if case .shell = $0.kind { true } else { false } }.count
-    var parts: [String] = []
-    let agents = calls.filter { $0.agent != nil }
-    let using = agents.contains { $0.status == .running } ? "Using" : "Used"
-    switch agents.count {
-    case 0: break
-    case 1: parts.append("\(using) a subagent")
-    case let n: parts.append("\(using) \(n) subagents")
-    }
-    switch edited.count {
-    case 0: break
-    case 1: parts.append("\(live ? "Editing" : "Edited") \(edited[0].split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? edited[0])")
-    case let n: parts.append("\(live ? "Editing" : "Edited") \(n) files")
-    }
-    if explored { parts.append(live ? "Exploring the project" : "Explored the project") }
-    switch ran {
-    case 0: break
-    case 1: parts.append(live ? "Executing a command" : "Ran a command")
-    case let n: parts.append("\(live ? "Executing" : "Ran") \(n) commands")
-    }
-    if parts.isEmpty && blocks.allSatisfy({ if case .thinking = $0 { true } else { false } }) { return live ? "Thinking" : "Thought" }
-    return parts.isEmpty ? "Working" : parts.joined(separator: " · ")
 }
 
 /// The range of `old` to replace and how many new rows replace it, sharing the longest equal prefix.

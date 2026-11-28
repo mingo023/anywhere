@@ -4,11 +4,13 @@ import DesignSystem
 import SwiftUI
 import Wire
 
-/// A tool call as one line: its verb and what it acted on. A failed call opens on its error, an edit on its diff;
-/// successful output never shows.
+/// A tool call as one line: a chevron, its verb and what it acted on, and an edit's line counts. A failed call opens on
+/// its error, an edit on its diff; successful output never shows.
 @MainActor
 struct ToolRow: View {
     let call: Call
+    /// Running while its turn goes on.
+    let live: Bool
     /// Still running after the work it was part of settled.
     let background: Bool
     let open: Bool
@@ -34,24 +36,26 @@ struct ToolRow: View {
     }
 
     private var line: some View {
-        let (verb, arg) = toolLine(call)
-        let tint = failed ? Palette.failedText : Palette.text3
+        let arg = toolLine(call).arg
+        let verb = call.status == .running ? toolLine(call).verb : pastVerb(call)
         return HStack(spacing: 6) {
-            if failed { LucideIcon(.close, size: 12, weight: 2.5) }
+            if failed { LucideIcon(.close, size: 13, weight: 2.5) } else { LucideIcon(open ? .chevronDown : .chevronRight, size: 13) }
             HStack(spacing: 6) {
-                if !verb.isEmpty { Text(verb) }
+                if !verb.isEmpty { Text(verb).foregroundStyle((failed ? Palette.failedText : Palette.text2).color) }
                 switch arg {
-                case .file(let path): FileChip(path, failed: failed)
+                case .file(let path), .raw(let path): Text(path).font(ChatFont.toolArg).lineLimit(1).truncationMode(.middle)
                 case .text(let text): Text(text).lineLimit(1).truncationMode(.tail)
-                case .raw(let text): Text(text).font(ChatFont.mono).lineLimit(1).truncationMode(.tail)
+                }
+                if let counts = diff?.diff, counts.additions + counts.deletions > 0 {
+                    Text("+\(counts.additions)").font(ChatFont.toolArg).foregroundStyle(Palette.successText.color)
+                    Text("\u{2212}\(counts.deletions)").font(ChatFont.toolArg).foregroundStyle(Palette.failedText.color)
                 }
             }
-            .shimmer(call.status == .running && !background)
+            .shimmer(live)
             if background { Text("background").foregroundStyle(Palette.text4.color) }
-            if opens { LucideIcon(open ? .chevronDown : .chevronRight, size: 11) }
         }
         .font(ChatFont.small)
-        .foregroundStyle(tint.color)
+        .foregroundStyle((failed ? Palette.failedText : Palette.text3).color)
         .frame(minHeight: 24)
     }
 }

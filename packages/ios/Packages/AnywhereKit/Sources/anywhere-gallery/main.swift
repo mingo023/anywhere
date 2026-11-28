@@ -42,9 +42,12 @@ func lazyCheck() -> GalleryScene {
 }
 
 @MainActor
-func run(_ args: [String]) throws -> Int32 {
+func run(_ all: [String]) throws -> Int32 {
+    // `--insets` draws phone-sized scenes under an iPhone's status bar and home indicator, as the design's frames are.
+    let insets = all.contains("--insets")
+    let args = all.filter { $0 != "--insets" }
     guard args.count >= 2 else {
-        FileHandle.standardError.write(Data("usage: anywhere-gallery <outdir> [filter]\n".utf8))
+        FileHandle.standardError.write(Data("usage: anywhere-gallery [--insets] <outdir> [filter]\n".utf8))
         return 2
     }
     let out = URL(fileURLWithPath: args[1], isDirectory: true)
@@ -62,7 +65,7 @@ func run(_ args: [String]) throws -> Int32 {
     var failed = 0
     for scene in scenes {
         let started = Date()
-        guard let png = GalleryRenderer.render(scene) else {
+        guard let png = GalleryRenderer.render(scene, insets: insets ? GalleryRenderer.phoneInsets(scene.size) : EdgeInsets()) else {
             print("FAIL \(scene.name): nothing drawn")
             failed += 1
             continue

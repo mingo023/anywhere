@@ -92,23 +92,9 @@ public struct Session: Sendable {
         folds[id] = !open(id, fallback)
     }
 
-    /// The fold over row `ix` when it shows shut, to open so the row shows; none while work going on holds it open.
-    public func shutFoldOver(_ ix: Int) -> String? {
-        let t = transcript
-        guard let turn = rows[ix].turn, let f = foldOf(t, turn), !atWorkOn(t, folded(t, f)) else { return nil }
-        let id = "\(t.turns[f].id)#fold"
-        return open(id, false) ? nil : id
-    }
-
     /// The fold whose live line shows under the newest exchange, read off the trailer rather than the whole transcript.
     public var liveTail: Int? {
         if case .live(let turn)? = rows.last { turn } else { nil }
-    }
-
-    /// Whether row `ix` is a phase that shows shut.
-    public func shutPhase(_ ix: Int) -> Bool {
-        guard case .phase = rows[ix] else { return false }
-        return !open(ids[ix], false)
     }
 }
 

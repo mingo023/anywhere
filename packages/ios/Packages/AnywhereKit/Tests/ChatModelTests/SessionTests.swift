@@ -14,23 +14,6 @@ private let perf = ProcessInfo.processInfo.environment["CHAT_PERF"] != nil
 private let go = #"{"kind": "user", "text": "go"}"#
 private let ok = #"{"kind": "result", "ok": true}"#
 
-@Test("showing a row opens the shut fold over it and its shut phase, but no fold work holds open")
-func showingARowOpensTheShutFoldOverItAndItsShutPhaseButNoFoldWorkHoldsOpen() {
-    var s = Session()
-    s.update(1, [item(1, go), bash(2, "t1", "ok"), item(3, ok)], working: false, now: 0)
-    let phase = s.rows.firstIndex { if case .phase = $0 { true } else { false } }!
-    #expect(s.shutFoldOver(phase) == "i1#fold" && s.shutPhase(phase))
-    s.toggle("i1#fold", false)
-    s.toggle(s.ids[phase], false)
-    #expect(s.shutFoldOver(phase) == nil && !s.shutPhase(phase))
-
-    let task = #"{"kind": "tool", "call": {"toolUseId": "tu", "name": "Task", "status": "running", "detail": {"kind": "task", "description": "audit"}}}"#
-    var t = Session()
-    t.update(1, [item(1, go), item(2, task), item(3, ok)], working: false, now: 0)
-    let agent = t.rows.firstIndex { if case .phase = $0 { true } else { false } }!
-    #expect(t.shutFoldOver(agent) == nil, "its sub-agent still at work holds the fold open")
-}
-
 @Test("a session refolds only when the revision moves")
 func aSessionRefoldsOnlyWhenTheRevisionMoves() {
     var s = Session()

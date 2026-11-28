@@ -24,7 +24,7 @@ struct Metrics: Equatable, Sendable {
         let m: Metrics
         switch style {
         case .chat:
-            m = Metrics(body: 17, line: 26, headings: [(24, 32), (21, 29), (19, 27), (17, 26)], gap: 16, itemGap: 8, indent: 17 * 1.9, codeSize: 12.5, codeLine: 18)
+            m = Metrics(body: 17, line: 24, headings: [(24, 32), (21, 29), (19, 27), (17, 24)], gap: 14, itemGap: 8, indent: 17 * 1.9, codeSize: 12.5, codeLine: 18)
         case .compact:
             m = Metrics(body: 13, line: 20, headings: [(16, 22), (14.5, 21), (13.5, 20), (13, 20)], gap: 10, itemGap: 6, indent: 13 * 1.9, codeSize: 12, codeLine: 17)
         case .document:

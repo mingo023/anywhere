@@ -2,46 +2,13 @@ import ChatModel
 import DesignSystem
 import SwiftUI
 
-extension Glyph {
-    /// The Lucide icon for the desktop's; the lightbulb and the wrench have none.
-    var lucide: Lucide? {
-        switch self {
-        case .terminal: .terminal
-        case .file: .file
-        case .pencil: .pencil
-        case .filePlus: .filePlus
-        case .search: .search
-        case .globe: .globe
-        case .bot: .bot
-        case .blocks: .blocks
-        case .bulb, .tool: nil
-        }
-    }
-
-}
-
-/// A tool's glyph: its Lucide icon, else the SF Symbol standing in.
-@MainActor
-struct GlyphMark: View {
-    let glyph: Glyph
-    var size: CGFloat = 13
-
-    var body: some View {
-        if let icon = glyph.lucide {
-            LucideIcon(icon, size: size)
-        } else {
-            Image(systemName: glyph == .bulb ? "lightbulb" : "wrench.and.screwdriver").font(.system(size: size - 2))
-        }
-    }
-}
-
 /// The chat's own sizes, from the desktop's points.
 enum ChatFont {
     static let body = Font.system(size: 14)
     static let bubble = Font.system(size: Bubble.textSize)
-    static let fold = Font.system(size: 14)
     static let small = Font.system(size: 13)
     static let mono = Font.system(size: 12, design: .monospaced)
+    static let toolArg = Font.system(size: 13, design: .monospaced)
     static let monoSmall = Font.system(size: 11.5, design: .monospaced)
     static let caption = Font.system(size: 12)
 }

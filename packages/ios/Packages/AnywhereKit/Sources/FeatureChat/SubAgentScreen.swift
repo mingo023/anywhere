@@ -115,7 +115,7 @@ struct SubAgentScreen: View {
             if let a = c.agent {
                 SubAgentRow(call: c, agent: a) { openAgent(c.id) }
             } else {
-                ToolRow(call: c, background: false, open: open.contains(c.id)) {
+                ToolRow(call: c, live: c.status == .running, background: false, open: open.contains(c.id)) {
                     if open.remove(c.id) == nil { open.insert(c.id) }
                 }
             }

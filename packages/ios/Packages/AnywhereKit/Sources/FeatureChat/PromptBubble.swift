@@ -3,7 +3,8 @@ import DesignSystem
 import Domain
 import SwiftUI
 
-/// The user's prompt: right-aligned, its commands tinted and mentions shown by name, clipped past five lines.
+/// The user's prompt: right-aligned, its commands tinted and mentions shown by name, clipped past five lines. A long
+/// press copies it and says when it was sent.
 @MainActor
 struct PromptBubble: View {
     let text: String
@@ -13,16 +14,13 @@ struct PromptBubble: View {
 
     var body: some View {
         let _ = BodyCount.hit("PromptBubble")
-        VStack(alignment: .trailing, spacing: Space.xs) {
-            BubbleBody(text: text, images: images).opacity(dimmed ? 0.65 : 1)
-            if let at {
-                HStack(spacing: Space.xs) {
-                    CopyButton(text: text)
-                    Text(TimeText.clock(ms: at)).font(ChatFont.caption).monospacedDigit().foregroundStyle(Palette.text4.color)
-                }
+        BubbleBody(text: text, images: images)
+            .opacity(dimmed ? 0.65 : 1)
+            .contextMenu {
+                Button { Clipboard.copy(text) } label: { Label("Copy", lucide: .copy) }
+                if let at { Text("Sent \(TimeText.clock(ms: at))") }
             }
-        }
-        .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
 
@@ -64,9 +62,9 @@ struct BubbleBody: View {
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 9)
-            .background(Palette.bubble.color, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Palette.bubble.color, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
     }
 }

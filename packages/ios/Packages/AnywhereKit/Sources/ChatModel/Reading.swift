@@ -36,11 +36,6 @@ public func liveLabel(_ who: String, _ model: String, _ live: Live) -> String {
     }
 }
 
-/// "Claude worked for 1m 4s".
-public func settledLabel(_ who: String, _ ms: Int) -> String {
-    "\(who) worked for \(TimeText.elapsed(seconds: ms / 1000))"
-}
-
 /// "claude-opus-5-5" reads as "Opus 5.5"; a missing model falls back to the provider.
 public func modelLabel(model: String?, provider: String) -> String {
     guard let model, !model.isEmpty else { return AgentName.label(provider) }
@@ -218,6 +213,23 @@ public func toolLine(_ call: Call) -> (verb: String, arg: Arg) {
     }
 }
 
+/// The verb a finished call's line reads with: "Edited", "Searched", "Ran".
+public func pastVerb(_ call: Call) -> String {
+    let verb = toolLine(call).verb
+    switch verb {
+    case "Edit": return "Edited"
+    case "Create": return "Created"
+    case "Find": return "Searched"
+    case "Fetch": return "Fetched"
+    case "Stop": return "Stopped"
+    case "Watch": return "Watched"
+    case "":
+        if case .shell = call.kind { return "Ran" }
+        return verb
+    default: return verb
+    }
+}
+
 private func verb(_ name: String) -> String {
     switch name {
     case "TaskStop", "KillShell": "Stop"
@@ -337,27 +349,8 @@ public enum Agent {
     }
 }
 
-/// Phases: runs of work hung off a fold's rail.
+/// Steps of work, each a row of its own.
 public enum Phase {
-    /// Steps a live phase keeps in view; older ones scroll away above them.
-    public static let liveSteps = 9
-
-    /// The icon heading a phase: what its work mostly is.
-    public static func glyph(_ blocks: ArraySlice<Block>) -> Glyph {
-        switch blocks.first(where: isWork) {
-        case .thinking?: return .bulb
-        case .tool(let c)?:
-            switch c.kind {
-            case .edit, .write: return .pencil
-            case .shell: return .terminal
-            case .agent: return .bot
-            case .read, .search, .fetch: return .search
-            default: return .tool
-            }
-        default: return .tool
-        }
-    }
-
     /// The phase's steps: its thinking and tool calls, without the todos updated among them.
     public static func steps(_ blocks: ArraySlice<Block>) -> [(index: Int, block: Block)] {
         zip(blocks.indices, blocks).filter { isWork($0.1) }.map { ($0.0, $0.1) }
@@ -424,33 +417,6 @@ public func answer(_ t: Transcript, _ turns: Range<Int>) -> String {
             }
         }
     }.joined(separator: "\n\n")
-}
-
-/// Whether `row` hangs off its fold's rail: a phase, or the text between phases while the fold is open. The live tail's
-/// fold shows no header, its line having moved to the bottom, so nothing hangs off it.
-public func inFold(_ t: Transcript, liveTail: Int?, _ row: Row, foldOpen: Bool) -> Bool {
-    guard let turn = row.turn, let fold = foldOf(t, turn), liveTail != fold else { return false }
-    if case .phase = row { return true }
-    return foldOpen && narration(t, row)
-}
-
-func narration(_ t: Transcript, _ row: Row) -> Bool {
-    guard case .text(let turn, let block, _) = row else { return false }
-    return narrates(t.turns[turn], block)
-}
-
-/// Whether a row under a fold shows: the work does while the fold is open; a phase holding a failed sub-agent always does.
-public func shown(_ t: Transcript, _ row: Row, foldOpen: Bool) -> Bool {
-    switch row {
-    case .phase(let turn, let blocks): foldOpen || t.turns[turn].blocks[blocks].contains(where: failedAgent)
-    case .tasks: foldOpen
-    default: true
-    }
-}
-
-func failedAgent(_ b: Block) -> Bool {
-    guard case .tool(let c) = b, c.status == .failed, case .agent = c.kind else { return false }
-    return true
 }
 
 /// Where the call with use id `id` sits: its turn and block.

@@ -11,11 +11,17 @@ enum GalleryRenderer {
         let variance: Double
     }
 
+    /// The design frames' status bar and home indicator on a 393 × 852 iPhone; nothing on other sizes.
+    static func phoneInsets(_ size: CGSize) -> EdgeInsets {
+        size == CGSize(width: 393, height: 852) ? EdgeInsets(top: 54, leading: 0, bottom: 34, trailing: 0) : EdgeInsets()
+    }
+
     /// Waits `settle` and at least `turns` run-loop turns: a long transcript takes a few layout passes to reach its end,
-    /// and in a debug build each pass can outlast the whole wait.
-    static func render(_ scene: GalleryScene, settle: TimeInterval = 0.4, turns: Int = 8) -> Image? {
+    /// and in a debug build each pass can outlast the whole wait. `insets` is the safe area the scene lays out in.
+    static func render(_ scene: GalleryScene, insets: EdgeInsets = EdgeInsets(), settle: TimeInterval = 0.4, turns: Int = 8) -> Image? {
         let appearance = NSAppearance(named: scene.dark ? .darkAqua : .aqua)
         let root = scene.view()
+            .safeAreaPadding(insets)
             .environment(\.colorScheme, scene.dark ? .dark : .light)
             // Drawn as in a focused window, so prominent buttons show their fill.
             .environment(\.controlActiveState, .key)
