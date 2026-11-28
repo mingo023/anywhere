@@ -36,7 +36,8 @@ struct Destination: View {
                     .id(ObjectIdentifier(host))
                     .safeAreaInset(edge: .top, spacing: 0) {
                         VStack(spacing: 0) {
-                            if banner { ConnectionBanner(host: host) }
+                            // The chat draws its own strip under its floating bar.
+                            if banner, !Self.isChat(route) { ConnectionBanner(host: host) }
                             EndedStrip(app: app, host: host)
                         }
                     }
@@ -44,6 +45,10 @@ struct Destination: View {
                 Placeholder("This Mac isn't paired", icon: .laptop, detail: "Pair it again from Machines.")
             }
         }
+    }
+
+    static func isChat(_ route: Route) -> Bool {
+        if case .chat = route { true } else { false }
     }
 
     @ViewBuilder
