@@ -17,7 +17,7 @@ pub(super) const GAP: f32 = 6.;
 pub(super) fn colour_source(quote: &Quote) -> Option<(&'static str, String)> {
     match &quote.body {
         Body::Code { text, .. } => Some((crate::syntax::language_for(&quote.path), shown_lines(text).join("\n"))),
-        Body::Diff { .. } | Body::Prose { .. } => None,
+        Body::Diff { .. } | Body::Prose { .. } | Body::Chat { .. } => None,
     }
 }
 
@@ -34,6 +34,11 @@ pub(super) fn quote_card(
         Body::Code { lines, text, .. } => (format!("lines {}", span(*lines)), text),
         Body::Diff { lines, text, .. } => (format!("uncommitted · line {}", span(*lines)), text),
         Body::Prose { section, text } => (section.as_ref().map(|s| format!("› {s}")).unwrap_or_default(), text),
+        Body::Chat { text } => (String::new(), text),
+    };
+    let name = match &quote.body {
+        Body::Chat { .. } => quote.label(),
+        _ => basename(&quote.path),
     };
     let head = div()
         .flex()
@@ -41,10 +46,10 @@ pub(super) fn quote_card(
         .gap(px(6.))
         .mb(px(3.))
         .child(icon(quote.icon(), 13., TEXT_3))
-        .child(div().flex_none().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(basename(&quote.path)))
+        .child(div().flex_none().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(name))
         .child(div().min_w_0().truncate().font_family(code_font()).text_size(px(12.)).text_color(TEXT_3).child(place));
     let body = match &quote.body {
-        Body::Prose { .. } => div().line_height(px(18.)).line_clamp(SHOWN_LINES).child(text.clone()).into_any_element(),
+        Body::Prose { .. } | Body::Chat { .. } => div().line_height(px(18.)).line_clamp(SHOWN_LINES).child(text.clone()).into_any_element(),
         Body::Diff { .. } | Body::Code { .. } => {
             let diff = matches!(quote.body, Body::Diff { .. });
             div()
@@ -69,7 +74,8 @@ pub(super) fn quote_card(
         0 => rail.top(relative(0.5)).border_t_1().rounded_tr(px(10.)),
         _ => rail.top(px(-1.)).child(div().absolute().top(relative(0.5)).left_0().right_0().border_t_1().border_color(RAIL)),
     };
-    let path = quote.path.clone();
+    let file = !quote.path.is_empty();
+    let tip = if file { quote.path.clone() } else { text.clone() };
     div()
         .id(SharedString::from(format!("{id}-quote-{nth}")))
         .relative()
@@ -84,10 +90,8 @@ pub(super) fn quote_card(
         .border_color(SEPARATOR)
         .text_size(px(12.5))
         .text_color(TEXT_2)
-        .cursor_pointer()
-        .hover(|d| d.bg(FILL_2))
-        .tooltip(move |window, cx| Tooltip::new(path.clone()).build(window, cx))
-        .on_click(open)
+        .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+        .when(file, |d| d.cursor_pointer().hover(|d| d.bg(FILL_2)).on_click(open))
         .child(head)
         .child(body)
         .child(rail)

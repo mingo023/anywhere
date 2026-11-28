@@ -439,7 +439,7 @@ fn name_problem(name: &str, taken: &HashSet<String>) -> Option<&'static str> {
 
 /// `typed`, with `added` after it once there are words to keep.
 fn appended(typed: &str, added: Option<String>) -> String {
-    match added {
+    match added.filter(|a| !a.is_empty()) {
         Some(added) if !typed.trim().is_empty() => format!("{}\n\n{added}", typed.trim_end()),
         Some(added) => added,
         None => typed.to_string(),
@@ -532,7 +532,7 @@ impl NewForm {
         cx: &mut Context<Self>,
     ) -> (bool, bool, Option<String>) {
         let typed = self.prompt.read(cx).value().to_string();
-        let keep = !typed.trim().is_empty() || self.composer.read(cx).draft.has_attachments();
+        let keep = !typed.trim().is_empty() || self.composer.read(cx).draft.sends_without_text();
         let keep_project = keep && prompt.is_none();
         let text = appended(&typed, prompt);
         self.draft.seed = crate::util::now_ms() as usize;
@@ -790,9 +790,12 @@ impl Desktop {
         let pick = self.new_form_pick(cx);
         let (mut spec, worktree, folder, auto_name) = {
             let f = self.new_form.read(cx);
-            let sent = f.composer.read(cx).draft.prompt_with(&prompt, f.draft.copied_for(&project));
+            let draft = &f.composer.read(cx).draft;
+            let sent = draft.prompt_with(&prompt, f.draft.copied_for(&project));
+            // A quote names the session as the words typed do; attached files alone don't.
+            let named = if draft.quotes.is_empty() { &prompt } else { &sent };
             let d = &f.draft;
-            (d.spec(&pick, &project, local.as_deref(), &name, &sent), d.in_worktree(), d.folder(&name), d.auto_names(&prompt, self.agents.names_offered()))
+            (d.spec(&pick, &project, local.as_deref(), &name, &sent), d.in_worktree(), d.folder(&name), d.auto_names(named, self.agents.names_offered()))
         };
         if auto_name {
             spec["checkout"]["new"]["autoName"] = true.into();
@@ -1178,6 +1181,7 @@ mod tests {
         assert_eq!(appended("Fix CI \n", Some("Explain this".into())), "Fix CI\n\nExplain this");
         assert_eq!(appended(" \n", Some("Explain this".into())), "Explain this");
         assert_eq!(appended("Fix CI", None), "Fix CI");
+        assert_eq!(appended("Fix CI", Some(String::new())), "Fix CI");
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use super::markdown::{self, Press};
-use crate::add_to_chat::blockquote;
+use crate::add_to_chat::Quote;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
 use gpui_kit::base::TextSelection;
@@ -233,11 +233,6 @@ pub(crate) fn pill_at(down: Point<Pixels>, up: Point<Pixels>) -> Point<Pixels> {
     top - point(px(0.), px(16.))
 }
 
-pub(crate) fn quoted(draft: &str, text: &str) -> String {
-    let lead = if draft.is_empty() || draft.ends_with('\n') { "" } else { "\n" };
-    format!("{lead}{}\n\n", blockquote(text.trim()))
-}
-
 impl Desktop {
     pub(super) fn offers_selection(&self, agent: &str, transcript: AnyElement, cx: &mut Context<Self>) -> Div {
         let writable = !self.agents.observe_only();
@@ -276,13 +271,11 @@ impl Desktop {
 
     fn quote_in_chat(&mut self, agent: &str, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.chats.select.update(cx, |s, _| s.dismiss());
-        if text.trim().is_empty() || self.agents.observe_only() {
-            return cx.notify();
-        }
+        let Some(quote) = Quote::chat(text).filter(|_| !self.agents.observe_only()) else { return cx.notify() };
         TextSelection::clear(window, cx);
         self.chat_focus_input(agent, window, cx);
-        let (draft, _) = self.chat_draft(agent, cx);
-        self.chat_add_text(agent, &quoted(&draft, text), window, cx);
+        self.chat_draft_edit(agent, cx, |d| d.add_quote(&quote, ""));
+        cx.notify();
     }
 
     pub(crate) fn quote_chat_selection(&mut self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -303,7 +296,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Browser, Item, items, other_browser, pill_at, quoted};
+    use super::{Browser, Item, items, other_browser, pill_at};
     use gpui_kit::{point, px};
 
     #[test]
@@ -350,12 +343,5 @@ mod tests {
     #[test]
     fn on_one_line_the_pill_starts_where_the_drag_is_leftmost() {
         assert_eq!(pill_at(point(px(300.), px(100.)), point(px(40.), px(100.))), point(px(40.), px(84.)));
-    }
-
-    #[test]
-    fn a_quote_starts_its_own_line_and_leaves_a_blank_one_after() {
-        assert_eq!(quoted("", " a\n\nb "), "> a\n>\n> b\n\n");
-        assert_eq!(quoted("see", "a"), "\n> a\n\n");
-        assert_eq!(quoted("see\n", "a"), "> a\n\n");
     }
 }

@@ -7,6 +7,7 @@ use crate::actions::AddToChat;
 use crate::chat::Route;
 use crate::desktop::Desktop;
 use crate::git_ui::diff::{DiffView, ordered, span};
+use crate::modals::new_session::may_start;
 use crate::region::notify_after_draw;
 use crate::sidebar::in_tree;
 use crate::status::{Card, Kind, Status};
@@ -23,7 +24,7 @@ const ADDED_TOAST: Duration = Duration::from_millis(2600);
 /// A return in the same write as the paste reads as part of the paste to some agents.
 pub(crate) const SEND_AFTER: Duration = Duration::from_millis(80);
 
-/// Text from a file, quoted into an agent's input.
+/// Text from a file or the chat, quoted into an agent's input.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Quote {
     pub path: String,
@@ -45,6 +46,10 @@ pub enum Body {
     },
     Prose {
         section: Option<String>,
+        text: String,
+    },
+    /// Picked from a chat's transcript; its `path` is empty.
+    Chat {
         text: String,
     },
 }
@@ -73,6 +78,11 @@ impl Quote {
         Some(Quote { path: path.into(), body: Body::Prose { section: section_of(source, text), text: text.into() } })
     }
 
+    pub fn chat(selected: &str) -> Option<Quote> {
+        let text = selected.trim();
+        (!text.is_empty()).then(|| Quote { path: String::new(), body: Body::Chat { text: text.into() } })
+    }
+
     pub fn payload(&self) -> String {
         match &self.body {
             Body::Diff { lines, removed, text } => {
@@ -84,6 +94,7 @@ impl Quote {
                 let section = section.as_ref().map(|s| format!(" (section \"{s}\")")).unwrap_or_default();
                 format!("{}{section}:\n{}", self.path, blockquote(text))
             }
+            Body::Chat { text } => blockquote(text),
         }
     }
 
@@ -94,6 +105,7 @@ impl Quote {
             Body::Code { lines, .. } => format!("{name}:{}", lines_text(*lines)),
             Body::Prose { section: Some(s), .. } => format!("{name} › {s}"),
             Body::Prose { section: None, .. } => name,
+            Body::Chat { .. } => "Quote".into(),
         }
     }
 
@@ -101,11 +113,12 @@ impl Quote {
         match &self.body {
             Body::Diff { .. } => "diff-multiple",
             Body::Code { .. } | Body::Prose { .. } => "file",
+            Body::Chat { .. } => "comment",
         }
     }
 
     pub fn excerpt(&self) -> String {
-        let (Body::Diff { text, .. } | Body::Code { text, .. } | Body::Prose { text, .. }) = &self.body;
+        let (Body::Diff { text, .. } | Body::Code { text, .. } | Body::Prose { text, .. } | Body::Chat { text }) = &self.body;
         text.lines().take(3).collect::<Vec<_>>().join("\n")
     }
 
@@ -127,10 +140,15 @@ fn language_of(path: &str) -> &'static str {
 
 /// The quote a sent prompt opens with, read back from what `payload` wrote, and what was typed after it.
 pub(crate) fn split_quote(prompt: &str) -> Option<(Quote, &str)> {
-    let (head, after) = prompt.split_once('\n')?;
-    let (quote, rest) = match head.strip_suffix(':') {
-        Some(lead) => prose_quote(lead, after)?,
-        None => fenced_quote(head, after)?,
+    let (quote, rest) = if prompt.starts_with("> ") {
+        let (text, rest) = unquote(prompt)?;
+        (Quote { path: String::new(), body: Body::Chat { text } }, rest)
+    } else {
+        let (head, after) = prompt.split_once('\n')?;
+        match head.strip_suffix(':') {
+            Some(lead) => prose_quote(lead, after)?,
+            None => fenced_quote(head, after)?,
+        }
     };
     Some((quote, rest.trim_start_matches('\n')))
 }
@@ -153,10 +171,15 @@ fn prose_quote<'a>(lead: &str, after: &'a str) -> Option<(Quote, &'a str)> {
     if !names_a_file(path) {
         return None;
     }
-    let end = after.find("\n\n").unwrap_or(after.len());
-    let lines: Option<Vec<&str>> = after[..end].lines().map(|l| if l == ">" { Some("") } else { l.strip_prefix("> ") }).collect();
+    let (text, rest) = unquote(after)?;
+    Some((Quote { path: path.into(), body: Body::Prose { section, text } }, rest))
+}
+
+fn unquote(s: &str) -> Option<(String, &str)> {
+    let end = s.find("\n\n").unwrap_or(s.len());
+    let lines: Option<Vec<&str>> = s[..end].lines().map(|l| if l == ">" { Some("") } else { l.strip_prefix("> ") }).collect();
     let text = lines?.join("\n");
-    (!text.trim().is_empty()).then(|| (Quote { path: path.into(), body: Body::Prose { section, text } }, &after[end..]))
+    (!text.trim().is_empty()).then_some((text, &s[end..]))
 }
 
 fn fenced_quote<'a>(head: &str, after: &'a str) -> Option<(Quote, &'a str)> {
@@ -547,9 +570,19 @@ impl Desktop {
 
     fn chat_in_new_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(quote) = self.chat_quote(cx) else { return };
-        let prompt = quote.prompt(&self.chat.read(cx).question(cx));
+        let question = self.chat.read(cx).question(cx);
         self.cancel_chat(window, cx);
-        self.new_session(Some(prompt), false, window, cx);
+        if !may_start(&self.agents) {
+            return;
+        }
+        // After `new_session`, which clears a draft it doesn't keep.
+        self.new_session(Some(question.trim().to_string()), false, window, cx);
+        self.new_form.update(cx, |f, cx| {
+            f.composer.update(cx, |c, cx| {
+                c.draft.add_quote(&quote, "");
+                cx.notify();
+            })
+        });
     }
 }
 
@@ -711,6 +744,7 @@ mod tests {
             diff((4, 4), true, "-y"),
             Quote::prose("docs/PLAN.md", "# Rollout\nShip it slowly.\n\nThen watch.", "Ship it slowly.\n\nThen watch.").unwrap(),
             Quote::prose("README.md", "Intro text.", "Intro text.").unwrap(),
+            Quote::chat(" builds, running fmt\n\n  then clippy ").unwrap(),
         ];
         for q in quotes {
             assert_eq!(split_quote(&q.prompt("why?\n\nand this")), Some((q.clone(), "why?\n\nand this")));
@@ -742,6 +776,22 @@ mod tests {
     }
 
     #[test]
+    fn a_chat_quote_marks_each_line_and_names_no_file() {
+        let q = Quote::chat("  Ship it.\n\nThen watch.\n").unwrap();
+        assert_eq!(q.payload(), "> Ship it.\n>\n> Then watch.");
+        assert_eq!(q.label(), "Quote");
+        assert_eq!(Quote::chat(" \n"), None);
+    }
+
+    #[test]
+    fn a_prompt_opening_with_a_blockquote_reads_back_as_a_chat_quote() {
+        assert_eq!(split_quote("> a\n> b\n\nwhy?"), Some((Quote::chat("a\nb").unwrap(), "why?")));
+        assert_eq!(split_quote("> a"), Some((Quote::chat("a").unwrap(), "")));
+        assert_eq!(split_quote(">no space\n\nwhy?"), None);
+        assert_eq!(split_quote("> a\nb\n\nwhy?"), None);
+    }
+
+    #[test]
     fn an_excerpt_shows_the_first_three_lines() {
         assert_eq!(Quote::code("a.rs", "1\n2\n3\n4\n", 0..8).unwrap().excerpt(), "1\n2\n3");
     }
@@ -750,7 +800,8 @@ mod tests {
     fn several_quotes_read_back_in_order_before_the_question() {
         let a = Quote::code("src/a.rs", "let a = 1;\n", 0..10).unwrap();
         let b = Quote::prose("docs/b.md", "# Why\n\nBecause.", "Because.").unwrap();
-        let prompt = format!("{}\n\n{}\n\nwhich one?", a.payload(), b.payload());
-        assert_eq!(split_quotes(&prompt), (vec![a, b], "which one?"));
+        let c = Quote::chat("builds, running fmt").unwrap();
+        let prompt = format!("{}\n\n{}\n\n{}\n\nwhich one?", a.payload(), c.payload(), b.payload());
+        assert_eq!(split_quotes(&prompt), (vec![a, c, b], "which one?"));
     }
 }

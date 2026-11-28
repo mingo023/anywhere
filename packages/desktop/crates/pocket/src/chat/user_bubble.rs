@@ -305,7 +305,7 @@ pub(super) fn bubble(
         .map(|(i, quote)| {
             let at = match &quote.body {
                 Body::Code { lines, .. } | Body::Diff { lines, .. } => format!("{}:{}", quote.path, lines.0),
-                Body::Prose { .. } => quote.path.clone(),
+                Body::Prose { .. } | Body::Chat { .. } => quote.path.clone(),
             };
             let open_quote = open_quote.clone();
             super::quote_card::quote_card(id, i, quote, width, colours.next().flatten(), move |_, window, cx| open_quote(&at, window, cx))
