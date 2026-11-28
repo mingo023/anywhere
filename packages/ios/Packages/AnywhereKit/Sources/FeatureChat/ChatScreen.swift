@@ -43,7 +43,7 @@ struct ChatScreen: View {
                     )
                 if let host {
                     TimelineView(.explicit(host.reachabilityMarks)) { _ in
-                        if let asOf = host.staleAsOf(at: .now) { StaleStrip(mac: machine, asOf: asOf) }
+                        if let asOf = host.staleAsOf(at: .now) { NetStrip(.offline, NetStrip.offline(mac: machine, asOf: asOf)).padding(.horizontal, Inset.margin).padding(.vertical, Space.xs) }
                     }
                 }
                 ComposerView(

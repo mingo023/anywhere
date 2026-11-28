@@ -14,7 +14,7 @@ struct Stale: ViewModifier {
         content
             .environment(\.staleSince, asOf)
             .safeAreaInset(edge: .top, spacing: 0) {
-                if let asOf { StaleStrip(mac: host.name, asOf: asOf) }
+                if let asOf { NetStrip(.offline, NetStrip.offline(mac: host.name, asOf: asOf)).padding(.horizontal, Inset.margin).padding(.vertical, Space.xs) }
             }
             .task(id: host.link) {
                 asOf = nil

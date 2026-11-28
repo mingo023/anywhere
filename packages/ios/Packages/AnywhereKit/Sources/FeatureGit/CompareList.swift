@@ -59,9 +59,9 @@ struct CompareList: View {
         }
         .overlay {
             if compare.missing {
-                Placeholder("Can't find \(against)", systemImage: "questionmark.folder", detail: "No branch or commit has that name.")
+                Placeholder("Can't find \(against)", icon: .search, detail: "No branch or commit has that name.")
             } else if compare.totals == nil, let error = compare.error {
-                Placeholder("Couldn't compare with \(against)", systemImage: "exclamationmark.triangle", detail: error) {
+                Placeholder("Couldn't compare with \(against)", icon: .triangleAlert, detail: error) {
                     Task { await store.loadCompare(tree, against: against) }
                 }
             } else if compare.totals == nil {
@@ -70,7 +70,7 @@ struct CompareList: View {
                     Text("Comparing…").foregroundStyle(Palette.text3.color)
                 }
             } else if compare.files.isEmpty {
-                Placeholder("No differences with \(against)", systemImage: "checkmark.circle")
+                Placeholder("No differences with \(against)", icon: .circleCheck)
             }
         }
         .refreshable { await store.loadCompare(tree, against: against) }

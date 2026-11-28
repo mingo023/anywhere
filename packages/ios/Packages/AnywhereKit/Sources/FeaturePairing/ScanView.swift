@@ -61,7 +61,7 @@ struct ScanView: View {
                 .ignoresSafeArea()
             }
         #else
-            Placeholder("Scanning needs the iPhone's camera", systemImage: "camera", detail: "Enter the code instead.")
+            Placeholder("Scanning needs the iPhone's camera", icon: .camera, detail: "Enter the code instead.")
                 .environment(\.colorScheme, .dark)
         #endif
     }

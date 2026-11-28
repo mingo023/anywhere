@@ -294,7 +294,7 @@ struct TreeRow: View {
 
     var body: some View {
         HStack(spacing: Space.s) {
-            Image.named(Self.symbol(tree.kind), size: 17).foregroundStyle(Palette.text3.color).frame(width: 18)
+            LucideIcon(Self.symbol(tree.kind), size: 17).foregroundStyle(Palette.text3.color).frame(width: 18)
             VStack(alignment: .leading, spacing: 0) {
                 Text(tree.label).font(Typography.body.weight(.medium)).foregroundStyle(Palette.text.color).lineLimit(1)
                 if let place = tree.place, place != tree.label {
@@ -312,11 +312,11 @@ struct TreeRow: View {
         tree.kind == .local ? .local(mac: mac, id: tree.id) : .worktree(mac: mac, path: tree.id)
     }
 
-    static func symbol(_ kind: HomeList.Tree.Kind) -> String {
+    static func symbol(_ kind: HomeList.Tree.Kind) -> Lucide {
         switch kind {
-        case .own: "laptopcomputer"
-        case .local: "folder"
-        case .worktree: "worktree"
+        case .own: .laptop
+        case .local: .folder
+        case .worktree: .worktree
         }
     }
 }

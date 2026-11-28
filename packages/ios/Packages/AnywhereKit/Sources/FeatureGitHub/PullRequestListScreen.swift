@@ -34,11 +34,11 @@ struct PullRequestListScreen: View {
                 Pullable(refresh: reload) { GhProblemView(problem: problem, mac: macName) { Task { await reload() } } }
             } else if items != nil {
                 Pullable(refresh: reload) {
-                    Placeholder("No pull requests", systemImage: "arrow.triangle.pull", detail: "No worktree of this project has an open pull request.")
+                    Placeholder("No pull requests", icon: .pullRequest, detail: "No worktree of this project has an open pull request.")
                 }
             } else if let error {
                 Pullable(refresh: reload) {
-                    Placeholder("Couldn't load pull requests", systemImage: "exclamationmark.triangle", detail: error) { Task { await reload() } }
+                    Placeholder("Couldn't load pull requests", icon: .triangleAlert, detail: error) { Task { await reload() } }
                 }
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).screenBackground()

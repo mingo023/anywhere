@@ -227,7 +227,7 @@ struct ComposerView: View {
             focus.wrappedValue = nil
             editing = true
         } label: {
-            Image.named("fullscreen", size: 16).foregroundStyle(Palette.text3.color).hitTarget()
+            LucideIcon(.fit, size: 16).foregroundStyle(Palette.text3.color).hitTarget()
         }
         .buttonStyle(.plain)
         .disabled(store.armed)
@@ -336,7 +336,7 @@ struct ComposerView: View {
         HStack(spacing: Space.s) {
             if let agent = store.summary {
                 if let branch = agent.branch, !branch.isEmpty {
-                    Label { Text(branch) } icon: { Image.named("worktree", size: 12) }.font(ChatFont.monoSmall).lineLimit(1).truncationMode(.middle)
+                    Label { Text(branch) } icon: { Image.lucide(.worktree, size: 12) }.font(ChatFont.monoSmall).lineLimit(1).truncationMode(.middle)
                 }
                 if agent.chatOnly == true, let current = currentAccount(agent) {
                     AccountChip(accounts: providerAccounts(agent), current: current, provider: agent.provider, machine: machine) { store.switchAccount($0) }

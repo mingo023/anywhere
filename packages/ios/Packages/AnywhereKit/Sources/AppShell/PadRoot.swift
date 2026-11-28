@@ -60,7 +60,7 @@ struct PadRoot: View {
                 .navigationSplitViewColumnWidth(min: 320, ideal: 380)
         } detail: {
             NavigationStack(path: path) {
-                Placeholder("Pick a session", systemImage: "sidebar.squares.left")
+                Placeholder("Pick a session", icon: .sidebar)
                 .routeDestinations(app: app, navigator: navigator, pair: pair)
             }
         }

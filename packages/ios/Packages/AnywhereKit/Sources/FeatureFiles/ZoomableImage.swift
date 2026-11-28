@@ -34,7 +34,7 @@ struct ZoomableImage: View {
                         .gesture(magnify.simultaneously(with: pan))
                         .onTapGesture(count: 2) { toggleZoom() }
                 } else if failed {
-                    Placeholder("This image can't be shown.", systemImage: "photo")
+                    Placeholder("This image can't be shown.", icon: .imagePlus)
                 } else {
                     ProgressView()
                 }

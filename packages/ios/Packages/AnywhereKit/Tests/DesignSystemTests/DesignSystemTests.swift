@@ -156,11 +156,13 @@ struct DesignSystemTests {
         #expect(LinkDot.color(.off) == Palette.text4)
     }
 
-    @Test("an offline Mac's strip says when its data is from, or that the link is reconnecting")
-    func staleStrip() {
+    @Test("a network strip says which Mac, and when its data is from")
+    func netStrip() {
         let utc = TimeZone(identifier: "UTC")!
-        #expect(StaleStrip.text(mac: "Studio", asOf: 1_762_512_120_000, timeZone: utc) == "Studio is offline · as of 10:42")
-        #expect(StaleStrip.text(mac: "Studio", asOf: nil) == "Studio is offline · reconnecting…")
+        #expect(NetStrip.offline(mac: "Studio", asOf: 1_762_512_120_000, timeZone: utc) == "Studio is offline · showing data from 10:42")
+        #expect(NetStrip.offline(mac: "Studio", asOf: nil) == "Studio is offline")
+        #expect(NetStrip.failed(mac: "Studio", asOf: 1_762_512_120_000, timeZone: utc) == "Couldn't reconnect to Studio · showing data from 10:42")
+        #expect(NetStrip.reconnecting(mac: "Studio") == "Reconnecting to Studio…")
     }
 
     @Test("a toast stays 2.4 seconds unless it waits on work in flight")

@@ -68,7 +68,7 @@ struct PullRequestScreen: View {
         content
             .safeAreaInset(edge: .top, spacing: 0) {
                 if mac.offline && model.loaded {
-                    StaleStrip(mac: mac.name, asOf: model.at)
+                    NetStrip(.offline, NetStrip.offline(mac: mac.name, asOf: model.at)).padding(.horizontal, Inset.margin).padding(.vertical, Space.xs)
                 } else if model.stale && model.pr != nil {
                     UnreachableStrip { recheck() }
                 }
@@ -120,12 +120,12 @@ struct PullRequestScreen: View {
             }
         case .noRemote:
             Pullable(refresh: { await store.recheck(model.tree) }) {
-                Placeholder("No GitHub remote", systemImage: "network.slash",
+                Placeholder("No GitHub remote", icon: .cloudOff,
                             detail: "This project's repository has no GitHub remote, so its branches can't have pull requests.")
             }
         case .unreachable:
             Pullable(refresh: { await store.recheck(model.tree) }) {
-                Placeholder("Couldn't reach GitHub", systemImage: "exclamationmark.icloud",
+                Placeholder("Couldn't reach GitHub", icon: .cloudOff,
                             detail: "gh on \(mac.name) couldn't get this branch's pull request.") { recheck() }
             }
         case .none:
@@ -133,12 +133,12 @@ struct PullRequestScreen: View {
                 NoPullRequestView(newPr: newPr, mac: mac, tree: model.tree, refresh: { await store.recheck(model.tree) }) { creating = true }
             } else {
                 Pullable(refresh: { await store.recheck(model.tree) }) {
-                    Placeholder("No pull request", systemImage: "arrow.triangle.pull", detail: newPr.line ?? "This branch has no pull request yet.")
+                    Placeholder("No pull request", icon: .pullRequest, detail: newPr.line ?? "This branch has no pull request yet.")
                 }
             }
         case .failed(let error):
             Pullable(refresh: { await store.recheck(model.tree) }) {
-                Placeholder("Couldn't load the pull request", systemImage: "exclamationmark.triangle", detail: error) { recheck() }
+                Placeholder("Couldn't load the pull request", icon: .triangleAlert, detail: error) { recheck() }
             }
         case .loading:
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).screenBackground()
@@ -155,7 +155,7 @@ struct GhProblemView: View {
 
     var body: some View {
         let (title, detail) = Self.text(problem, mac: mac)
-        Placeholder(title, systemImage: problem == .missing ? "terminal" : "person.crop.circle.badge.exclamationmark", detail: detail,
+        Placeholder(title, icon: problem == .missing ? .terminal : .github, detail: detail,
                     actionTitle: "Check Again", action: checkAgain)
     }
 

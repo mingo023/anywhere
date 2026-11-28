@@ -162,7 +162,7 @@ struct WorkspaceRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: Space.s) {
-            Image.named(TreeRow.symbol(tree.kind), size: 16).font(.system(size: 16)).foregroundStyle(Palette.text3.color).frame(width: 20).padding(.top, 2)
+            LucideIcon(TreeRow.symbol(tree.kind), size: 16).foregroundStyle(Palette.text3.color).frame(width: 20).padding(.top, 2)
             VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(tree.label).font(Typography.subheadline.weight(.semibold)).foregroundStyle(Palette.text.color).lineLimit(1)
                 HStack(spacing: Space.xs) {

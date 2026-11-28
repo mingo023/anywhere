@@ -311,25 +311,25 @@ struct NewSessionView: View {
                 }
                 .disabled(workspace.projects.count < 2)
                 if let existing {
-                    ComposerPill(text: existing.label, chevron: false) { Image.named(existing.icon, size: 11) }
+                    ComposerPill(text: existing.label, chevron: false) { Image.lucide(existing.icon, size: 11) }
                 } else {
                     let place = places.first { $0.place == draft.place }
                     Menu {
                         // Buttons, not a Picker: only a button's second text shows as the item's subtitle.
                         ForEach(places) { option in
                             Button { draft.place = option.place } label: {
-                                Label { Text(option.label) } icon: { Image.named(option.place == draft.place ? "checkmark" : option.icon, size: 16) }
+                                Label { Text(option.label) } icon: { Image.lucide(option.place == draft.place ? .check : option.icon, size: 16) }
                                 if let hint = option.hint { Text(hint) }
                             }
                         }
                     } label: {
-                        ComposerPill(text: place?.label ?? "Worktree") { Image.named(place?.icon ?? "worktree", size: 11) }
+                        ComposerPill(text: place?.label ?? "Worktree") { Image.lucide(place?.icon ?? .worktree, size: 11) }
                     }
                     .menuOrder(.fixed)
                 }
                 if draft.place == .newWorktree {
                     Button { worktreeOptions = true } label: {
-                        ComposerPill(text: branchLabel, mono: true) { Image.named(branchIcon, size: 11) }
+                        ComposerPill(text: branchLabel, mono: true) { Image.lucide(branchIcon, size: 11) }
                     }
                     .buttonStyle(.plain)
                 }
@@ -338,8 +338,8 @@ struct NewSessionView: View {
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
     }
 
-    private var branchIcon: String {
-        if case .pr = draft.source { "arrow.triangle.pull" } else { "branch" }
+    private var branchIcon: Lucide {
+        if case .pr = draft.source { .pullRequest } else { .branch }
     }
 
     /// The base a new branch starts from, or the branch or pull request it opens.

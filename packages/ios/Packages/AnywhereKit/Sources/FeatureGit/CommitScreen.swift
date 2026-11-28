@@ -72,7 +72,7 @@ struct CommitScreen: View {
                     .listStyle(.insetGrouped)
                 #endif
             } else if let error {
-                Placeholder("Couldn't load the commit", systemImage: "exclamationmark.triangle", detail: error)
+                Placeholder("Couldn't load the commit", icon: .triangleAlert, detail: error)
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }

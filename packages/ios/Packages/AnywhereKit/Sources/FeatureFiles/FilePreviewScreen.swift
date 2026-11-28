@@ -125,9 +125,9 @@ struct FilePreviewScreen: View {
         case .image(let data):
             ZoomableImage(data: data, name: FileText.baseName(preview.path))
         case .failed(let message):
-            Placeholder(message, systemImage: "exclamationmark.triangle") { files.load(preview) }
-        case .note(let text, let systemImage, let detail):
-            Placeholder(text, systemImage: systemImage, detail: detail ?? preview.path)
+            Placeholder(message, icon: .triangleAlert) { files.load(preview) }
+        case .note(let text, let icon, let detail):
+            Placeholder(text, icon: icon, detail: detail ?? preview.path)
         }
     }
 

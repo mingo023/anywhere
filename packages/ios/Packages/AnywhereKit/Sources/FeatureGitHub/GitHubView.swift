@@ -52,7 +52,7 @@ public struct GitHubView: View {
                           fix: fix(tree, mac: mac, chat: chat))
                 .onAppear { target = host.chatTarget(tree, opener: chat) }
         default:
-            Placeholder("Pull request", systemImage: "arrow.triangle.pull")
+            Placeholder("Pull request", icon: .pullRequest)
         }
     }
 

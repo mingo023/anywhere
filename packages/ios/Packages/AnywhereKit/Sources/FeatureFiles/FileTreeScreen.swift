@@ -55,11 +55,11 @@ struct FileTreeScreen: View {
     @ViewBuilder
     private var content: some View {
         if let failure = model.failure, !model.loaded {
-            Placeholder("Can't show these files", systemImage: "folder.badge.questionmark", detail: failure) { files.open(model) }
+            Placeholder("Can't show these files", icon: .folder, detail: failure) { files.open(model) }
         } else if !model.loaded {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).screenBackground()
         } else if model.rows.isEmpty {
-            Placeholder("No files", systemImage: "folder", detail: hideIgnored || hideDotfiles ? "Hidden files aren't shown." : nil)
+            Placeholder("No files", icon: .folder, detail: hideIgnored || hideDotfiles ? "Hidden files aren't shown." : nil)
         } else {
             list
         }

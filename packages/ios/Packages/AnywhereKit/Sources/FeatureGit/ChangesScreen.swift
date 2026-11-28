@@ -48,7 +48,7 @@ struct ChangesScreen: View {
         let against = host.hello?.has(Caps.compare) == true ? picked ?? changes.head?.base : nil
         Group {
             if changes.head == nil, !changes.loading, offline || changes.error != nil {
-                Placeholder(offline ? "Can't reach \(host.name)" : "Couldn't read the changes", systemImage: offline ? "wifi.slash" : "exclamationmark.triangle",
+                Placeholder(offline ? "Can't reach \(host.name)" : "Couldn't read the changes", icon: offline ? .cloudOff : .triangleAlert,
                             detail: offline ? nil : changes.error) {
                     changes.error = nil
                     Task { await store.refresh(tree) }
@@ -64,7 +64,7 @@ struct ChangesScreen: View {
             VStack(spacing: 0) {
                 if changes.head != nil {
                     TimelineView(.explicit(host.reachabilityMarks)) { _ in
-                        if let asOf = host.staleAsOf(at: .now) { StaleStrip(mac: host.name, asOf: asOf) }
+                        if let asOf = host.staleAsOf(at: .now) { NetStrip(.offline, NetStrip.offline(mac: host.name, asOf: asOf)).padding(.horizontal, Inset.margin).padding(.vertical, Space.xs) }
                     }
                 }
                 if let against, changes.head != nil {

@@ -30,7 +30,7 @@ struct SubAgentScreen: View {
                         }
                     }
             } else if store.whole {
-                Placeholder("This agent isn't in the chat any more", systemImage: "person.2.slash").navigationTitle("Agent")
+                Placeholder("This agent isn't in the chat any more", icon: .unlink).navigationTitle("Agent")
             } else {
                 // Each page that comes in folds in an earlier first turn, which looks again.
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).navigationTitle("Agent")

@@ -32,10 +32,10 @@ public struct FilesView: View {
                 )
                 .onAppear { target = host.chatTarget(tree, opener: chat) }
             } else {
-                Placeholder("This file is outside \(FileText.baseName(tree))", systemImage: "folder.badge.questionmark", detail: path)
+                Placeholder("This file is outside \(FileText.baseName(tree))", icon: .folder, detail: path)
             }
         default:
-            Placeholder("Files", systemImage: "folder")
+            Placeholder("Files", icon: .folder)
         }
     }
 

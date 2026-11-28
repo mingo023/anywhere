@@ -18,7 +18,7 @@ struct ScopeBar: View {
             }
             .pickerStyle(.segmented)
             Menu {
-                Button(action: choose) { Label { Text("Compare Against…") } icon: { Image.named("branch", size: 16) } }
+                Button(action: choose) { Label { Text("Compare Against…") } icon: { Image.lucide(.branch, size: 16) } }
                 if picked {
                     Button("Compare Against the Base", systemImage: "arrow.uturn.backward", action: reset)
                 }

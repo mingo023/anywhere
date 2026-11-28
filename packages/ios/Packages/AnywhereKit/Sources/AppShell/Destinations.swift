@@ -41,7 +41,7 @@ struct Destination: View {
                         }
                     }
             } else {
-                Placeholder("This Mac isn't paired", systemImage: "laptopcomputer.slash", detail: "Pair it again from Settings.")
+                Placeholder("This Mac isn't paired", icon: .laptop, detail: "Pair it again from Settings.")
             }
         }
     }
@@ -101,7 +101,7 @@ struct Destination: View {
                     TerminalsView(host: host, route: .terminals(mac: host.mac))
                 }
             } else {
-                Placeholder("No Mac selected", systemImage: "laptopcomputer")
+                Placeholder("No Mac selected", icon: .laptop)
             }
         }
     }

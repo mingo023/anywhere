@@ -28,9 +28,9 @@ public struct GitView: View {
         case .commit(_, let tree, let sha):
             CommitScreen(host: host, tree: tree, sha: sha)
         case .branches:
-            Placeholder("Branches", systemImage: "arrow.triangle.branch", detail: "Pick a branch when you make a worktree.")
+            Placeholder("Branches", icon: .gitBranch, detail: "Pick a branch when you make a worktree.")
         default:
-            Placeholder("Changes", systemImage: "arrow.triangle.branch")
+            Placeholder("Changes", icon: .gitBranch)
         }
     }
 }

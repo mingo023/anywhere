@@ -296,16 +296,16 @@ struct DiffScreen: View {
                     }
                 }
             case .binary:
-                Placeholder("Binary file", systemImage: "doc.zipper", detail: "Its changes can't be shown as text.")
+                Placeholder("Binary file", icon: .package, detail: "Its changes can't be shown as text.")
             case .image:
-                Placeholder("Image", systemImage: "photo", detail: "Open it in Files to see it.")
+                Placeholder("Image", icon: .imagePlus, detail: "Open it in Files to see it.")
             case .tooLarge:
-                Placeholder("Too large to diff", systemImage: "doc.badge.ellipsis", detail: "One side is over 16 MB.")
+                Placeholder("Too large to diff", icon: .file, detail: "One side is over 16 MB.")
             case .unchanged:
-                Placeholder("No changes", systemImage: "checkmark.circle", detail: "Nothing differs in this comparison.")
+                Placeholder("No changes", icon: .circleCheck, detail: "Nothing differs in this comparison.")
             }
         } else if let error {
-            Placeholder("Couldn't load the diff", systemImage: "exclamationmark.triangle", detail: error)
+            Placeholder("Couldn't load the diff", icon: .triangleAlert, detail: error)
         } else {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         }

@@ -12,7 +12,7 @@ enum PreviewBody: Equatable {
     case markdown(String)
     case svg(String)
     case image(Data)
-    case note(String, systemImage: String, detail: String? = nil)
+    case note(String, icon: Lucide, detail: String? = nil)
     /// The read failed; the screen offers Try Again.
     case failed(String)
     case folder
@@ -35,11 +35,11 @@ enum PreviewBody: Equatable {
             if !source, read.language == "markdown" || FileText.isMarkdown(path) { return .markdown(text) }
             return .code(text, language: language(read, path: path))
         case .image:
-            guard let data = read.data else { return .note(unreadable, systemImage: "photo") }
+            guard let data = read.data else { return .note(unreadable, icon: .imagePlus) }
             return .image(data)
-        case .binary: return .note("Binary file · \(FileText.size(read.size))", systemImage: "doc.zipper")
-        case .tooLarge: return .note("Too large to preview · \(FileText.size(read.size))", systemImage: "doc.badge.ellipsis")
-        default: return .note(unreadable, systemImage: "eye.slash", detail: unreadableWhy)
+        case .binary: return .note("Binary file · \(FileText.size(read.size))", icon: .package)
+        case .tooLarge: return .note("Too large to preview · \(FileText.size(read.size))", icon: .file)
+        default: return .note(unreadable, icon: .eyeOff, detail: unreadableWhy)
         }
     }
 

@@ -29,7 +29,7 @@ struct BasePicker: View {
         }
         .overlay {
             if let error {
-                Placeholder("Couldn't load branches", systemImage: "exclamationmark.triangle", detail: error) { Task { await load() } }
+                Placeholder("Couldn't load branches", icon: .triangleAlert, detail: error) { Task { await load() } }
             } else if list == nil && branches != nil {
                 ProgressView()
             } else if listed.isEmpty && !search.isEmpty {

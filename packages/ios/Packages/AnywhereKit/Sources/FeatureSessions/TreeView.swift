@@ -83,7 +83,7 @@ struct TreeView: View {
                     .navigationBarTitleDisplayMode(.inline)
                 #endif
             } else {
-                Placeholder("It's gone", systemImage: "folder.badge.questionmark", detail: "This worktree or Local is no longer on the Mac.")
+                Placeholder("It's gone", icon: .folder, detail: "This worktree or Local is no longer on the Mac.")
             }
         }
         .stale(host)

@@ -23,13 +23,13 @@ struct PreviewBodyTests {
 
     @Test("files without text show the image or say why not, and nothing while loading")
     func notes() {
-        #expect(PreviewBody.of(read(.binary, size: 4), path: "x.md", source: false) == .note("Binary file · 4 B", systemImage: "doc.zipper"))
+        #expect(PreviewBody.of(read(.binary, size: 4), path: "x.md", source: false) == .note("Binary file · 4 B", icon: .package))
         #expect(
             PreviewBody.of(read(.tooLarge, size: 3 * 1024 * 1024), path: "big.log", source: false)
-                == .note("Too large to preview · 3.0 MB", systemImage: "doc.badge.ellipsis"))
+                == .note("Too large to preview · 3.0 MB", icon: .file))
         #expect(
             PreviewBody.of(read(.unreadable), path: "gone.rs", source: false)
-                == .note("Can't read this file", systemImage: "eye.slash", detail: PreviewBody.unreadableWhy))
+                == .note("Can't read this file", icon: .eyeOff, detail: PreviewBody.unreadableWhy))
         #expect(PreviewBody.of(read(.image, mime: "image/png", data: Sample.png), path: "logo.png", source: false) == .image(Sample.png))
         #expect(PreviewBody.of(.loading, path: "a.rs", source: false) == .loading)
         #expect(PreviewBody.of(.failed("Not connected to Studio"), path: "a.rs", source: false) == .failed("Not connected to Studio"))
