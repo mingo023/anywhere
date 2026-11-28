@@ -173,6 +173,36 @@ func steeringSendsAQueuedSendMidTurn() {
     #expect(deliveries(o) == [.queued, .steered])
 }
 
+@Test("steers the agent takes as one prompt all settle on its echo")
+func steersTheAgentTakesAsOnePromptAllSettleOnItsEcho() {
+    var o = Outgoing()
+    _ = o.steerText("push it to the mini, I have to shut this one down", now: 1_000)
+    _ = o.steerText("M1", now: 1_100)
+    let sent = o.sendNow(now: 2_000)
+    #expect(sent)
+    o.settle(tx(turn("u1", 0, "long job", true), turn("u2", 2_100, "push it to the mini, I have to shut this one down\nM1", false)), working: true, now: 3_000)
+    #expect(waiting(o).isEmpty && !o.sendingNow)
+}
+
+@Test("a queued send steered after another settles with it in the order sent")
+func aQueuedSendSteeredAfterAnotherSettlesWithItInTheOrderSent() {
+    var o = Outgoing()
+    o.push("from the tray", working: true, now: 500)
+    _ = o.steerText("typed", now: 1_000)
+    _ = o.steer(id(o, "from the tray"), now: 1_500)
+    o.settle(tx(turn("u1", 0, "long job", true), turn("u2", 2_100, "typed\nfrom the tray", false)), working: true, now: 3_000)
+    #expect(waiting(o).isEmpty)
+}
+
+@Test("a steer left out of the prompt the agent took keeps waiting")
+func aSteerLeftOutOfThePromptTheAgentTookKeepsWaiting() {
+    var o = Outgoing()
+    _ = o.steerText("also check the docs", now: 1_000)
+    _ = o.steerText("M1", now: 1_100)
+    o.settle(tx(turn("u1", 0, "long job", true), turn("u2", 2_100, "something else\nM1", false)), working: true, now: 3_000)
+    #expect(waiting(o) == ["also check the docs"])
+}
+
 @Test("retry hands back a failed send")
 func retryHandsBackAFailedSend() {
     var o = Outgoing()

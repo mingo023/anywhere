@@ -901,6 +901,39 @@ mod tests {
     }
 
     #[test]
+    fn steers_the_agent_takes_as_one_prompt_all_settle_on_its_echo() {
+        let mut o = Outgoing::default();
+        o.steer_text("push it to the mini, I have to shut this one down".into(), 1_000);
+        o.steer_text("M1".into(), 1_100);
+        assert!(o.send_now(2_000));
+        let taken =
+            Transcript { turns: vec![turn("u1", 0, "long job", true), turn("u2", 2_100, "push it to the mini, I have to shut this one down\nM1", false)] };
+        o.settle(&taken, true, 3_000);
+        assert!(waiting(&o).is_empty() && !o.sending_now());
+    }
+
+    #[test]
+    fn a_queued_send_steered_after_another_settles_with_it_in_the_order_sent() {
+        let mut o = Outgoing::default();
+        o.push("from the tray".into(), true, 500);
+        o.steer_text("typed".into(), 1_000);
+        o.steer(id(&o, "from the tray"), 1_500);
+        let taken = Transcript { turns: vec![turn("u1", 0, "long job", true), turn("u2", 2_100, "typed\nfrom the tray", false)] };
+        o.settle(&taken, true, 3_000);
+        assert!(waiting(&o).is_empty());
+    }
+
+    #[test]
+    fn a_steer_left_out_of_the_prompt_the_agent_took_keeps_waiting() {
+        let mut o = Outgoing::default();
+        o.steer_text("also check the docs".into(), 1_000);
+        o.steer_text("M1".into(), 1_100);
+        let taken = Transcript { turns: vec![turn("u1", 0, "long job", true), turn("u2", 2_100, "something else\nM1", false)] };
+        o.settle(&taken, true, 3_000);
+        assert_eq!(waiting(&o), ["also check the docs"]);
+    }
+
+    #[test]
     fn a_send_now_nothing_came_of_can_be_pressed_again() {
         let mut o = Outgoing::default();
         o.steer_text("ok?".into(), 1_000);
