@@ -39,16 +39,15 @@ impl Host {
         daemon::Endpoint { path: self.socket.clone(), token: owner::load(&self.owner_file()).map(|o| o.token) }
     }
 
-    /// `user@addr:port` as typed, or the alias.
+    /// `user@addr:port` as typed, or the alias with the user and port given over its config's.
     pub fn address(&self) -> String {
-        match &self.target {
-            Target::Alias { name } => name.clone(),
-            Target::Address { addr, port, user, .. } => {
-                let user = if user.is_empty() { String::new() } else { format!("{user}@") };
-                let port = if *port == 22 { String::new() } else { format!(":{port}") };
-                format!("{user}{addr}{port}")
-            }
-        }
+        let (name, port, user) = match &self.target {
+            Target::Alias { name, port, user } => (name, *port, user.as_deref().unwrap_or_default()),
+            Target::Address { addr, port, user, .. } => (addr, Some(*port).filter(|p| *p != 22), user.as_str()),
+        };
+        let user = if user.is_empty() { String::new() } else { format!("{user}@") };
+        let port = port.map(|p| format!(":{p}")).unwrap_or_default();
+        format!("{user}{name}{port}")
     }
 }
 
@@ -80,24 +79,61 @@ pub fn dist_dir() -> Option<PathBuf> {
 
 /// What the add form typed, as a target: a bare name `~/.ssh/config` has is that alias.
 pub fn target(addr: &str, port: &str, user: &str, key_file: Option<&str>, aliases: &[String]) -> Result<Target, &'static str> {
-    let (addr, port, user) = (addr.trim(), port.trim(), user.trim());
+    let (addr, user) = (checked_address(addr)?, checked_user(user)?);
+    let port = checked_port(port)?.unwrap_or(22);
+    if port == 22 && user.is_empty() && key_file.is_none() && aliases.iter().any(|a| a == addr) {
+        return Ok(Target::alias(addr));
+    }
+    Ok(Target::Address { addr: addr.into(), port, user: user.into(), key_file: key_file.map(Into::into) })
+}
+
+/// What the form typed for an alias of `~/.ssh/config`: a port or user typed wins over the config's.
+pub fn alias(name: &str, port: &str, user: &str) -> Result<Target, &'static str> {
+    let (name, user) = (checked_address(name)?, checked_user(user)?);
+    Ok(Target::Alias { name: name.into(), port: checked_port(port)?, user: (!user.is_empty()).then(|| user.into()) })
+}
+
+/// `old` as the edit form typed it: an alias stays one, and an address keeps its key file.
+pub fn edited(old: &Target, addr: &str, port: &str, user: &str) -> Result<Target, &'static str> {
+    match old {
+        Target::Alias { .. } => alias(addr, port, user),
+        Target::Address { key_file, .. } => target(addr, port, user, key_file.as_deref(), &[]),
+    }
+}
+
+/// The edit form's address, port and user for `target`; an alias's blank ones are its config's.
+pub fn fields(target: &Target) -> [String; 3] {
+    match target {
+        Target::Alias { name, port, user } => [name.clone(), port.map(|p| p.to_string()).unwrap_or_default(), user.clone().unwrap_or_default()],
+        Target::Address { addr, port, user, .. } => [addr.clone(), port.to_string(), user.clone()],
+    }
+}
+
+fn checked_address(addr: &str) -> Result<&str, &'static str> {
+    let addr = addr.trim();
     if addr.is_empty() {
         return Err("Enter the host's address or name");
     }
     if addr.contains(char::is_whitespace) || addr.starts_with('-') {
         return Err("Enter an address like 10.0.4.12 or devbox.example.com");
     }
-    let port = match port {
-        "" => 22,
-        p => p.parse::<u16>().ok().filter(|p| *p > 0).ok_or("The port is a number, usually 22")?,
-    };
+    Ok(addr)
+}
+
+/// A blank port is `None`.
+fn checked_port(port: &str) -> Result<Option<u16>, &'static str> {
+    match port.trim() {
+        "" => Ok(None),
+        p => p.parse::<u16>().ok().filter(|p| *p > 0).map(Some).ok_or("The port is a number, usually 22"),
+    }
+}
+
+fn checked_user(user: &str) -> Result<&str, &'static str> {
+    let user = user.trim();
     if user.contains(char::is_whitespace) || user.starts_with('-') {
         return Err("Enter a username without spaces");
     }
-    if port == 22 && user.is_empty() && key_file.is_none() && aliases.iter().any(|a| a == addr) {
-        return Ok(Target::Alias { name: addr.into() });
-    }
-    Ok(Target::Address { addr: addr.into(), port, user: user.into(), key_file: key_file.map(Into::into) })
+    Ok(user)
 }
 
 /// The desktop's key for `path` on host `id`: `//<id>/<path>`, with a Windows path's `\` as `/`.
@@ -145,9 +181,42 @@ mod tests {
     }
 
     #[test]
+    fn an_alias_shows_the_user_and_port_given_over_its_config() {
+        let host = |target| Host { id: "h".into(), name: "h".into(), target, windows: false, socket: PathBuf::new() };
+        assert_eq!(host(Target::alias("devbox")).address(), "devbox");
+        assert_eq!(host(Target::Alias { name: "devbox".into(), port: Some(22), user: Some("ops".into()) }).address(), "ops@devbox:22");
+    }
+
+    #[test]
+    fn an_alias_typed_with_a_port_or_user_keeps_them_and_blank_ones_are_its_configs() {
+        assert_eq!(alias(" pi-lab ", "", ""), Ok(Target::alias("pi-lab")));
+        assert_eq!(alias("pi-lab", "2201", "pi"), Ok(Target::Alias { name: "pi-lab".into(), port: Some(2201), user: Some("pi".into()) }));
+        assert_eq!(alias("pi-lab", "0", ""), Err("The port is a number, usually 22"));
+        assert_eq!(alias("pi-lab", "65536", ""), Err("The port is a number, usually 22"));
+        assert_eq!(alias("pi-lab", "", "a b"), Err("Enter a username without spaces"));
+        assert_eq!(alias("", "", ""), Err("Enter the host's address or name"));
+    }
+
+    #[test]
+    fn an_edit_keeps_the_kind_of_target_and_an_addresss_key_file() {
+        let keyed = Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "dev".into(), key_file: Some("~/.ssh/k".into()) };
+        assert_eq!(fields(&keyed), ["10.0.4.12".to_string(), "2222".into(), "dev".into()]);
+        assert_eq!(
+            edited(&keyed, "10.0.4.13", "22", "ops"),
+            Ok(Target::Address { addr: "10.0.4.13".into(), port: 22, user: "ops".into(), key_file: Some("~/.ssh/k".into()) })
+        );
+        assert!(matches!(edited(&address("x"), "devbox", "", ""), Ok(Target::Address { .. })));
+        let devbox = Target::alias("devbox");
+        assert_eq!(fields(&devbox), ["devbox".to_string(), String::new(), String::new()]);
+        assert_eq!(edited(&devbox, "devbox", "2222", "ops"), Ok(Target::Alias { name: "devbox".into(), port: Some(2222), user: Some("ops".into()) }));
+        assert_eq!(edited(&devbox, "devbox", "", ""), Ok(devbox.clone()));
+        assert_eq!(edited(&devbox, "", "", ""), Err("Enter the host's address or name"));
+    }
+
+    #[test]
     fn a_name_from_ssh_config_is_kept_as_its_alias() {
         let aliases = ["devbox".to_string()];
-        assert_eq!(target(" devbox ", "", "", None, &aliases), Ok(Target::Alias { name: "devbox".into() }));
+        assert_eq!(target(" devbox ", "", "", None, &aliases), Ok(Target::alias("devbox")));
         assert_eq!(target("devbox", "", "root", None, &aliases), Ok(Target::Address { addr: "devbox".into(), port: 22, user: "root".into(), key_file: None }));
     }
 

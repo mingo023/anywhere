@@ -1,5 +1,5 @@
-# Builds "Anywhere Dev.app" (scripts/bundle-dev.sh) on every push to main and uploads it as an artifact.
-# Ad-hoc signed, so a downloaded copy needs `xattr -cr "Anywhere Dev.app"` before it opens. arm64 only.
+# Builds "Zoes Dev.app" (scripts/bundle-dev.sh) on every push to main and uploads it as an artifact.
+# Ad-hoc signed, so a downloaded copy needs `xattr -cr "Zoes Dev.app"` before it opens. arm64 only.
 name: Dev macOS
 
 on:
@@ -56,11 +56,11 @@ jobs:
       - name: Bundle
         run: |
           scripts/bundle-dev.sh --no-open
-          ditto -c -k --keepParent "packages/desktop/target/release/Anywhere Dev.app" "Anywhere-Dev-${GITHUB_SHA::7}.zip"
+          ditto -c -k --keepParent "packages/desktop/target/release/Zoes Dev.app" "Zoes-Dev-${GITHUB_SHA::7}.zip"
 
       # The zip is the artifact; ditto keeps the bundle's symlinks and signature, which upload-artifact's own zip would not.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          path: Anywhere-Dev-*.zip
+          path: Zoes-Dev-*.zip
           archive: false
           if-no-files-found: error

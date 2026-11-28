@@ -104,6 +104,14 @@ func (e environments) Projects(ctx context.Context, id string) ([]proto.Project,
 	return e.m.Projects(ctx, id)
 }
 
+func (e environments) AddProject(ctx context.Context, id, path string) error {
+	err := e.m.AddProject(ctx, id, path)
+	if r, ok := errors.AsType[hosts.Refusal](err); ok {
+		return &orch.Failure{Code: orch.CodeUnsupported, Message: r.Reply.Message}
+	}
+	return err
+}
+
 func (e environments) Remove(id string) error {
 	err := e.m.Remove(id, false)
 	if errors.Is(err, hosts.ErrUnknown) {

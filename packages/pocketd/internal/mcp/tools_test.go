@@ -674,3 +674,25 @@ func TestEveryScheduleKindTheToolAdvertisesIsOneAutomationsTake(t *testing.T) {
 		}
 	}
 }
+
+func TestAHostPathIsAnAbsolutePathOnAnyOSWrittenAsTheHostListsIt(t *testing.T) {
+	for in, want := range map[string]string{
+		"/home/me/repo/": "/home/me/repo",
+		"/":              "/",
+		`C:\repos\x`:     `C:\repos\x`,
+		"C:/repos/x/":    `C:\repos\x`,
+		`d:\`:            `d:\`,
+		`\\srv\share\x\`: `\\srv\share\x`,
+		"some-repo":      "",
+		"repos/x":        "",
+		`repos\x`:        "",
+		"C:repos":        "",
+		"1:/x":           "",
+		"":               "",
+	} {
+		got, ok := hostPath(in)
+		if got != want || ok != (want != "") {
+			t.Errorf("hostPath(%q) = %q, %v; want %q", in, got, ok, want)
+		}
+	}
+}

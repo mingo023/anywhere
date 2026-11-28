@@ -11,6 +11,52 @@ import (
 	"time"
 )
 
+func TestEditingAHostSavesItsNewTargetUnderTheSameID(t *testing.T) {
+	m, err := openManager(t, Paths{Home: t.TempDir(), RemoteDir: ".cp"}, func() []string { return nil }, "1.2.0", "Mac")
+	if err != nil {
+		t.Fatal(err)
+	}
+	devbox, err := m.Add(alias("devbox"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := m.Add(address("10.0.4.12"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(m.paths.Token(devbox.ID)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(m.paths.Token(devbox.ID), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	over := Target{Kind: KindAlias, Name: "devbox", Port: 2222, User: "ops"}
+	e, err := m.Edit(devbox.ID, over)
+	if err != nil || e.ID != devbox.ID || e.Target != over {
+		t.Fatalf("%+v %v", e, err)
+	}
+	if _, err := os.Stat(m.paths.Token(devbox.ID)); !os.IsNotExist(err) {
+		t.Fatalf("the old machine's pairing stays: %v", err)
+	}
+	saved, err := Load(m.db)
+	if err != nil || len(saved) != 2 || saved[0].ID != devbox.ID || saved[0].Target != over {
+		t.Fatalf("saved %+v %v", saved, err)
+	}
+	if _, err := m.Edit(devbox.ID, other.Target); !errors.As(err, new(ExistsError)) {
+		t.Fatalf("another host's target: %v", err)
+	}
+	if _, err := m.Edit("nope", over); !errors.Is(err, ErrUnknown) {
+		t.Fatalf("an unknown host: %v", err)
+	}
+	m.installs[devbox.ID] = true
+	if _, err := m.Edit(devbox.ID, alias("devbox")); !errors.Is(err, ErrBusy) {
+		t.Fatalf("mid-install: %v", err)
+	}
+	if e, err := m.Edit(devbox.ID, over); err != nil || e.Target != over {
+		t.Fatalf("the same target mid-install changes nothing: %+v %v", e, err)
+	}
+}
+
 func TestAnInstallAlreadyUnderWayIsRefused(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the stand-in ssh is a shell script")

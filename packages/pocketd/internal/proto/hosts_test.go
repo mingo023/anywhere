@@ -15,7 +15,9 @@ var hostsServerGolden = map[string]any{
 		Target: HostTarget{Kind: "address", Addr: "10.0.4.12", Port: 2222, User: "dev"}, Link: HostLinkState{State: LinkFailed, Failure: "auth"}}),
 	"host_progress_step":  NewHostProgress("devbox", true, InstallProgress{Kind: "step", Step: "download"}),
 	"host_progress_error": NewHostProgress("devbox", false, InstallProgress{Kind: "error", Text: "No release for linux/arm"}),
-	"error_host_ssh":      NewCodedError("h6", CodeHostSSH, "Wrong password.", "auth"),
+	"host_progress_final": NewHostProgress("devbox", true, InstallProgress{Kind: "error", Final: true,
+		Text: "pocketd here runs from /opt/pocketd, which an update can't replace; update the Anywhere app on this Mac instead"}),
+	"error_host_ssh": NewCodedError("h6", CodeHostSSH, "Wrong password.", "auth"),
 	"delegation_update_remote": NewDelegationUpdate("a1", Delegation{TaskID: "task1", ParentID: "a1", ChildID: "devbox/a2", Title: "Write the tests", Agent: "codex",
 		Status: "working", EnvironmentID: "devbox", CreatedAt: 1}),
 	"stream_host_link": NewAgentStream("a1", 1, Item{ID: "i3", Seq: 3, Ts: 3, Kind: "host_link", HostLink: &HostLink{Hint: "vps", Reason: "The build needs the GPU box."}}),
@@ -42,7 +44,8 @@ func TestAHostTargetOfAnUnknownKindIsMalformed(t *testing.T) {
 		`{"kind":"Alias","name":"devbox"}`,
 		`{"name":"devbox"}`,
 		`{"kind":"alias"}`,
-		`{"kind":"alias","name":"devbox","port":22}`,
+		`{"kind":"alias","name":"devbox","keyFile":"k"}`,
+		`{"kind":"alias","name":"devbox","port":"22"}`,
 		`{"kind":"address","addr":"10.0.4.12"}`,
 		`{"kind":"address","port":22}`,
 		`{"kind":"address","addr":"10.0.4.12","port":22.5}`,
@@ -95,6 +98,10 @@ func TestTheHostGoldensDecodeToTheirFields(t *testing.T) {
 	if err != nil || m.HostID != "10-0-4-12" || m.Password != "hunter2" {
 		t.Fatalf("%+v %v", m, err)
 	}
+	m, err = DecodeClient(golden(t, "client", "host_edit.json"))
+	if err != nil || m.HostID != "devbox" || m.HostTarget == nil || *m.HostTarget != (HostTarget{Kind: "alias", Name: "devbox", Port: 2222, User: "ops"}) {
+		t.Fatalf("%+v %v", m, err)
+	}
 	if m, err = DecodeClient(golden(t, "client", "host_list.json")); err != nil || m.Type != "host.list" {
 		t.Fatalf("%+v %v", m, err)
 	}
@@ -102,7 +109,7 @@ func TestTheHostGoldensDecodeToTheirFields(t *testing.T) {
 
 func TestEveryHostVerbHasAGolden(t *testing.T) {
 	seen := map[string]bool{}
-	for _, name := range []string{"host_list", "host_add_alias", "host_add_address", "host_remove_uninstall", "host_retry", "host_install_update", "host_sign_in"} {
+	for _, name := range []string{"host_list", "host_add_alias", "host_add_address", "host_remove_uninstall", "host_retry", "host_install_update", "host_sign_in", "host_edit"} {
 		m, err := DecodeClient(golden(t, "client", name+".json"))
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)

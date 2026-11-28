@@ -17,6 +17,7 @@ pub const SPRING: SpringConfig = SpringConfig::new(900., 60., 1.);
 
 pub mod contrast;
 mod themes;
+pub mod wash;
 
 pub use themes::{GRAPHITE_DARK, GRAPHITE_LIGHT, Preset, Theme, presets};
 
@@ -847,6 +848,9 @@ const ICONS: &[(&str, &[u8])] = embed!(
     "list-flat",
     "list-tree",
     "lock",
+    "look-auto",
+    "look-dark",
+    "look-light",
     "mascot-body",
     "mascot-eyes",
     "mascot-eyes-happy",
@@ -861,6 +865,7 @@ const ICONS: &[(&str, &[u8])] = embed!(
     "openai",
     "opencode",
     "package",
+    "palette",
     "pencil",
     "phone",
     "pi",

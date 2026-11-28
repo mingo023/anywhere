@@ -21,6 +21,11 @@ fail() {
   say error "$*"
   exit 1
 }
+# fail_final: fail with what trying again can't fix.
+fail_final() {
+  say final "$*"
+  exit 1
+}
 
 # running: whether a pocketd answers on DIR's socket, asked through the pocketd at $1.
 running() {
@@ -29,12 +34,20 @@ running() {
 
 # app_owned: whether the pocketd answering on DIR's socket, asked through the pocketd at $1, runs from somewhere other
 # than DIR/bin/pocketd, as an Anywhere app's does; replacing bin/pocketd never reaches it. It sets from to that path.
-# Only a Mac runs the app. Its ps prints argv[0], which launchd and a handoff set to the full path, with HOME's
-# symlinks resolved, so -ef compares files rather than paths.
+# Only a Mac runs the app. Its ps prints argv[0]: a handoff sets the full path, with HOME's symlinks resolved, so -ef
+# compares files rather than paths. The app's launchd plist sets just "pocketd", so lsof names the executable then.
 app_owned() {
   [ "$os" = darwin ] || return 1
   pid=$(POCKET_HOME="$DIR" POCKETD_SOCK="$DIR/pocketd.sock" "$1" status --json 2>/dev/null </dev/null | sed -n 's/.*"pid": *\([0-9][0-9]*\).*/\1/p' | head -n 1)
-  [ -n "$pid" ] && from=$(ps -o comm= -p "$pid") && [ -n "$from" ] && ! [ "$from" -ef "$DIR/bin/pocketd" ]
+  [ -n "$pid" ] && from=$(ps -o comm= -p "$pid") || return 1
+  case $from in
+    /*) ;;
+    *)
+      exe=$(lsof -a -p "$pid" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)
+      [ -n "$exe" ] && from=$exe
+      ;;
+  esac
+  [ -n "$from" ] && ! [ "$from" -ef "$DIR/bin/pocketd" ]
 }
 
 # version_of: the "version" field of what the pocketd at $1 prints for the rest of the arguments.
@@ -49,7 +62,7 @@ version_of() {
 update_app() {
   app=${from%/Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd}
   if [ "$app" = "$from" ] || [ -z "$URL" ] || [ "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist" 2>/dev/null)" != dev.mingo.anywhere ]; then
-    fail "pocketd here runs from $from, which an update can't replace; update the Anywhere app on this Mac instead"
+    fail_final "pocketd here runs from $from, which an update can't replace; update the Anywhere app on this Mac instead"
   fi
   fetch "$URL/Zoes.dmg" "$tmp/Zoes.dmg" || fail "download $URL/Zoes.dmg failed"
   fetch "$URL/Zoes.dmg.sha256" "$tmp/dmg.sha256" || fail "download $URL/Zoes.dmg.sha256 failed"

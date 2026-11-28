@@ -641,3 +641,36 @@ func TestAParentClosedWhileItsHostIsDownClosesTheChildThereAndTakesItsWorktreeOn
 		return os.IsNotExist(err)
 	})
 }
+
+func TestATaskOnAHostInAFolderNotListedThereListsTheFolderAndRunsInIt(t *testing.T) {
+	mac, host := linkedHost(t)
+	dir := filepath.Join(host.UserHome(), "unlisted")
+	os.MkdirAll(dir, 0o755)
+	dir, _ = filepath.EvalSymlinks(dir)
+	phone, parent := phoneChat(t, mac)
+
+	phone.Prompt(parent, `mcp delegate_task {"task":"in unlisted","target":{"environmentId":"devbox","projectId":"`+dir+`/"},"isolation":"shared"}`)
+	task := hostTask(mac, phone, parent, 1, "completed")
+
+	if a, ok := hostAgent(t, host, task.ChildID); !ok || a.Cwd != dir {
+		t.Errorf("the child runs in %q (listed %v), want %s", a.Cwd, ok, dir)
+	}
+	host.Owner(proto.CapRegistryV2).WaitFor("the folder in the host's projects", func(m Message) bool {
+		return m.Type == "registry.list" && strings.Contains(m.Raw, `"path":"`+dir+`"`)
+	})
+}
+
+func TestATaskOnAHostIsRefusedForAFolderMissingThereOrANameItDoesNotList(t *testing.T) {
+	mac, host := linkedHost(t)
+	missing := filepath.Join(host.UserHome(), "missing")
+	phone, parent := phoneChat(t, mac)
+
+	phone.Prompt(parent, `mcp delegate_task {"task":"in missing","target":{"environmentId":"devbox","projectId":"`+missing+`"}}`)
+	phone.WaitFor("the missing folder's refusal", saysAbout(parent, "Couldn't add "+missing+" on devbox: "))
+	phone.Prompt(parent, `mcp delegate_task {"task":"in nope","target":{"environmentId":"devbox","projectId":"nope"}}`)
+	phone.WaitFor("the unknown name's refusal", saysAbout(parent, "devbox has no project", "nope", "Pass the folder's absolute path on devbox to add it."))
+
+	if ts := delegationsOf(phone, parent); len(ts) != 0 {
+		t.Fatalf("tasks %+v", ts)
+	}
+}

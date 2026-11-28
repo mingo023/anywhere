@@ -110,6 +110,16 @@ func (c *conn) host(m proto.ClientMessage) error {
 		}
 		c.send(proto.NewHostUpdate(m.ID, wireHost(e)))
 		return nil
+	case m.Type == "host.edit":
+		c.hosts.mu.Lock()
+		defer c.hosts.mu.Unlock()
+		e, err := hs.Edit(m.HostID, hosts.Target(*m.HostTarget))
+		if err != nil {
+			c.send(hostError(m, hs, err))
+			return nil
+		}
+		c.send(proto.NewHostUpdate(m.ID, wireHost(e)))
+		return nil
 	}
 	c.hosts.mu.Lock()
 	defer c.hosts.mu.Unlock()
@@ -142,7 +152,7 @@ func (c *conn) reply(m proto.ClientMessage, err error) {
 
 func (hs *Hosts) progress(id string, update bool) func(hosts.Progress) {
 	return func(p hosts.Progress) {
-		msg := proto.NewHostProgress(id, update, proto.InstallProgress{Kind: string(p.Kind), Step: string(p.Step), Text: p.Text})
+		msg := proto.NewHostProgress(id, update, proto.InstallProgress{Kind: string(p.Kind), Step: string(p.Step), Text: p.Text, Final: p.Final})
 		hs.mu.Lock()
 		var feeds []*conn
 		for c := range hs.feeds {

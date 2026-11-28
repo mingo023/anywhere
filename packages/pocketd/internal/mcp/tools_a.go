@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -165,7 +166,7 @@ type target struct {
 }
 
 const targetSchema = `{"type":"object","properties":{"agent":{"type":"string","description":"Agent id from orchestrator_capabilities. Default: your own agent."},"model":{"type":"string"},"effort":{"type":"string"},` +
-	`"environmentId":{"type":"string","description":"A linked host's id, to run there. delegate_task and anywhere_thread_launch only."},"projectId":{"type":"string","description":"With environmentId: the host's project, by path there or by name. Default: the one named like yours."}}}`
+	`"environmentId":{"type":"string","description":"A linked host's id, to run there. delegate_task and anywhere_thread_launch only."},"projectId":{"type":"string","description":"With environmentId: the host's project, by path there or by name. Default: the one named like yours. An absolute path to a folder there that isn't listed yet is added to its projects."}}}`
 
 // onHost is the path of the project on t's host a session runs in: t.Project, else the one named like the caller's.
 func onHost(ctx context.Context, c *Call, t target) (string, error) {
@@ -187,14 +188,47 @@ func onHost(ctx context.Context, c *Call, t target) (string, error) {
 		return "", fail(orch.CodeUnavailable, err.Error())
 	}
 	want := cmp.Or(t.Project, c.Caller.Project)
-	var names []string
+	path, isPath := hostPath(t.Project)
 	for _, p := range projects {
-		if p.Path == want || p.Name == want {
+		if listed, _ := hostPath(p.Path); p.Path == want || p.Name == want || isPath && listed == path {
 			return p.Path, nil
 		}
-		names = append(names, fmt.Sprintf("%s (%s)", p.Name, p.Path))
 	}
-	return "", fail(orch.CodeInvalid, fmt.Sprintf("%s has no project %q; name one in projectId: %s", env.Label, want, strings.Join(names, ", ")))
+	switch {
+	case isPath:
+		if err := envs.AddProject(ctx, env.ID, path); err != nil {
+			if f, ok := errors.AsType[*orch.Failure](err); ok {
+				return "", f
+			}
+			return "", fail(orch.CodeInvalid, fmt.Sprintf("Couldn't add %s on %s: %s", path, env.Label, err))
+		}
+		return path, nil
+	case len(projects) == 0:
+		return "", fail(orch.CodeInvalid, fmt.Sprintf("%s has no projects yet. Pass the folder's absolute path on %s to add it.", env.Label, env.Label))
+	}
+	return "", fail(orch.CodeInvalid, fmt.Sprintf("%s has no project %q. Pass the folder's absolute path on %s to add it.", env.Label, want, env.Label))
+}
+
+// hostPath is s as an absolute path on a host of any OS, spelled as the host lists its projects so a folder
+// already listed isn't added twice.
+func hostPath(s string) (string, bool) {
+	sep := "/"
+	switch {
+	case windowsAbs(s):
+		sep = `\`
+		s = strings.ReplaceAll(s, "/", sep)
+	case !strings.HasPrefix(s, "/"):
+		return "", false
+	}
+	if t := strings.TrimRight(s, sep); t != "" && !strings.HasSuffix(t, ":") {
+		s = t
+	}
+	return s, true
+}
+
+func windowsAbs(s string) bool {
+	drive := len(s) >= 3 && (s[0]|0x20) >= 'a' && (s[0]|0x20) <= 'z' && s[1] == ':' && (s[2] == '\\' || s[2] == '/')
+	return drive || strings.HasPrefix(s, `\\`)
 }
 
 func groupA() []Tool {

@@ -25,6 +25,48 @@ func TestAHostIsNamedForItsAliasOrTheFirstPartOfItsAddress(t *testing.T) {
 	}
 }
 
+func TestAnEditedHostKeepsItsIDAndANameItWasGiven(t *testing.T) {
+	gpu := New(address("gpu-1.lab.example.com"), nil)
+	moved, err := Edit([]Host{gpu}, gpu, address("gpu-2.lab.example.com"))
+	if err != nil || moved.ID != gpu.ID || moved.Name != "gpu-2" || moved.Target.Addr != "gpu-2.lab.example.com" {
+		t.Fatalf("a name from the old address follows the new one: %+v %v", moved, err)
+	}
+	gpu.Name = "build box"
+	moved, err = Edit([]Host{gpu}, gpu, address("gpu-2.lab.example.com"))
+	if err != nil || moved.Name != "build box" {
+		t.Fatalf("a name the user gave stays: %+v %v", moved, err)
+	}
+}
+
+func TestAnEditedHostIsProbedForWindowsAgain(t *testing.T) {
+	box := New(address("box.example.com"), nil)
+	box.Windows = true
+	if moved, err := Edit([]Host{box}, box, address("linux.example.com")); err != nil || moved.Windows {
+		t.Fatalf("the new machine's OS isn't known yet: %+v %v", moved, err)
+	}
+}
+
+func TestAnEditCantTakeAnotherHostsTargetOrAnInvalidOne(t *testing.T) {
+	a, b := New(address("a.example.com"), nil), New(address("b.example.com"), nil)
+	b.ID = "b"
+	var exists ExistsError
+	if _, err := Edit([]Host{a, b}, a, b.Target); !errors.As(err, &exists) || exists.Name != "b" {
+		t.Fatalf("another host's target: %v", err)
+	}
+	if _, err := Edit([]Host{a, b}, a, a.Target); err != nil {
+		t.Fatalf("its own target: %v", err)
+	}
+	for _, bad := range []Target{{Kind: KindAlias, Name: "devbox", Port: 70000}, {Kind: KindAlias, Name: "devbox", User: "-oProxyCommand=x"}, {Kind: KindAlias, Name: "devbox", Port: -1}} {
+		var invalid InvalidError
+		if _, err := Edit([]Host{a}, a, bad); !errors.As(err, &invalid) {
+			t.Errorf("%+v: %v", bad, err)
+		}
+	}
+	if _, err := Edit([]Host{a}, a, Target{Kind: KindAlias, Name: "devbox", Port: 2222, User: "ops"}); err != nil {
+		t.Errorf("an alias with its own port and user: %v", err)
+	}
+}
+
 func TestASecondHostWithTheSameNameGetsItsOwnID(t *testing.T) {
 	first := New(address("devbox.a.com"), nil)
 	second := New(address("devbox.b.com"), []Host{first})

@@ -271,8 +271,8 @@ impl Inbox {
                     .flex()
                     .gap(px(8.))
                     .child(div().flex_1().min_w_0().truncate().child(what))
-                    .child(div().flex_none().text_color(DIFF_ADD_TEXT).child(format!("+{}", diff.additions)))
-                    .child(div().flex_none().text_color(DIFF_DEL_TEXT).child(format!("−{}", diff.deletions)));
+                    .child(div().flex_none().text_color(SUCCESS_TEXT).child(format!("+{}", diff.additions)))
+                    .child(div().flex_none().text_color(FAILED).child(format!("−{}", diff.deletions)));
                 let shown = if expanded { diff.lines.len() } else { DIFF_LINES };
                 let lines = diff.lines.iter().take(shown).map(|l| {
                     let (sign, color) = match l.kind.as_str() {

@@ -93,6 +93,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
     case queueReorder(ClientMessage.QueueReorder)
     case hostList
     case hostAdd(ClientMessage.HostAdd)
+    case hostEdit(ClientMessage.HostEdit)
     case hostRemove(ClientMessage.HostRemove)
     case hostRetry(ClientMessage.HostRef)
     case hostInstall(ClientMessage.HostInstall)
@@ -193,6 +194,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case "queue.reorder": self = .queueReorder(try ClientMessage.QueueReorder(from: decoder))
         case "host.list": self = .hostList
         case "host.add": self = .hostAdd(try ClientMessage.HostAdd(from: decoder))
+        case "host.edit": self = .hostEdit(try ClientMessage.HostEdit(from: decoder))
         case "host.remove": self = .hostRemove(try ClientMessage.HostRemove(from: decoder))
         case "host.retry": self = .hostRetry(try ClientMessage.HostRef(from: decoder))
         case "host.install": self = .hostInstall(try ClientMessage.HostInstall(from: decoder))
@@ -296,6 +298,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .queueReorder(let m): try m.encode(to: encoder)
         case .hostList: break
         case .hostAdd(let m): try m.encode(to: encoder)
+        case .hostEdit(let m): try m.encode(to: encoder)
         case .hostRemove(let m): try m.encode(to: encoder)
         case .hostRetry(let m): try m.encode(to: encoder)
         case .hostInstall(let m): try m.encode(to: encoder)
@@ -398,6 +401,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .queueReorder: "queue.reorder"
         case .hostList: "host.list"
         case .hostAdd: "host.add"
+        case .hostEdit: "host.edit"
         case .hostRemove: "host.remove"
         case .hostRetry: "host.retry"
         case .hostInstall: "host.install"

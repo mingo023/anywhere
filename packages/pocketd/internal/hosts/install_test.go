@@ -30,6 +30,7 @@ func TestBootstrapsLinesBecomeProgressAndTheRestIsLog(t *testing.T) {
 		"ANYWHERE warn linger is off":                     {Kind: ProgressWarn, Text: "linger is off"},
 		"ANYWHERE warn":                                   {Kind: ProgressWarn},
 		"ANYWHERE error checksum mismatch: got a, want b": {Kind: ProgressError, Text: "checksum mismatch: got a, want b"},
+		"ANYWHERE final update the app instead":           {Kind: ProgressError, Text: "update the app instead", Final: true},
 		"ANYWHERE running":                                {Kind: ProgressRunning},
 		"ANYWHERE done":                                   {Kind: ProgressDone},
 	} {
@@ -297,7 +298,7 @@ func TestAnUpdateLeavesAloneThePocketdOfAnywhereDevOrAnUploadedBuild(t *testing.
 			}
 			continue
 		}
-		if linked || !strings.Contains(out, "ANYWHERE error pocketd here runs from "+exe+", which an update can't replace") {
+		if linked || !strings.Contains(out, "ANYWHERE final pocketd here runs from "+exe+", which an update can't replace") {
 			t.Errorf("%s: linked %v:\n%s", name, linked, out)
 		}
 	}
@@ -322,6 +323,32 @@ func TestAnUpdateReplacesTheAppWhosePocketdRunsThereWhateverItsFolderIsCalled(t 
 		if left, _ := filepath.Glob(app + ".*"); len(left) > 0 {
 			t.Errorf("%s: left beside the app: %v", folder, left)
 		}
+	}
+}
+
+func TestAnUpdateReplacesTheAppWhosePocketdLaunchdStartedAsPlainPocketd(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only a Mac runs the app")
+	}
+	const newer = "#!/bin/sh\n# 1.2.0\necho '{\"version\": \"1.2.0\"}'\n"
+	dmg := releaseDMG(t, newer)
+	src := filepath.Join(t.TempDir(), "hold.c")
+	if err := os.WriteFile(src, []byte("#include <unistd.h>\nint main(void) { sleep(30); return 0; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var app string
+	out, linked := forceUpdateHeld(t, "dev.mingo.anywhere.test.host.pocketd", func(dir string) *exec.Cmd {
+		app = filepath.Join(filepath.Dir(filepath.Dir(dir)), "Applications", "Anywhere.app")
+		exe := anywhereApp(t, app, "dev.mingo.anywhere", "")
+		// Built rather than a copy of /bin/sleep: macOS 15 kills a re-signed copy of a system binary.
+		if b, err := exec.Command("cc", "-o", exe, src).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %s", err, b)
+		}
+		return &exec.Cmd{Path: exe, Args: []string{"pocketd"}}
+	}, serveRelease(t, dmg, fmt.Sprintf("%x  Zoes.dmg\n", sha256.Sum256(dmg))), "ANYWHERE_ALLOW_HTTP=1")
+	now, _ := os.ReadFile(filepath.Join(app, appPocketd))
+	if linked || string(now) != newer || !strings.HasSuffix(out, "ANYWHERE done\n") {
+		t.Errorf("linked %v, app's pocketd %q:\n%s", linked, now, out)
 	}
 }
 
@@ -491,6 +518,17 @@ func forceUpdate(t *testing.T, running func(dir string) string, releaseURL strin
 }
 
 func forceUpdateAs(t *testing.T, label string, running func(dir string) string, releaseURL string, env ...string) (out string, linked bool) {
+	return forceUpdateHeld(t, label, func(dir string) *exec.Cmd {
+		sleep, err := exec.LookPath("sleep")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &exec.Cmd{Path: sleep, Args: []string{running(dir), "30"}}
+	}, releaseURL, env...)
+}
+
+// forceUpdateHeld is forceUpdateAs with the process the pocketd's pid names started by hold.
+func forceUpdateHeld(t *testing.T, label string, hold func(dir string) *exec.Cmd, releaseURL string, env ...string) (out string, linked bool) {
 	if runtime.GOOS == "windows" {
 		t.Skip("bootstrap.sh runs on unix hosts")
 	}
@@ -530,11 +568,7 @@ func forceUpdateAs(t *testing.T, label string, running func(dir string) string, 
 		t.Fatal(err)
 	}
 	defer ln.Close()
-	sleep, err := exec.LookPath("sleep")
-	if err != nil {
-		t.Fatal(err)
-	}
-	holder := &exec.Cmd{Path: sleep, Args: []string{running(dir), "30"}}
+	holder := hold(dir)
 	if err := holder.Start(); err != nil {
 		t.Fatal(err)
 	}

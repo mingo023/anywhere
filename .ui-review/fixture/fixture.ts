@@ -11,6 +11,8 @@
 // pocketd links two SSH hosts: devbox (online, 1.4.2) and 10.0.4.12 (pocketd stopped there). Reconnecting 10.0.4.12 finds it refusing the
 // user's keys; it takes the password hunter2; an install there stops at Verify. An added host comes online after 400ms.
 // FIXTURE_HOST_ADD=connecting|failed leaves an added host linking for good, or refuses its keys, instead of coming online.
+// FIXTURE_HOST_INSTALL=failed|final fails each install at Verify, retryably or as this Mac's app-owned pocketd that an update can't replace.
+// host.edit moves a host to a new target under the same id, and it comes online after 400ms.
 // FIXTURE_FAILED_ERROR=<text> is the error a failed session ends with, in place of "exit 1".
 // FIXTURE_NO_HOSTS=1 leaves out hosts.v1, as a pocketd older than the hosts move, with devbox saved in desktop.json.
 // FIXTURE_HOST_FILES=1 runs devbox's own pocketd on its socket, answering status, the file reads the host finder makes, file writes and git in its
@@ -435,7 +437,7 @@ const deleteTree = (f: { path: string; deleteBranch?: boolean }) => {
   if (tracked.includes(f.path)) tracked.splice(tracked.indexOf(f.path), 1);
 };
 
-type HostTarget = { kind: "alias"; name: string } | { kind: "address"; addr: string; port: number; user?: string; keyFile?: string };
+type HostTarget = { kind: "alias"; name: string; port?: number; user?: string } | { kind: "address"; addr: string; port: number; user?: string; keyFile?: string };
 type Host = { id: string; name: string; target: HostTarget; socket: string; link: { state: string; version?: string; uptime?: number; failure?: string } };
 const hostEntry = (id: string, name: string, target: HostTarget, link: Host["link"]): Host => ({ id, name, target, socket: join(pocket, "hosts", `${id}.sock`), link });
 const ONLINE = { state: "online", version: "1.4.2", uptime: 3 * 86_400 };
@@ -475,7 +477,23 @@ const hostVerb = (ws: Ws, f: { type: string; id: string; hostId: string; target:
   } else if (f.type === "host.sign_in") ws.send(JSON.stringify({ type: "error", id: f.id, code: "host_ssh", detail: "auth", message: "Wrong password." }));
   if (f.type === "host.install") {
     ack();
-    for (const progress of [{ kind: "step", step: "detect" }, { kind: "step", step: "verify" }]) ws.send(JSON.stringify({ type: "host.progress", hostId: f.hostId, update: !!f.update, progress }));
+    const fail = process.env.FIXTURE_HOST_INSTALL;
+    const end =
+      fail === "final"
+        ? [{ kind: "error", text: "pocketd here runs from /Applications/Anywhere.app, which an update can't replace; update the Anywhere app on this Mac instead", final: true }]
+        : fail === "failed"
+          ? [{ kind: "error", text: "pocketd didn't answer after starting" }]
+          : [];
+    for (const progress of [{ kind: "step", step: "detect" }, { kind: "step", step: "verify" }, ...end]) ws.send(JSON.stringify({ type: "host.progress", hostId: f.hostId, update: !!f.update, progress }));
+  }
+  if (f.type === "host.edit") {
+    const h = hosts.find((h) => h.id === f.hostId);
+    if (!h) return ws.send(JSON.stringify({ type: "error", id: f.id, code: "unknown_host", message: "That host isn't added" }));
+    const taken = hosts.find((o) => o !== h && JSON.stringify(o.target) === JSON.stringify(f.target));
+    if (taken) return ws.send(JSON.stringify({ type: "error", id: f.id, code: "host_exists", message: `${taken.name} is already added` }));
+    Object.assign(h, { target: f.target, link: { state: "connecting" } });
+    pushHost(ws, h, f.id);
+    setTimeout(() => setLink(ws, h.id, ONLINE), 400);
   }
   if (f.type === "host.remove") {
     const at = hosts.findIndex((h) => h.id === f.hostId);
@@ -931,6 +949,12 @@ const restart = (ws: Ws, agentId: string) => {
 };
 // A prompt sent mid-reply, which Claude takes once the reply's step ends, by agent.
 const steers = new Map<string, () => void>();
+// Prompts steered together reach the transcript in the same millisecond.
+let userSeq = 0;
+const steerLater = (agentId: string, run: () => void) => {
+  const before = steers.get(agentId);
+  steers.set(agentId, before ? () => (before(), run()) : run);
+};
 const REPLY = "The transcript jumped because a finished tool's row grew by its output before the list measured it. Rows now keep their height until the next frame measures them, so the list stays pinned to the bottom while text streams in.";
 const CODE_REPLY = "The fold in Rust:\n\n```rust\npub fn fold(items: &[Item]) -> Vec<Row> {\n    let mut rows = Vec::with_capacity(items.len());\n    for item in items {\n        match item.kind.as_str() {\n            \"tool\" => push_tool(&mut rows, item),\n            \"text\" => rows.push(Row::Text { id: item.id.clone() }),\n            _ => rows.push(Row::from(item)),\n        }\n    }\n    rows.dedup_by(|a, b| a.id() == b.id());\n    rows\n}\n```\n\nRows keep their ids, so the list keeps its place.";
 // As pocketd's queue: a prompt sent with the queue mode while the agent works waits here, and the next turn takes it once the agent is idle.
@@ -967,7 +991,7 @@ const hold = (ws: Ws, agentId: string) => {
 };
 // What a turn does with a prompt once pocketd lets it run.
 const takeTurn = (ws: Ws, agentId: string, text: string) => {
-  item(ws, agentId, { id: `u-${Date.now()}`, kind: "user", text });
+  item(ws, agentId, { id: `u-${Date.now()}-${++userSeq}`, kind: "user", text });
   reply(ws, agentId);
 };
 // `chunks` chunks 30ms apart into one item, as pocketd streams a reply.
@@ -1200,10 +1224,10 @@ const prompted = (ws: Ws, f: any) => {
   else if (!process.env.FIXTURE_DROP && f.text.startsWith("/")) item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
   else if (!process.env.FIXTURE_DROP) {
     const answer = () => {
-      item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
+      item(ws, f.agentId, { id: `u-${Date.now()}-${++userSeq}`, kind: "user", text: f.text });
       reply(ws, f.agentId);
     };
-    if (streams.has(f.agentId)) steers.set(f.agentId, answer);
+    if (streams.has(f.agentId)) steerLater(f.agentId, answer);
     else answer();
   }
 };
@@ -1322,13 +1346,11 @@ Bun.serve({
         queues.set(f.agentId, list.sort((a, b) => a.order - b.order));
         publish(ws, f.agentId);
       }
+      // As pocketd: the entry leaves the list once it goes into the turn, and the agent takes it only as the step underway ends.
       if (f.type === "queue.send_now") {
         const e = take(ws, f.agentId, f.entryId);
-        if (e) {
-          clearInterval(streams.get(f.agentId));
-          streams.delete(f.agentId);
-          takeTurn(ws, f.agentId, e.text);
-        }
+        if (e && streams.has(f.agentId)) steerLater(f.agentId, () => takeTurn(ws, f.agentId, e.text));
+        else if (e) takeTurn(ws, f.agentId, e.text);
       }
       if (f.type === "agent.commands") {
         const commands = [
@@ -1392,6 +1414,8 @@ Bun.serve({
         setTimeout(() => {
           clearInterval(streams.get(f.agentId));
           streams.delete(f.agentId);
+          // As pocketd's Stop: Claude drops the prompts sent mid-turn it hadn't taken.
+          steers.delete(f.agentId);
           item(ws, f.agentId, { id: `r-${Date.now()}`, kind: "result", ok: false, durationMs: 0, error: "Interrupted" });
           update(ws, f.agentId, "idle");
           hold(ws, f.agentId);

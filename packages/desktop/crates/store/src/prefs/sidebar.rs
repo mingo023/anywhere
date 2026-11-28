@@ -37,6 +37,48 @@ pub enum InboxSort {
     Oldest,
 }
 
+/// Whose light or dark a space paints in: the app's, or its own.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LookMode {
+    #[default]
+    Auto,
+    Light,
+    Dark,
+}
+
+/// A colour on the theme editor's pad: a point in the unit circle, whose angle is its hue and distance its lightness, at saturation `s`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct LookColour {
+    pub x: f32,
+    pub y: f32,
+    pub s: f32,
+}
+
+/// A space's theme: up to three colours washed over the window, how strongly, and how much grain lies on them.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct SpaceLook {
+    #[serde(deserialize_with = "crate::lenient")]
+    pub mode: LookMode,
+    #[serde(deserialize_with = "crate::lenient")]
+    pub colours: Vec<LookColour>,
+    /// 0 to 1.
+    pub intensity: f32,
+    /// 0 to 1.
+    pub grain: f32,
+}
+
+impl Default for SpaceLook {
+    fn default() -> Self {
+        Self { mode: LookMode::Auto, colours: Vec::new(), intensity: 0.45, grain: 0. }
+    }
+}
+
+impl SpaceLook {
+    pub const MAX_COLOURS: usize = 3;
+}
+
 /// Sidebar and inbox.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(default)]
@@ -64,6 +106,9 @@ pub struct Sidebar {
     /// Each host's chosen icon, by host id.
     #[serde(deserialize_with = "crate::lenient")]
     pub space_icons: HashMap<String, String>,
+    /// Each space's theme, by host id; This Mac's under "".
+    #[serde(deserialize_with = "crate::lenient")]
+    pub space_looks: HashMap<String, SpaceLook>,
 }
 
 impl Default for Sidebar {
@@ -81,6 +126,7 @@ impl Default for Sidebar {
             space_colours: HashMap::new(),
             space_names: HashMap::new(),
             space_icons: HashMap::new(),
+            space_looks: HashMap::new(),
         }
     }
 }
@@ -102,6 +148,17 @@ impl Sidebar {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_space_look_keeps_what_it_can_read_and_defaults_the_rest() {
+        let s: Sidebar = serde_json::from_str(
+            r#"{"space_looks":{"devbox":{"mode":"dark","colours":[{"x":0.5,"y":-0.2,"s":0.8}],"grain":0.3},"":{"mode":"sepia","colours":"red"}}}"#,
+        )
+        .unwrap();
+        let devbox = &s.space_looks["devbox"];
+        assert_eq!((devbox.mode, devbox.colours.len(), devbox.intensity, devbox.grain), (LookMode::Dark, 1, 0.45, 0.3));
+        assert_eq!(s.space_looks[""], SpaceLook::default());
+    }
 
     #[test]
     fn red_always_stays_above_amber() {

@@ -7,8 +7,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Target {
-    /// A `Host` in `~/.ssh/config`; ssh brings its user, port, key and jump host.
-    Alias { name: String },
+    /// A `Host` in `~/.ssh/config`; ssh brings its key and jump host, and its user and port unless these are given.
+    Alias {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        user: Option<String>,
+    },
     Address {
         addr: String,
         port: u16,
@@ -18,6 +24,13 @@ pub enum Target {
         #[serde(rename = "keyFile", default, skip_serializing_if = "Option::is_none")]
         key_file: Option<String>,
     },
+}
+
+impl Target {
+    /// An alias with ssh's own port and user.
+    pub fn alias(name: impl Into<String>) -> Self {
+        Self::Alias { name: name.into(), port: None, user: None }
+    }
 }
 
 /// A host pocketd links, with the socket its tunnel listens on here.
@@ -119,6 +132,8 @@ pub enum Progress {
     Running,
     Done,
     Error(String),
+    /// An error a retry can't fix, such as a pocketd the Anywhere app owns.
+    Final(String),
 }
 
 #[derive(Deserialize)]
@@ -127,6 +142,8 @@ struct ProgressWire {
     step: Option<Step>,
     #[serde(default)]
     text: String,
+    #[serde(default, rename = "final")]
+    is_final: bool,
 }
 
 impl TryFrom<ProgressWire> for Progress {
@@ -138,6 +155,7 @@ impl TryFrom<ProgressWire> for Progress {
             ("warn", _) => Progress::Warn(w.text),
             ("running", _) => Progress::Running,
             ("done", _) => Progress::Done,
+            ("error", _) if w.is_final => Progress::Final(w.text),
             ("error", _) => Progress::Error(w.text),
             (kind, _) => return Err(format!("unknown progress {kind}")),
         })
@@ -203,7 +221,7 @@ mod tests {
         assert_eq!(list.len(), 1);
         assert_eq!(
             (list[0].id.as_str(), &list[0].target, list[0].socket.as_str()),
-            ("devbox", &Target::Alias { name: "devbox".into() }, "/Users/me/.coding-pocket/hosts/devbox.sock")
+            ("devbox", &Target::alias("devbox"), "/Users/me/.coding-pocket/hosts/devbox.sock")
         );
         assert_eq!(list[0].link, Link::Online { version: "1.4.2".into(), uptime: 259_200 });
         assert!(matches!(event(golden_text!("server/host_list_push.json")), Some(Event::Hosts(list)) if list.is_empty()));
@@ -215,6 +233,8 @@ mod tests {
         assert_eq!((host.as_str(), update, progress), ("devbox", true, Progress::Step(Step::Download)));
         let Some(Event::HostProgress { progress, .. }) = event(golden_text!("server/host_progress_error.json")) else { panic!("no error") };
         assert_eq!(progress, Progress::Error("No release for linux/arm".into()));
+        let Some(Event::HostProgress { progress, .. }) = event(golden_text!("server/host_progress_final.json")) else { panic!("no final error") };
+        assert!(matches!(progress, Progress::Final(text) if text.ends_with("update the Anywhere app on this Mac instead")));
         let f: Value = serde_json::from_str(golden_text!("server/stream_host_link.json")).unwrap();
         let item: crate::Item = serde_json::from_value(f["item"].clone()).unwrap();
         assert_eq!((item.kind.as_str(), item.hint.as_str(), item.reason.as_str()), ("host_link", "vps", "The build needs the GPU box."));
@@ -255,7 +275,7 @@ mod tests {
             m["id"] = Value::Null;
             m
         };
-        assert_eq!(sent(out.host_add(&Target::Alias { name: "devbox".into() })), golden(golden_text!("client/host_add_alias.json")));
+        assert_eq!(sent(out.host_add(&Target::alias("devbox"))), golden(golden_text!("client/host_add_alias.json")));
         let address = Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "dev".into(), key_file: Some("~/.ssh/id_ed25519".into()) };
         let mut named = golden(golden_text!("client/host_add_address.json"));
         named.as_object_mut().unwrap().remove("name");
@@ -270,5 +290,7 @@ mod tests {
             golden(golden_text!("client/host_install_update.json"))
         );
         assert_eq!(sent(out.host_sign_in("10-0-4-12", "hunter2")), golden(golden_text!("client/host_sign_in.json")));
+        let over = Target::Alias { name: "devbox".into(), port: Some(2222), user: Some("ops".into()) };
+        assert_eq!(sent(out.host_edit("devbox", &over)), golden(golden_text!("client/host_edit.json")));
     }
 }

@@ -418,6 +418,7 @@ func (e *fakeEnvironments) List() []Environment { return e.list }
 func (e *fakeEnvironments) Projects(context.Context, string) ([]proto.Project, error) {
 	return nil, nil
 }
+func (e *fakeEnvironments) AddProject(context.Context, string, string) error { return nil }
 func (e *fakeEnvironments) Remove(id string) error {
 	e.removed = append(e.removed, id)
 	return nil

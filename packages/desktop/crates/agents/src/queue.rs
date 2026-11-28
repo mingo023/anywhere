@@ -26,6 +26,10 @@ pub struct Queues {
     by_agent: HashMap<String, Vec<Entry>>,
     /// The sessions whose queue was asked for on this connection.
     asked: HashSet<String>,
+    /// Entries sent now that pocketd still lists.
+    sending_now: HashSet<(String, String)>,
+    /// Entries sent now that left pocketd's list, not yet shown in the chat.
+    steered: Vec<(String, String)>,
 }
 
 impl Queues {
@@ -35,12 +39,32 @@ impl Queues {
 
     /// Takes `agent`'s whole queue, as `queue.list` answers and `queue.update` pushes it.
     pub fn replace(&mut self, agent: &str, mut entries: Vec<Entry>) {
+        for old in self.by_agent.get(agent).into_iter().flatten() {
+            if !entries.iter().any(|e| e.id == old.id) && self.sending_now.remove(&(agent.to_string(), old.id.clone())) {
+                self.steered.push((agent.to_string(), old.text.clone()));
+            }
+        }
         entries.sort_by(|a, b| a.order.total_cmp(&b.order));
         if entries.is_empty() {
             self.by_agent.remove(agent);
         } else {
             self.by_agent.insert(agent.to_string(), entries);
         }
+    }
+
+    /// pocketd drops an entry sent now from the list once it goes into the agent's turn, which takes it only at its
+    /// next step; until then the chat shows it as steered.
+    pub fn send_now(&mut self, agent: &str, entry: &str) {
+        self.sending_now.insert((agent.to_string(), entry.to_string()));
+    }
+
+    /// A removed entry went nowhere, even if a Send now of it failed before.
+    pub fn cancel(&mut self, agent: &str, entry: &str) {
+        self.sending_now.remove(&(agent.to_string(), entry.to_string()));
+    }
+
+    pub fn take_steered(&mut self) -> Vec<(String, String)> {
+        std::mem::take(&mut self.steered)
     }
 
     /// A Stop of the user's holds their entries until their next send.
@@ -69,6 +93,8 @@ impl Queues {
 
     pub fn forget(&mut self, source: &str) {
         self.by_agent.retain(|id, _| !of_source(id, Some(source)));
+        self.sending_now.retain(|(id, _)| !of_source(id, Some(source)));
+        self.steered.retain(|(id, _)| !of_source(id, Some(source)));
         self.reconnected(Some(source));
     }
 }
@@ -148,6 +174,31 @@ mod tests {
         assert_eq!(ids(&q), ["b", "c"]);
         q.replace("a1", vec![entry("c", 3., "pending")]);
         assert_eq!(ids(&q), ["c"]);
+    }
+
+    #[test]
+    fn an_entry_sent_now_that_leaves_the_list_is_steered_once() {
+        let mut q = Queues::default();
+        q.replace("a1", vec![entry("a", 1., "pending"), entry("b", 2., "pending")]);
+        q.send_now("a1", "a");
+        q.replace("a1", vec![entry("a", 1., "sending"), entry("b", 2., "pending")]);
+        assert!(q.take_steered().is_empty(), "pocketd still lists it");
+        q.replace("a1", vec![entry("b", 2., "pending")]);
+        assert_eq!(q.take_steered(), [("a1".to_string(), "text a".to_string())]);
+        assert!(q.take_steered().is_empty());
+        q.replace("a1", vec![]);
+        assert!(q.take_steered().is_empty(), "an entry not sent now leaves unshown");
+    }
+
+    #[test]
+    fn an_entry_removed_after_its_send_now_failed_leaves_unshown() {
+        let mut q = Queues::default();
+        q.replace("a1", vec![entry("a", 1., "pending")]);
+        q.send_now("a1", "a");
+        q.replace("a1", vec![entry("a", 1., "pending")]);
+        q.cancel("a1", "a");
+        q.replace("a1", vec![]);
+        assert!(q.take_steered().is_empty());
     }
 
     #[test]

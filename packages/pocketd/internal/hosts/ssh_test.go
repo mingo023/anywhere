@@ -78,6 +78,20 @@ func TestAnAddressPassesOnlyThePortUserAndKeyItWasGiven(t *testing.T) {
 	}
 }
 
+func TestAnAliasPassesThePortAndUserGivenOverItsConfigsAndNothingElse(t *testing.T) {
+	tail := func(h Host) []string {
+		got := args(h, "/k", "", nil, "true")
+		return got[slices.IndexFunc(got, func(a string) bool { return strings.HasPrefix(a, "UserKnownHostsFile") })+1:]
+	}
+	if got := tail(New(alias("devbox"), nil)); !slices.Equal(got, []string{"--", "devbox", "true"}) {
+		t.Errorf("%v", got)
+	}
+	over := Target{Kind: KindAlias, Name: "devbox", Port: 22, User: "ops"}
+	if got := tail(New(over, nil)); !slices.Equal(got, []string{"-p", "22", "-l", "ops", "--", "devbox", "true"}) {
+		t.Errorf("an alias's port 22 must still win over its config's: %v", got)
+	}
+}
+
 func TestTheAppsOwnKeyGoesFirstAndTheUsersAgentKeysNotAtAll(t *testing.T) {
 	got := args(addressHost(22, "", "/k/id"), "/k", "/h/devbox.key", nil, "true")
 	appKey, hostKey := slices.Index(got, "/h/devbox.key"), slices.Index(got, "/k/id")
