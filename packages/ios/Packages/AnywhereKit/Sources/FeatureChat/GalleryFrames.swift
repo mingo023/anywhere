@@ -101,3 +101,22 @@ extension ChatGallery {
         return items
     }
 }
+
+extension ChatGallery {
+    /// The component sheet's permission card (frame 42): the composer of frame 14, which the card replaces, with its footer.
+    @MainActor public static var sheetPermission: some View { SheetComposer() }
+
+    private struct SheetComposer: View {
+        @State private var store = ChatGallery.store(
+            [], status: .needsYou, requests: [PermissionRequest(
+                requestId: "r-checkout", agentId: agentId, toolName: "Bash", detail: .shell(command: "pnpm test checkout --repeat 20", description: nil),
+                feedback: true)], branch: "flaky-checkout")
+        @FocusState private var focus: ChatField?
+
+        var body: some View {
+            ComposerView(
+                store: store, machine: "MacBook Pro", height: 852, outsideTaps: 0, show: { _ in }, mapOpen: .constant(false), openLink: { _ in },
+                focus: $focus)
+        }
+    }
+}

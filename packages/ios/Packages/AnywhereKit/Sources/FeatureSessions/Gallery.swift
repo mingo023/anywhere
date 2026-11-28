@@ -36,6 +36,24 @@ public enum SessionsGallery {
         } + [small] + RedesignGallery.scenes
     }
 
+    /// The component sheet's session rows (frame 42): one of each status, as the Inbox draws them, but the working one
+    /// shows what it is doing, as its own list does.
+    @MainActor public static var sheetRows: some View {
+        let book = RedesignGallery.Macs.book(name: "MacBook Pro", sessions: true, extras: true)
+        let mini = RedesignGallery.Macs.mini()
+        func inbox(_ host: HostModel, _ id: String) -> some View {
+            InboxRow(host: host, session: host.sessions.session(id)!, entry: InboxLayout.Entry(mac: host.id, id: id, dim: 1, locked: false), showMac: true)
+        }
+        return VStack(spacing: 0) {
+            inbox(book, "a-check")
+            SessionRow(session: book.sessions.session("a-dark")!).rowDivider()
+            inbox(mini, "a-cache").rowDivider()
+            inbox(book, "a-rate").rowDivider()
+            inbox(book, "a-repro").rowDivider()
+        }
+        .insetGroup()
+    }
+
     /// A launch into a new worktree of the first project, `steps` into it.
     @MainActor static func launch(_ host: HostModel, steps: [String], failed: Bool = false) -> LaunchProgress {
         let project = Sample.projects[0].path

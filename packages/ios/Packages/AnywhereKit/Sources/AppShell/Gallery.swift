@@ -1,5 +1,8 @@
 import DesignSystem
 import Domain
+import FeatureChat
+import FeatureGitHub
+import FeatureSessions
 import FeatureSettings
 import Fixtures
 import Foundation
@@ -39,6 +42,14 @@ public enum AppShellGallery {
                     AnyView(root(.pad, tab: .sessions, tree: .worktree(mac: Sample.mac, path: "/Users/mingo/.worktrees/anywhere/fix-login")))
                 },
                 GalleryScene("root-pad-machines\(suffix)", size: pad, dark: dark) { AnyView(root(.pad, tab: .machines)) },
+                GalleryScene("42-component-sheet-\(dark ? "dark" : "light")", size: DesignSystemGallery.sheetSize, dark: dark) {
+                    AnyView(NavigationStack {
+                        DesignSystemGallery.componentSheet(
+                            sessions: AnyView(SessionsGallery.sheetRows), machines: AnyView(SettingsGallery.sheetMacRows),
+                            prs: AnyView(GitHubGallery.sheetRows), permission: AnyView(ChatGallery.sheetPermission))
+                    }
+                    .screenBackground().preferredColorScheme(dark ? .dark : .light))
+                },
             ]
         }
     }

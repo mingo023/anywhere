@@ -59,6 +59,24 @@ public enum GitHubGallery {
         }
     }
 
+    /// The component sheet's PR rows (frame 42): one failing its checks, with Fix, and one merged.
+    @MainActor public static var sheetRows: some View {
+        let failing = PrItem(
+            tree: "/Users/minh/.worktrees/anywhere/flaky-checkout", number: 42, title: "Fix flaky checkout test", state: "OPEN", draft: false, gate: .checksFailed,
+            checks: Checks(passed: 2, failed: 2, pending: 0))
+        let merged = PrItem(
+            tree: "/Users/minh/.worktrees/fox-api/upload-limit", number: 57, title: "Rate-limit the upload route", state: "MERGED", draft: false, gate: .done,
+            checks: Checks(passed: 4, failed: 0, pending: 0))
+        func entry(_ repo: String, _ item: PrItem) -> PrEntry {
+            PrEntry(mac: "macbook", macName: Frames.macBookName, projectPath: "/Users/minh/dev/\(repo)", repo: repo, item: item)
+        }
+        return VStack(spacing: 0) {
+            PrRow(entry: entry("anywhere", failing), action: .of(failing)) { _ in }
+            PrRow(entry: entry("fox-api", merged), action: .of(merged)) { _ in }.rowDivider(true, leading: PrRow.textColumn)
+        }
+        .insetGroup()
+    }
+
     /// A worktree with one Claude session, on a phone that may prompt it.
     @MainActor private static var fix: FixContext {
         FixContext(mac: Sample.mac, target: .one(ChatSession(id: "a-working", title: "Port the commit graph lanes", agent: "Claude")),

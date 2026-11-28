@@ -26,6 +26,16 @@ public enum SettingsGallery {
         }
     }
 
+    /// The component sheet's Mac rows (frame 42): one connected, one offline.
+    @MainActor public static var sheetMacRows: some View {
+        VStack(spacing: 0) {
+            MacRow(host: mac("Minh's MacBook Pro", id: "minhs-macbook-pro", version: "0.1.48"), first: true)
+            MacRow(host: mac("Studio Mac Mini", id: "studio-mac-mini", version: "0.1.48", closed: (.stopped, at(hour: 10, minute: 42))))
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .insetGroup()
+    }
+
     /// What befalls the MacBook Pro in the design's Machines frames.
     enum Trouble {
         case steady, reconnecting, back, failed, versions, revoked
