@@ -537,7 +537,9 @@ impl Desktop {
 
     fn aside_frame(&self, space: &Space, cx: &mut Context<Self>) -> AsideFrame {
         let reduce_motion = cx.reduce_motion();
-        let query = self.sidebar.read(cx).query(cx);
+        let locked = self.locked_space().is_some();
+        // A locked header hides the filter field, so its query mustn't keep filtering.
+        let query = if locked { String::new() } else { self.sidebar.read(cx).query(cx) };
         AsideFrame {
             width: self.aside_width(),
             seam: self.overlay.is_none(),
@@ -548,7 +550,7 @@ impl Desktop {
             screen: self.screen,
             pages: pages::offered(&self.agents).map(|p| (p.name, p.icon, p.screen)).collect(),
             scratch: self.scratch_frame(&query, space, cx),
-            locked: self.locked_space().is_some(),
+            locked,
             body: self.body_frame(&query, space, cx),
             slide: self.spaces.sliding(Instant::now()).filter(|_| !reduce_motion && !self.capturing),
             update: self.updates.update.clone(),

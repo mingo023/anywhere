@@ -38,6 +38,7 @@ impl Desktop {
 
     pub(crate) fn offline_page(&self, space: &Space, cx: &mut Context<Self>) -> Div {
         let Some(id) = space.host().map(str::to_string) else { return div() };
+        let host = id.clone();
         let (reach, name) = (self.space_reach(space), self.space_name(space));
         let connecting = reach == Reach::Connecting;
         let added = self.added_name(&id);
@@ -67,8 +68,10 @@ impl Desktop {
                 cx.notify();
             }))
         };
-        let edit = ui::button("offline-edit-host", Variant::Ghost, None, "Edit host\u{2026}")
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.show_hosts(window, cx)));
+        let edit = ui::button("offline-edit-host", Variant::Ghost, None, "Edit host\u{2026}").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+            this.show_hosts(window, cx);
+            this.open_edit_host(&host, window, cx);
+        }));
         let body = div()
             .flex_1()
             .flex()

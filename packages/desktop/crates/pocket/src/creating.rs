@@ -534,7 +534,7 @@ impl Desktop {
         if self.terminals.read(cx).link.is_down() || self.screen != Screen::Sessions {
             return None;
         }
-        self.creates.read(cx).shown(&self.place(cx)?)
+        self.creates.read(cx).shown(&self.place(cx).filter(|tree| self.shows_session(tree))?)
     }
 
     /// Hands finished creates to their chats; says whether any went.
