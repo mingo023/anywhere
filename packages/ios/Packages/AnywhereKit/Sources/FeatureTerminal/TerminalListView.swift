@@ -151,7 +151,7 @@ struct TerminalListView: View {
                 Section {
                     ForEach(group.terminals) { t in
                         let session = t.agentId.flatMap { host.sessions.session($0) }
-                        PushRow(value: Route.terminal(mac: mac, terminalId: t.id)) {
+                        PushRow(value: Route.terminal(mac: mac, terminalId: t.id), inList: true) {
                             TerminalRow(terminal: t, agent: session?.summary.title, busy: session?.status == .working)
                         }
                         .listRowBackground(Palette.surface.color)

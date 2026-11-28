@@ -141,12 +141,14 @@ public final class Navigator {
         }
     }
 
-    /// Leaves the screens of a tree being deleted, with what was opened over them, and on iPad stops narrowing to it.
-    public func leave(tree: String) {
-        if self.tree?.tree == tree { self.tree = nil }
+    /// Leaves the screens of a tree being deleted, with what was opened over them, and on iPad stops narrowing to it. Two
+    /// Macs can hold a checkout at the same path, so the Mac is matched too.
+    public func leave(mac: String, tree: String) {
+        let gone = { (route: Route) in route.mac == mac && route.tree == tree }
+        if let narrowed = self.tree, gone(narrowed) { self.tree = nil }
         for tab in Tab.allCases {
             let path = path(tab)
-            if let at = path.firstIndex(where: { $0.tree == tree }) { setPath(Array(path[..<at]), for: tab) }
+            if let at = path.firstIndex(where: gone) { setPath(Array(path[..<at]), for: tab) }
         }
     }
 

@@ -26,7 +26,7 @@ struct PhoneRoot: View {
 
     private func section(_ tab: Tab) -> some View {
         NavigationStack(path: Binding(get: { navigator.path(tab) }, set: { navigator.setPath($0, for: tab) })) {
-            Destination.root(tab, app: app, pair: pair, open: navigator.push, leave: navigator.leave)
+            Destination.root(tab, app: app, pair: pair, open: navigator.push)
                 .routeDestinations(app: app, navigator: navigator, banner: true, pair: pair)
         }
         .safeAreaInset(edge: .top, spacing: 0) {

@@ -12,6 +12,8 @@ public struct PullRequestsHome: View {
     let load: Bool
 
     @State private var loaded = false
+    /// The last load reached no Mac, so an empty list says nothing about what's open.
+    @State private var unanswered = false
     @State private var merging: PrEntry?
     @State private var busy: Set<String> = []
     @State private var failure: String?
@@ -38,7 +40,13 @@ public struct PullRequestsHome: View {
                         .padding(.top, Inset.margin)
                 }
                 if entries.isEmpty && notices.isEmpty && (loaded || !load) {
-                    NoPullRequests()
+                    if unanswered {
+                        Placeholder("Couldn't load pull requests", icon: .cloudOff, detail: "No Mac answered. Try again once one is online.") {
+                            Task { await loadAll() }
+                        }
+                    } else {
+                        NoPullRequests()
+                    }
                 }
                 ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                     CountedHeader(group.section.title, count: group.entries.count, first: index == 0)
@@ -113,8 +121,15 @@ public struct PullRequestsHome: View {
         Task {
             defer { busy.remove(entry.id) }
             await store.refresh(tree)
-            await store.merge(tree, method: method)
             let model = store.pullRequest(tree)
+            // The tree may have moved to another PR since the list loaded: merge only the one the reader confirmed.
+            guard model.pr?.number == entry.item.number, model.error == nil else {
+                Haptics.warning()
+                failure = "#\(entry.item.number) is no longer this branch's pull request. Pull to refresh."
+                model.error = nil
+                return
+            }
+            await store.merge(tree, method: method)
             if model.pr?.state == "MERGED" {
                 Haptics.success()
             } else {
@@ -133,8 +148,10 @@ public struct PullRequestsHome: View {
 
     private func loadAll() async {
         let targets = hosts.filter { $0.link == .online }.flatMap { host in host.workspace.projects.map { (host.github, $0.path) } }
-        let loads = targets.map { store, path in Task { try? await store.recheckList(path) } }
-        for load in loads { await load.value }
+        let loads = targets.map { store, path in Task { (try? await store.recheckList(path)) != nil } }
+        var answered = false
+        for load in loads where await load.value { answered = true }
+        unanswered = !hosts.isEmpty && !answered
         loaded = true
     }
 }

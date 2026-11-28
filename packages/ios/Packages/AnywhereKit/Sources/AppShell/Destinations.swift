@@ -19,7 +19,7 @@ struct Destination: View {
     let app: AppModel
     let pair: @MainActor () -> Void
     let open: @MainActor (Route) -> Void
-    let leave: @MainActor (String) -> Void
+    let leave: @MainActor (_ mac: String, _ tree: String) -> Void
     /// Shows the reconnecting banner under the bar; the iPad's column shows its own.
     var banner = false
 
@@ -32,7 +32,7 @@ struct Destination: View {
         default:
             if let mac = route.mac, let host = app.host(mac: mac) {
                 // A Mac dialed again is a new host, so the screen's stores bind to it afresh.
-                Self.screen(route, host, open: open, leave: leave)
+                Self.screen(route, host, open: open, leave: { leave(host.mac, $0) })
                     .id(ObjectIdentifier(host))
                     .safeAreaInset(edge: .top, spacing: 0) {
                         VStack(spacing: 0) {
@@ -78,8 +78,7 @@ struct Destination: View {
     /// The root of a section: Inbox, Sessions and PRs across every paired Mac, and Machines.
     @ViewBuilder
     static func root(
-        _ tab: Tab, app: AppModel, pair: @escaping @MainActor () -> Void, open: @escaping @MainActor (Route) -> Void,
-        leave: @escaping @MainActor (String) -> Void
+        _ tab: Tab, app: AppModel, pair: @escaping @MainActor () -> Void, open: @escaping @MainActor (Route) -> Void
     ) -> some View {
         switch tab {
         case .inbox: InboxView(hosts: app.hosts, open: open)
@@ -95,7 +94,7 @@ extension View {
     func routeDestinations(app: AppModel, navigator: Navigator, banner: Bool = false, pair: @escaping @MainActor () -> Void) -> some View {
         navigationDestination(for: Route.self) {
             // The iPad swaps the route in place: without the id, the next chat keeps the last one's store.
-            Destination(route: $0, app: app, pair: pair, open: navigator.push, leave: navigator.leave, banner: banner).id($0)
+            Destination(route: $0, app: app, pair: pair, open: navigator.push, leave: navigator.leave(mac:tree:), banner: banner).id($0)
         }
     }
 }

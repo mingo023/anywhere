@@ -193,7 +193,9 @@ public struct SessionsHome: View {
             asOf = host.staleAsOf(at: now)
             let built = host.homeList(query: query, sort: sort, projectSort: projectSort)
             if !query.trimmingCharacters(in: .whitespaces).isEmpty {
-                rows = built.matches.map { .session($0.id, place: "\($0.project) · \($0.tree)") } + built.sections.map(Row.project)
+                let kept = filter == .all ? nil : Set(filter.sessions(built.matches.compactMap { host.sessions.session($0.id)?.listing.card }))
+                rows = built.matches.filter { kept?.contains($0.id) ?? true }.map { .session($0.id, place: "\($0.project) · \($0.tree)") }
+                    + (filter.showsProjects ? built.sections.map(Row.project) : [])
             } else {
                 let cards = host.sessions.recent.compactMap { host.sessions.session($0)?.listing.card }
                 rows = filter.sessions(cards).map { Row.session($0, place: nil) } + (filter.showsProjects ? built.sections.map(Row.project) : [])

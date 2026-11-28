@@ -65,10 +65,10 @@ struct PadRoot: View {
     @ViewBuilder
     private var content: some View {
         if navigator.tab == .sessions, let tree = navigator.tree, let mac = tree.mac, let host = app.host(mac: mac) {
-            SessionsView(host: host, route: tree, open: navigator.push, leave: navigator.leave)
+            SessionsView(host: host, route: tree, open: navigator.push, leave: { navigator.leave(mac: host.mac, tree: $0) })
                 .safeAreaInset(edge: .top, spacing: 0) { ConnectionBanner(host: host) }
         } else {
-            Destination.root(navigator.tab, app: app, pair: pair, open: navigator.push, leave: navigator.leave)
+            Destination.root(navigator.tab, app: app, pair: pair, open: navigator.push)
         }
     }
 

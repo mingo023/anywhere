@@ -150,7 +150,7 @@ struct NavigatorTests {
         nav.inboxPath = [.chat(mac: "mbp", agentId: "a2")]
         nav.prsPath = [.pullRequest(mac: "mbp", tree: "/p/wt"), .changes(mac: "mbp", tree: "/p/wt")]
         nav.tree = tree
-        nav.leave(tree: "/p/wt")
+        nav.leave(mac: "mbp", tree: "/p/wt")
         #expect(nav.sessionsPath == [.project(mac: "mbp", path: "/p")])
         #expect(nav.inboxPath == [.chat(mac: "mbp", agentId: "a2")])
         #expect(nav.prsPath.isEmpty, "every stack leaves the tree")
@@ -158,9 +158,15 @@ struct NavigatorTests {
 
         nav.tree = .local(mac: "mbp", id: "l1")
         nav.sessionsPath = [.pullRequest(mac: "mbp", tree: "/p/wt")]
-        nav.leave(tree: "/p/wt")
+        nav.leave(mac: "mbp", tree: "/p/wt")
         #expect(nav.tree == .local(mac: "mbp", id: "l1"))
         #expect(nav.sessionsPath.isEmpty)
+
+        nav.tree = .worktree(mac: "mini", path: "/p/wt")
+        nav.prsPath = [.pullRequest(mac: "mini", tree: "/p/wt")]
+        nav.leave(mac: "mbp", tree: "/p/wt")
+        #expect(nav.tree == .worktree(mac: "mini", path: "/p/wt"), "another Mac's checkout at the same path stays")
+        #expect(nav.prsPath == [.pullRequest(mac: "mini", tree: "/p/wt")])
     }
 
     @Test("Show in chat from a sub-agent nested over its chat goes back to the chat")

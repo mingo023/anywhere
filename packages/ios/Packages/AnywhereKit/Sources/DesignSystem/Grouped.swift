@@ -134,11 +134,14 @@ public struct SearchBox<Content: View>: View {
 @MainActor
 public struct PushRow<Content: View>: View {
     let value: Route
+    let inList: Bool
     let content: Content
     @Environment(\.showInDetail) private var showInDetail
 
-    public init(value: Route, @ViewBuilder content: () -> Content) {
+    /// `inList` for a row of a `List`, which draws a chevron beside a link before iOS 26.
+    public init(value: Route, inList: Bool = false, @ViewBuilder content: () -> Content) {
         self.value = value
+        self.inList = inList
         self.content = content()
     }
 
@@ -158,6 +161,8 @@ public struct PushRow<Content: View>: View {
         #if os(iOS)
             if #available(iOS 26, *) {
                 NavigationLink(value: value) { content }.navigationLinkIndicatorVisibility(.hidden)
+            } else if !inList {
+                NavigationLink(value: value) { content }
             } else {
                 // Before iOS 26 only a link hidden behind the row drops the chevron; VoiceOver reads it as a button.
                 ZStack(alignment: .leading) {
