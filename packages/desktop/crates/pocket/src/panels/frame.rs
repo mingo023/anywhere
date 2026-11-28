@@ -107,7 +107,8 @@ impl Desktop {
             ghost,
             draw: Drawing { panes, seams: self.overlay.is_none(), menus: self.panel_menus(cx) },
         };
-        self.panels.update(cx, |p, cx| p.view(frame, window, cx))
+        let panes = self.panels.update(cx, |p, cx| p.view(frame, window, cx));
+        self.page_corners(panes, cx)
     }
 
     fn dress(&mut self, tree: &str, pane: &Pane<Tab>, window: &mut Window, cx: &mut Context<Self>) -> Dress {

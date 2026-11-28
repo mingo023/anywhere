@@ -645,6 +645,11 @@ impl Desktop {
         self.store.agents.label(provider).unwrap_or_else(|| theme::provider_name(provider).into())
     }
 
+    /// The workspace panel shows beside the page.
+    pub(crate) fn workspace_shown(&self, cx: &App) -> bool {
+        self.screen == Screen::Sessions && self.sidebar.read(cx).unfocused() > 0.
+    }
+
     fn main_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let now = Instant::now();
         // The hand-back ends on time even when another page covers it, since it keeps the panes hidden.
@@ -791,10 +796,11 @@ impl Render for Desktop {
             if settings {
                 self.settings.clone().into_any_element()
             } else {
-                self.main_view(window, cx).when(wash.is_some(), |d| d.rounded(px(crate::spaces::wash::PAGE_RADIUS))).into_any_element()
+                let page = self.main_view(window, cx);
+                self.page_corners(page, cx).into_any_element()
             }
         });
-        let workspace = (shown && self.screen == Screen::Sessions && self.sidebar.read(cx).unfocused() > 0.).then(|| self.workspace_side(cx));
+        let workspace = (shown && self.workspace_shown(cx)).then(|| self.workspace_side(cx));
         let (page, workspace, lifted) = match wash {
             Some(_) => (None, None, Some(crate::spaces::wash::lifted(page, workspace))),
             None => (page, workspace, None),

@@ -129,9 +129,6 @@ pub(crate) fn lifted(page: Option<AnyElement>, workspace: Option<Div>) -> Div {
     div().flex_1().min_w_0().h_full().p(px(INSET)).pl_0().flex().child(card)
 }
 
-/// The page's own corners, rounded as the card's so its fill doesn't square them off.
-pub(crate) const PAGE_RADIUS: f32 = CARD_RADIUS;
-
 impl Desktop {
     pub(crate) fn space_look(&self, space: &Space) -> Option<&SpaceLook> {
         self.store.sidebar.space_looks.get(look_key(space))
@@ -149,6 +146,15 @@ impl Desktop {
             self.spaces.look_dark = want;
             self.apply_theme(cx);
             window.set_background_appearance(theme::window_background());
+        }
+    }
+
+    /// Rounds a page fill's outer corners as the card's, so it doesn't square them off: all four, or the left two beside the workspace panel.
+    pub(crate) fn page_corners<E: Styled>(&self, e: E, cx: &App) -> E {
+        match (self.wash(), self.workspace_shown(cx)) {
+            (None, _) => e,
+            (Some(_), true) => e.rounded_l(px(CARD_RADIUS)),
+            (Some(_), false) => e.rounded(px(CARD_RADIUS)),
         }
     }
 

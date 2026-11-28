@@ -31,12 +31,18 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
+/// The first brand pair, with grain.
+fn brand_pair() -> store::prefs::sidebar::SpaceLook {
+    let colours = theme::wash::page(1)[0].iter().map(|c| crate::spaces::wash::colour(theme::wash::Dot::from_hls(*c))).collect();
+    store::prefs::sidebar::SpaceLook { colours, intensity: 0.55, grain: 0.3, ..Default::default() }
+}
+
 const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [the notes](https://example.com/notes):\n- [x] read `lexer.rs`\n- [ ] rewrite _tokenize_\n  1. keep ~~the old path~~\n  2. add tests\n> ship behind a flag\n```rust\nfn quiet() {}\n```";
 /// Short enough for its bubble to show whole.
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 353] = [
+const STEPS: [(&str, Step); 354] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -714,10 +720,12 @@ const STEPS: [(&str, Step); 353] = [
     ("space-offline", |d, window, cx| d.switch_space(Space::Host("10-0-4-12".into()), window, cx)),
     // `wash-dark` goes before `theme-card`: the card copies the look as it opens.
     ("wash-devbox", |d, window, cx| {
-        let colours = theme::wash::page(1)[0].iter().map(|c| crate::spaces::wash::colour(theme::wash::Dot::from_hls(*c))).collect();
-        let look = store::prefs::sidebar::SpaceLook { colours, intensity: 0.55, grain: 0.3, ..Default::default() };
-        d.store.sidebar.space_looks.insert("devbox".into(), look);
+        d.store.sidebar.space_looks.insert("devbox".into(), brand_pair());
         d.switch_space(Space::Host("devbox".into()), window, cx);
+    }),
+    ("wash-mac", |d, _, cx| {
+        d.store.sidebar.space_looks.insert(String::new(), brand_pair());
+        cx.notify();
     }),
     ("theme-card", |d, _, cx| d.open_theme_card(cx)),
     ("wash-dark", |d, _, cx| {
