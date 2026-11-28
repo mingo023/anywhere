@@ -39,7 +39,7 @@ public struct PullRequestsHome: View {
                         .padding(.horizontal, Inset.margin)
                         .padding(.top, Inset.margin)
                 }
-                if entries.isEmpty && notices.isEmpty && (loaded || !load) {
+                if groups.isEmpty && notices.isEmpty && (loaded || !load) {
                     if unanswered {
                         Placeholder("Couldn't load pull requests", icon: .cloudOff, detail: "No Mac answered. Try again once one is online.") {
                             Task { await loadAll() }
