@@ -439,7 +439,7 @@ fn name_problem(name: &str, taken: &HashSet<String>) -> Option<&'static str> {
 
 /// `typed`, with `added` after it once there are words to keep.
 fn appended(typed: &str, added: Option<String>) -> String {
-    match added {
+    match added.filter(|a| !a.is_empty()) {
         Some(added) if !typed.trim().is_empty() => format!("{}\n\n{added}", typed.trim_end()),
         Some(added) => added,
         None => typed.to_string(),
@@ -532,7 +532,7 @@ impl NewForm {
         cx: &mut Context<Self>,
     ) -> (bool, bool, Option<String>) {
         let typed = self.prompt.read(cx).value().to_string();
-        let keep = !typed.trim().is_empty() || self.composer.read(cx).draft.has_attachments();
+        let keep = !typed.trim().is_empty() || self.composer.read(cx).draft.sends_without_text();
         let keep_project = keep && prompt.is_none();
         let text = appended(&typed, prompt);
         self.draft.seed = crate::util::now_ms() as usize;
@@ -1178,6 +1178,7 @@ mod tests {
         assert_eq!(appended("Fix CI \n", Some("Explain this".into())), "Fix CI\n\nExplain this");
         assert_eq!(appended(" \n", Some("Explain this".into())), "Explain this");
         assert_eq!(appended("Fix CI", None), "Fix CI");
+        assert_eq!(appended("Fix CI", Some(String::new())), "Fix CI");
     }
 
     #[test]

@@ -98,7 +98,7 @@ impl Render for NewForm {
         };
         let link = (!scratch && pr.is_none() && side.opens).then(|| self.pr_select(cx));
         let prompt = &self.prompt;
-        let empty = prompt.read(cx).value().trim().is_empty() && !self.composer.read(cx).draft.has_attachments();
+        let empty = prompt.read(cx).value().trim().is_empty() && !self.composer.read(cx).draft.sends_without_text();
         let typing = !empty || prompt.read(cx).focus_handle(cx).is_focused(window);
         let ready = self.ready() && side.blocker.is_none();
         let send = send_button("form-start".into(), Action::Send, empty, !ready)
