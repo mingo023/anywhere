@@ -947,13 +947,16 @@ const restart = (ws: Ws, agentId: string) => {
   update(ws, agentId, "working");
   setTimeout(() => reply(ws, agentId), 3000);
 };
-// A prompt sent mid-reply, which Claude takes once the reply's step ends, by agent.
-const steers = new Map<string, () => void>();
-// Prompts steered together reach the transcript in the same millisecond.
+// The prompts sent mid-reply, which Claude takes once the reply's step ends, by agent.
+const steers = new Map<string, string[]>();
 let userSeq = 0;
-const steerLater = (agentId: string, run: () => void) => {
-  const before = steers.get(agentId);
-  steers.set(agentId, before ? () => (before(), run()) : run);
+const steerLater = (agentId: string, text: string) => steers.set(agentId, [...(steers.get(agentId) ?? []), text]);
+// Claude takes the prompts steered together as one, joined by newlines.
+const takeSteers = (ws: Ws, agentId: string) => {
+  const texts = steers.get(agentId);
+  steers.delete(agentId);
+  if (texts) takeTurn(ws, agentId, texts.join("\n"));
+  return !!texts;
 };
 const REPLY = "The transcript jumped because a finished tool's row grew by its output before the list measured it. Rows now keep their height until the next frame measures them, so the list stays pinned to the bottom while text streams in.";
 const CODE_REPLY = "The fold in Rust:\n\n```rust\npub fn fold(items: &[Item]) -> Vec<Row> {\n    let mut rows = Vec::with_capacity(items.len());\n    for item in items {\n        match item.kind.as_str() {\n            \"tool\" => push_tool(&mut rows, item),\n            \"text\" => rows.push(Row::Text { id: item.id.clone() }),\n            _ => rows.push(Row::from(item)),\n        }\n    }\n    rows.dedup_by(|a, b| a.id() == b.id());\n    rows\n}\n```\n\nRows keep their ids, so the list keeps its place.";
@@ -1014,9 +1017,7 @@ const reply = (ws: Ws, agentId: string, text = REPLY, chunks = Number(process.en
     if (n < chunks) return;
     clearInterval(timer);
     streams.delete(agentId);
-    const steer = steers.get(agentId);
-    steers.delete(agentId);
-    if (steer) return steer();
+    if (takeSteers(ws, agentId)) return;
     item(ws, agentId, { id: `r-${Date.now()}`, kind: "result", ok: true, durationMs: 1200, usage: { inputTokens: 12000, outputTokens: 180 } });
     update(ws, agentId, "idle");
     if (task?.status === "working") {
@@ -1223,12 +1224,8 @@ const prompted = (ws: Ws, f: any) => {
   // pocketd shows a slash command as typed, from Claude's <command-name> markup; the fixture runs none.
   else if (!process.env.FIXTURE_DROP && f.text.startsWith("/")) item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
   else if (!process.env.FIXTURE_DROP) {
-    const answer = () => {
-      item(ws, f.agentId, { id: `u-${Date.now()}-${++userSeq}`, kind: "user", text: f.text });
-      reply(ws, f.agentId);
-    };
-    if (streams.has(f.agentId)) steerLater(f.agentId, answer);
-    else answer();
+    if (streams.has(f.agentId)) steerLater(f.agentId, f.text);
+    else takeTurn(ws, f.agentId, f.text);
   }
 };
 const delivered = new Set<string>();
@@ -1349,7 +1346,7 @@ Bun.serve({
       // As pocketd: the entry leaves the list once it goes into the turn, and the agent takes it only as the step underway ends.
       if (f.type === "queue.send_now") {
         const e = take(ws, f.agentId, f.entryId);
-        if (e && streams.has(f.agentId)) steerLater(f.agentId, () => takeTurn(ws, f.agentId, e.text));
+        if (e && streams.has(f.agentId)) steerLater(f.agentId, e.text);
         else if (e) takeTurn(ws, f.agentId, e.text);
       }
       if (f.type === "agent.commands") {
@@ -1428,12 +1425,10 @@ Bun.serve({
         ws.send(JSON.stringify({ type: "agent.providers", id: f.id, providers, maxAccess: "full", phoneMaxAccess: "ask" }));
       }
       if (f.type === "agent.send_now") {
-        const steer = steers.get(f.agentId);
-        steers.delete(f.agentId);
-        if (steer) {
+        if (steers.has(f.agentId)) {
           clearInterval(streams.get(f.agentId));
           streams.delete(f.agentId);
-          steer();
+          takeSteers(ws, f.agentId);
         }
       }
       if (f.type === "permission.resolve") ws.send(JSON.stringify({ type: "permission.resolved", requestId: f.requestId, decision: f.decision }));

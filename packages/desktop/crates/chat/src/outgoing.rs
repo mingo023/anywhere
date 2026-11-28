@@ -185,9 +185,10 @@ impl Outgoing {
         let since = self.idle_since;
         self.sends.retain(|s| !(s.delivery == Delivery::Steered && command(&s.text) && idle && s.sent_at <= since));
         let (claimed, before) = (&mut self.claimed, self.sends.len());
-        self.sends.retain(|send| {
-            if send.delivery == Delivery::Queued && !send.stopped {
-                return true;
+        let mut settled = Vec::new();
+        for send in &self.sends {
+            if send.delivery == Delivery::Queued && !send.stopped || settled.contains(&send.id) {
+                continue;
             }
             let prompt = t
                 .turns
@@ -197,10 +198,12 @@ impl Outgoing {
                 .take_while(|p| p.at >= send.sent_at - SKEW_MS)
                 .filter(|p| !claimed.contains(&p.id) && same_text(&p.text, &send.text))
                 .last();
-            let Some(prompt) = prompt else { return true };
+            let Some(prompt) = prompt else { continue };
             claimed.push(prompt.id.clone());
-            false
-        });
+            settled.push(send.id);
+            settled.extend(joined_before(&self.sends, send, &prompt.text));
+        }
+        self.sends.retain(|send| !settled.contains(&send.id));
         // Once the opening command echoed, its transcript says whether the agent is at work.
         let pending = self.sends.iter().any(|s| s.delivery == Delivery::Sending && command(&s.text));
         self.command = self.command.filter(|ran| !ran.opening || pending);
@@ -411,6 +414,25 @@ fn command(text: &str) -> bool {
 fn same_text(echo: &str, sent: &str) -> bool {
     let (echo, sent) = (tidy(echo), tidy(sent));
     echo.ends_with(&sent)
+}
+
+/// Claude takes the prompts steered into a turn as one, joined by newlines in the order they went. The ids of the sends
+/// that went before `last` whose text makes up the rest of `echo`, once `last`'s text (which `echo` ends with) is taken off.
+fn joined_before(sends: &[Pending], last: &Pending, echo: &str) -> Vec<u64> {
+    let mut rest = tidy(echo);
+    rest.truncate(rest.len() - tidy(&last.text).len());
+    let mut before: Vec<_> =
+        sends.iter().rev().filter(|s| s.id != last.id && s.sent_at <= last.sent_at && in_flight(s.delivery) && !command(&s.text)).collect();
+    // A send steered from the queue keeps its place in the list, so the list's order isn't the order they went.
+    before.sort_by_key(|s| std::cmp::Reverse(s.sent_at));
+    let mut ids = Vec::new();
+    for send in before {
+        let head = rest.trim_end();
+        let Some(left) = head.strip_suffix(tidy(&send.text).as_str()) else { break };
+        rest = left.to_string();
+        ids.push(send.id);
+    }
+    ids
 }
 
 fn tidy(text: &str) -> String {
@@ -898,6 +920,39 @@ mod tests {
             Transcript { turns: vec![turn("u1", 0, "long job", false), turn("u2", 1_000, "ok?", false), turn("u3", 1_100, "run the store tests too", false)] };
         o.settle(&taken, true, 3_000);
         assert!(waiting(&o).is_empty() && !o.sending_now());
+    }
+
+    #[test]
+    fn steers_the_agent_takes_as_one_prompt_all_settle_on_its_echo() {
+        let mut o = Outgoing::default();
+        o.steer_text("push it to the mini, I have to shut this one down".into(), 1_000);
+        o.steer_text("M1".into(), 1_100);
+        assert!(o.send_now(2_000));
+        let taken =
+            Transcript { turns: vec![turn("u1", 0, "long job", true), turn("u2", 2_100, "push it to the mini, I have to shut this one down\nM1", false)] };
+        o.settle(&taken, true, 3_000);
+        assert!(waiting(&o).is_empty() && !o.sending_now());
+    }
+
+    #[test]
+    fn a_queued_send_steered_after_another_settles_with_it_in_the_order_sent() {
+        let mut o = Outgoing::default();
+        o.push("from the tray".into(), true, 500);
+        o.steer_text("typed".into(), 1_000);
+        o.steer(id(&o, "from the tray"), 1_500);
+        let taken = Transcript { turns: vec![turn("u1", 0, "long job", true), turn("u2", 2_100, "typed\nfrom the tray", false)] };
+        o.settle(&taken, true, 3_000);
+        assert!(waiting(&o).is_empty());
+    }
+
+    #[test]
+    fn a_steer_left_out_of_the_prompt_the_agent_took_keeps_waiting() {
+        let mut o = Outgoing::default();
+        o.steer_text("also check the docs".into(), 1_000);
+        o.steer_text("M1".into(), 1_100);
+        let taken = Transcript { turns: vec![turn("u1", 0, "long job", true), turn("u2", 2_100, "something else\nM1", false)] };
+        o.settle(&taken, true, 3_000);
+        assert_eq!(waiting(&o), ["also check the docs"]);
     }
 
     #[test]
