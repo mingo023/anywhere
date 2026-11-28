@@ -124,6 +124,19 @@ func eachToolReadsAsAVerb() {
     }
 }
 
+@Test("a finished call reads in the past tense, and a command it ran as Ran")
+func aFinishedCallReadsInThePast() {
+    let call = { (name: String, kind: ToolKind) in Call(id: "t", name: name, kind: kind, status: .ok) }
+    #expect(pastVerb(call("Read", .read(path: "a"))) == "Read")
+    #expect(pastVerb(call("Edit", .edit(path: "a", diff: nil))) == "Edited")
+    #expect(pastVerb(call("Write", .write(path: "a", diff: nil))) == "Created")
+    #expect(pastVerb(call("Grep", .search(query: "x"))) == "Searched")
+    #expect(pastVerb(call("WebFetch", .fetch(url: "https://x.dev"))) == "Fetched")
+    #expect(pastVerb(call("Bash", .shell(command: "ls"))) == "Ran")
+    #expect(pastVerb(call("TaskStop", .shell(command: "bun run dev"))) == "Stopped")
+    #expect(pastVerb(call("NotebookEdit", .other(input: "{}", description: ""))) == "")
+}
+
 private func subTool(_ id: String, _ status: CallStatus) -> Block {
     .tool(Call(id: id, name: "Bash", kind: .shell(command: "ls"), status: status))
 }

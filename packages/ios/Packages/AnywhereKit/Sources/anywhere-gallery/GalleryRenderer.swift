@@ -20,7 +20,10 @@ enum GalleryRenderer {
     /// and in a debug build each pass can outlast the whole wait. `insets` is the safe area the scene lays out in.
     static func render(_ scene: GalleryScene, insets: EdgeInsets = EdgeInsets(), settle: TimeInterval = 0.4, turns: Int = 8) -> Image? {
         let appearance = NSAppearance(named: scene.dark ? .darkAqua : .aqua)
+        // As on a phone: no scrollers at rest, and no window toolbar behind the status bar.
         let root = scene.view()
+            .scrollIndicators(.hidden)
+            .toolbarBackground(.hidden, for: .windowToolbar)
             .safeAreaPadding(insets)
             .environment(\.colorScheme, scene.dark ? .dark : .light)
             // Drawn as in a focused window, so prominent buttons show their fill.

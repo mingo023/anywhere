@@ -85,8 +85,14 @@ public enum FilesGallery {
     ) -> some View {
         let files = FilesStore()
         let preview = files.preview(tree: tree, path: path)
-        _ = files.apply(.fsRead(FsRead(tree: tree, path: path, kind: .text, size: text.utf8.count, mtime: Sample.now, text: text, language: language)))
+        let read = ServerMessage.fsRead(FsRead(tree: tree, path: path, kind: .text, size: text.utf8.count, mtime: Sample.now, text: text, language: language))
+        _ = files.apply(read)
+        // The screen asks again on appear, which a store with no Mac fails; the answer landing after clears that.
         return NavigationStack { FilePreviewScreen(files: files, preview: preview, context: context) }
+            .task {
+                try? await Task.sleep(for: .milliseconds(100))
+                _ = files.apply(read)
+            }
     }
 }
 

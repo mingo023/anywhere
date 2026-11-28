@@ -114,6 +114,7 @@ public enum LaunchGallery {
                         Capsule().fill(Palette.text4.color.opacity(0.7)).frame(width: 36, height: 5).padding(.top, 6)
                     }
                     .padding(.top, top)
-            })
+            }
+            .ignoresSafeArea(edges: .top))
     }
 }

@@ -53,6 +53,8 @@ func run(_ all: [String]) throws -> Int32 {
     let out = URL(fileURLWithPath: args[1], isDirectory: true)
     let filter = args.count > 2 ? args[2] : nil
     try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+    // `.scrollIndicators(.hidden)` doesn't hide AppKit's legacy scrollers, which a system set to always show them draws.
+    UserDefaults.standard.setVolatileDomain(["AppleShowScrollBars": "WhenScrolling"], forName: UserDefaults.argumentDomain)
     NSApplication.shared.setActivationPolicy(.prohibited)
 
     guard let check = GalleryRenderer.render(lazyCheck()), check.variance > 100 else {
