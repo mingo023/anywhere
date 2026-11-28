@@ -1,3 +1,5 @@
+use super::theme_card::ThemeCard;
+use super::wash::dot;
 use super::{HOST_ICONS, Reach, Space, colour, glyph, kept_name, space_of};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Confirm;
@@ -36,7 +38,7 @@ pub(crate) enum HeaderEvent {
     Reconnect(String),
     Rename { id: String, text: String },
     Icon { id: String, icon: &'static str },
-    Colour { id: String, colour: u32 },
+    EditTheme,
     Remove { id: String, name: String },
 }
 
@@ -45,6 +47,8 @@ pub(crate) struct SpaceHeader {
     head: Head,
     menu: bool,
     rename: Option<HostRename>,
+    card: Entity<ThemeCard>,
+    _card: Subscription,
 }
 
 impl EventEmitter<HeaderEvent> for SpaceHeader {}
@@ -59,8 +63,10 @@ pub(crate) fn tile(glyph: &str, tint: Option<u32>, size: f32) -> Div {
 }
 
 impl SpaceHeader {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(card: Entity<ThemeCard>, cx: &mut Context<Self>) -> Self {
         Self {
+            _card: cx.observe(&card, |_, _, cx| cx.notify()),
+            card,
             head: Head {
                 space: Space::Local,
                 name: String::new(),
@@ -83,8 +89,8 @@ impl SpaceHeader {
         }
     }
 
-    pub(crate) fn menu_open(&self) -> bool {
-        self.menu
+    pub(crate) fn menu_open(&self, cx: &App) -> bool {
+        self.menu || self.card.read(cx).is_open()
     }
 
     pub(crate) fn open(&mut self, cx: &mut Context<Self>) {
@@ -93,6 +99,7 @@ impl SpaceHeader {
     }
 
     pub(crate) fn shut(&mut self, cx: &mut Context<Self>) {
+        self.card.update(cx, |c, cx| c.shut(cx));
         if self.menu {
             self.menu = false;
             cx.notify();
@@ -109,6 +116,7 @@ impl SpaceHeader {
 
     pub(crate) fn reset(&mut self, cx: &mut Context<Self>) {
         (self.menu, self.rename) = (false, None);
+        self.card.update(cx, |c, cx| c.shut(cx));
         cx.notify();
     }
 
@@ -145,6 +153,10 @@ impl SpaceHeader {
                     cx.emit(HeaderEvent::HostSettings);
                 }),
             );
+        let theme = ui::menu_row("space-theme", "palette", "Edit theme\u{2026}", None).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.menu = false;
+            cx.emit(HeaderEvent::EditTheme);
+        }));
         let menu = ui::pop(div().id("aside-space-menu"))
             .w(px(250.))
             .p(px(6.))
@@ -156,7 +168,7 @@ impl SpaceHeader {
                 cx.notify();
             }))
             .child(terminal);
-        let Some(id) = space.host().map(str::to_string) else { return menu.child(settings) };
+        let Some(id) = space.host().map(str::to_string) else { return menu.child(settings).child(theme) };
         let reconnect = (self.head.reach == Reach::Offline).then(|| {
             let id = id.clone();
             ui::menu_row("space-reconnect", "reload", "Reconnect", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -186,21 +198,6 @@ impl SpaceHeader {
                 .child(icon(g, 14., if chosen_icon == g { TEXT } else { TEXT_2 }))
                 .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(HeaderEvent::Icon { id: id.clone(), icon: g })))
         });
-        let chosen = self.head.tint;
-        let swatches = ACCENT_SWATCHES.map(|c| {
-            let id = id.clone();
-            div()
-                .id(("space-colour", c as usize))
-                .size(px(20.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded_full()
-                .cursor_pointer()
-                .when(chosen == Some(c), |d| d.border_1().border_color(TEXT_3))
-                .child(div().size(px(16.)).rounded_full().bg(rgb(c)))
-                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(HeaderEvent::Colour { id: id.clone(), colour: c })))
-        });
         let remove = ui::danger_row("space-remove", "trash", "Remove host\u{2026}").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.menu = false;
             cx.emit(HeaderEvent::Remove { id: id.clone(), name: name.clone() });
@@ -208,9 +205,8 @@ impl SpaceHeader {
         menu.children(reconnect)
             .child(rename)
             .child(settings)
+            .child(theme)
             .child(ui::menu_divider())
-            .child(ui::menu_label("Color"))
-            .child(div().flex().gap(px(4.)).px(px(8.)).pb(px(6.)).children(swatches))
             .child(ui::menu_label("Icon"))
             .child(div().flex().gap(px(2.)).px(px(6.)).pb(px(6.)).children(icons))
             .child(ui::menu_divider())
@@ -260,14 +256,24 @@ impl Render for SpaceHeader {
                 cx.listener(|_, _: &MouseDownEvent, _, cx| cx.emit(HeaderEvent::OpenMenu)),
             ),
         };
-        div().relative().flex_none().child(row).when(open, |d| d.child(ui::dropdown(40., ui::menu_in("aside-space-menu-in", self.space_menu(cx)))))
+        let card = self.card.read(cx).is_open().then(|| {
+            div().absolute().top_0().right(px(-16.)).child(deferred(anchored().snap_to_window_with_margin(px(8.)).child(self.card.clone())).with_priority(1))
+        });
+        div()
+            .relative()
+            .flex_none()
+            .child(row)
+            .when(open, |d| d.child(ui::dropdown(40., ui::menu_in("aside-space-menu-in", self.space_menu(cx)))))
+            .children(card)
     }
 }
 
 impl Desktop {
-    /// `space`'s colour: the one chosen for it, else the palette's by its place in the switcher.
+    /// `space`'s colour: its theme's first, else the one chosen for it, else the palette's by its place in the switcher.
     pub(crate) fn space_colour(&self, space: &Space, order: &[Space]) -> Option<u32> {
-        colour(space, &self.store.sidebar.space_colours, order.iter().position(|s| s == space).unwrap_or_default())
+        let lead = self.space_look(space).and_then(|l| l.colours.first());
+        lead.map(|c| theme::wash::tile(dot(*c)))
+            .or_else(|| colour(space, &self.store.sidebar.space_colours, order.iter().position(|s| s == space).unwrap_or_default()))
     }
 
     /// `space`'s icon: the one chosen for it, else This Mac's or a server.
@@ -313,10 +319,7 @@ impl Desktop {
                 self.store.sidebar.space_icons.insert(id.clone(), icon.to_string());
                 self.save_soon(cx);
             }
-            HeaderEvent::Colour { id, colour } => {
-                self.store.sidebar.space_colours.insert(id.clone(), *colour);
-                self.save_soon(cx);
-            }
+            HeaderEvent::EditTheme => self.open_theme_card(cx),
             HeaderEvent::Remove { id, name } => {
                 self.ask(Confirm::RemoveHost { id: id.clone(), name: name.clone() }, cx);
             }

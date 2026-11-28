@@ -125,6 +125,12 @@ pub(crate) fn active(a: &Appearance, custom: &[Custom], system_dark: bool) -> Th
     find(custom, id).cloned().unwrap_or_else(|| Theme::graphite(system_dark))
 }
 
+/// The theme to paint while macOS is `system_dark` and the space on screen asks for `space`: a chosen theme of the other appearance gives way to Graphite.
+pub(crate) fn painted(a: &Appearance, custom: &[Custom], system_dark: bool, space: Option<bool>) -> Theme {
+    let Some(dark) = space else { return active(a, custom, system_dark) };
+    Some(active(a, custom, dark)).filter(|t| t.dark == dark).unwrap_or_else(|| Theme::graphite(dark))
+}
+
 /// Whether the theme saved as `id` is one the window can be painting.
 pub(crate) fn in_use(a: &Appearance, custom: &[Custom], id: &str) -> bool {
     match chosen(a) {
@@ -182,17 +188,17 @@ fn bring_back(a: &mut Appearance, id: &str, dark: bool, held: Held) {
 }
 
 impl Desktop {
-    /// Paints the chosen theme and forces its appearance on the window.
+    /// Paints the chosen theme and forces its appearance, or the space on screen's, on the window.
     pub(crate) fn apply_theme(&mut self, cx: &mut Context<Self>) {
-        let forced = forced(&self.store.appearance, &self.themes.custom);
+        let forced = self.spaces.look_dark.or_else(|| forced(&self.store.appearance, &self.themes.custom));
         cx.set_window_appearance(forced.map(|dark| if dark { WindowAppearance::Dark } else { WindowAppearance::Light }));
         // AppKit tells the window when its appearance changes, but not when a theme of the same appearance replaces another.
-        self.paint_theme(forced.unwrap_or(theme::is_dark()), cx);
+        self.paint_theme(forced.unwrap_or_else(|| theme::dark(cx.window_appearance())), cx);
     }
 
     /// Paints the theme chosen for when macOS is `system_dark`. Diff and commit rows hold the colours they were highlighted with.
     pub(crate) fn paint_theme(&mut self, system_dark: bool, cx: &mut Context<Self>) {
-        theme::set_theme(&active(&self.store.appearance, &self.themes.custom, system_dark), cx);
+        theme::set_theme(&painted(&self.store.appearance, &self.themes.custom, system_dark, self.spaces.look_dark), cx);
         self.recolor_diff(cx);
         self.recolor_commit(cx);
         cx.notify();
@@ -293,7 +299,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Custom, SYSTEM, Themes, active, bring_back, choose, chosen, find, forced, forget, held, import, in_use, load, name, system_theme};
+    use super::{Custom, SYSTEM, Themes, active, bring_back, choose, chosen, find, forced, forget, held, import, in_use, load, name, painted, system_theme};
     use store::{Appearance, Mode};
     use theme::{GRAPHITE_DARK, GRAPHITE_LIGHT, TEXT, Theme};
 
@@ -477,6 +483,16 @@ mod tests {
             [name(&mine, "custom/my-theme"), name(&mine, "dracula"), name(&mine, SYSTEM), name(&[], "custom/my-theme"), name(&[], "nothing")],
             ["My Theme", "Dracula", "System", "my-theme", "nothing"]
         );
+    }
+
+    #[test]
+    fn a_light_or_dark_space_paints_the_chosen_theme_only_when_it_is_of_that_appearance() {
+        let mine = [custom("Night", true)];
+        let chose = appearance("custom/night");
+        assert_eq!(painted(&chose, &mine, false, None).name, "Night");
+        assert_eq!(painted(&chose, &mine, false, Some(true)).name, "Night");
+        assert_eq!(painted(&chose, &mine, true, Some(false)), Theme::graphite(false));
+        assert_eq!(painted(&Appearance::default(), &[], false, Some(true)), Theme::graphite(true));
     }
 
     #[test]
