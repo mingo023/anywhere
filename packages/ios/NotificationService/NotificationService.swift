@@ -13,9 +13,10 @@ final class NotificationService: UNNotificationServiceExtension {
         guard let content = request.content.mutableCopy() as? UNMutableNotificationContent else { return contentHandler(request.content) }
         best = content
         if let e = content.userInfo["e"] as? String, let notice = NoticeBox.open(e, keys: Self.keys()) {
-            content.title = notice.title
-            content.subtitle = notice.place
-            content.body = notice.line
+            let text = BannerText(notice)
+            content.title = text.title
+            content.subtitle = text.subtitle
+            content.body = text.body
             content.targetContentIdentifier = notice.targetContentIdentifier
             content.relevanceScore = notice.relevance
             content.userInfo = notice.userInfo
@@ -39,4 +40,21 @@ final class NotificationService: UNNotificationServiceExtension {
         }
         return keys
     }
+}
+
+/// What a banner says, as the design's Needs you banner reads: what it is, what it asks, and where. pocketd's `line` is the
+/// ask, a reply's first paragraph, or the kind's own word when there is nothing else; then the session's title says more.
+struct BannerText: Equatable {
+    var title: String
+    var subtitle: String
+    var body: String
+
+    init(_ notice: Notice) {
+        let kind = Self.words[notice.kind]
+        title = kind ?? notice.title
+        subtitle = kind == nil ? notice.place : notice.line == kind ? notice.title : notice.line
+        body = kind == nil ? notice.line : notice.place
+    }
+
+    private static let words = ["needsYou": "Needs you", "done": "Done", "failed": "Failed"]
 }

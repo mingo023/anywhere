@@ -6,6 +6,7 @@ import Wire
 enum AutomationText {
     private static let days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
     private static let daysPlural = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"]
+    private static let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
     /// "Weekdays at 09:00", "Fridays at 17:00", "Every 2 hours".
     static func when(_ s: Schedule) -> String {
@@ -21,23 +22,61 @@ enum AutomationText {
         }
     }
 
-    /// "Weekdays at 09:00 · next 09:00"; just the schedule while paused.
-    static func trigger(_ a: Automation, now: Int, timeZone: TimeZone = .current) -> String {
-        guard a.enabled, let next = a.nextRunAt, next > 0 else { return when(a.schedule) }
-        return "\(when(a.schedule)) · next \(TimeText.when(ms: next, now: now, timeZone: timeZone))"
+    /// One automation's row: its schedule and where it runs, its last run, and whether it can be switched or run now.
+    struct Line: Hashable, Identifiable {
+        let id: String
+        let name: String
+        let detail: String
+        let last: String
+        let failed: Bool
+        let enabled: Bool
+        let reachable: Bool
+        /// The session the last run started, to open.
+        let agentId: String?
     }
 
-    /// What a run's row says: what needs a look, or when a good one ran.
-    static func last(_ r: Run, now: Int, timeZone: TimeZone = .current) -> String {
-        switch r.status {
+    /// "Every day at 02:00 · anywhere · MacBook Pro", with the last run under it.
+    static func line(_ a: Automation, last: Run?, project: String?, mac: String, reachable: Bool, now: Int, timeZone: TimeZone = .current) -> Line {
+        Line(
+            id: a.id, name: a.name, detail: [when(a.schedule), project, mac].compactMap(\.self).joined(separator: " · "),
+            last: lastRun(last, reachable: reachable, now: now, timeZone: timeZone),
+            failed: reachable && last?.status == .failed, enabled: a.enabled, reachable: reachable,
+            agentId: reachable ? last?.agentId : nil)
+    }
+
+    /// "Last run 6h ago · Finished"; a Mac that can't be reached can't say how it is, so "Mac offline · last run Nov 17".
+    static func lastRun(_ r: Run?, reachable: Bool, now: Int, timeZone: TimeZone = .current) -> String {
+        guard reachable else {
+            return ["Mac offline", r.map { "last run \(monthDay(ms: $0.startedAt, timeZone: timeZone))" }].compactMap(\.self).joined(separator: " · ")
+        }
+        guard let r else { return "Not run yet" }
+        let ago = TimeText.ago(ms: r.startedAt, now: now)
+        let phrase = ["now": "just now", "yesterday": "yesterday"][ago] ?? "\(ago) ago"
+        return ["Last run \(phrase)", status(r.status)].compactMap(\.self).joined(separator: " · ")
+    }
+
+    /// The project whose folder holds an automation's, by its name.
+    static func project(of folder: String, in projects: [Project]) -> String? {
+        projects.first { folder == $0.path || folder.hasPrefix($0.path + "/") }?.name
+    }
+
+    private static func status(_ s: RunStatus) -> String? {
+        switch s {
         case .waiting: "Needs you"
         case .running, .pending: "Working"
-        case .succeeded: TimeText.when(ms: r.startedAt, now: now, timeZone: timeZone)
+        case .succeeded: "Finished"
         case .failed: "Failed"
         case .skipped: "Skipped"
         case .cancelled: "Stopped"
-        default: ""
+        default: nil
         }
+    }
+
+    private static func monthDay(ms: Int, timeZone: TimeZone) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let day = calendar.dateComponents([.month, .day], from: Date(timeIntervalSince1970: Double(ms) / 1000))
+        return "\(months[(day.month ?? 1) - 1]) \(day.day ?? 1)"
     }
 
     private static func daysText(_ list: [Int]) -> String {

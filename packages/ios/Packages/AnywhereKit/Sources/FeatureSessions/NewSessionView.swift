@@ -5,10 +5,9 @@ import Stores
 import SwiftUI
 import Wire
 
-/// The new session sheet: a calm headline over the desktop's ASCII field, and at the bottom a composer holding every
-/// control: the prompt, the pills for agent, model and access, and where it runs. Starting shows pocketd's steps, then
-/// opens the chat; hidden, the start goes on as a row under its project. Offline, the prompt can still be written, and
-/// Start waits for the Mac.
+/// The new session sheet: the prompt in large type, and at the bottom the chips for where it runs and with what, over
+/// Start. Starting shows pocketd's steps, then opens the chat; hidden, the start goes on as a row under its project.
+/// Offline, the prompt can still be written, and Start waits for the Mac.
 @MainActor
 struct NewSessionView: View {
     let host: HostModel
@@ -20,8 +19,6 @@ struct NewSessionView: View {
     @State private var requestId: String?
     @State private var worktreeOptions = false
     @State private var providersError: String?
-    @State private var fieldSize = CGSize.zero
-    @State private var headlineFrame = CGRect.zero
     @FocusState private var focused: Bool
     @Environment(\.dismiss) private var dismiss
 
@@ -56,13 +53,11 @@ struct NewSessionView: View {
             if let requestId {
                 LaunchProgress(host: host, mac: mac, requestId: requestId)
             } else {
-                compose.toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                }
+                compose
             }
         }
         #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
         #endif
         .sheet(isPresented: $worktreeOptions) {
             NavigationStack {
@@ -87,7 +82,9 @@ struct NewSessionView: View {
                 Task { await loadBranches() }
             }
         }
-        .onAppear { focused = true }
+        #if os(iOS)
+            .onAppear { focused = true }
+        #endif
         .onChange(of: draft.provider) { _, provider in Task { try? await workspace.loadAccounts(provider: provider.rawValue) } }
         .onChange(of: draft.project) { _, _ in Task { await loadBranches() } }
     }
@@ -95,105 +92,102 @@ struct NewSessionView: View {
     // MARK: Compose
 
     private var compose: some View {
-        VStack(spacing: Space.s) {
-            field
-            VStack(spacing: Space.s) {
+        VStack(spacing: 0) {
+            header
+            ScrollView {
+                VStack(alignment: .leading, spacing: Space.l) {
+                    prompt
+                    if !images.list.isEmpty {
+                        AttachmentStrip(images: images.list, locked: false, detach: { images.detach($0) }, retry: { images.retry($0) })
+                    }
+                    AttachMenu(enabled: true, attach: attach, unreadable: { images.unreadable() })
+                        .frame(width: 40, height: 40)
+                        .background(Palette.fill3.color, in: Circle())
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, Space.xl)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            VStack(alignment: .leading, spacing: 0) {
                 note
-                composer
+                chips
+                startButton
             }
-            .padding(.horizontal, Space.m)
             .frame(maxWidth: 744)
+            .padding(.bottom, Space.s)
         }
-        .padding(.bottom, Space.s)
         .frame(maxWidth: .infinity)
-        .screenBackground()
+        .background(Palette.surface.color.ignoresSafeArea())
     }
 
-    /// The open space: the field, and the headline while there's room for it above the keyboard.
-    private var field: some View {
+    private var header: some View {
         ZStack {
-            AsciiField(content: fieldContent, rest: fieldRest)
-            ViewThatFits(in: .vertical) {
-                headline
-                Color.clear.onAppear { headlineFrame = .zero }
+            Text("New session").font(.system(size: 17, weight: .semibold)).foregroundStyle(Palette.text.color)
+            HStack {
+                Button { dismiss() } label: { LucideIcon(.close, size: 16).foregroundStyle(Palette.text.color).frame(width: 36, height: 36) }
+                    .buttonStyle(.plain)
+                    .background(Palette.fill3.color, in: Circle())
+                    .accessibilityLabel("Close")
+                Spacer()
             }
         }
-        .coordinateSpace(.named(Self.fieldSpace))
-        .onGeometryChange(for: CGSize.self, of: \.size) { fieldSize = $0 }
+        .padding(.horizontal, Space.l)
+        .padding(.top, 11)
+        .frame(height: 55)
     }
 
-    nonisolated private static let fieldSpace = "field"
-
-    private var headline: some View {
-        VStack(spacing: Space.xs) {
-            Text("What should we build next?")
-                .font(.system(.title, weight: .semibold))
-                .foregroundStyle(Palette.text.color)
-            if let name = project?.name {
-                Text(name).font(Typography.subheadline).foregroundStyle(Palette.text3.color)
-            }
-        }
-        .multilineTextAlignment(.center)
-        .padding(.horizontal, Space.xl)
-        .allowsHitTesting(false)
-        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.fieldSpace)) }) { headlineFrame = $0 }
-    }
-
-    /// What the field fades around: the headline, and the composer along its bottom edge.
-    private var fieldContent: [CGRect] {
-        guard fieldSize != .zero else { return [] }
-        let composer = CGRect(x: 0, y: fieldSize.height, width: fieldSize.width, height: 1)
-        return headlineFrame.isEmpty ? [composer] : [headlineFrame, composer]
-    }
-
-    /// Where the lens rests: above the headline, so every state shows some of the map.
-    private var fieldRest: CGPoint {
-        CGPoint(x: fieldSize.width / 2, y: headlineFrame.isEmpty ? fieldSize.height / 2 : max(30, headlineFrame.minY - 76))
+    private var prompt: some View {
+        TextField("Prompt", text: $draft.prompt, prompt: Text("What should we build next?").foregroundStyle(Palette.text4.color), axis: .vertical)
+            .font(.system(size: 28, weight: .bold))
+            .foregroundStyle(Palette.text.color)
+            .textFieldStyle(.plain)
+            .focused($focused)
+            #if os(iOS)
+                .pastesImages(attach)
+            #endif
+            .padding(.horizontal, 4)
     }
 
     @ViewBuilder
     private var note: some View {
-        if let wait = Self.waiting(online: online, providers: providers != nil, failed: providersError != nil, mac: host.name) {
-            Text(wait).font(Typography.footnote).foregroundStyle(Palette.text3.color).frame(maxWidth: .infinity, alignment: .leading)
+        if let wait = Self.waiting(online: online, providers: providers != nil, failed: providersError != nil, mac: host.name, asOf: host.staleAsOf(at: .now)) {
+            noteLine(wait, color: Palette.text2)
         } else if let providersError {
             HStack {
-                Text(providersError).font(Typography.footnote).foregroundStyle(Palette.failedText.color)
+                Text(providersError).font(.system(size: 13)).foregroundStyle(Palette.failedText.color)
                 Spacer(minLength: Space.s)
-                Button { Task { await load() } } label: { Text("Try Again").hitTarget() }.font(Typography.footnote.weight(.semibold))
+                Button { Task { await load() } } label: { Text("Try Again").hitTarget() }.font(.system(size: 13, weight: .semibold))
             }
+            .padding(.horizontal, 24)
+            .padding(.bottom, Space.s)
         } else if let problem = problem ?? images.notice {
-            Text(problem).font(Typography.footnote).foregroundStyle(Palette.failedText.color).frame(maxWidth: .infinity, alignment: .leading)
+            noteLine(problem, color: Palette.failedText)
         }
     }
 
-    private var composer: some View {
-        VStack(alignment: .leading, spacing: Space.s) {
-            if !images.list.isEmpty {
-                AttachmentStrip(images: images.list, locked: false, detach: { images.detach($0) }, retry: { images.retry($0) })
+    private func noteLine(_ text: String, color: Token) -> some View {
+        Text(text)
+            .font(.system(size: 13))
+            .foregroundStyle(color.color)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.bottom, Space.m)
+    }
+
+    private var chips: some View {
+        FlowLayout(spacing: Space.s) {
+            Chip(text: host.name) { if !online { Circle().fill(Palette.text4.color).frame(width: 7, height: 7) } }
+            projectMenu
+            placeChip
+            if draft.place == .newWorktree {
+                Button { worktreeOptions = true } label: { Chip(text: branchLabel, mono: true) }.buttonStyle(.plain)
             }
-            TextField("Prompt", text: $draft.prompt, prompt: Text("Describe the task…"), axis: .vertical)
-                .lineLimit(1...8)
-                .font(Typography.body)
-                .textFieldStyle(.plain)
-                .focused($focused)
-                #if os(iOS)
-                    .pastesImages(attach)
-                #endif
-                .padding(.horizontal, 4)
-                .padding(.top, 4)
-            HStack(spacing: Space.xs) {
-                agentMenu
-                modelMenu
-                accessMenu
-                Spacer(minLength: Space.s)
-                AttachMenu(enabled: true, attach: attach, unreadable: { images.unreadable() })
-                startButton
-            }
-            Palette.hairline.color.frame(height: 1)
-            where_
+            agentMenu
+            modelMenu
+            optionsMenu
         }
-        .padding(Space.s)
-        .raised(in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous), fill: Palette.surfaceRaised)
+        .padding(.horizontal, Space.l)
     }
 
     private func attach(_ data: Data, _ name: String, _ thumbnail: Data?) {
@@ -210,17 +204,53 @@ struct NewSessionView: View {
                 start()
             }
         } label: {
-            Image(systemName: "arrow.up")
-                .font(.system(size: 15, weight: .bold))
+            Text("Start")
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle((blocked ? Palette.text4 : Palette.onText).color)
-                .frame(width: 36, height: 36)
-                .background((blocked ? Palette.fill3 : Palette.text).color, in: Circle())
-                .hitTarget()
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background((blocked ? Palette.fill3 : Palette.text).color, in: Capsule())
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .disabled(blocked)
-        .accessibilityLabel("Start")
+        .padding(.horizontal, 20)
+        .padding(.top, Space.l)
         .confirmsFullAccess($confirmingStart, who: AgentName.label(draft.provider.rawValue), action: "Start with Full", confirm: start)
+    }
+
+    private var projectMenu: some View {
+        Menu {
+            Picker("Project", selection: Binding(get: { draft.project }, set: { draft.pick(project: $0) })) {
+                ForEach(workspace.projects) { Text($0.name).tag($0.path) }
+            }
+        } label: {
+            Chip(text: project?.name ?? "Project")
+        }
+        .chipMenu()
+        .disabled(workspace.projects.count < 2)
+    }
+
+    /// The desktop's footer choice: a new Worktree or Local, or the workspace a session was asked for from.
+    @ViewBuilder
+    private var placeChip: some View {
+        if let existing {
+            Chip(text: existing.label)
+        } else {
+            let place = places.first { $0.place == draft.place }
+            Menu {
+                // Buttons, not a Picker: only a button's second text shows as the item's subtitle.
+                ForEach(places) { option in
+                    Button { draft.place = option.place } label: {
+                        Label { Text(option.label) } icon: { Image.lucide(option.place == draft.place ? .check : option.icon, size: 16) }
+                        if let hint = option.hint { Text(hint) }
+                    }
+                }
+            } label: {
+                Chip(text: place?.label ?? "Worktree")
+            }
+            .chipMenu()
+        }
     }
 
     private var agentMenu: some View {
@@ -228,20 +258,10 @@ struct NewSessionView: View {
             Picker("Agent", selection: Binding(get: { draft.provider }, set: { draft.pick(provider: $0) })) {
                 ForEach(providers?.providers.filter(\.available) ?? [], id: \.id) { Text(AgentName.label($0.id)).tag(ProviderId(rawValue: $0.id)) }
             }
-            if info?.plan == true { Toggle("Plan First", isOn: $draft.plan) }
-            Toggle("Chat Only", isOn: $draft.chat)
-            if let accounts = workspace.accounts[draft.provider.rawValue]?.filter(\.signedIn), !accounts.isEmpty {
-                // pocketd picks the project's account, else the Mac's default.
-                Picker("Account", selection: $draft.account) {
-                    Text("Default Account").tag(String?.none)
-                    ForEach(accounts) { Text(SessionText.account($0)).tag(Optional($0.id)) }
-                }
-                .pickerStyle(.menu)
-            }
         } label: {
-            ComposerPill(text: AgentName.label(draft.provider.rawValue), filled: true) { BrandMark(draft.provider.rawValue, size: 12) }
+            Chip(text: AgentName.full(draft.provider.rawValue) ?? AgentName.label(draft.provider.rawValue))
         }
-        .menuOrder(.fixed)
+        .chipMenu()
     }
 
     private var modelMenu: some View {
@@ -264,82 +284,50 @@ struct NewSessionView: View {
                 .pickerStyle(.menu)
             }
         } label: {
-            ComposerPill(text: draft.effort.map { "\(model) · \($0.capitalized)" } ?? model, filled: true) { EmptyView() }
+            Chip(text: draft.effort.map { "\(model) · \($0.capitalized)" } ?? model)
         }
-        .menuOrder(.fixed)
+        .chipMenu()
         .disabled(models.isEmpty && efforts.isEmpty)
+    }
+
+    /// Whether it plans first or only chats, which account it runs as, and what it may do unasked.
+    private var optionsMenu: some View {
+        Menu {
+            if info?.plan == true { Toggle("Plan First", isOn: $draft.plan) }
+            Toggle("Chat Only", isOn: $draft.chat)
+            if let accounts = workspace.accounts[draft.provider.rawValue]?.filter(\.signedIn), !accounts.isEmpty {
+                // pocketd picks the project's account, else the Mac's default.
+                Picker("Account", selection: $draft.account) {
+                    Text("Default Account").tag(String?.none)
+                    ForEach(accounts) { Text(SessionText.account($0)).tag(Optional($0.id)) }
+                }
+                .pickerStyle(.menu)
+            }
+            accessSection
+        } label: {
+            Chip(text: "Options") { LucideIcon(.sliders, size: 16) }
+        }
+        .chipMenu()
+        .confirmsFullAccess($confirmingFull, who: AgentName.label(draft.provider.rawValue)) { draft.access = .full }
     }
 
     /// An agent that never asks before a tool has only Full, so nothing to pick.
     @ViewBuilder
-    private var accessMenu: some View {
+    private var accessSection: some View {
         if neverAsks {
-            ComposerPill(text: AccessPill.label(Access.full.rawValue), chevron: false, filled: true) { Image(systemName: "shield") }
-                .accessibilityLabel("Access: \(AccessPill.label(Access.full.rawValue))")
+            Button {} label: { Text("Access: \(AccessPill.label(Access.full.rawValue))") }.disabled(true)
         } else {
-            accessChoices
-        }
-    }
-
-    private var accessChoices: some View {
-        Menu {
-            AccessChoices(choices: AccessPill.choices(launching: true), picked: draft.access.rawValue) { value in
-                if AccessPill.confirms(value, from: draft.access.rawValue) {
-                    Haptics.warning()
-                    confirmingFull = true
-                } else {
-                    draft.access = Access(rawValue: value)
-                }
-            }
-        } label: {
-            ComposerPill(text: AccessPill.label(draft.access.rawValue), filled: true) { Image(systemName: "shield") }
-        }
-        .menuOrder(.fixed)
-        .confirmsFullAccess($confirmingFull, who: AgentName.label(draft.provider.rawValue)) { draft.access = .full }
-    }
-
-    /// The desktop's footer: the project · a new Worktree or Local · the branch a worktree starts from.
-    private var where_: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                Menu {
-                    Picker("Project", selection: Binding(get: { draft.project }, set: { draft.pick(project: $0) })) {
-                        ForEach(workspace.projects) { Text($0.name).tag($0.path) }
+            Section("Access") {
+                AccessChoices(choices: AccessPill.choices(launching: true), picked: draft.access.rawValue) { value in
+                    if AccessPill.confirms(value, from: draft.access.rawValue) {
+                        Haptics.warning()
+                        confirmingFull = true
+                    } else {
+                        draft.access = Access(rawValue: value)
                     }
-                } label: {
-                    ComposerPill(text: project?.name ?? "Project") { ProjectTile(name: project?.name ?? "") }
-                }
-                .disabled(workspace.projects.count < 2)
-                if let existing {
-                    ComposerPill(text: existing.label, chevron: false) { Image.lucide(existing.icon, size: 11) }
-                } else {
-                    let place = places.first { $0.place == draft.place }
-                    Menu {
-                        // Buttons, not a Picker: only a button's second text shows as the item's subtitle.
-                        ForEach(places) { option in
-                            Button { draft.place = option.place } label: {
-                                Label { Text(option.label) } icon: { Image.lucide(option.place == draft.place ? .check : option.icon, size: 16) }
-                                if let hint = option.hint { Text(hint) }
-                            }
-                        }
-                    } label: {
-                        ComposerPill(text: place?.label ?? "Worktree") { Image.lucide(place?.icon ?? .worktree, size: 11) }
-                    }
-                    .menuOrder(.fixed)
-                }
-                if draft.place == .newWorktree {
-                    Button { worktreeOptions = true } label: {
-                        ComposerPill(text: branchLabel, mono: true) { Image.lucide(branchIcon, size: 11) }
-                    }
-                    .buttonStyle(.plain)
                 }
             }
         }
-        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-    }
-
-    private var branchIcon: Lucide {
-        if case .pr = draft.source { .pullRequest } else { .branch }
     }
 
     /// The base a new branch starts from, or the branch or pull request it opens.
@@ -390,8 +378,11 @@ struct NewSessionView: View {
     }
 
     /// Why Start waits, when it waits on the Mac rather than on the draft.
-    nonisolated static func waiting(online: Bool, providers: Bool, failed: Bool, mac: String) -> String? {
-        if !online { return "\(mac) isn't connected. Start turns on when it's back." }
+    nonisolated static func waiting(online: Bool, providers: Bool, failed: Bool, mac: String, asOf: Int? = nil, timeZone: TimeZone = .current) -> String? {
+        if !online {
+            let seen = asOf.map { " · last seen \(TimeText.clock(ms: $0, timeZone: timeZone))" } ?? ""
+            return "\(mac) is offline\(seen). Start turns on when it's back."
+        }
         if !providers && !failed { return "Loading agents from \(mac)…" }
         return nil
     }
@@ -412,39 +403,35 @@ struct NewSessionView: View {
     }
 }
 
-/// A composer's menu button: an icon, what it holds, and the up-down chevron of a choice.
+/// A choice or a fact about the session, as a pill: the Mac, where it runs, what runs it.
 @MainActor
-private struct ComposerPill<Icon: View>: View {
+private struct Chip<Leading: View>: View {
     let text: String
     var mono = false
-    var chevron = true
-    var filled = false
-    @ViewBuilder let icon: Icon
+    @ViewBuilder let leading: Leading
 
     var body: some View {
         HStack(spacing: 5) {
-            icon.font(.system(size: 11))
-            Text(text).font(mono ? Typography.codeSmall : Typography.footnote).lineLimit(1)
-            if chevron { Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Palette.text4.color) }
+            leading
+            Text(text).font(mono ? .system(size: 14, design: .monospaced) : .system(size: 15)).lineLimit(1)
         }
-        .foregroundStyle(Palette.text2.color)
-        .padding(.horizontal, 8)
-        .frame(minHeight: filled ? 30 : 28)
-        .background(filled ? Palette.fill2.color : Color.clear, in: Capsule())
-        .frame(minHeight: HitTarget.minimum)
-        .contentShape(Rectangle())
+        .foregroundStyle(Palette.text.color)
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .background(Palette.fill3.color, in: Capsule())
+        .contentShape(Capsule())
     }
 }
 
-/// A project's initials on a small tile, as the desktop's project chip.
-@MainActor
-private struct ProjectTile: View {
-    let name: String
+extension View {
+    /// A menu drawn as its label alone, in a pill, without the system's menu button around it.
+    fileprivate func chipMenu() -> some View {
+        menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).menuOrder(.fixed)
+    }
+}
 
-    var body: some View {
-        RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(Palette.fill3.color)
-            .overlay(Text(Workspaces.initials(name)).font(.system(size: 8, weight: .bold)).foregroundStyle(Palette.text2.color))
-            .frame(width: 16, height: 16)
+extension Chip where Leading == EmptyView {
+    init(text: String, mono: Bool = false) {
+        self.init(text: text, mono: mono) { EmptyView() }
     }
 }

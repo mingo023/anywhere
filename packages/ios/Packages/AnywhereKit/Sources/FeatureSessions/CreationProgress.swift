@@ -32,7 +32,7 @@ struct CreationProgress: View {
         }
         if let error = creation?.error {
             Section {
-                Label(error.message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(Palette.failedText.color)
+                Label(error.message, lucide: .circleAlert).foregroundStyle(Palette.failedText.color)
                 if let detail = error.detail { Text(detail).font(Typography.codeSmall).foregroundStyle(Palette.text3.color) }
                 Button("Try Again", action: retry)
                 if let dismiss { Button("Dismiss", action: dismiss) }
@@ -42,11 +42,14 @@ struct CreationProgress: View {
 
     private func row(_ text: String, running: Bool) -> some View {
         HStack(spacing: Space.m) {
-            if running {
-                ProgressView().controlSize(.small)
-            } else {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.success.color)
+            Group {
+                if running {
+                    DotSpinner(size: 13)
+                } else {
+                    LucideIcon(.circleCheck, size: 17).foregroundStyle(Palette.success.color)
+                }
             }
+            .frame(width: 20)
             Text(text).foregroundStyle(Palette.text.color)
         }
     }

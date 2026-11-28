@@ -7,6 +7,16 @@ import SwiftUI
 public enum LiveActivityGallery {
     static let mac = MacActivity(mac: "mingos-mbp", macName: "Mingo's MacBook Pro")
 
+    /// The design's sample: Minh's MacBook Pro asking to run a test.
+    static func design(now: Date = Date()) -> ActivitySnapshot {
+        ActivitySnapshot(
+            attributes: MacActivity(mac: "minhs-mbp", macName: "Minh's MacBook Pro"),
+            state: .init(working: 0, needsYou: 1, unseen: 0,
+                top: .init(slot: "a-flaky", status: "needsYou", sinceUnix: now.timeIntervalSince1970 - 120, verb: "Run",
+                           subject: "pnpm test checkout --repeat 20", answerable: true, request: "r-flaky")),
+            isStale: false, entry: .init(title: "Fix flaky checkout test", place: "anywhere · flaky-checkout"))
+    }
+
     /// The states to review, by name.
     public static func states(now: Date = Date()) -> [(name: String, snapshot: ActivitySnapshot)] {
         let since = { (seconds: Double) in now.timeIntervalSince1970 - seconds }
@@ -27,14 +37,26 @@ public enum LiveActivityGallery {
         ]
     }
 
+    /// The design's frames, each in dark and light, then every state on one board.
     @MainActor public static var scenes: [GalleryScene] {
-        states().flatMap { state in
+        let frames: [(name: String, height: CGFloat, view: @MainActor () -> AnyView)] = [
+            ("40-push-notification", 852, { AnyView(PushNotificationFrame()) }),
+            ("41-live-activity", 852, { AnyView(ExpandedFrame(snapshot: design())) }),
+            ("41b-live-activity-variants", 470, { AnyView(VariantsFrame(snapshot: design())) }),
+        ]
+        let framed = frames.flatMap { frame in
+            [true, false].map { dark in
+                GalleryScene("\(frame.name)-\(dark ? "dark" : "light")", size: CGSize(width: 393, height: frame.height), dark: dark, view: frame.view)
+            }
+        }
+        let boards = states().flatMap { state in
             [false, true].map { dark in
                 GalleryScene("live-activity-\(state.name)\(dark ? "-dark" : "")", size: CGSize(width: 393, height: 760), dark: dark) {
                     AnyView(ActivityBoard(snapshot: state.snapshot))
                 }
             }
         }
+        return framed + boards
     }
 }
 
@@ -62,19 +84,10 @@ struct ActivityBoard: View {
                 IslandRegion.minimal(snapshot)
                     .frame(width: 37, height: 37)
                     .background(.black, in: Circle())
-                VStack(spacing: Space.s) {
-                    HStack(alignment: .top) {
-                        IslandRegion.expandedLeading(snapshot)
-                        Spacer()
-                        IslandRegion.expandedTrailing(snapshot)
-                    }
-                    IslandRegion.expandedCenter(snapshot)
-                    IslandRegion.expandedBottom(snapshot)
-                }
-                .padding(Space.l)
-                .background(.black, in: RoundedRectangle(cornerRadius: 42, style: .continuous))
-                .padding(.horizontal, Space.s)
-                .environment(\.colorScheme, .dark)
+                ExpandedIsland(snapshot: snapshot)
+                    .padding(Space.l)
+                    .background(.black, in: RoundedRectangle(cornerRadius: 42, style: .continuous))
+                    .padding(.horizontal, Space.s)
             }
         }
         .padding(.vertical, Space.xl)
