@@ -14,11 +14,10 @@ public enum AppShellGallery {
         [false, true].flatMap { dark in
             let suffix = dark ? "-dark" : ""
             return [
-                GalleryScene("root-phone\(suffix)", size: phone, dark: dark) { AnyView(root(.phone, tab: .sessions)) },
-                GalleryScene("root-phone-terminals\(suffix)", size: phone, dark: dark) { AnyView(root(.phone, tab: .terminals)) },
-                GalleryScene("root-phone-settings\(suffix)", size: phone, dark: dark) { AnyView(root(.phone, tab: .settings)) },
-                GalleryScene("root-phone-reconnecting\(suffix)", size: phone, dark: dark) { AnyView(root(.phone, tab: .sessions, mac: 1)) },
-                GalleryScene("root-phone-revoked\(suffix)", size: phone, dark: dark) { AnyView(root(.phone, tab: .sessions, mac: 2)) },
+                GalleryScene("root-phone-inbox\(suffix)", size: phone, dark: dark) { AnyView(root(.phone, tab: .inbox)) },
+                GalleryScene("root-phone-sessions\(suffix)", size: phone, dark: dark) { AnyView(root(.phone, tab: .sessions)) },
+                GalleryScene("root-phone-prs\(suffix)", size: phone, dark: dark) { AnyView(root(.phone, tab: .prs)) },
+                GalleryScene("root-phone-machines\(suffix)", size: phone, dark: dark) { AnyView(root(.phone, tab: .machines)) },
                 GalleryScene("root-phone-unpaired\(suffix)", size: phone, dark: dark) { AnyView(RootView(app: AppModel(), layout: .phone)) },
                 GalleryScene("root-phone-held\(suffix)", size: phone, dark: dark) {
                     AnyView(root(.phone, tab: .sessions, mac: 1) { navigator, app in
@@ -35,11 +34,11 @@ public enum AppShellGallery {
                         navigator.sessionsPath = [.project(mac: app.hosts[2].mac, path: "/Users/mingo/code/anywhere")]
                     })
                 },
-                GalleryScene("root-pad\(suffix)", size: pad, dark: dark) { AnyView(root(.pad, tab: .sessions)) },
+                GalleryScene("root-pad\(suffix)", size: pad, dark: dark) { AnyView(root(.pad, tab: .inbox)) },
                 GalleryScene("root-pad-tree\(suffix)", size: pad, dark: dark) {
                     AnyView(root(.pad, tab: .sessions, tree: .worktree(mac: Sample.mac, path: "/Users/mingo/.worktrees/anywhere/fix-login")))
                 },
-                GalleryScene("root-pad-settings\(suffix)", size: pad, dark: dark) { AnyView(root(.pad, tab: .settings)) },
+                GalleryScene("root-pad-machines\(suffix)", size: pad, dark: dark) { AnyView(root(.pad, tab: .machines)) },
             ]
         }
     }

@@ -41,7 +41,7 @@ struct Destination: View {
                         }
                     }
             } else {
-                Placeholder("This Mac isn't paired", icon: .laptop, detail: "Pair it again from Settings.")
+                Placeholder("This Mac isn't paired", icon: .laptop, detail: "Pair it again from Machines.")
             }
         }
     }
@@ -55,15 +55,8 @@ struct Destination: View {
             SessionsView(host: host, route: route, open: open, leave: leave)
         case .chat(_, let agentId):
             ChatView(host: host, agentId: agentId, open: open)
-                #if os(iOS)
-                    // A session takes the screen: the composer sits where the tab bar would.
-                    .toolbar(.hidden, for: .tabBar)
-                #endif
         case .subAgent(_, let agentId, let callId):
             SubAgentView(host: host, agentId: agentId, callId: callId, open: open)
-                #if os(iOS)
-                    .toolbar(.hidden, for: .tabBar)
-                #endif
         case .terminals, .terminal:
             TerminalsView(host: host, route: route)
         case .changes, .diff, .history, .commit, .branches:
@@ -77,32 +70,17 @@ struct Destination: View {
         }
     }
 
-    /// The root of a section for a Mac, its sessions narrowed to `tree` if given; a Mac whose link ended shows why instead.
-    /// With `upNext`, a Mac's sessions leave out its projects, as the iPad's sidebar holds them.
+    /// The root of a section: Inbox, Sessions and PRs across every paired Mac, and Machines.
     @ViewBuilder
     static func root(
-        _ tab: Tab, host: HostModel?, app: AppModel, tree: Route? = nil, upNext: Bool = false, pair: @escaping @MainActor () -> Void,
-        open: @escaping @MainActor (Route) -> Void, leave: @escaping @MainActor (String) -> Void
+        _ tab: Tab, app: AppModel, pair: @escaping @MainActor () -> Void, open: @escaping @MainActor (Route) -> Void,
+        leave: @escaping @MainActor (String) -> Void
     ) -> some View {
         switch tab {
-        case .settings:
-            SettingsView(app: app, pair: pair)
-        case .sessions, .terminals:
-            if let host {
-                if host.reachability(at: .now).isFinal {
-                    EndedView(app: app, host: host)
-                } else if tab == .sessions {
-                    if upNext && tree == nil {
-                        UpNextList(host: host, open: open)
-                    } else {
-                        SessionsView(host: host, route: tree ?? .sessions(mac: host.mac), open: open, leave: leave)
-                    }
-                } else {
-                    TerminalsView(host: host, route: .terminals(mac: host.mac))
-                }
-            } else {
-                Placeholder("No Mac selected", icon: .laptop)
-            }
+        case .inbox: InboxView(hosts: app.hosts, open: open)
+        case .sessions: SessionsHome(hosts: app.hosts, open: open)
+        case .prs: PullRequestsHome(hosts: app.hosts, open: open)
+        case .machines: SettingsView(app: app, pair: pair)
         }
     }
 }

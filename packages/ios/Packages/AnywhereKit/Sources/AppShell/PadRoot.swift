@@ -1,38 +1,37 @@
 import DesignSystem
 import Domain
 import FeaturePairing
-import FeatureSettings
 import FeatureSessions
+import FeatureSettings
 import Stores
 import SwiftUI
 
-/// iPad: a sidebar of Macs and their sections, the section's list in the middle, and the chat, diff or file it opens on
-/// the right; Settings takes both of those columns. It shares the iPhone's `Navigator`, so a size-class change keeps the place.
+/// iPad: a sidebar of the four sections and each Mac's projects, the section's list in the middle, and the chat, diff or
+/// file it opens on the right; Machines takes both of those columns. It shares the iPhone's `Navigator`, so a size-class
+/// change keeps the place.
 @MainActor
 struct PadRoot: View {
     let app: AppModel
     @Bindable var navigator: Navigator
     @State private var columns = NavigationSplitViewVisibility.all
-    /// Here, as the sidebar is built anew between Settings' two columns and the sections' three.
+    /// Here, as the sidebar is built anew between Machines' two columns and the sections' three.
     @State private var folds = PadSidebar.Folds()
 
     struct Item: Hashable {
         var tab: Tab
-        /// nil for Settings, which belongs to no Mac.
-        var mac: String?
         /// The project, worktree or Local the sessions list is narrowed to.
         var tree: Route?
     }
 
     var body: some View {
-        if navigator.tab == .settings { settings } else { sections }
+        if navigator.tab == .machines { machines } else { sections }
     }
 
     private var sidebar: some View {
         PadSidebar(app: app, selection: selection, macId: navigator.macId, folds: $folds)
     }
 
-    private var settings: some View {
+    private var machines: some View {
         NavigationSplitView(columnVisibility: $columns) {
             sidebar
         } detail: {
@@ -46,14 +45,10 @@ struct PadRoot: View {
         NavigationSplitView(columnVisibility: $columns) {
             sidebar
         } content: {
-            Destination.root(navigator.tab, host: host, app: app, tree: navigator.tree, upNext: true, pair: pair, open: navigator.push,
-                             leave: navigator.leave)
+            content
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    VStack(spacing: 0) {
-                        if let host { ConnectionBanner(host: host) }
-                        if navigator.tab == .sessions, let text = HeldLinkRow.text(navigator.held, app: app) {
-                            HeldLinkRow(text: text, dismiss: navigator.dropHeld)
-                        }
+                    if let text = HeldLinkRow.text(navigator.held, app: app) {
+                        HeldLinkRow(text: text, dismiss: navigator.dropHeld)
                     }
                 }
                 .environment(\.showInDetail, ShowInDetail(owner: navigator) { navigator.setPath([$0], for: navigator.tab) })
@@ -61,8 +56,19 @@ struct PadRoot: View {
         } detail: {
             NavigationStack(path: path) {
                 Placeholder("Pick a session", icon: .sidebar)
-                .routeDestinations(app: app, navigator: navigator, pair: pair)
+                    .routeDestinations(app: app, navigator: navigator, banner: true, pair: pair)
             }
+        }
+    }
+
+    /// The section's list, or the sessions of the tree it's narrowed to.
+    @ViewBuilder
+    private var content: some View {
+        if navigator.tab == .sessions, let tree = navigator.tree, let mac = tree.mac, let host = app.host(mac: mac) {
+            SessionsView(host: host, route: tree, open: navigator.push, leave: navigator.leave)
+                .safeAreaInset(edge: .top, spacing: 0) { ConnectionBanner(host: host) }
+        } else {
+            Destination.root(navigator.tab, app: app, pair: pair, open: navigator.push, leave: navigator.leave)
         }
     }
 
@@ -70,19 +76,19 @@ struct PadRoot: View {
         Binding(get: { navigator.path(navigator.tab) }, set: { navigator.setPath($0, for: navigator.tab) })
     }
 
-    private var host: HostModel? {
-        navigator.macId.flatMap { id in app.hosts.first { $0.id == id } }
-    }
-
     private var selection: Binding<Item?> {
         Binding(
-            get: { Item(tab: navigator.tab, mac: navigator.tab == .settings ? nil : navigator.macId, tree: navigator.tab == .sessions ? navigator.tree : nil) },
+            get: { Item(tab: navigator.tab, tree: navigator.tab == .sessions ? navigator.tree : nil) },
             set: { item in
                 guard let item else { return }
-                if let mac = item.mac { navigator.select(mac: mac) }
                 navigator.tab = item.tab
-                let chats = item.tree.flatMap { place in host?.chats(in: place) } ?? []
-                navigator.select(place: item.tree, chats: chats)
+                guard item.tab == .sessions else { return }
+                if let mac = item.tree?.mac, let host = app.host(mac: mac) {
+                    navigator.select(mac: host.id)
+                    navigator.select(place: item.tree, chats: host.chats(in: item.tree!))
+                } else {
+                    navigator.select(place: nil, chats: [])
+                }
             })
     }
 

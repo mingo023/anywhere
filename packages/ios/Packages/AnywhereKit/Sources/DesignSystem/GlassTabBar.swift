@@ -28,9 +28,6 @@ public struct GlassTabBar<ID: Hashable>: View {
         _selection = selection
     }
 
-    /// The bar's height over the home indicator, for content to scroll clear of it.
-    public static var clearance: CGFloat { 62 + 29 }
-
     public var body: some View {
         HStack(spacing: 0) {
             ForEach(items) { item in
