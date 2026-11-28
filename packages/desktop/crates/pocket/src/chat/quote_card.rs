@@ -74,8 +74,8 @@ pub(super) fn quote_card(
         0 => rail.top(relative(0.5)).border_t_1().rounded_tr(px(10.)),
         _ => rail.top(px(-1.)).child(div().absolute().top(relative(0.5)).left_0().right_0().border_t_1().border_color(RAIL)),
     };
-    let path = quote.path.clone();
-    let file = !path.is_empty();
+    let file = !quote.path.is_empty();
+    let tip = if file { quote.path.clone() } else { text.clone() };
     div()
         .id(SharedString::from(format!("{id}-quote-{nth}")))
         .relative()
@@ -90,7 +90,8 @@ pub(super) fn quote_card(
         .border_color(SEPARATOR)
         .text_size(px(12.5))
         .text_color(TEXT_2)
-        .when(file, |d| d.cursor_pointer().hover(|d| d.bg(FILL_2)).tooltip(move |window, cx| Tooltip::new(path.clone()).build(window, cx)).on_click(open))
+        .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+        .when(file, |d| d.cursor_pointer().hover(|d| d.bg(FILL_2)).on_click(open))
         .child(head)
         .child(body)
         .child(rail)

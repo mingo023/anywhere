@@ -790,9 +790,12 @@ impl Desktop {
         let pick = self.new_form_pick(cx);
         let (mut spec, worktree, folder, auto_name) = {
             let f = self.new_form.read(cx);
-            let sent = f.composer.read(cx).draft.prompt_with(&prompt, f.draft.copied_for(&project));
+            let draft = &f.composer.read(cx).draft;
+            let sent = draft.prompt_with(&prompt, f.draft.copied_for(&project));
+            // A quote names the session as the words typed do; attached files alone don't.
+            let named = if draft.quotes.is_empty() { &prompt } else { &sent };
             let d = &f.draft;
-            (d.spec(&pick, &project, local.as_deref(), &name, &sent), d.in_worktree(), d.folder(&name), d.auto_names(&prompt, self.agents.names_offered()))
+            (d.spec(&pick, &project, local.as_deref(), &name, &sent), d.in_worktree(), d.folder(&name), d.auto_names(named, self.agents.names_offered()))
         };
         if auto_name {
             spec["checkout"]["new"]["autoName"] = true.into();
