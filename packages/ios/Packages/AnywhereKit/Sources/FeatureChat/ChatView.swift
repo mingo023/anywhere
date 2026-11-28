@@ -41,31 +41,13 @@ private struct HostedChat: View {
             let cwd = store.summary?.cwd
             ChatScreen(store: store, machine: host.name, host: host, openAgent: { open(.subAgent(mac: mac, agentId: agentId, callId: $0)) }, openLink: {
                 follow($0, in: store)
-            }, git: cwd.map(host.git.changes))
+            }, git: cwd.map(host.git.changes), menu: cwd.map(menu) ?? [])
             .task(id: cwd) {
                 guard let cwd else { return }
                 // Held open so `hide` runs when the chat leaves or moves to another folder.
                 host.git.show(cwd)
                 while !Task.isCancelled { try? await Task.sleep(for: .seconds(60)) }
                 host.git.hide(cwd)
-            }
-            .toolbar {
-                // One item, as wide as Back: the bar centres the title only when it fits between them evenly.
-                if let cwd = store.summary?.cwd {
-                    ToolbarItem(placement: .primaryAction) {
-                        Menu {
-                            Button { open(.changes(mac: mac, tree: cwd, chat: agentId)) } label: { Label("Changes", systemImage: "plus.forwardslash.minus") }
-                            Button { open(.files(mac: mac, tree: cwd, dir: "", chat: agentId)) } label: { Label("Files", systemImage: "folder") }
-                            if host.hello?.has(Caps.gh) == true {
-                                Button { open(.pullRequest(mac: mac, tree: cwd, chat: agentId)) } label: {
-                                    Label("Pull request", systemImage: "arrow.triangle.pull")
-                                }
-                            }
-                        } label: {
-                            Label("More", systemImage: "ellipsis")
-                        }
-                    }
-                }
             }
             .onChange(of: host.link == .online, initial: true) { _, online in store.follow(online: online, mac: host.name) }
             .onChange(of: store.newSession) { _, ask in
@@ -77,6 +59,18 @@ private struct HostedChat: View {
         } else {
             Color.clear.screenBackground().onAppear { store = host.chat(agentId) }
         }
+    }
+
+    /// The screens of the chat's tree, from the bar's menu.
+    private func menu(_ cwd: String) -> [ChatMenuItem] {
+        var items = [
+            ChatMenuItem(title: "Changes", icon: .fileDiff) { open(.changes(mac: mac, tree: cwd, chat: agentId)) },
+            ChatMenuItem(title: "Files", icon: .folder) { open(.files(mac: mac, tree: cwd, dir: "", chat: agentId)) },
+        ]
+        if host.hello?.has(Caps.gh) == true {
+            items.append(ChatMenuItem(title: "Pull request", icon: .pullRequest) { open(.pullRequest(mac: mac, tree: cwd, chat: agentId)) })
+        }
+        return items
     }
 
     /// A file opens in Files at its line; a link to the worktree's own pull request opens it here, any other on the web.

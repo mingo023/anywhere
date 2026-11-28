@@ -19,7 +19,7 @@ struct BackgroundTray: View {
                 withAnimation(.easeOut(duration: 0.2)) { folded.toggle() }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: Glyph.bot.symbol).font(.system(size: 12)).foregroundStyle(Palette.text2.color)
+                    LucideIcon(.bot, size: 14).foregroundStyle(Palette.text2.color)
                     Text("\(tasks.count) in background").fontWeight(.semibold).foregroundStyle(Palette.text.color).fixedSize()
                     Text(folded ? Background.newest(tasks) ?? "" : "").font(ChatFont.monoSmall).foregroundStyle(Palette.text3.color).lineLimit(1)
                     Spacer(minLength: 0)
@@ -38,7 +38,7 @@ struct BackgroundTray: View {
                         .foregroundStyle(Palette.text2.color)
                         .accessibilityHint("Stops the background agents")
                     }
-                    Image(systemName: folded ? "chevron.right" : "chevron.down").font(.system(size: 11)).foregroundStyle(Palette.text4.color)
+                    LucideIcon(folded ? .chevronRight : .chevronDown, size: 13).foregroundStyle(Palette.text4.color)
                 }
                 .font(ChatFont.caption)
                 .contentShape(Rectangle())
@@ -63,11 +63,11 @@ struct BackgroundTray: View {
                             .foregroundStyle(Palette.text4.color)
                             Group {
                                 if call.agent != nil {
-                                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                                    LucideIcon(.chevronRight, size: 11)
                                 } else {
                                     HStack(spacing: 3) {
                                         Text("Show")
-                                        Image(systemName: "arrow.up").font(.system(size: 10))
+                                        LucideIcon(.arrowUp, size: 12)
                                     }
                                 }
                             }

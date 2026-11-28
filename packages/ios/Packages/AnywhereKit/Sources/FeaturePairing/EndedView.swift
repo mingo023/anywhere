@@ -16,38 +16,34 @@ public struct EndedView: View {
     }
 
     public var body: some View {
-        let copy = Self.copy(host.reachability(at: .now), mac: host.name)
+        let reachability = host.reachability(at: .now)
+        let copy = Self.copy(reachability, mac: host.name)
         VStack(spacing: Space.l) {
-            Image(systemName: copy.systemImage)
-                .font(.system(size: 44, weight: .light))
-                .foregroundStyle(Palette.text3.color)
+            LucideIcon(copy.icon, size: 40, weight: 1.75).foregroundStyle(Palette.text3.color)
             VStack(spacing: Space.s) {
-                Text(copy.title).font(Typography.title).foregroundStyle(Palette.text.color)
-                Text(copy.message).font(Typography.subheadline).foregroundStyle(Palette.text3.color)
+                Text(copy.title).font(.system(size: 22, weight: .bold)).foregroundStyle(Palette.text.color)
+                Text(copy.message).font(.system(size: 15)).foregroundStyle(Palette.text2.color)
             }
             .multilineTextAlignment(.center)
-            VStack(spacing: Space.s) {
-                switch host.reachability(at: .now) {
+            VStack(spacing: Space.xs) {
+                switch reachability {
                 case .revoked:
-                    Button("Pair again") { pairing = true }.buttonStyle(CapsuleButtonStyle())
+                    Button("Pair again") { pairing = true }.buttonStyle(LargeButtonStyle())
                 case .updatePhone:
-                    Link("Open the App Store", destination: Self.appStore).buttonStyle(CapsuleButtonStyle())
-                    Button("Try again") { app.restart(host.id) }.buttonStyle(.borderless)
+                    Link("Open the App Store", destination: Self.appStore).buttonStyle(LargeButtonStyle())
+                    Button("Try again") { app.restart(host.id) }.buttonStyle(QuietButtonStyle())
                 default:
                     Button("Try again") {
                         Haptics.tap()
                         app.restart(host.id)
                     }
-                    .buttonStyle(CapsuleButtonStyle())
+                    .buttonStyle(LargeButtonStyle())
                 }
-                Button("Forget this Mac", role: .destructive) { forgetting = true }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(Palette.failedText.color)
-                    .padding(.top, Space.xs)
+                Button("Forget this machine", role: .destructive) { forgetting = true }
+                    .buttonStyle(QuietButtonStyle(destructive: true))
             }
-            .controlSize(.large)
         }
-        .padding(Space.xxl)
+        .padding(.horizontal, Space.xl)
         .frame(maxWidth: 480)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .screenBackground()
@@ -62,7 +58,7 @@ public struct EndedView: View {
     }
 
     struct Copy: Hashable {
-        var systemImage: String
+        var icon: Lucide
         var title: String
         var message: String
     }
@@ -71,21 +67,21 @@ public struct EndedView: View {
         switch reachability {
         case .revoked:
             Copy(
-                systemImage: "iphone.slash", title: "Removed from \(mac)",
+                icon: .unlink, title: "Removed from \(mac)",
                 message: "This iPhone was removed in Zoes on the Mac. Pair again with a new code to come back.")
         case .updateMac:
             Copy(
-                systemImage: "arrow.down.circle", title: "Update Zoes on \(mac)",
+                icon: .arrowDown, title: "Update Zoes on \(mac)",
                 message: "The Mac's Zoes is older than this app. Update it on the Mac, then try again.")
         case .updatePhone:
             Copy(
-                systemImage: "arrow.down.app", title: "Update this app",
+                icon: .arrowDown, title: "Update this app",
                 message: "\(mac) runs a newer Zoes than this app speaks. Update it from the App Store.")
         default:
-            Copy(systemImage: "bolt.horizontal.circle", title: "Disconnected from \(mac)", message: "Try connecting again.")
+            Copy(icon: .bolt, title: "Disconnected from \(mac)", message: "Try connecting again.")
         }
     }
 
-    /// The App Store app; its Updates list has Anywhere once an update is out.
+    /// The App Store app; its Updates list has Zoes once an update is out.
     static let appStore = URL(string: "itms-apps://")!
 }

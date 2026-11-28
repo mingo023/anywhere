@@ -1,5 +1,6 @@
 import DiffModel
 import Fixtures
+import Foundation
 import Stores
 import Testing
 import Wire
@@ -199,12 +200,95 @@ import Wire
     #expect(GitText.showsHead(GitHead(s)))
 }
 
-@Test func a_diff_says_which_file_of_how_many_and_what_it_is_against() {
-    #expect(GitText.place(0, of: 3, at: .working) == "1 of 3 · Unstaged")
-    #expect(GitText.place(nil, of: 3, at: .staged) == "Staged")
-    #expect(GitText.place(1, of: 2, at: .commit(rev: "abcdef1234567")) == "2 of 2 · \(GitText.short("abcdef1234567"))")
-    #expect(GitText.place(0, of: 1, at: .base(rev: "main")) == "1 of 1 · main")
-    #expect(GitText.place(0, of: 1, at: .base(rev: nil)) == "1 of 1 · base")
+@Test func the_diff_bar_says_which_file_of_how_many() {
+    #expect(GitText.fileOf(1, of: 6) == "File 2 of 6")
+    #expect(GitText.fileOf(nil, of: 1) == "1 file")
+    #expect(GitText.fileOf(nil, of: 3) == "3 files")
+}
+
+@Test func a_long_path_drops_the_folders_between_its_first_and_its_file() {
+    #expect(GitText.shortPath("src/checkout.ts") == "src/checkout.ts")
+    #expect(GitText.shortPath("src/checkout/payments/retry/checkout.test.ts") == "src/…/checkout.test.ts")
+    #expect(GitText.shortPath("packages/mobile/very-long-folder-name/a-quite-long-file-name.test.ts") == "…/a-quite-long-file-name.test.ts")
+}
+
+@Test func a_changed_file_wears_one_letter_for_its_status() {
+    #expect(["A", "U", "D", "R", "C", "M"] == [FileStatus.added, .untracked, .deleted, .renamed, .conflict, .modified].map(GitText.letter))
+}
+
+@Test func a_compare_is_headed_by_the_commits_ahead_or_by_how_many_files_differ() {
+    #expect(GitText.compareTitle(files: 4, ahead: 1, against: "main") == "1 commit ahead of main")
+    #expect(GitText.compareTitle(files: 4, ahead: 5, against: "main") == "5 commits ahead of main")
+    #expect(GitText.compareTitle(files: 1, ahead: nil, against: "main") == "1 file differ from main")
+}
+
+@Test func the_filter_shows_for_a_long_list_or_while_it_holds_a_filter() {
+    #expect(!GitText.showsFilter(files: 11, filter: ""))
+    #expect(!GitText.showsFilter(files: 3, filter: "  "))
+    #expect(GitText.showsFilter(files: 12, filter: ""))
+    #expect(GitText.showsFilter(files: 3, filter: "cart"))
+}
+
+@Test func the_offline_strip_names_the_mac_and_when_its_list_was_last_fresh() {
+    let utc = TimeZone(identifier: "UTC")!
+    #expect(GitText.unreachable(mac: "Studio", asOf: 1_700_000_000_000, timeZone: utc) == "Can't reach Studio · as of 22:13")
+}
+
+@Test func the_commit_button_pushes_after_unless_it_amends_or_is_busy() {
+    #expect(GitText.commitButton(label: "Commit", amend: false, busy: false) == "Commit & Push")
+    #expect(GitText.commitButton(label: "Commit", amend: true, busy: false) == "Amend")
+    #expect(GitText.commitButton(label: "Committing…", amend: false, busy: true) == "Committing…")
+}
+
+@Suite("History days")
+struct HistoryDaysTests {
+    /// Tuesday 14 Nov 2023, 22:13 UTC.
+    static let now = 1_700_000_000
+    static let midnight = 1_699_920_000
+    static let utc: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }()
+
+    @Test("a commit's age reads in minutes, hours, yesterday, a weekday, then a date")
+    func committed() {
+        func said(_ ago: Int) -> String { GitText.committed(at: Self.now - ago, now: Self.now, calendar: Self.utc) }
+        #expect(said(30) == "just now")
+        #expect(said(720) == "12m ago")
+        #expect(said(3 * 3_600) == "3h ago")
+        #expect(GitText.committed(at: Self.midnight - 3_600, now: Self.now, calendar: Self.utc) == "yesterday")
+        #expect(said(3 * 86_400) == "on Sat")
+        #expect(said(10 * 86_400) == "on 4 Nov")
+    }
+
+    @Test("a day heads its commits as Today, Yesterday, then the weekday and date")
+    func day() {
+        func headed(_ ago: Int) -> String { GitText.day(at: Self.now - ago, now: Self.now, calendar: Self.utc) }
+        #expect(headed(60) == "Today")
+        #expect(GitText.day(at: Self.midnight - 60, now: Self.now, calendar: Self.utc) == "Yesterday")
+        #expect(headed(3 * 86_400) == "Saturday 11 November")
+    }
+
+    @Test("an avatar takes two names' first letters, or one name's first two")
+    func initials() {
+        #expect(GitText.initials("Minh Ngo") == "MN")
+        #expect(GitText.initials("minh") == "MI")
+        #expect(GitText.initials("") == "")
+    }
+
+    @Test("history groups commits under a heading per day and marks each day's first and last")
+    func rows() {
+        func commit(_ sha: String, _ at: Int) -> LogCommit { LogCommit(sha: sha, parents: [], author: "A B", at: at, subject: sha) }
+        let (a, b, c) = (commit("a", Self.now), commit("b", Self.now - 600), commit("c", Self.midnight - 60))
+        let items = HistoryRows.items([a, b, c], now: Self.now, calendar: Self.utc)
+        #expect(items.map(\.id) == ["day-a", "a", "b", "day-c", "c"])
+        #expect(
+            items.map(\.kind) == [
+                .day("Today"), .commit(a, index: 0, first: true, last: false), .commit(b, index: 1, first: false, last: true),
+                .day("Yesterday"), .commit(c, index: 2, first: true, last: true),
+            ])
+    }
 }
 
 @Test func tips_label_the_commits_they_point_at_by_name() {
@@ -213,26 +297,4 @@ import Wire
     #expect(HistoryScreen.labels("h", tips: tips, head: head).map(\.name) == ["calm-otter", "main"])
     #expect(HistoryScreen.labels("u", tips: tips, head: head).map(\.name) == ["origin/calm-otter"])
     #expect(HistoryScreen.labels("x", tips: tips, head: head).isEmpty)
-}
-
-@Suite("GitHub marks")
-struct GitHubMarksTests {
-    @Test("a diffstat is five blocks: a block a line under five, else in proportion with each side that has any kept")
-    func diffstat() {
-        #expect(GitText.diffstat(added: 0, removed: 0) == (0, 0, 5))
-        #expect(GitText.diffstat(added: 3, removed: 2) == (3, 2, 0))
-        #expect(GitText.diffstat(added: 1, removed: 1) == (1, 1, 3))
-        #expect(GitText.diffstat(added: 69, removed: 1) == (4, 1, 0))
-        #expect(GitText.diffstat(added: 1, removed: 99) == (1, 4, 0))
-        #expect(GitText.diffstat(added: 50, removed: 0) == (5, 0, 0))
-    }
-
-    @Test("a file's status shows as GitHub's square: plus, minus, arrow, or a dot for a change")
-    func glyph() {
-        #expect(GitText.glyph(.added) == "plus.square")
-        #expect(GitText.glyph(.untracked) == "plus.square")
-        #expect(GitText.glyph(.deleted) == "minus.square")
-        #expect(GitText.glyph(.renamed) == "arrow.right.square")
-        #expect(GitText.glyph(.modified) == "dot.square")
-    }
 }

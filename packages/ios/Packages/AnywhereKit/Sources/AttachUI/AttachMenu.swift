@@ -12,6 +12,8 @@ public struct AttachMenu: View {
     public typealias Attach = (_ data: Data, _ name: String, _ thumbnail: Data?) -> Void
 
     let enabled: Bool
+    /// Sits in a 34 pt filled circle, as in the chat's composer bar.
+    let circled: Bool
     let attach: Attach
     /// A picked image whose bytes couldn't be read, as a photo still in iCloud while offline.
     let unreadable: () -> Void
@@ -22,8 +24,9 @@ public struct AttachMenu: View {
         @State private var choosingFiles = false
     #endif
 
-    public init(enabled: Bool, attach: @escaping Attach, unreadable: @escaping () -> Void = {}) {
+    public init(enabled: Bool, circled: Bool = false, attach: @escaping Attach, unreadable: @escaping () -> Void = {}) {
         self.enabled = enabled
+        self.circled = circled
         self.attach = attach
         self.unreadable = unreadable
     }
@@ -31,18 +34,20 @@ public struct AttachMenu: View {
     public var body: some View {
         #if os(iOS)
             Menu {
-                Button("Photo Library", systemImage: "photo.on.rectangle") { choosingPhotos = true }
+                Button { choosingPhotos = true } label: { Label("Photo Library", lucide: .imagePlus) }
                 if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                    Button("Take Photo", systemImage: "camera") { takingPhoto = true }
+                    Button { takingPhoto = true } label: { Label("Take Photo", lucide: .camera) }
                 }
-                Button("Choose File", systemImage: "folder") { choosingFiles = true }
+                Button { choosingFiles = true } label: { Label("Choose File", lucide: .folder) }
                 if UIPasteboard.general.hasImages {
-                    Button("Paste Image", systemImage: "doc.on.clipboard") {
+                    Button {
                         Self.pasteClipboard(to: attach)
+                    } label: {
+                        Label("Paste Image", lucide: .copy)
                     }
                 }
             } label: {
-                Image(systemName: "plus").font(.system(size: 15, weight: .medium)).foregroundStyle(Palette.text2.color).hitTarget()
+                plus
             }
             .menuStyle(.button)
             .menuIndicator(.hidden)
@@ -76,8 +81,18 @@ public struct AttachMenu: View {
                 }
             }
         #else
-            EmptyView()
+            plus
         #endif
+    }
+
+    @ViewBuilder
+    private var plus: some View {
+        if circled {
+            LucideIcon(.plus, size: 17).foregroundStyle(Palette.text.color).frame(width: 34, height: 34)
+                .background(Palette.fill3.color, in: Circle()).hitTarget()
+        } else {
+            LucideIcon(.plus, size: 16).foregroundStyle(Palette.text2.color).hitTarget()
+        }
     }
 
     #if os(iOS)

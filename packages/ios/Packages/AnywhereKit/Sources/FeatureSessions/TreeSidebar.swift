@@ -40,7 +40,7 @@ public struct TreeSidebar<Value: Hashable>: View {
                 ForEach(section.trees) { tree in
                     let item = value(TreeRow.route(tree, mac: host.mac))
                     SidebarRow(tree.label, detail: tree.place == tree.label ? nil : tree.place, selected: item == selected) {
-                        Image.named(TreeRow.symbol(tree.kind), size: 16)
+                        LucideIcon(TreeRow.symbol(tree.kind), size: 16)
                     } trailing: {
                         if let roll = tree.rollUp { StatusGlyph(roll.status) }
                     }

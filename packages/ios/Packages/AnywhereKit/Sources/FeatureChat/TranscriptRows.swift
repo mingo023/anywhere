@@ -48,7 +48,7 @@ final class TranscriptRows {
     /// The box for a row, made with its item the first time the list builds the row.
     func box(_ id: String) -> RowBox {
         if let box = boxes[id] { return box }
-        let box = RowBox(item(id) ?? RowItem(id: id, gap: 0, rail: .none, content: .hidden))
+        let box = RowBox(item(id) ?? RowItem(id: id, gap: 0, content: .hidden))
         boxes[id] = box
         return box
     }
@@ -97,7 +97,7 @@ final class TranscriptRows {
     private static func builder(_ store: ChatStore) -> RowBuilder {
         RowBuilder(
             session: store.session, provider: store.provider, model: store.summary?.model, ask: store.ask.map { !$0.questions.isEmpty },
-            stopping: store.stopping, reveals: store.reveals, settled: store.settled?.row, canSendNow: store.capabilities.sendNow,
+            stopping: store.stopping, reveals: store.reveals, carded: store.mode.carded, canSendNow: store.capabilities.sendNow,
             now: Int(Date().timeIntervalSince1970 * 1000))
     }
 }

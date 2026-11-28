@@ -11,22 +11,24 @@ private let utc = TimeZone(secondsFromGMT: 0)!
 
 @Suite("Session text")
 struct SessionTextTests {
-    @Test("a session's second line is what failed, else what it is doing, else a status its glyph alone can't tell apart, else its model")
-    func detail() {
+    @Test("a session's second line is the ask it waits on, what it is doing, how it ended, or Idle")
+    func note() {
         let needs = Sample.agents.first { $0.id == "a-needs" }!
-        #expect(SessionText.detail(needs, .needsYou) == "Approve Bash: rm -rf build")
+        #expect(SessionText.note(needs, .needsYou, requests: [Sample.permission]) == "Wants to run rm -rf build")
+        #expect(SessionText.note(needs, .needsYou, requests: [Sample.question]) == "Which colour?")
+        #expect(SessionText.note(needs, .needsYou, requests: []) == "Approve Bash: rm -rf build")
         let compacting = Sample.agents.first { $0.id == "a-compacting" }!
-        #expect(SessionText.detail(compacting, .working) == "Compacting…")
+        #expect(SessionText.note(compacting, .working, requests: []) == "Compacting…")
         var failed = Sample.agents.first { $0.id == "a-failed" }!
-        #expect(SessionText.detail(failed, .failed) == "Failed")
-        failed.error = "API Error: 529 overloaded"
-        #expect(SessionText.detail(failed, .failed) == "API Error: 529 overloaded")
+        #expect(SessionText.note(failed, .failed, requests: []) == "Failed")
+        failed.error = "3 tests didn't pass"
+        #expect(SessionText.note(failed, .failed, requests: []) == "Failed · 3 tests didn't pass")
+        let done = Sample.agents.first { $0.id == "a-done" }!
+        #expect(SessionText.note(done, .done, requests: []) == "Finished")
         let working = Sample.agents.first { $0.id == "a-working" }!
-        #expect(SessionText.detail(working, .working) == "Opus 5.5")
+        #expect(SessionText.note(working, .working, requests: []) == nil)
         let idle = Sample.agents.first { $0.id == "a-chat" }!
-        #expect(SessionText.detail(idle, .idle) == "Sonnet 5")
-        #expect(SessionText.detail(idle, .idle, model: false) == nil, "a row that names its model on its own line")
-        #expect(SessionText.detail(needs, .needsYou, model: false) == "Approve Bash: rm -rf build")
+        #expect(SessionText.note(idle, .idle, requests: []) == "Idle")
     }
 
     @Test("pocketd's steps read as what is happening, and an unknown one as itself")
@@ -114,19 +116,36 @@ struct AutomationTextTests {
         #expect(AutomationText.when(.webhook) == "On a webhook")
     }
 
-    @Test("the next run shows only while an automation is on")
-    func trigger() {
-        let on = Sample.automations.automations[0]
-        #expect(AutomationText.trigger(on, now: Sample.now, timeZone: utc) == "Weekdays at 09:00 · next Sun 09:00")
-        let off = Sample.automations.automations[1]
-        #expect(AutomationText.trigger(off, now: Sample.now, timeZone: utc) == "Every 12 hours")
+    @Test("a row names the schedule, the project and the Mac, then how the last run went")
+    func line() {
+        let runs = Sample.automations.runs
+        let review = Sample.automations.automations[0]
+        let working = AutomationText.line(review, last: runs[0], project: "anywhere", mac: "MacBook Pro", reachable: true, now: Sample.now, timeZone: utc)
+        #expect(working.detail == "Weekdays at 09:00 · anywhere · MacBook Pro")
+        #expect(working.last == "Last run 5m ago · Working" && !working.failed && working.agentId == "a-working")
+        let done = AutomationText.line(review, last: runs[1], project: nil, mac: "MacBook Pro", reachable: true, now: Sample.now, timeZone: utc)
+        #expect(done.detail == "Weekdays at 09:00 · MacBook Pro" && done.last == "Last run yesterday · Finished")
+        #expect(AutomationText.line(review, last: nil, project: nil, mac: "Mac", reachable: true, now: Sample.now).last == "Not run yet")
     }
 
-    @Test("the last run says what needs a look, or when a good one ran")
-    func last() {
-        let runs = Sample.automations.runs
-        #expect(AutomationText.last(runs[0], now: Sample.now, timeZone: utc) == "Working")
-        #expect(AutomationText.last(runs[1], now: Sample.now, timeZone: utc) == "Fri 09:00")
+    @Test("a failed run reads in the failed colour, and a Mac that is offline says so instead")
+    func offlineAndFailed() {
+        var run = Sample.automations.runs[1]
+        run.status = .failed
+        run.startedAt = Sample.now - 2 * 3_600_000
+        let review = Sample.automations.automations[0]
+        let failed = AutomationText.line(review, last: run, project: nil, mac: "Mac", reachable: true, now: Sample.now, timeZone: utc)
+        #expect(failed.last == "Last run 2h ago · Failed" && failed.failed)
+        let offline = AutomationText.line(review, last: run, project: nil, mac: "Mac", reachable: false, now: Sample.now, timeZone: utc)
+        #expect(offline.last == "Mac offline · last run Oct 24" && !offline.failed && offline.agentId == nil)
+        #expect(AutomationText.lastRun(nil, reachable: false, now: Sample.now) == "Mac offline")
+    }
+
+    @Test("a project is the one whose folder holds the automation's")
+    func project() {
+        #expect(AutomationText.project(of: "/Users/mingo/dev/anywhere", in: Sample.projects) == "anywhere")
+        #expect(AutomationText.project(of: "/Users/mingo/dev/anywhere/packages", in: Sample.projects) == "anywhere")
+        #expect(AutomationText.project(of: "/Users/mingo/dev/anywhere-old", in: Sample.projects) == nil)
     }
 }
 
@@ -184,18 +203,14 @@ struct WorkspacesTests {
         #expect(Workspaces.alert([.working, .idle]) == nil)
     }
 
-    @Test("the home header says how the Mac is reached and how many sessions it holds")
-    func headerStatus() {
-        #expect(HomeHeader.status(.online, sessions: 1) == "Connected over Tailscale · 1 session")
-        #expect(HomeHeader.status(.reconnecting, sessions: 40) == "\(Reachability.reconnecting.label) · 40 sessions")
-    }
-
-    @Test("a worktree's header names its branch against its base, and the bare branch before git answers")
+    @Test("a worktree's header names its branch against its base, leaving out a branch its title already is, and says nothing before git answers")
     func branchLine() {
         let head = GitHead(Sample.gitStatus(files: 1))
-        #expect(TreeHeader.branchLine(branch: nil, head: head) == nil)
-        #expect(TreeHeader.branchLine(branch: "fix", head: nil) == "fix")
-        #expect(TreeHeader.branchLine(branch: "fix", head: head) == "fix from main · 4 ahead")
+        #expect(TreeText.branchLine(branch: nil, label: "fix", head: head) == nil)
+        #expect(TreeText.branchLine(branch: "fix", label: "Phone terminal", head: nil) == "fix")
+        #expect(TreeText.branchLine(branch: "fix", label: "fix", head: nil) == nil)
+        #expect(TreeText.branchLine(branch: "fix", label: "Phone terminal", head: head) == "fix from main · 4 ahead")
+        #expect(TreeText.branchLine(branch: "fix", label: "fix", head: head) == "from main · 4 ahead")
     }
 
     @Test("the first load waits while the banner says reconnecting, and says why once it says it can't reach the Mac")
@@ -215,75 +230,14 @@ struct WorkspacesTests {
     }
 }
 
-@Suite("Folds")
-struct FoldsTests {
-    @Test("a project opens by itself while a session in it is working or wants a look, and the user's choice sticks either way")
-    func sticks() {
-        var folds = Folds()
-        #expect(folds.isOpen("p", lively: true))
-        #expect(!folds.isOpen("p", lively: false))
-        folds.toggle("p", lively: true)
-        #expect(!folds.isOpen("p", lively: true), "closed while busy stays closed")
-        folds.toggle("q", lively: false)
-        #expect(folds.isOpen("q", lively: false), "opened while idle stays open when its last session finishes")
-        #expect(Folds(rawValue: folds.rawValue) == folds)
-    }
-}
-
-@Suite("Up next text")
-struct UpNextTextTests {
-    @Test("a Needs you row shows the ask it waits on, a Failed row what failed, else what the session is doing")
-    func look() {
-        let needs = Sample.agents.first { $0.id == "a-needs" }!
-        #expect(SessionText.look(needs, .needsYou, requests: [Sample.permission]) == "Wants to run rm -rf build")
-        #expect(SessionText.look(needs, .needsYou, requests: [Sample.question]) == "Which colour?")
-        #expect(SessionText.look(needs, .needsYou, requests: []) == "Approve Bash: rm -rf build")
-        var failed = Sample.agents.first { $0.id == "a-failed" }!
-        #expect(SessionText.look(failed, .failed, requests: []) == "Failed")
-        failed.activity = "Running tests"
-        #expect(SessionText.look(failed, .failed, requests: []) == "Running tests")
-        failed.error = "API Error: 529 overloaded"
-        #expect(SessionText.look(failed, .failed, requests: []) == "API Error: 529 overloaded")
-        let working = Sample.agents.first { $0.id == "a-working" }!
-        #expect(SessionText.look(working, .working, requests: []) == "Opus 5.5")
-    }
-
-    @Test("a row leads with what the session asks or what failed, and otherwise its title")
-    func headline() {
-        let needs = Sample.agents.first { $0.id == "a-needs" }!
-        #expect(SessionText.headline(needs, .needsYou, requests: [Sample.permission]) == "Wants to run rm -rf build")
-        #expect(SessionText.headline(needs, .needsYou, requests: []) == SessionText.title(needs))
-        var failed = Sample.agents.first { $0.id == "a-failed" }!
-        #expect(SessionText.headline(failed, .failed, requests: []) == SessionText.title(failed))
-        failed.error = "API Error: 529 overloaded"
-        #expect(SessionText.headline(failed, .failed, requests: []) == "API Error: 529 overloaded")
-        #expect(SessionText.headline(failed, .working, requests: []) == SessionText.title(failed))
-    }
-
-    @Test("a finished session says how it ended, and one still going doesn't")
-    func outcome() {
-        #expect(SessionText.outcome(.failed) == "Failed")
-        #expect(SessionText.outcome(.done) == "Finished")
-        #expect(SessionText.outcome(.working) == nil)
-        #expect(SessionText.outcome(.needsYou) == nil)
-    }
-
+@Suite("Row text")
+struct RowTextTests {
     @Test("only a plain yes or no, short enough to read whole, is answered on its row")
     func answersInPlace() {
         #expect(SessionText.answersInPlace(Sample.permission))
         #expect(!SessionText.answersInPlace(Sample.question))
         let long = PermissionRequest(requestId: "r", agentId: "a", toolName: "Bash", detail: .shell(command: String(repeating: "x", count: 300), description: "long"))
         #expect(!SessionText.answersInPlace(long))
-    }
-
-    @Test("a worktree's pull request tile says its state and how many checks passed")
-    func pullRequestState() {
-        let open = PrItem(tree: "/t", number: 7, title: "", state: "OPEN", draft: false, gate: .ready, checks: .init(passed: 3, failed: 1, pending: 0))
-        #expect(SessionText.pullRequestState(open) == "Open · 3 of 4 checks")
-        let draft = PrItem(tree: "/t", number: 7, title: "", state: "OPEN", draft: true, gate: .ready, checks: .init(passed: 0, failed: 0, pending: 0))
-        #expect(SessionText.pullRequestState(draft) == "Draft")
-        let merged = PrItem(tree: "/t", number: 7, title: "", state: "MERGED", draft: false, gate: .ready, checks: .init(passed: 1, failed: 0, pending: 0))
-        #expect(SessionText.pullRequestState(merged) == "Merged · 1 of 1 checks")
     }
 
     @Test("a launch says where it starts: the new branch and its base, a worktree's folder, or the project's Local")
@@ -339,7 +293,9 @@ struct StartingTests {
 
     @Test("Start says why it waits on the Mac: offline first, then agents still loading")
     func waiting() {
-        #expect(NewSessionView.waiting(online: false, providers: false, failed: false, mac: "Studio") == "Studio isn't connected. Start turns on when it's back.")
+        #expect(NewSessionView.waiting(online: false, providers: false, failed: false, mac: "Studio") == "Studio is offline. Start turns on when it's back.")
+        let at = Sample.now + 1_620_000
+        #expect(NewSessionView.waiting(online: false, providers: true, failed: false, mac: "Studio", asOf: at, timeZone: utc) == "Studio is offline · last seen 9:27. Start turns on when it's back.")
         #expect(NewSessionView.waiting(online: true, providers: false, failed: false, mac: "Studio") == "Loading agents from Studio…")
         #expect(NewSessionView.waiting(online: true, providers: false, failed: true, mac: "Studio") == nil)
         #expect(NewSessionView.waiting(online: true, providers: true, failed: false, mac: "Studio") == nil)
@@ -364,12 +320,10 @@ struct StartingTests {
 
 @Suite("Tree links")
 struct TreeLinksTests {
-    @Test("Changes counts the changed files, and says No changes at none")
+    @Test("Changes counts the changed files")
     func changes() {
-        #expect(TreeLinks.changes(nil) == nil)
-        #expect(TreeLinks.changes(0) == "No changes")
-        #expect(TreeLinks.changes(1) == "1 file")
-        #expect(TreeLinks.changes(1_200) == "1200 files")
+        #expect(TreeLinks.files(1) == "1 file")
+        #expect(TreeLinks.files(1_200) == "1200 files")
     }
 
     @Test("the pull request tile names the PR, offers to create one once gh is ready, and hides without a GitHub remote or on a Mac that can't read GitHub")

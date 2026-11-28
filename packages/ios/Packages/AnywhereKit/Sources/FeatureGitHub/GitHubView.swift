@@ -31,14 +31,17 @@ public struct GitHubView: View {
             // The tree's status gives the new PR its commits and base, and its watch brings gh.changed.
             let changes = host.git.changes(tree)
             let head = changes.head
-            PullRequestScreen(
-                store: host.github, tree: tree, mac: PrMac(id: mac, name: host.name, offline: host.link != .online),
-                newPr: NewPr(branch: head?.branch, base: head?.base, ahead: head?.ahead, commits: head?.commits ?? []),
-                cleanup: cleanup(tree, changes: readsBefore.flatMap { changes.files(readSince: $0) }),
-                deleteTree: { delete(tree) },
-                branches: { try await host.workspace.loadBranches(tree: tree) },
-                fix: fix(tree, mac: mac, chat: chat)
-            )
+            // The screen dims when the banner goes up, so it is read again at the marks where the link's reading changes.
+            TimelineView(.explicit(host.reachabilityMarks)) { _ in
+                PullRequestScreen(
+                    store: host.github, tree: tree, mac: prMac(mac),
+                    newPr: NewPr(branch: head?.branch, base: head?.base, ahead: head?.ahead, commits: head?.commits ?? []),
+                    cleanup: cleanup(tree, changes: readsBefore.flatMap { changes.files(readSince: $0) }),
+                    deleteTree: { delete(tree) },
+                    branches: { try await host.workspace.loadBranches(tree: tree) },
+                    fix: fix(tree, mac: mac, chat: chat)
+                )
+            }
             .onAppear {
                 readsBefore = changes.reads
                 target = host.chatTarget(tree, opener: chat)
@@ -48,12 +51,15 @@ public struct GitHubView: View {
         case .pullRequests(let mac, let project):
             PullRequestListScreen(store: host.github, mac: mac, macName: host.name, project: project)
         case .reviewThreads(let mac, let tree, let chat):
-            ThreadsScreen(store: host.github, model: host.github.pullRequest(tree), mac: PrMac(id: mac, name: host.name, offline: host.link != .online),
-                          fix: fix(tree, mac: mac, chat: chat))
+            ThreadsScreen(store: host.github, model: host.github.pullRequest(tree), mac: prMac(mac), fix: fix(tree, mac: mac, chat: chat))
                 .onAppear { target = host.chatTarget(tree, opener: chat) }
         default:
-            Placeholder("Pull request", systemImage: "arrow.triangle.pull")
+            Placeholder("Pull request", icon: .pullRequest)
         }
+    }
+
+    private func prMac(_ id: String) -> PrMac {
+        PrMac(id: id, name: host.name, reachability: host.reachability(at: .now))
     }
 
     /// Deletes as a list's Delete does, so the lists hide the tree and say how it went; its screens go first.

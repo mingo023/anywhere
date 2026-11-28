@@ -7,23 +7,20 @@ enum PillFit: Comparable {
     case full, short, compact, icons
 }
 
-/// A setting in the composer's bar, as the desktop's pill: what leads it, its words, and a chevron while it opens a menu.
+/// A setting in the composer's bar: a 34 pt capsule of its words, or of its mark alone when short of room.
 @MainActor
 struct PillLabel<Content: View>: View {
-    let opens: Bool
     var fill: Token?
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        HStack(spacing: 5) {
-            content()
-            if opens { Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Palette.text4.color) }
-        }
-        .font(ChatFont.caption.weight(.medium))
-        .lineLimit(1)
-        .padding(.horizontal, 10)
-        .frame(height: 30)
-        .background((fill ?? Palette.fill2).color, in: Capsule())
-        .hitTarget()
+        HStack(spacing: 5, content: content)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Palette.textBody.color)
+            .lineLimit(1)
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background((fill ?? Palette.fill3).color, in: Capsule())
+            .hitTarget()
     }
 }

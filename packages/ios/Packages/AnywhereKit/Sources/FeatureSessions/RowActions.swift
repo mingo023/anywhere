@@ -206,7 +206,7 @@ extension View {
     }
 }
 
-/// A session's swipes and menu: pin on the leading edge, close on the trailing one, both in its menu.
+/// A session's menu: pin it, or close it.
 @MainActor
 struct SessionActions: ViewModifier {
     let host: HostModel
@@ -216,17 +216,9 @@ struct SessionActions: ViewModifier {
     func body(content: Content) -> some View {
         let pinned = session.summary.pinned == true
         content
-            .swipeActions(edge: .leading) {
-                Button { pin(!pinned) } label: { Label(pinned ? "Unpin" : "Pin", systemImage: pinned ? "pin.slash" : "pin") }
-                    .tint(Palette.accent.color)
-            }
-            .swipeActions(edge: .trailing) {
-                // No destructive role: that slides the row out before the confirm.
-                Button { close() } label: { Label("Close", systemImage: "xmark") }.tint(Palette.failed.color)
-            }
             .contextMenu {
-                Button { pin(!pinned) } label: { Label(pinned ? "Unpin" : "Pin", systemImage: pinned ? "pin.slash" : "pin") }
-                Button(role: .destructive) { close() } label: { Label("Close Session", systemImage: "xmark") }
+                Button { pin(!pinned) } label: { Label(pinned ? "Unpin" : "Pin", lucide: .pin) }
+                Button(role: .destructive) { close() } label: { Label("Close Session", lucide: .close) }
             }
     }
 

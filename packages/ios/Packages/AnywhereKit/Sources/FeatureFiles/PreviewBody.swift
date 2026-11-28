@@ -12,7 +12,7 @@ enum PreviewBody: Equatable {
     case markdown(String)
     case svg(String)
     case image(Data)
-    case note(String, systemImage: String, detail: String? = nil)
+    case note(String, icon: Lucide, detail: String? = nil)
     /// The read failed; the screen offers Try Again.
     case failed(String)
     case folder
@@ -35,11 +35,11 @@ enum PreviewBody: Equatable {
             if !source, read.language == "markdown" || FileText.isMarkdown(path) { return .markdown(text) }
             return .code(text, language: language(read, path: path))
         case .image:
-            guard let data = read.data else { return .note(unreadable, systemImage: "photo") }
+            guard let data = read.data else { return .note(unreadable, icon: .imagePlus) }
             return .image(data)
-        case .binary: return .note("Binary file · \(FileText.size(read.size))", systemImage: "doc.zipper")
-        case .tooLarge: return .note("Too large to preview · \(FileText.size(read.size))", systemImage: "doc.badge.ellipsis")
-        default: return .note(unreadable, systemImage: "eye.slash", detail: unreadableWhy)
+        case .binary: return .note("Binary file · \(FileText.size(read.size))", icon: .package)
+        case .tooLarge: return .note("Too large to preview · \(FileText.size(read.size))", icon: .file)
+        default: return .note(unreadable, icon: .eyeOff, detail: unreadableWhy)
         }
     }
 
@@ -65,15 +65,10 @@ enum PreviewBody: Equatable {
         return "Showing the first \(FileText.size(read.text?.utf8.count ?? 0)) of \(FileText.size(read.size))"
     }
 
-    /// "src/chat · Rust · 2.0 KB", under the file's name; the folder alone until the file is read.
-    static func subtitle(_ read: FsRead?, path: String) -> String? {
+    /// The folder holding the file, under its name; the tree's own name for a file at the top.
+    static func subtitle(path: String, tree: String) -> String {
         let folder = FileText.folder(path)
-        var parts = folder.isEmpty ? [] : [folder]
-        if let read, read.kind != .unreadable {
-            if read.kind == .text { parts.append(FileText.language(language(read, path: path))) }
-            parts.append(FileText.size(read.size))
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        return folder.isEmpty ? FileText.baseName(tree) : folder
     }
 }
 
@@ -81,9 +76,9 @@ enum PreviewBody: Equatable {
 enum GitLetter {
     static func color(_ letter: String) -> Token {
         switch letter {
-        case "A", "?": Palette.success
-        case "D", "U": Palette.failed
-        default: Palette.waiting
+        case "A", "?": Palette.successText
+        case "D", "U": Palette.failedText
+        default: Palette.waitingText
         }
     }
 

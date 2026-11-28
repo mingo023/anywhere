@@ -15,7 +15,7 @@ struct BtwCard: View {
                 Text("/btw").font(ChatFont.mono.weight(.semibold)).foregroundStyle(Palette.command.color)
                 Text(question).font(ChatFont.small).foregroundStyle(Palette.text.color).lineLimit(1)
                 Spacer(minLength: 0)
-                Button(action: close) { Image(systemName: "xmark").font(.system(size: 12)).frame(width: 28, height: 28) }
+                Button(action: close) { LucideIcon(.close, size: 14).frame(width: 28, height: 28) }
                     .buttonStyle(.plain).foregroundStyle(Palette.text3.color).accessibilityLabel("Close")
             }
             ScrollView {

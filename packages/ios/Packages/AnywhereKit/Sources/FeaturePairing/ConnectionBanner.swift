@@ -2,25 +2,38 @@ import DesignSystem
 import Stores
 import SwiftUI
 
-/// "Reconnecting to <Mac>…" once a drop lasts 4 s, and "Can't reach <Mac>" with a Tailscale hint after 30 s.
-/// It redraws only when its reading can change: on a link change and at those two marks.
+/// The screen's network strip for one Mac: "Reconnecting to <Mac>…" once a drop lasts 4 s, "Couldn't reconnect" with
+/// Retry after 30 s, and "Back online" for 2 s once it's back. It redraws only when its reading can change.
 @MainActor
 public struct ConnectionBanner: View {
     let host: HostModel
+    @State private var back = false
 
     public init(host: HostModel) {
         self.host = host
     }
 
     public var body: some View {
-        if let since = host.offlineSince, !host.reachability(at: since).isFinal {
-            // The schedule only wakes the view at the marks; the clock is read fresh, as an entry's date may be an older mark.
-            TimelineView(.explicit([since, since + Reachability.reconnectingAfter, since + Reachability.unreachableAfter])) { _ in
-                ConnectionBannerRow(name: host.name, reachability: host.reachability(at: .now)) {
-                    Haptics.tap()
-                    host.scene(active: true)
+        Group {
+            if let since = host.offlineSince, !host.reachability(at: since).isFinal {
+                // The schedule only wakes the view at the marks; the clock is read fresh, as an entry's date may be an older mark.
+                TimelineView(.explicit(host.reachabilityMarks)) { _ in
+                    ConnectionBannerRow(name: host.name, asOf: host.staleAsOf(at: .now), reachability: host.reachability(at: .now)) {
+                        Haptics.tap()
+                        host.scene(active: true)
+                    }
                 }
+            } else if back {
+                NetStrip(.back, "Back online").stripPlacement()
             }
+        }
+        .onChange(of: host.offlineSince) { was, now in
+            if now == nil, Reachability.backOnline(offlineSince: was, at: .now) { back = true }
+        }
+        .task(id: back) {
+            guard back else { return }
+            try? await Task.sleep(for: .seconds(2))
+            back = false
         }
     }
 }
@@ -28,32 +41,16 @@ public struct ConnectionBanner: View {
 @MainActor
 struct ConnectionBannerRow: View {
     let name: String
+    let asOf: Int?
     let reachability: Reachability
     let retry: () -> Void
 
     var body: some View {
         switch reachability {
         case .reconnecting:
-            HStack(spacing: Space.s) {
-                ProgressView().controlSize(.small)
-                Text("Reconnecting to \(name)…").font(Typography.subheadline).foregroundStyle(Palette.text.color).lineLimit(1)
-            }
-            .bannerChrome()
-            .transition(.move(edge: .top).combined(with: .opacity))
+            NetStrip(.reconnecting, NetStrip.reconnecting(mac: name)).stripPlacement()
         case .unreachable:
-            HStack(spacing: Space.m) {
-                Image(systemName: "wifi.exclamationmark").foregroundStyle(Palette.waitingText.color)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Can't reach \(name)").font(Typography.subheadline.weight(.semibold)).foregroundStyle(Palette.text.color)
-                    Text("Check Tailscale is on here and on the Mac.").font(Typography.caption).foregroundStyle(Palette.text3.color)
-                }
-                .lineLimit(1)
-                Spacer(minLength: Space.s)
-                Button("Retry", action: retry).font(Typography.subheadline.weight(.semibold))
-            }
-            .bannerChrome()
-            .transition(.move(edge: .top).combined(with: .opacity))
-            .accessibilityElement(children: .combine)
+            NetStrip(.failed, NetStrip.failed(mac: name, asOf: asOf), action: ("Retry", retry)).stripPlacement()
         default:
             EmptyView()
         }
@@ -61,11 +58,9 @@ struct ConnectionBannerRow: View {
 }
 
 extension View {
-    fileprivate func bannerChrome() -> some View {
-        padding(.horizontal, Space.l)
-            .padding(.vertical, Space.s + 2)
-            .raised(in: RoundedRectangle(cornerRadius: Radius.float, style: .continuous))
-            .padding(.horizontal, Space.l)
-            .padding(.top, Space.xs)
+    fileprivate func stripPlacement() -> some View {
+        padding(.horizontal, Inset.margin)
+            .padding(.vertical, Space.xs)
+            .transition(.move(edge: .top).combined(with: .opacity))
     }
 }

@@ -34,12 +34,12 @@ struct NewTerminalSheet: View {
                             Section(project.name) {
                                 ForEach(project.worktrees, id: \.path) { tree in
                                     place(tree.name, detail: tree.branch.isEmpty ? nil : tree.branch,
-                                          systemImage: tree.isMain ? "folder" : "worktree", key: tree.path) {
+                                          icon: tree.isMain ? .folder : .worktree, key: tree.path) {
                                         try await store.create(cwd: tree.path, localId: nil, cols: grid?.cols, rows: grid?.rows)
                                     }
                                 }
                                 ForEach(store.locals.filter { $0.project == project.path }) { local in
-                                    place(local.name, detail: "Local", systemImage: "house", key: "local:" + local.id) {
+                                    place(local.name, detail: "Local", icon: .folder, key: "local:" + local.id) {
                                         try await store.create(cwd: nil, localId: local.id, cols: grid?.cols, rows: grid?.rows)
                                     }
                                 }
@@ -65,12 +65,12 @@ struct NewTerminalSheet: View {
         .presentationDetents([.medium, .large])
     }
 
-    private func place(_ name: String, detail: String?, systemImage: String, key: String, open: @escaping () async throws -> String) -> some View {
+    private func place(_ name: String, detail: String?, icon: Lucide, key: String, open: @escaping () async throws -> String) -> some View {
         Button {
             Task { await start(key, open) }
         } label: {
             HStack(spacing: Space.m) {
-                Image.named(systemImage, size: 17).foregroundStyle(Palette.text2.color).frame(width: 24)
+                LucideIcon(icon, size: 17).foregroundStyle(Palette.text2.color).frame(width: 24)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(name).foregroundStyle(Palette.text.color)
                     if let detail { Text(detail).font(Typography.caption).foregroundStyle(Palette.text3.color) }

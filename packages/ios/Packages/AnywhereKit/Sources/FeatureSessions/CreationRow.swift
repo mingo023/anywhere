@@ -14,9 +14,9 @@ struct CreationRow: View {
         HStack(spacing: Space.m) {
             Group {
                 if creation.error != nil {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.failed.color)
+                    LucideIcon(.circleAlert, size: 17).foregroundStyle(Palette.failed.color)
                 } else {
-                    ProgressView().controlSize(.small)
+                    DotSpinner(size: 13)
                 }
             }
             .frame(width: 18)
@@ -29,7 +29,7 @@ struct CreationRow: View {
             Spacer(minLength: Space.s)
             if creation.error != nil {
                 Button(action: retry) { Text("Try Again").hitTarget() }.font(Typography.footnote.weight(.semibold))
-                Button { dismiss() } label: { Image(systemName: "xmark").hitTarget() }
+                Button { dismiss() } label: { LucideIcon(.close, size: 13).hitTarget() }
                     .accessibilityLabel("Dismiss")
             }
         }

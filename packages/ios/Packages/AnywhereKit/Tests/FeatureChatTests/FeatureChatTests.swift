@@ -7,10 +7,10 @@ import Wire
 @testable import FeatureChat
 
 @MainActor
-private func rows(_ s: ChatStore) -> [RowItem] {
+private func rows(_ s: ChatStore, carded: Bool = false) -> [RowItem] {
     let b = RowBuilder(
         session: s.session, provider: s.provider, model: s.summary?.model, ask: s.ask.map { !$0.questions.isEmpty }, stopping: s.stopping,
-        canSendNow: true, now: Sample.now)
+        carded: carded, canSendNow: true, now: Sample.now)
     return s.session.rows.indices.map(b.item)
 }
 
@@ -21,26 +21,23 @@ private func shown(_ items: [RowItem]) -> [RowContent] {
 @Suite("Chat rows")
 @MainActor
 struct FeatureChatTests {
-    @Test("a shut fold hides the work and keeps the answer")
-    func shutFold() {
-        let all = shown(rows(ChatGallery.store(Sample.chat("every-tool-kind"))))
-        #expect(!all.contains { if case .phase = $0 { true } else { false } })
-        #expect(!all.contains { if case .tasks = $0 { true } else { false } })
+    @Test("a settled reply lists each step on its own line, then its todos and its answer, under no header")
+    func stepsShow() {
+        let items = rows(ChatGallery.store(Sample.chat("every-tool-kind")))
+        let all = shown(items)
+        let steps = all.filter { if case .step = $0 { true } else { false } }
+        let work = ChatGallery.store(Sample.chat("every-tool-kind")).session.transcript.turns.flatMap(\.blocks).filter(isWork)
+        #expect(steps.count == work.count)
+        #expect(all.contains { if case .tasks = $0 { true } else { false } })
         #expect(all.contains { if case .text(let t) = $0 { t.text.hasPrefix("Tool runs now fold") } else { false } })
-        #expect(all.contains { if case .fold(let label, false, _) = $0 { label == "Claude worked for 1m 4s" } else { false } })
+        #expect(items.filter { $0.id.hasSuffix("#fold") }.allSatisfy { $0.content == .hidden })
     }
 
-    @Test("an open fold hangs its work on the rail, whose last row stops at its elbow")
-    func openFold() {
-        let s = ChatGallery.store(Sample.chat("every-tool-kind"))
-        let fold = s.session.ids.first { $0.hasSuffix("#fold") }!
-        s.toggle(fold, false)
-        let items = rows(s)
-        let railed = items.filter { $0.rail != .none }
-        #expect(!railed.isEmpty)
-        #expect(railed.allSatisfy { if case .phase = $0.content { true } else if case .text = $0.content { true } else { false } })
-        #expect(items.contains { $0.rail == .last })
-        #expect(items.contains { if case .tasks = $0.content { true } else { false } })
+    @Test("the live line gives way to a card in the composer's place")
+    func liveUnderCard() {
+        let s = ChatGallery.store(Sample.chat("streaming-live"))
+        guard case .live? = rows(s).last?.content else { return #expect(Bool(false), "the last row is the live line") }
+        #expect(rows(s, carded: true).last?.content == .hidden)
     }
 
     @Test("the live reply's fold gives way to the live line at the bottom")

@@ -13,7 +13,7 @@ struct NavigatorTests {
     @Test("an agent link on a connected Mac selects it and opens the chat over its sessions")
     func agentLink() {
         let nav = Navigator()
-        nav.tab = .settings
+        nav.tab = .machines
         nav.open(.agent(mac: "mbp", agentId: "a1"), macs: [online, offline])
         #expect(nav.tab == .sessions)
         #expect(nav.macId == "d1")
@@ -21,9 +21,20 @@ struct NavigatorTests {
         #expect(nav.held == nil)
     }
 
+    @Test("an agent link opens over the Inbox when the Inbox is showing")
+    func agentLinkOverInbox() {
+        let nav = Navigator()
+        nav.open(.agent(mac: "mbp", agentId: "a1"), macs: [online, offline])
+        nav.tab = .inbox
+        nav.open(.agent(mac: "mbp", agentId: "a1"), macs: [online, offline])
+        #expect(nav.tab == .inbox)
+        #expect(nav.inboxPath == [.chat(mac: "mbp", agentId: "a1")])
+    }
+
     @Test("an agent link waits for its Mac to connect, showing the Mac meanwhile")
     func holdsUntilConnected() {
         let nav = Navigator()
+        nav.tab = .sessions
         nav.open(.agent(mac: "studio", agentId: "a2"), macs: [online, offline])
         #expect(nav.macId == "d2")
         #expect(nav.sessionsPath.isEmpty)
@@ -48,6 +59,7 @@ struct NavigatorTests {
     @Test("a held link is dropped once the user goes somewhere else, or dismisses it")
     func heldDropped() {
         let nav = Navigator()
+        nav.tab = .sessions
         let link = DeepLink.agent(mac: "studio", agentId: "a2")
         nav.open(link, macs: [online, offline])
         nav.setPath([], for: .sessions)
@@ -55,7 +67,7 @@ struct NavigatorTests {
         nav.push(.project(mac: "studio", path: "/p"))
         #expect(nav.held == nil)
         nav.open(link, macs: [online, offline])
-        nav.tab = .terminals
+        nav.tab = .prs
         #expect(nav.held == nil)
         nav.open(link, macs: [online, offline])
         nav.tree = .worktree(mac: "studio", path: "/p/wt")
@@ -80,6 +92,7 @@ struct NavigatorTests {
     @Test("a chat opened from inside the app is pushed over the current screen and keeps the tree")
     func showPushes() {
         let nav = Navigator()
+        nav.tab = .sessions
         nav.select(mac: "d1")
         nav.tree = .worktree(mac: "mbp", path: "/p/wt")
         nav.sessionsPath = [.worktree(mac: "mbp", path: "/p/wt")]
@@ -90,19 +103,27 @@ struct NavigatorTests {
         #expect(nav.sessionsPath.count == 2, "the chat already on top isn't pushed twice")
     }
 
-    @Test("a chat on another Mac opened from inside the app opens as a link from outside does")
+    @Test("a chat on another Mac opened from inside the app is pushed over the current screen too, as routes name their Mac")
     func showOtherMac() {
         let nav = Navigator()
+        nav.tab = .sessions
         nav.select(mac: "d1")
         nav.sessionsPath = [.project(mac: "mbp", path: "/p")]
-        nav.show(.agent(mac: "studio", agentId: "a2"), macs: [online, MacRef(id: "d2", serverId: "studio", online: true)])
-        #expect(nav.macId == "d2")
-        #expect(nav.sessionsPath == [.chat(mac: "studio", agentId: "a2")])
+        nav.show(.agent(mac: "studio", agentId: "a2"), macs: [online, offline])
+        #expect(nav.sessionsPath == [.project(mac: "mbp", path: "/p"), .chat(mac: "studio", agentId: "a2")])
+    }
+
+    @Test("a chat link from inside the app to a Mac not paired opens as a link from outside does, and waits")
+    func showUnknownMac() {
+        let nav = Navigator()
+        nav.show(.agent(mac: "later", agentId: "a9"), macs: [online])
+        #expect(nav.held == .agent(mac: "later", agentId: "a9"))
     }
 
     @Test("New Session opens as a sheet over the current screen, not on the stack")
     func newSessionSheet() {
         let nav = Navigator()
+        nav.tab = .sessions
         nav.sessionsPath = [.chat(mac: "mbp", agentId: "a1")]
         nav.push(.newSession(mac: "mbp", project: "/p", place: "/p/wt", prompt: "Fix it"))
         #expect(nav.sheet == .newSession(mac: "mbp", project: "/p", place: "/p/wt", prompt: "Fix it"))
@@ -112,6 +133,7 @@ struct NavigatorTests {
     @Test("opening a chat already on the stack goes back to it rather than pushing it again")
     func pushGoesBack() {
         let nav = Navigator()
+        nav.tab = .sessions
         let chat = Route.chat(mac: "mbp", agentId: "a1")
         nav.sessionsPath = [chat, .files(mac: "mbp", tree: "/p", dir: "", chat: "a1"), .file(mac: "mbp", tree: "/p", path: "a.rs", chat: "a1")]
         nav.push(chat)
@@ -125,42 +147,53 @@ struct NavigatorTests {
         let nav = Navigator()
         let tree = Route.worktree(mac: "mbp", path: "/p/wt")
         nav.sessionsPath = [.project(mac: "mbp", path: "/p"), tree, .pullRequest(mac: "mbp", tree: "/p/wt"), .chat(mac: "mbp", agentId: "a1")]
-        nav.terminalsPath = [.terminal(mac: "mbp", terminalId: "t1")]
+        nav.inboxPath = [.chat(mac: "mbp", agentId: "a2")]
+        nav.prsPath = [.pullRequest(mac: "mbp", tree: "/p/wt"), .changes(mac: "mbp", tree: "/p/wt")]
         nav.tree = tree
-        nav.leave(tree: "/p/wt")
+        nav.leave(mac: "mbp", tree: "/p/wt")
         #expect(nav.sessionsPath == [.project(mac: "mbp", path: "/p")])
-        #expect(nav.terminalsPath == [.terminal(mac: "mbp", terminalId: "t1")])
+        #expect(nav.inboxPath == [.chat(mac: "mbp", agentId: "a2")])
+        #expect(nav.prsPath.isEmpty, "every stack leaves the tree")
         #expect(nav.tree == nil)
 
         nav.tree = .local(mac: "mbp", id: "l1")
         nav.sessionsPath = [.pullRequest(mac: "mbp", tree: "/p/wt")]
-        nav.leave(tree: "/p/wt")
+        nav.leave(mac: "mbp", tree: "/p/wt")
         #expect(nav.tree == .local(mac: "mbp", id: "l1"))
         #expect(nav.sessionsPath.isEmpty)
+
+        nav.tree = .worktree(mac: "mini", path: "/p/wt")
+        nav.prsPath = [.pullRequest(mac: "mini", tree: "/p/wt")]
+        nav.leave(mac: "mbp", tree: "/p/wt")
+        #expect(nav.tree == .worktree(mac: "mini", path: "/p/wt"), "another Mac's checkout at the same path stays")
+        #expect(nav.prsPath == [.pullRequest(mac: "mini", tree: "/p/wt")])
     }
 
     @Test("Show in chat from a sub-agent nested over its chat goes back to the chat")
     func showInChatGoesBack() {
         let nav = Navigator()
+        nav.tab = .sessions
         let chat = Route.chat(mac: "mbp", agentId: "a1")
         nav.sessionsPath = [chat, .subAgent(mac: "mbp", agentId: "a1", callId: "c1"), .subAgent(mac: "mbp", agentId: "a1", callId: "c2")]
         nav.push(chat)
         #expect(nav.sessionsPath == [chat])
     }
 
-    @Test("the chats on any stack are the ones whose stores stay")
+    @Test("a Mac's chats on any stack are the ones whose stores stay")
     func chats() {
         let nav = Navigator()
         nav.sessionsPath = [.project(mac: "mbp", path: "/p"), .chat(mac: "mbp", agentId: "a1")]
-        nav.terminalsPath = [.chat(mac: "mbp", agentId: "a2")]
-        #expect(nav.chats == ["a1", "a2"])
+        nav.inboxPath = [.chat(mac: "mbp", agentId: "a2"), .chat(mac: "studio", agentId: "a3")]
+        #expect(nav.chats(on: "mbp") == ["a1", "a2"])
+        #expect(nav.chats(on: "studio") == ["a3"])
+        #expect(nav.chatMacs == ["mbp", "studio"])
     }
 
     @Test("a sub-agent restored on top of a stack keeps its chat's store")
     func subAgentKeepsItsChat() {
         let nav = Navigator()
         nav.sessionsPath = [.subAgent(mac: "mbp", agentId: "a1", callId: "c1")]
-        #expect(nav.chats == ["a1"])
+        #expect(nav.chats(on: "mbp") == ["a1"])
     }
 
     @Test("a restored chat of a session the Mac no longer lists is dropped with what was over it, once")
@@ -168,14 +201,16 @@ struct NavigatorTests {
         let nav = Navigator()
         nav.select(mac: "d1")
         nav.sessionsPath = [.project(mac: "mbp", path: "/p"), .chat(mac: "mbp", agentId: "gone"), .file(mac: "mbp", tree: "/p", path: "a.rs")]
-        nav.terminalsPath = [.chat(mac: "mbp", agentId: "kept")]
+        nav.inboxPath = [.chat(mac: "mbp", agentId: "kept"), .chat(mac: "studio", agentId: "elsewhere")]
         let back = Navigator()
-        back.restore(try #require(nav.encoded()), macs: [online])
-        back.dropClosedChats(listed: ["kept"])
+        back.restore(try #require(nav.encoded()), macs: [online, offline])
+        back.dropClosedChats(mac: "mbp", listed: ["kept"])
         #expect(back.sessionsPath == [.project(mac: "mbp", path: "/p")])
-        #expect(back.terminalsPath == [.chat(mac: "mbp", agentId: "kept")])
+        #expect(back.inboxPath == [.chat(mac: "mbp", agentId: "kept"), .chat(mac: "studio", agentId: "elsewhere")], "another Mac's chats wait for its list")
+        back.dropClosedChats(mac: "studio", listed: [])
+        #expect(back.inboxPath == [.chat(mac: "mbp", agentId: "kept")])
         back.sessionsPath = [.chat(mac: "mbp", agentId: "new")]
-        back.dropClosedChats(listed: [])
+        back.dropClosedChats(mac: "mbp", listed: [])
         #expect(back.sessionsPath == [.chat(mac: "mbp", agentId: "new")], "only the restored place is checked")
     }
 
@@ -194,18 +229,31 @@ struct NavigatorTests {
         #expect(nav.pairing?.link == url)
     }
 
-    @Test("switching Macs clears their stacks but keeps Settings'")
+    @Test("switching Macs keeps every stack, as each route names its Mac")
     func switching() {
         let nav = Navigator()
         nav.select(mac: "d1")
         nav.sessionsPath = [.chat(mac: "mbp", agentId: "a1")]
-        nav.terminalsPath = [.terminal(mac: "mbp", terminalId: "t1")]
-        nav.settingsPath = [.settings]
-        nav.select(mac: "d1")
-        #expect(!nav.sessionsPath.isEmpty, "selecting the same Mac keeps its place")
+        nav.machinesPath = [.settings]
         nav.select(mac: "d2")
-        #expect(nav.sessionsPath.isEmpty && nav.terminalsPath.isEmpty)
-        #expect(nav.settingsPath == [.settings])
+        #expect(nav.sessionsPath == [.chat(mac: "mbp", agentId: "a1")])
+        #expect(nav.machinesPath == [.settings])
+    }
+
+    @Test("forgetting a Mac leaves its screens, with what was opened over them, on every stack")
+    func forgetting() {
+        let nav = Navigator()
+        nav.sessionsPath = [.project(mac: "mbp", path: "/p"), .chat(mac: "studio", agentId: "a2"), .file(mac: "mbp", tree: "/p", path: "a.rs")]
+        nav.inboxPath = [.chat(mac: "studio", agentId: "a2")]
+        nav.machinesPath = [.settings]
+        nav.keepSelection([online])
+        #expect(nav.sessionsPath == [.project(mac: "mbp", path: "/p")])
+        #expect(nav.inboxPath.isEmpty)
+        #expect(nav.machinesPath == [.settings])
+
+        nav.inboxPath = [.chat(mac: "studio", agentId: "a3")]
+        nav.keepSelection([online])
+        #expect(nav.inboxPath.isEmpty, "the selected Mac staying doesn't keep another's screens")
     }
 
     @Test("switching Macs, or a link to a chat, widens the sessions list from the tree it was narrowed to")
@@ -238,8 +286,9 @@ struct NavigatorTests {
     func restoration() throws {
         let nav = Navigator()
         nav.select(mac: "d2")
-        nav.tab = .settings
-        nav.terminalsPath = [.terminal(mac: "studio", terminalId: "t1")]
+        nav.tab = .prs
+        nav.prsPath = [.pullRequest(mac: "studio", tree: "/p/wt")]
+        nav.inboxPath = [.chat(mac: "mbp", agentId: "a1")]
         nav.tree = .worktree(mac: "studio", path: "/p/wt")
         let data = try #require(nav.encoded())
 
@@ -250,9 +299,10 @@ struct NavigatorTests {
         let gone = Navigator()
         gone.restore(data, macs: [online])
         #expect(gone.macId == "d1")
-        #expect(gone.terminalsPath.isEmpty)
+        #expect(gone.prsPath.isEmpty)
+        #expect(gone.inboxPath == [.chat(mac: "mbp", agentId: "a1")])
         #expect(gone.tree == nil)
-        #expect(gone.tab == .settings)
+        #expect(gone.tab == .prs)
     }
 
     @Test("picking a worktree opens its newest chat in place of the last one's")
@@ -319,13 +369,31 @@ struct NavigatorTests {
         #expect(nav.sessionsPath == [.chat(mac: "mbp", agentId: "a1")])
     }
 
-    @Test("a saved Terminals tab opens on Sessions, as the tab is gone")
-    func savedTerminalsTabOpensOnSessions() throws {
-        let nav = Navigator()
-        nav.tab = .terminals
+    @Test("a place saved before the four tabs opens: Terminals on Sessions, Settings on Machines with its stack")
+    func olderSaves() throws {
+        let terminals = Data(#"{"tab":"terminals","macId":"d1","sessions":[{"project":{"mac":"mbp","path":"/p"}}],"terminals":[],"settings":[]}"#.utf8)
         let back = Navigator()
-        back.restore(try #require(nav.encoded()), macs: [online])
+        back.restore(terminals, macs: [online])
         #expect(back.tab == .sessions)
+        #expect(back.sessionsPath == [.project(mac: "mbp", path: "/p")])
+
+        let settings = Data(#"{"tab":"settings","macId":"d1","sessions":[],"terminals":[],"settings":[{"settings":{}}]}"#.utf8)
+        let again = Navigator()
+        again.restore(settings, macs: [online])
+        #expect(again.tab == .machines)
+        #expect(again.machinesPath == [.settings])
+    }
+
+    @Test("the tab bar shows over lists and hides under a screen with its own pinned action or composer")
+    func tabBar() {
+        #expect(Tab.showsBar(over: []))
+        #expect(Tab.showsBar(over: [.project(mac: "mbp", path: "/p"), .worktree(mac: "mbp", path: "/p/wt")]))
+        #expect(Tab.showsBar(over: [.settings]))
+        for top in [Route.chat(mac: "mbp", agentId: "a1"), .pullRequest(mac: "mbp", tree: "/t"), .changes(mac: "mbp", tree: "/t"),
+                    .diff(mac: "mbp", tree: "/t", path: "a", staged: false), .history(mac: "mbp", tree: "/t"), .files(mac: "mbp", tree: "/t", dir: ""),
+                    .file(mac: "mbp", tree: "/t", path: "a")] {
+            #expect(!Tab.showsBar(over: [.worktree(mac: "mbp", path: "/t"), top]), "\(top)")
+        }
     }
 }
 
@@ -338,18 +406,13 @@ struct HeldLinkRowTests {
     }
 }
 
-@Suite("Mac switcher")
-struct MacSwitcherTests {
-    @Test("each Mac in the menu shows its Up next count and how its link reads")
-    func detail() {
-        #expect(MacMenu.detail(upNext: 2, reachability: .online) == "2 up next · Connected")
-        #expect(MacMenu.detail(upNext: 0, reachability: .reconnecting) == "Reconnecting…")
-    }
-
-    @Test("the Mac is dotted only when a Mac other than the selected one has sessions up next")
-    func othersWaiting() {
-        #expect(OtherMacs.waiting(["d1": 0, "d2": 3], selected: "d1"))
-        #expect(!OtherMacs.waiting(["d1": 4, "d2": 0], selected: "d1"))
-        #expect(!OtherMacs.waiting([:], selected: nil))
+@Suite("Tab items")
+struct TabItemsTests {
+    @Test("Machines is dotted while a Mac is neither connected nor dialling for the first time")
+    func machinesDot() {
+        #expect(!TabItems.machinesDot([.online, .connecting]))
+        #expect(TabItems.machinesDot([.online, .reconnecting]))
+        #expect(TabItems.machinesDot([.revoked]))
+        #expect(!TabItems.machinesDot([]))
     }
 }

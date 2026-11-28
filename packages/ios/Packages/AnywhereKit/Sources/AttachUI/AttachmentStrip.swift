@@ -30,7 +30,7 @@ public struct AttachmentStrip: View {
                             .overlay {
                                 if image.path == nil && !image.failed { ProgressView().controlSize(.small) }
                                 if image.failed {
-                                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.white, Palette.failed.color)
+                                    LucideIcon(.triangleAlert, size: 18).foregroundStyle(Palette.failed.color)
                                 }
                             }
                             .overlay(alignment: .topTrailing) {
@@ -38,7 +38,7 @@ public struct AttachmentStrip: View {
                                     Button {
                                         detach(image.id)
                                     } label: {
-                                        Image(systemName: "xmark.circle.fill").font(.system(size: 16)).foregroundStyle(.white, .black.opacity(0.6))
+                                        LucideIcon(.close, size: 10, weight: 2.5).foregroundStyle(.white).frame(width: 16, height: 16).background(.black.opacity(0.6), in: Circle())
                                             .padding(2)
                                             .frame(width: HitTarget.minimum, height: HitTarget.minimum, alignment: .topTrailing)
                                             .contentShape(Rectangle())
@@ -71,7 +71,7 @@ public struct AttachmentStrip: View {
         if let data = image.thumbnail, let picture = Self.image(data) {
             picture.resizable().scaledToFill()
         } else {
-            Image(systemName: "photo").foregroundStyle(Palette.text3.color).frame(maxWidth: .infinity, maxHeight: .infinity)
+            LucideIcon(.imagePlus, size: 20).foregroundStyle(Palette.text3.color).frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Palette.fill3.color)
         }
     }

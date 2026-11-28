@@ -15,7 +15,7 @@ struct EndRow: View {
         case .failed(let error):
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(Palette.failedText.color)
+                    LucideIcon(.triangleAlert, size: 13).foregroundStyle(Palette.failedText.color)
                         .frame(width: 22, height: 22).background(Palette.failedBackground.color, in: RoundedRectangle(cornerRadius: 6))
                     Text("Error").font(ChatFont.small.weight(.semibold)).foregroundStyle(Palette.text.color)
                     Spacer()
@@ -46,7 +46,7 @@ struct EndRow: View {
                         Haptics.tap()
                         actions.retryTurn(turn)
                     } label: {
-                        Label("Retry this turn", systemImage: "arrow.clockwise").frame(minHeight: 28)
+                        Label("Retry this turn", lucide: .rotateCw, size: 14).frame(minHeight: 28)
                     }
                     .buttonStyle(.plain)
                     .font(ChatFont.caption)

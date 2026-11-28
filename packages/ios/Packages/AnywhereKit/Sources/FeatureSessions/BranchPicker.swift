@@ -28,7 +28,7 @@ struct BranchPicker: View {
         }
         .overlay {
             if branches == nil, let error {
-                Placeholder("Couldn't load branches", systemImage: "exclamationmark.triangle", detail: error, action: retry)
+                Placeholder("Couldn't load branches", icon: .triangleAlert, detail: error, action: retry)
             } else if branches == nil {
                 ProgressView()
             } else if listed.isEmpty && !search.isEmpty {

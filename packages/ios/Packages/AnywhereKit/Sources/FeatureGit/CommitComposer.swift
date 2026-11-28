@@ -20,7 +20,8 @@ struct CommitComposer: View {
         let _ = BodyCount.hit("CommitComposer")
         let totals = changes.head?.totals ?? .init(files: 0, added: 0, removed: 0, staged: 0)
         let busy = changes.busy
-        let ready = amend || Composer.ready(totals: totals, message: message, busy: busy != nil, commitAll: commitAll)
+        let label = Composer.label(totals: totals, busy: busy, commitAll: commitAll)
+        let shape = RoundedRectangle(cornerRadius: Radius.composer, style: .continuous)
         VStack(alignment: .leading, spacing: Space.xs) {
             if let note {
                 Text(note).font(Typography.caption).foregroundStyle(Palette.waitingText.color).padding(.horizontal, Space.m)
@@ -31,28 +32,35 @@ struct CommitComposer: View {
                     .textFieldStyle(.plain)
                     .focused($focused)
                     .font(Typography.body)
-                    .padding(.leading, Space.m)
+                    .padding(.leading, 10)
                 Menu {
-                    Toggle("Amend Last Commit", isOn: $amend)
-                    if !amend { Button("Commit & Push") { commit(.push) }.disabled(!ready) }
+                    Toggle(isOn: $amend) { Label("Amend Last Commit", lucide: .pencil) }
+                    if !amend { Button { commit(.commit) } label: { Label(label, lucide: .commit) } }
                 } label: {
-                    Text(amend && busy == nil ? "Amend" : Composer.label(totals: totals, busy: busy, commitAll: commitAll))
-                        .font(Typography.body.weight(.semibold))
-                        .foregroundStyle((ready ? Palette.onText : Palette.text3).color)
-                        .lineLimit(1)
-                        .padding(.horizontal, Space.l)
-                        .frame(minHeight: HitTarget.minimum)
-                        .background((ready ? Palette.text : Palette.fill3).color, in: Capsule())
+                    HStack(spacing: 2) {
+                        Text(GitText.commitButton(label: label, amend: amend, busy: busy != nil))
+                        LucideIcon(.chevronDown, size: 16)
+                    }
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle((busy == nil ? Palette.onText : Palette.text3).color)
+                    .lineLimit(1)
+                    .padding(.leading, Space.l)
+                    .padding(.trailing, Space.s)
+                    .frame(height: 40)
+                    .background((busy == nil ? Palette.text : Palette.fill3).color, in: Capsule())
                 } primaryAction: {
-                    commit(amend ? .amend : .commit)
+                    commit(amend ? .amend : .push)
                 }
                 .fixedSize()
                 .disabled(busy != nil)
             }
-            .padding(Space.xs)
-            .raised(in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous), fill: Palette.surfaceRaised)
+            .padding(.vertical, Space.s)
+            .padding(.leading, 10)
+            .padding(.trailing, Space.s)
+            .background(Palette.surface.color, in: shape)
+            .overlay(shape.strokeBorder(Palette.separator.color, lineWidth: 0.5))
         }
-        .padding(.horizontal, Space.m)
+        .padding(.horizontal, Space.s)
         .padding(.bottom, Space.xs)
     }
 

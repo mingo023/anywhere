@@ -4,7 +4,7 @@ import Highlight
 import SwiftUI
 
 /// A diff's rows, unified or side by side: hunk headers, add and delete tints, changed words, line numbers. Unwrapped
-/// it scrolls both ways; wrapped (unified only) it fits the width, with one number per row on a narrow screen. Only
+/// it scrolls both ways; wrapped (unified only) it fits the width. Unified on a narrow screen, a row shows one number. Only
 /// blocks of rows on screen are built, each drawn in one go, and each colours itself off the main actor.
 @MainActor
 public struct DiffView: View {
@@ -21,7 +21,7 @@ public struct DiffView: View {
     @State private var shownTarget: Int?
     @State private var scrollX: CGFloat = 0
     @Environment(\.colorScheme) private var scheme
-    @ScaledMetric(relativeTo: .footnote) private var rowHeight: CGFloat = 20
+    @ScaledMetric(relativeTo: .footnote) private var rowHeight: CGFloat = 21
     @ScaledMetric(relativeTo: .footnote) private var charWidth: CGFloat = 7.8
     @ScaledMetric(relativeTo: .footnote) private var size = DrawnText.footnote
 
@@ -57,7 +57,7 @@ public struct DiffView: View {
     public var body: some View {
         let _ = BodyCount.hit("DiffView")
         GeometryReader { geo in
-            let gutter: CodeStyle.Gutter = wraps && geo.size.width < 700 ? .one : .both
+            let gutter: CodeStyle.Gutter = !sideBySide && geo.size.width < 700 ? .one : .both
             let columns = wraps ? columns(gutter, width: geo.size.width) : nil
             // The scroll view comes with its rows: one that starts empty centres its content, and keeps that offset
             // when the rows land, opening a long diff mid-way and off its left edge.

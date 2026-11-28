@@ -17,7 +17,7 @@ public struct BrandMark: View {
             if let mark = AgentName(rawValue: provider).map(Mark.of) {
                 Mark(shape: mark.shape).fill(mark.tint.map { AnyShapeStyle($0.color) } ?? AnyShapeStyle(.foreground))
             } else {
-                Image(systemName: "sparkle").resizable().scaledToFit().foregroundStyle(Palette.text3.color)
+                LucideIcon(.sparkle, size: size).foregroundStyle(Palette.text3.color)
             }
         }
         .frame(width: size, height: size)

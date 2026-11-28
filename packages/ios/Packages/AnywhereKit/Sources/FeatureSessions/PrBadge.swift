@@ -8,8 +8,15 @@ struct PrBadge: View {
     let item: PrItem
 
     var body: some View {
-        Pill("#\(item.number)", tone: Self.tone(item), dot: true)
-            .accessibilityLabel("Pull request \(SessionText.pullRequest(item))")
+        HStack(spacing: 5) {
+            Circle().fill(Pill.colors(Self.tone(item)).text.color).frame(width: 6, height: 6)
+            Text("#\(item.number)").font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundStyle(Palette.textBody.color)
+        }
+        .padding(.horizontal, 7)
+        .frame(height: 22)
+        .background(Palette.fill3.color, in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Pull request \(SessionText.pullRequest(item))")
     }
 
     /// Merged reads as done; failing checks, conflicts or requested changes as failed; running checks as working.

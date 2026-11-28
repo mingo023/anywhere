@@ -9,20 +9,20 @@ public struct Pill: View {
 
     let text: String
     let tone: Tone
-    let systemImage: String?
+    let icon: Lucide?
     let dot: Bool
 
-    public init(_ text: String, tone: Tone = .neutral, systemImage: String? = nil, dot: Bool = false) {
+    public init(_ text: String, tone: Tone = .neutral, icon: Lucide? = nil, dot: Bool = false) {
         self.text = text
         self.tone = tone
-        self.systemImage = systemImage
+        self.icon = icon
         self.dot = dot
     }
 
     public var body: some View {
         HStack(spacing: Space.xs) {
             if dot { Circle().frame(width: 6, height: 6) }
-            if let systemImage { Image(systemName: systemImage).imageScale(.small) }
+            if let icon { LucideIcon(icon, size: 11) }
             Text(text).lineLimit(1)
         }
         .font(Typography.captionStrong)

@@ -26,11 +26,11 @@ struct SubAgentScreen: View {
                     .toolbar {
                         // Balances Back, so the title stays centred.
                         ToolbarItem(placement: .primaryAction) {
-                            Button(action: showInChat) { Label("Show in chat", systemImage: "text.bubble") }
+                            Button(action: showInChat) { Label("Show in chat", lucide: .messageCircle, size: 20) }
                         }
                     }
             } else if store.whole {
-                Placeholder("This agent isn't in the chat any more", systemImage: "person.2.slash").navigationTitle("Agent")
+                Placeholder("This agent isn't in the chat any more", icon: .unlink).navigationTitle("Agent")
             } else {
                 // Each page that comes in folds in an earlier first turn, which looks again.
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).navigationTitle("Agent")
@@ -115,7 +115,7 @@ struct SubAgentScreen: View {
             if let a = c.agent {
                 SubAgentRow(call: c, agent: a) { openAgent(c.id) }
             } else {
-                ToolRow(call: c, background: false, open: open.contains(c.id)) {
+                ToolRow(call: c, live: c.status == .running, background: false, open: open.contains(c.id)) {
                     if open.remove(c.id) == nil { open.insert(c.id) }
                 }
             }

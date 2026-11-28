@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>@keyframes awspin{to{transform:rotate(360deg)}}</style></helmet>
+<div style="min-height:36px;padding:8px {{ pr }} 8px 16px;box-sizing:border-box;border-radius:18px;background:{{ bg }};border:{{ bd }};backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);display:flex;align-items:center;gap:8px;font-family:var(--sans);font-size:13px;line-height:18px;color:{{ tc }}">
+<sc-if value="{{ k.reconnecting }}">{{ ring }}</sc-if>
+<sc-if value="{{ k.back }}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;flex:none;color:#30A46C;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></sc-if>
+<sc-if value="{{ k.failed }}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;flex:none;color:#E5484D;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg></sc-if>
+<sc-if value="{{ k.offline }}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;flex:none;color:var(--t2);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/></svg></sc-if>
+<div style="flex:1;min-width:0;text-wrap:pretty">{{ text }}</div>
+<sc-if value="{{ hasAction }}"><div style="flex:none;height:28px;padding:0 14px;border-radius:14px;background:var(--ink);color:var(--on);font-size:13px;font-weight:600;display:flex;align-items:center;cursor:pointer">{{ action }}</div></sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:361,&quot;height&quot;:44},&quot;kind&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;reconnecting&quot;,&quot;back&quot;,&quot;failed&quot;,&quot;offline&quot;],&quot;default&quot;:&quot;reconnecting&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;text&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Reconnecting to MacBook Pro…&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;action&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;glass&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const p = this.props, kind = p.kind || 'reconnecting', g = !!p.glass;
+    return {
+      k: { [kind]: true }, text: p.text ?? 'Reconnecting to MacBook Pro…', action: p.action || '', hasAction: !!p.action,
+      pr: p.action ? '4px' : '16px', tc: kind === 'failed' ? 'var(--tx)' : 'var(--t2)',
+      bg: g ? 'var(--glass)' : 'var(--fill2)', bd: g ? '.5px solid var(--gb)' : '.5px solid transparent',
+      ring: React.createElement('div', { style: { flex:'none', width:13, height:13, borderRadius:7, border:'2px solid var(--fill3)', borderTopColor:'var(--tx)', boxSizing:'border-box', animation:'awspin .8s linear infinite' } })
+    };
+  }
+}
+</script>
+</body>
+</html>

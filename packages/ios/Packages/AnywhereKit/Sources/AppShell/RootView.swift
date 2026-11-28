@@ -1,5 +1,6 @@
 import DesignSystem
 import Domain
+import FeatureGitHub
 import FeaturePairing
 import FeatureSettings
 import FileIcons
@@ -48,13 +49,14 @@ public struct RootView: View {
         .preferredColorScheme(appearance.colorScheme)
         .tint(Palette.accent.color)
         .task { await Task.detached(priority: .utility) { MaterialIcons.preload() }.value }
+        .task(id: PullRequestsHome.loadKey(app.hosts)) { await PullRequestsHome.loadLists(app.hosts) }
         .sheet(item: pairingSheet) { request in
             PairingView(app: app, link: request.link, knownHost: request.knownHost) { navigator.pairing = nil }
         }
         .sheet(isPresented: Binding(get: { navigator.sheet != nil }, set: { if !$0 { navigator.sheet = nil } })) {
             // New Session brings its own stack.
             if let route = navigator.sheet {
-                Destination(route: route, app: app, pair: { navigator.pairing = PairingRequest() }, open: navigator.push, leave: navigator.leave)
+                Destination(route: route, app: app, pair: { navigator.pairing = PairingRequest() }, open: navigator.push, leave: navigator.leave(mac:tree:))
             }
         }
         .onOpenURL { url in
@@ -70,9 +72,9 @@ public struct RootView: View {
             navigator.keepSelection(macs)
             navigator.release(macs)
         }
-        .onChange(of: selected?.agentsListed) { _, _ in dropClosedChats() }
-        .onChange(of: navigator.chats) { _, chats in
-            for host in app.hosts { host.keepChats(host.id == navigator.macId ? chats : []) }
+        .onChange(of: app.hosts.map(\.agentsListed)) { _, _ in dropClosedChats() }
+        .onChange(of: app.hosts.map { navigator.chats(on: $0.mac) }) { _, _ in
+            for host in app.hosts { host.keepChats(navigator.chats(on: host.mac)) }
         }
         .onChange(of: app.lastPaired) { _, id in
             if let id { navigator.select(mac: id) }
@@ -89,13 +91,10 @@ public struct RootView: View {
         })
     }
 
-    private var selected: HostModel? {
-        navigator.macId.flatMap { id in app.hosts.first { $0.id == id } }
-    }
-
     private func dropClosedChats() {
-        guard let selected, selected.agentsListed else { return }
-        navigator.dropClosedChats(listed: Set(selected.sessions.sessions.keys))
+        for host in app.hosts where host.agentsListed {
+            navigator.dropClosedChats(mac: host.mac, listed: Set(host.sessions.sessions.keys))
+        }
     }
 
     private var resolvedLayout: Layout {

@@ -21,6 +21,14 @@ public enum Composer {
         /// The agent waits on a permission; pocketd refuses prompts until it's answered.
         case permission(answerable: Bool)
         case question(answerable: Bool)
+
+        /// A card in the composer's place says what the agent waits on.
+        public var carded: Bool {
+            switch self {
+            case .permission, .question: true
+            case .prompt, .viewOnly, .closed: false
+            }
+        }
     }
 
     /// A phone granted `scopes` may only watch: it holds neither drive nor owner. No scopes is a pocketd before them.

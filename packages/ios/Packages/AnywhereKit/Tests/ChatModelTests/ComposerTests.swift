@@ -103,6 +103,13 @@ func anObserveOnlyAgentGetsNoComposer() {
     #expect(Composer.mode(observeOnly: false, canApprove: true, ask: ask([Question(question: "")])) == .question(answerable: true))
 }
 
+@Test("a permission or a question puts a card in the composer's place; a prompt, watching or a closed session doesn't")
+func aPermissionOrQuestionIsCarded() {
+    #expect(Composer.Mode.permission(answerable: false).carded)
+    #expect(Composer.Mode.question(answerable: true).carded)
+    #expect(!Composer.Mode.prompt.carded && !Composer.Mode.viewOnly.carded && !Composer.Mode.closed.carded)
+}
+
 @Test("a phone with neither drive nor owner may only watch, and a pocketd without scopes lets it drive")
 func aPhoneWithoutDriveMayOnlyWatch() {
     #expect(Composer.observeOnly([.observe, .approve]))

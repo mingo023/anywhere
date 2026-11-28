@@ -15,26 +15,28 @@ private func one(_ blocks: [Block]) -> Transcript { Transcript(turns: [turn("u1"
 private func ids(_ t: Transcript, _ pending: Int = 0) -> [String] { rows(t, pending: pending, sending: pending > 0).map { $0.id(t) } }
 private func todos(_ text: String) -> Block { .todos(id: text, todos: [Todo(text: text, status: .pending)]) }
 
-@Test("a reply lays out as fold, phases, then its answer")
+@Test("a reply lays out as fold, a row per step, then its answer")
 func aReplyLaysOutAsFoldPhasesThenItsAnswer() {
     let t = one([think(), shell(), shell(), text("Done.")])
-    #expect(rows(t, pending: 0, sending: false) == [.prompt(turn: 0), .fold(turn: 0), .phase(turn: 0, blocks: 0..<3), .text(turn: 0, block: 3, range: 0..<5), .end(turn: 0)])
+    #expect(rows(t, pending: 0, sending: false) == [
+        .prompt(turn: 0), .fold(turn: 0), .phase(turn: 0, blocks: 0..<1), .phase(turn: 0, blocks: 1..<2), .phase(turn: 0, blocks: 2..<3),
+        .text(turn: 0, block: 3, range: 0..<5), .end(turn: 0),
+    ])
 }
 
-@Test("text between steps stands whole between their phases")
+@Test("text between steps stands whole between their rows")
 func textBetweenStepsStandsWholeBetweenTheirPhases() {
     let t = one([shell(), text("Now the tests.\n\nThey cover both paths."), think(), shell(), text("All green.")])
-    #expect(ids(t) == ["u1", "u1#fold", "u1#p0", "u1#1.0", "u1#1.16", "u1#p2", "u1#4.0", "u1#end"])
-    #expect(rows(t, pending: 0, sending: false)[5] == .phase(turn: 0, blocks: 2..<4))
-    #expect(narrates(t.turns[0], 1) && !narrates(t.turns[0], 4), "the answer after the last step isn't between steps")
+    #expect(ids(t) == ["u1", "u1#fold", "u1#p0", "u1#1.0", "u1#1.16", "u1#p2", "u1#p3", "u1#4.0", "u1#end"])
+    #expect(rows(t, pending: 0, sending: false)[5] == .phase(turn: 0, blocks: 2..<3))
 }
 
-@Test("sub-agents are steps of the phase they run in, and the latest todos follow the work")
+@Test("sub-agents are rows of their own like any step, and the latest todos follow the work")
 func subAgentsAreStepsOfThePhaseTheyRunInAndTheLatestTodosFollowTheWork() {
     let t = one([todos("a"), shell(), agent(), shell(), agent(), todos("b"), text("Both reported.")])
-    #expect(ids(t) == ["u1", "u1#fold", "u1#p1", "u1#5", "u1#6.0", "u1#end", "u1#live"], "the running sub-agents keep the reply at work")
-    #expect(rows(t, pending: 0, sending: false)[2] == .phase(turn: 0, blocks: 1..<5))
-    #expect(rows(t, pending: 0, sending: false)[3] == .tasks(turn: 0, block: 5))
+    #expect(ids(t) == ["u1", "u1#fold", "u1#p1", "u1#p2", "u1#p3", "u1#p4", "u1#5", "u1#6.0", "u1#end", "u1#live"], "the running sub-agents keep the reply at work")
+    #expect(rows(t, pending: 0, sending: false)[2] == .phase(turn: 0, blocks: 1..<2))
+    #expect(rows(t, pending: 0, sending: false)[6] == .tasks(turn: 0, block: 5))
 }
 
 @Test("narration before a sub-agent stands above its phase")
@@ -76,20 +78,6 @@ func aReplyIsAtWorkWhileItsTurnIsOpenOrASubAgentItStartedRuns() {
     #expect(!atWorkOn(one([shell()]), 0..<1))
 }
 
-@Test("a phase is titled by its work")
-func aPhaseIsTitledByItsWork() {
-    let edit = { (p: String) in call(.edit(path: p, diff: nil), .ok) }
-    let read = call(.read(path: "a"), .ok)
-    #expect(phaseTitle([edit("src/a.rs"), edit("src/a.rs"), shell()], live: false) == "Edited a.rs · Ran a command")
-    #expect(phaseTitle([read, edit("a"), edit("b"), shell(), shell()], live: true) == "Editing 2 files · Exploring the project · Executing 2 commands")
-    #expect(phaseTitle([think()], live: false) == "Thought")
-    #expect(phaseTitle([call(.other(input: "", description: ""), .ok)], live: false) == "Working")
-    let sub = { (s: CallStatus) in call(.agent(SubAgent(description: "")), s) }
-    #expect(phaseTitle([sub(.running)], live: false) == "Using a subagent", "it runs on in the background")
-    #expect(phaseTitle([sub(.ok), shell()], live: true) == "Used a subagent · Executing a command")
-    #expect(phaseTitle([sub(.ok), sub(.failed)], live: false) == "Used 2 subagents")
-}
-
 private func parts(_ md: String) -> [String] {
     let u = Array(md.utf8)
     return markdownBlocks(md).map { String(decoding: u[$0], as: UTF8.self) }
@@ -121,13 +109,13 @@ func rowIdsStayTheSameWhenAToolFinishes() {
     #expect(ids(finished) == ["u1", "u1#fold", "u1#p0", "u1#1.0", "u1#live"])
 }
 
-@Test("exchanges get fourteen and their parts six")
+@Test("exchanges get fourteen, their parts six, and a run of tool lines eight above and ten below")
 func exchangesGetFourteenAndTheirPartsSix() {
     let t = Transcript(turns: [turn("u1", [shell(), text("a\n\nb"), .compacted(id: "c", auto: true)], done), turn("u2", [], nil)])
     let r = rows(t, pending: 1, sending: true)
     let gaps = r.indices.map { topGap($0 > 0 ? r[$0 - 1] : nil, r[$0]) }
     // prompt, fold, phase, a, b, compacted, end, prompt, fold, pending, sending, live
-    #expect(gaps == [16, 6, 0, 6, 10, 8, 6, 14, 6, 14, 0, 6])
+    #expect(gaps == [16, 6, 8, 10, 14, 8, 6, 14, 6, 14, 0, 6])
 }
 
 @Test("splice replaces only rows after the shared prefix")
@@ -158,17 +146,6 @@ func theLiveLineTrailsOnlyTheLastReplyWhileTheAgentWorksOnIt() {
     #expect(liveTail(Transcript()) == nil)
 }
 
-@Test("a live tail settles once its fold stops carrying the live line")
-func aLiveTailSettlesOnceItsFoldStopsCarryingTheLiveLine() {
-    let working = Transcript(turns: [turn("u1", [agent()], done), turn("u2", [shell()], done), own("n1", [shell()], nil)])
-    var ended = Transcript(turns: [turn("u1", [agent()], done), turn("u2", [shell()], done), own("n1", [shell()], done)])
-    #expect(settledTail("n1", working) == nil)
-    #expect(settledTail("n1", ended) == nil, "u1's sub-agent still works in the background")
-    ended.turns[0].blocks = [call(.agent(SubAgent(description: "")), .ok)]
-    #expect(settledTail("n1", ended) == "n1")
-    #expect(settledTail(nil, ended) == nil)
-}
-
 @Test("a command left in the background counts but leaves the agent idle")
 func aCommandLeftInTheBackgroundCountsButLeavesTheAgentIdle() {
     let t = Transcript(turns: [turn("u1", [call(.shell(command: "bun run dev"), .running), shell()], done)])
@@ -182,8 +159,8 @@ func aBackgroundTaskIsFoundAtItsTurnAndBlockAndShownByItsRow() {
     #expect(inBackground(t.turns[...]).map { [$0.turn, $0.block] } == [[1, 1], [1, 2]])
     let r = rows(t, pending: 0, sending: false)
     let shown = { (turn: Int, block: Int) in rowOf(r, turn: turn, block: block).map { r[$0] } }
-    #expect(shown(1, 1) == .phase(turn: 1, blocks: 0..<3), "a command shows in the phase that holds it")
-    #expect(shown(1, 2) == .phase(turn: 1, blocks: 0..<3), "and so does a sub-agent")
+    #expect(shown(1, 1) == .phase(turn: 1, blocks: 1..<2), "a command shows on its own row")
+    #expect(shown(1, 2) == .phase(turn: 1, blocks: 2..<3), "and so does a sub-agent")
     #expect(shown(1, 5) == nil)
 }
 
@@ -257,7 +234,7 @@ func aCallThatFinishedAfterItsTurnFailedIsReportedByTheTurnItSetGoing() {
 @Test("a prompt sent mid-turn carries on the reply it came into")
 func aPromptSentMidTurnCarriesOnTheReplyItCameInto() {
     let t = Transcript(turns: [turn("u1", [think(), shell()], nil), turn("u2", [shell(), text("Done.")], done)])
-    #expect(ids(t) == ["u1", "u1#fold", "u1#p0", "u2", "u2#p0", "u2#1.0", "u2#end"], "the steer stands between the work it divides")
+    #expect(ids(t) == ["u1", "u1#fold", "u1#p0", "u1#p1", "u2", "u2#p0", "u2#1.0", "u2#end"], "the steer stands between the work it divides")
     #expect(foldOf(t, 1) == 0 && folded(t, 0) == 0..<2)
     #expect(reply(t, 0) == nil && reply(t, 1) == 0..<2, "one footer for the whole reply")
     #expect(worked(t, 0..<2)?.ms == 1 && worked(t, 0..<2)?.usage == nil, "the agent times the turn once")

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>@keyframes awdot{0%,100%{opacity:.22}30%{opacity:1}}</style></helmet>
+<div style="position:absolute;inset:0;background:var(--bg);color:var(--tx);font-family:var(--sans);overflow:hidden">
+<div style="position:absolute;top:54px;left:16px;right:16px;height:44px;display:flex;align-items:center;justify-content:flex-end;z-index:2">
+<div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></div>
+</div>
+<div style="position:absolute;top:98px;left:0;right:0">
+<div style="font-size:34px;font-weight:700;line-height:41px;padding:0 20px">Inbox</div>
+
+<sc-if value="{{ show05 }}" hint-placeholder-val="{{ false }}">
+<sc-if value="{{ noNet }}"><div style="padding:0 20px;font-size:15px;line-height:20px;color:var(--t2)">2 need you · 1 failed · 1 finished</div></sc-if>
+<sc-if value="{{ net }}"><div style="margin:8px 16px 0"><dc-import name="NetStrip" kind="{{ netKind }}" text="{{ netText }}" action="{{ netAction }}" hint-size="100%,36px"></dc-import></div></sc-if>
+<div style="opacity:{{ dimOp }}">
+<div style="padding:24px 32px 8px;font-size:13px;font-weight:600;color:var(--t2)">Needs you</div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;overflow:hidden">
+<dc-import name="SessionRow" kind="needs" title="pnpm test checkout --repeat 20" mono="{{ true }}" project="anywhere" branch="flaky-checkout" mac="MacBook Pro" time="2m" actions="{{ true }}" locked="{{ stale }}" first="{{ true }}" error="{{ err }}" hint-size="100%,112px"></dc-import>
+<dc-import name="SessionRow" kind="needs" title="pnpm test queue --runInBand" mono="{{ true }}" project="garden-mobile" branch="resume-crash" mac="MacBook Pro" time="6m" actions="{{ true }}" locked="{{ stale }}" hint-size="100%,112px"></dc-import>
+</div>
+<div style="padding:24px 32px 8px;font-size:13px;font-weight:600;color:var(--t2)">Failed</div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;overflow:hidden">
+<dc-import name="SessionRow" kind="failed" title="Cache invoice queries" project="fox-api" branch="invoice-cache" mac="Mac Mini" time="9m" first="{{ true }}" hint-size="100%,66px"></dc-import>
+</div>
+<div style="padding:24px 32px 8px;font-size:13px;font-weight:600;color:var(--t2)">Finished</div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;overflow:hidden">
+<dc-import name="SessionRow" kind="finished" title="Rate-limit the upload route" project="fox-api" branch="upload-limit" mac="MacBook Pro" time="5m" first="{{ true }}" hint-size="100%,66px"></dc-import>
+</div>
+<div style="margin:24px 16px 0;background:var(--sf);border-radius:14px;height:44px;display:flex;align-items:center;padding-right:12px">
+<div style="width:52px;display:flex;justify-content:center">{{ spin }}</div>
+<div style="flex:1;font-size:17px">Working</div>
+<div style="font-size:17px;color:var(--t2);font-variant-numeric:tabular-nums">1</div>
+<svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t4);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"/></svg>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.s06 }}" hint-placeholder-val="{{ false }}">
+<div style="padding:248px 48px 0;text-align:center">
+<div style="font-size:17px;font-weight:600">All clear</div>
+<div style="font-size:15px;line-height:21px;color:var(--t2);margin-top:6px;text-wrap:pretty">Sessions that need you, fail or finish show here.</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.s08 }}" hint-placeholder-val="{{ false }}">
+<div style="margin:8px 16px 0"><dc-import name="NetStrip" kind="offline" text="Studio Mac Mini is offline · showing data from 10:42 · answers disabled" hint-size="100%,36px"></dc-import></div>
+<div style="padding:24px 32px 8px;font-size:13px;font-weight:600;color:var(--t2)">Needs you</div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;overflow:hidden">
+<dc-import name="SessionRow" kind="needs" title="pnpm test checkout --repeat 20" mono="{{ true }}" project="anywhere" branch="flaky-checkout" mac="MacBook Pro" time="2m" actions="{{ true }}" locked="{{ true }}" first="{{ true }}" hint-size="100%,112px"></dc-import>
+<dc-import name="SessionRow" kind="needs" title="pnpm test queue --runInBand" mono="{{ true }}" project="garden-mobile" branch="resume-crash" mac="MacBook Pro" time="6m" actions="{{ true }}" locked="{{ true }}" hint-size="100%,112px"></dc-import>
+</div>
+<div style="padding:24px 32px 8px;font-size:13px;font-weight:600;color:var(--t2)">Failed</div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;overflow:hidden">
+<dc-import name="SessionRow" kind="failed" title="Cache invoice queries" project="fox-api" branch="invoice-cache" mac="Mac Mini" time="9m" first="{{ true }}" dim="{{ true }}" hint-size="100%,66px"></dc-import>
+</div>
+<div style="padding:24px 32px 8px;font-size:13px;font-weight:600;color:var(--t2)">Finished</div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;overflow:hidden">
+<dc-import name="SessionRow" kind="finished" title="Rate-limit the upload route" project="fox-api" branch="upload-limit" mac="MacBook Pro" time="5m" first="{{ true }}" hint-size="100%,66px"></dc-import>
+</div>
+</sc-if>
+</div>
+<sc-if value="{{ is.s07 }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:47px;left:20px;width:220px;height:12px;border-radius:6px;background:var(--fill2)"></div>
+<div style="position:absolute;top:76px;left:0;right:0">
+<div style="margin:0 32px 9px;width:72px;height:10px;border-radius:5px;background:var(--fill2)"></div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;overflow:hidden">
+<div style="display:flex;gap:16px;padding:16px 16px 16px 17px"><div style="width:18px;height:18px;border-radius:9px;background:var(--fill);flex:none"></div><div style="flex:1;display:flex;flex-direction:column;gap:8px;padding-top:3px"><div style="height:12px;width:78%;border-radius:6px;background:var(--fill)"></div><div style="height:10px;width:52%;border-radius:5px;background:var(--fill2)"></div><div style="display:flex;gap:8px;margin-top:4px"><div style="width:64px;height:28px;border-radius:14px;background:var(--fill2)"></div><div style="width:84px;height:28px;border-radius:14px;background:var(--fill2)"></div></div></div></div>
+<div style="display:flex;gap:16px;padding:16px 16px 16px 17px;border-top:.5px solid var(--sep)"><div style="width:18px;height:18px;border-radius:9px;background:var(--fill);flex:none"></div><div style="flex:1;display:flex;flex-direction:column;gap:8px;padding-top:3px"><div style="height:12px;width:66%;border-radius:6px;background:var(--fill)"></div><div style="height:10px;width:44%;border-radius:5px;background:var(--fill2)"></div></div></div>
+<div style="display:flex;gap:16px;padding:16px 16px 16px 17px;border-top:.5px solid var(--sep)"><div style="width:18px;height:18px;border-radius:9px;background:var(--fill);flex:none"></div><div style="flex:1;display:flex;flex-direction:column;gap:8px;padding-top:3px"><div style="height:12px;width:72%;border-radius:6px;background:var(--fill)"></div><div style="height:10px;width:58%;border-radius:5px;background:var(--fill2)"></div></div></div>
+</div>
+<div style="margin:26px 32px 9px;width:56px;height:10px;border-radius:5px;background:var(--fill2)"></div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;overflow:hidden">
+<div style="display:flex;gap:16px;padding:16px 16px 16px 17px"><div style="width:18px;height:18px;border-radius:9px;background:var(--fill);flex:none"></div><div style="flex:1;display:flex;flex-direction:column;gap:8px;padding-top:3px"><div style="height:12px;width:60%;border-radius:6px;background:var(--fill)"></div><div style="height:10px;width:40%;border-radius:5px;background:var(--fill2)"></div></div></div>
+<div style="display:flex;gap:16px;padding:16px 16px 16px 17px;border-top:.5px solid var(--sep)"><div style="width:18px;height:18px;border-radius:9px;background:var(--fill);flex:none"></div><div style="flex:1;display:flex;flex-direction:column;gap:8px;padding-top:3px"><div style="height:12px;width:70%;border-radius:6px;background:var(--fill)"></div><div style="height:10px;width:48%;border-radius:5px;background:var(--fill2)"></div></div></div>
+</div>
+</div>
+</sc-if>
+<dc-import name="TabBar" active="inbox" inbox="{{ bIn }}" prs="{{ bPr }}" dot="{{ bDot }}" style="position:absolute;left:0;right:0;bottom:0" hint-size="393px,100px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:393,&quot;height&quot;:852},&quot;screen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;05&quot;,&quot;06&quot;,&quot;07&quot;,&quot;08&quot;,&quot;08b&quot;,&quot;08c&quot;,&quot;08d&quot;,&quot;09&quot;],&quot;default&quot;:&quot;05&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  spin() {
+    const o = [0,1,2,5,8,7,6,3,4];
+    return React.createElement('div', { style: { display:'grid', gridTemplateColumns:'repeat(3,3px)', gap:2 } },
+      [0,1,2,3,4,5,6,7,8].map(i => React.createElement('div', { key:i, style:{ width:3, height:3, borderRadius:2, background:'#FF8B3E', animation:'awdot 1s ease-in-out infinite', animationDelay:(o.indexOf(i)*0.11)+'s' } })));
+  }
+  renderVals() {
+    const s = String(this.props.screen ?? '05');
+    const nk = { b: ['reconnecting','Reconnecting to MacBook Pro…',''], c: ['back','Back online',''], d: ['failed',"Couldn't reconnect to MacBook Pro · showing data from 9:39",'Retry'] }[s.slice(2)] || null;
+    return { is: { ['s' + s]: true }, show05: ['05','09','08b','08c','08d'].includes(s), net: !!nk, noNet: !nk, netKind: nk ? nk[0] : '', netText: nk ? nk[1] : '', netAction: nk ? nk[2] : '', stale: !!nk && nk[0] !== 'back', dimOp: nk && nk[0] !== 'back' ? .5 : 1, dimPe: nk && nk[0] !== 'back' ? 'none' : 'auto', err: s === '09', bIn: s === '07' ? '' : '2', bPr: s === '07' ? '' : '1', bDot: s !== '07', spin: this.spin() };
+  }
+}
+</script>
+</body>
+</html>

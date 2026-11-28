@@ -3,25 +3,18 @@ import Domain
 import Foundation
 import Wire
 
-/// Where a row sits on its fold's rail: hung off it, or the last there, whose spine stops at its elbow.
-enum Rail: Hashable, Sendable {
-    case none, mid, last
-}
-
 /// One row as it draws: what it shows, worked out from the session alone so a row redraws only when this changes.
 struct RowItem: Identifiable, Hashable, Sendable {
     let id: String
     let gap: Double
-    let rail: Rail
     let content: RowContent
 }
 
 enum RowContent: Hashable, Sendable {
-    /// Under a shut fold, or the live reply's fold, whose line moved to the bottom.
+    /// A reply's fold, which draws nothing.
     case hidden
     case prompt(PromptContent)
-    case fold(label: String, open: Bool, settled: Bool)
-    case phase(PhaseContent)
+    case step(StepContent)
     /// What finished in the background; `call` is the first, whose phase a tap shows.
     case notice(label: String, call: String?)
     case note(text: String, error: Bool)
@@ -41,23 +34,15 @@ struct PromptContent: Hashable, Sendable {
     var at: Int
 }
 
-struct PhaseContent: Hashable, Sendable {
-    var id: String
-    var title: String
-    var glyph: Glyph
-    var live: Bool
-    var open: Bool
-    /// A phase of one step that isn't a sub-agent shows just that step.
-    var lone: Bool
-    var steps: [StepContent]
-}
-
-struct StepContent: Hashable, Sendable, Identifiable {
+struct StepContent: Hashable, Sendable {
     /// The key its open state goes by.
     var id: String
     var block: Block
     var open: Bool
+    /// Still thinking, or a call still running while its turn goes on.
     var live: Bool
+    /// A call still running after the work it was part of settled.
+    var background: Bool
     /// A thought's header once it's done: "Thought for 3s", or "Thought".
     var thought: String?
 }
@@ -123,14 +108,14 @@ struct RowBuilder {
     let ask: Bool?
     let stopping: Bool
     let reveals: [String: Reveal]
-    let settled: String?
+    /// A card in the composer's place says what the agent waits on, so the live line doesn't.
+    let carded: Bool
     let canSendNow: Bool
     let now: Int
-    let liveTail: Int?
 
     init(
         session: Session, provider: String, model: String?, ask: Bool?, stopping: Bool, reveals: [String: Reveal] = [:],
-        settled: String? = nil, canSendNow: Bool, now: Int
+        carded: Bool = false, canSendNow: Bool, now: Int
     ) {
         self.session = session
         self.provider = provider
@@ -138,38 +123,22 @@ struct RowBuilder {
         self.ask = ask
         self.stopping = stopping
         self.reveals = reveals
-        self.settled = settled
+        self.carded = carded
         self.canSendNow = canSendNow
         self.now = now
-        liveTail = session.liveTail
     }
 
     var t: Transcript { session.transcript }
     var who: String { AgentName.who(provider) }
 
-    /// Whether the fold over `turn` shows open: the user's choice, or held open while its reply is at work.
-    func foldOpen(_ turn: Int) -> Bool {
-        guard let f = foldOf(t, turn) else { return false }
-        return session.open("\(t.turns[f].id)#fold", false) || atWorkOn(t, folded(t, f))
-    }
-
-    func visible(_ row: Row) -> Bool {
-        if case .fold(let turn) = row, turn == liveTail { return false }
-        return shown(t, row, foldOpen: row.turn.map(foldOpen) ?? false)
-    }
-
-    func railed(_ ix: Int) -> Bool {
-        let row = session.rows[ix]
-        return visible(row) && inFold(t, liveTail: liveTail, row, foldOpen: row.turn.map(foldOpen) ?? false)
-    }
-
     func item(_ ix: Int) -> RowItem {
         let row = session.rows[ix]
         let id = session.ids[ix]
-        guard visible(row) else { return RowItem(id: id, gap: 0, rail: .none, content: .hidden) }
-        let rail: Rail = railed(ix) ? (ix + 1 < session.rows.count && railed(ix + 1) ? .mid : .last) : .none
-        let prev = ix > 0 ? session.rows[ix - 1] : nil
-        return RowItem(id: id, gap: topGap(prev, row), rail: rail, content: content(row, id))
+        if case .fold = row { return RowItem(id: id, gap: 0, content: .hidden) }
+        // A fold draws nothing, so the row above it sets the gap.
+        var above = ix - 1
+        if above >= 0, case .fold = session.rows[above] { above -= 1 }
+        return RowItem(id: id, gap: topGap(above >= 0 ? session.rows[above] : nil, row), content: content(row, id))
     }
 
     func content(_ row: Row, _ id: String) -> RowContent {
@@ -178,11 +147,10 @@ struct RowBuilder {
             guard let m = t.turns[turn].prompt else { return .hidden }
             let (text, images) = splitImages(m.text)
             return .prompt(PromptContent(text: text, images: images, at: m.at))
-        case .fold(let turn):
-            let reply = folded(t, turn)
-            return .fold(label: settledLabel(who, took(t, reply)), open: foldOpen(turn), settled: settled == id)
+        case .fold:
+            return .hidden
         case .phase(let turn, let blocks):
-            return .phase(phase(turn, blocks, id))
+            return step(turn, blocks, id)
         case .notice(let turn):
             let calls = reported(t, turn)
             return .notice(label: noticeLabel(calls), call: calls.first?.id)
@@ -209,6 +177,7 @@ struct RowBuilder {
         case .end(let turn):
             return .end(end(turn))
         case .live(let turn):
+            if carded { return .hidden }
             let reply = folded(t, turn)
             let first = t.turns[reply.lowerBound]
             let start = first.prompt?.at ?? first.blocks.lazy.compactMap(blockAt).first
@@ -230,28 +199,20 @@ struct RowBuilder {
         }
     }
 
-    func phase(_ turn: Int, _ blocks: Range<Int>, _ id: String) -> PhaseContent {
-        let slice = t.turns[turn].blocks[blocks]
-        let all = Phase.steps(slice)
+    func step(_ turn: Int, _ blocks: Range<Int>, _ id: String) -> RowContent {
+        guard let (b, block) = Phase.steps(t.turns[turn].blocks[blocks]).first else { return .hidden }
         let live = phaseLive(t, turn, blocks)
-        let open = live || session.open(id, all.contains { runningAgent($0.block) })
-        let lastIndex = all.last?.index
-        let steps = (live ? Array(all.suffix(Phase.liveSteps)) : all).map { (b, block) -> StepContent in
-            let key = "\(id)/\(b)"
-            switch block {
-            case .thinking(let m):
-                let stepLive = live && b == lastIndex
-                let thought = stepLive ? nil : Phase.thoughtFor(m.at, nextAt(t, turn, b + 1)) ?? "Thought"
-                return StepContent(id: key, block: block, open: session.open(key, false), live: stepLive, thought: thought)
-            case .tool(let c):
-                return StepContent(id: key, block: block, open: session.open(key, c.agent != nil && c.status == .failed), live: c.status == .running)
-            default:
-                return StepContent(id: key, block: block, open: false, live: false)
-            }
+        switch block {
+        case .thinking(let m):
+            let thought = live ? nil : Phase.thoughtFor(m.at, nextAt(t, turn, b + 1)) ?? "Thought"
+            return .step(StepContent(id: id, block: block, open: session.open(id, false), live: live, background: false, thought: thought))
+        case .tool(let c):
+            let running = c.status == .running
+            return .step(StepContent(
+                id: id, block: block, open: session.open(id, c.agent != nil && c.status == .failed), live: running && live, background: running && !live))
+        default:
+            return .hidden
         }
-        return PhaseContent(
-            id: id, title: phaseTitle(slice, live: live), glyph: Phase.glyph(slice), live: live, open: open,
-            lone: all.count == 1 && all[0].block.call?.agent == nil, steps: steps)
     }
 
     func end(_ turn: Int) -> EndContent {

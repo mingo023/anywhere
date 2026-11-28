@@ -5,6 +5,7 @@ import SwiftUI
     import UIKit
 #endif
 
+
 /// The camera, looking for the QR code the Mac shows.
 @MainActor
 struct ScanView: View {
@@ -13,38 +14,50 @@ struct ScanView: View {
     /// nil until the camera permission is known; the camera starts only once it's granted.
     @State private var allowed: Bool?
 
+    init(model: PairingModel, allowed: Bool? = nil) {
+        self.model = model
+        _allowed = State(initialValue: allowed)
+    }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            camera
-            RoundedRectangle(cornerRadius: Radius.sheet, style: .continuous)
-                .strokeBorder(.white.opacity(0.85), lineWidth: 3)
-                .frame(width: 240, height: 240)
-                .accessibilityHidden(true)
+            if denied {
+                cameraOff
+            } else {
+                camera
+                Viewfinder(hint: notOurs ? "That isn't a Zoes pairing code." : "Point at the QR code on your Mac.", failed: notOurs)
+            }
         }
         .safeAreaInset(edge: .bottom) {
-            VStack(spacing: Space.m) {
-                Text(denied ? "Zoes can't use the camera." : notOurs ? "That isn't a Zoes pairing code." : "Point at the QR code on your Mac.")
-                    .font(Typography.headline)
-                    .foregroundStyle(notOurs ? Palette.failedText.color : Palette.text.color)
-                    .multilineTextAlignment(.center)
-                if denied {
-                    settingsLink
-                }
-                Button("Enter code instead") { model.path = [.enter] }
-                    .font(Typography.subheadline)
-            }
-            .padding(Space.l)
-            .frame(maxWidth: .infinity)
-            .glass(in: RoundedRectangle(cornerRadius: Radius.sheet, style: .continuous))
-            .padding(Space.l)
+            Button("Enter code instead") { model.path = [.enter] }
+                .buttonStyle(ScanButtonStyle(denied ? .plain : .glass))
+                .padding(.bottom, Space.m)
         }
-        .navigationTitle("Scan")
-        .inlineTitle()
-        .task { allowed = await Self.cameraAllowed() }
+        .environment(\.colorScheme, .dark)
+        .pairingBar()
+        .navigationBarBackButtonHidden(true)
+        .toolbar { ToolbarItem(placement: .cancellationAction) { CloseButton(tint: .fixed(0xffffffff)) } }
+        .task { if allowed == nil { allowed = await Self.cameraAllowed() } }
     }
 
     private var denied: Bool { allowed == false }
+
+    private var cameraOff: some View {
+        VStack(spacing: 0) {
+            LucideIcon(.cameraOff, size: 40, weight: 1.75).foregroundStyle(Token.fixed(0x818181ff).color)
+            Text("Camera access is off").font(.system(size: 20, weight: .semibold)).foregroundStyle(.white).padding(.top, 18)
+            Text("Zoes needs the camera to scan the pairing code on your Mac.")
+                .font(.system(size: 15)).foregroundStyle(Token.fixed(0xa1a1a1ff).color)
+                .multilineTextAlignment(.center)
+                .padding(.top, Space.s)
+            Button("Allow in Settings", action: Self.openSettings)
+                .buttonStyle(ScanButtonStyle(.light))
+                .padding(.top, Space.xl)
+        }
+        .padding(.horizontal, 36)
+        .offset(y: -60)
+    }
 
     @ViewBuilder
     private var camera: some View {
@@ -61,18 +74,14 @@ struct ScanView: View {
                 .ignoresSafeArea()
             }
         #else
-            Placeholder("Scanning needs the iPhone's camera", systemImage: "camera", detail: "Enter the code instead.")
-                .environment(\.colorScheme, .dark)
+            Text("camera feed").font(.system(size: 11, design: .monospaced)).foregroundStyle(Token.fixed(0x6c6c6cff).color)
+                .frame(maxHeight: .infinity, alignment: .top).padding(.top, 200)
         #endif
     }
 
-    @ViewBuilder
-    private var settingsLink: some View {
+    private static func openSettings() {
         #if os(iOS)
-            Button("Allow in Settings") {
-                if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
-            }
-            .buttonStyle(CapsuleButtonStyle())
+            if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
         #endif
     }
 

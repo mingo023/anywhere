@@ -21,7 +21,7 @@ public struct AccessChoices: View {
                 pick(choice.value)
             } label: {
                 if choice.value == picked {
-                    Label(choice.label, systemImage: "checkmark")
+                    Label(choice.label, lucide: .check)
                 } else {
                     Text(choice.label)
                 }

@@ -32,10 +32,10 @@ public struct FilesView: View {
                 )
                 .onAppear { target = host.chatTarget(tree, opener: chat) }
             } else {
-                Placeholder("This file is outside \(FileText.baseName(tree))", systemImage: "folder.badge.questionmark", detail: path)
+                Placeholder("This file is outside \(FileText.baseName(tree))", icon: .folder, detail: path)
             }
         default:
-            Placeholder("Files", systemImage: "folder")
+            Placeholder("Files", icon: .folder)
         }
     }
 
@@ -46,6 +46,8 @@ public struct FilesView: View {
             retarget: { host.chatTarget(tree, opener: chat) },
             project: host.workspace.projects.first { $0.path == tree || $0.worktrees.contains { $0.path == tree } }?.path,
             open: open,
-            git: host.git)
+            git: host.git,
+            fromChat: chat != nil,
+            offline: host.link == .online ? nil : .init(mac: host.name, since: host.offlineSince.map { Int($0.timeIntervalSince1970 * 1000) }))
     }
 }

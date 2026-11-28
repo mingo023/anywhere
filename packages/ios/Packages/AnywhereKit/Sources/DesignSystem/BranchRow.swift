@@ -23,7 +23,7 @@ public struct BranchRow: View {
                     if let detail { Text(detail).font(Typography.caption).foregroundStyle(Palette.text3.color) }
                 }
                 Spacer()
-                if picked { Image(systemName: "checkmark").foregroundStyle(Palette.accent.color) }
+                if picked { LucideIcon(.check, size: 17).foregroundStyle(Palette.accent.color) }
             }
             .contentShape(Rectangle())
         }

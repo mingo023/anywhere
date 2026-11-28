@@ -127,12 +127,12 @@ struct TerminalListView: View {
     @ViewBuilder
     private var content: some View {
         if !store.available {
-            Placeholder("Update Zoes on your Mac", systemImage: "terminal", detail: "This Mac's version can't share its terminals yet.")
+            Placeholder("Update Zoes on your Mac", icon: .terminal, detail: "This Mac's version can't share its terminals yet.")
         } else if !store.listed && store.terminals.isEmpty {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).screenBackground()
                 .onAppear { store.refresh() }
         } else if store.terminals.isEmpty {
-            Placeholder("No terminals", systemImage: "terminal", detail: "Open a shell in one of your projects with +.")
+            Placeholder("No terminals", icon: .terminal, detail: "Open a shell in one of your projects with +.")
         } else {
             list
         }
@@ -151,7 +151,7 @@ struct TerminalListView: View {
                 Section {
                     ForEach(group.terminals) { t in
                         let session = t.agentId.flatMap { host.sessions.session($0) }
-                        PushRow(value: Route.terminal(mac: mac, terminalId: t.id)) {
+                        PushRow(value: Route.terminal(mac: mac, terminalId: t.id), inList: true) {
                             TerminalRow(terminal: t, agent: session?.summary.title, busy: session?.status == .working)
                         }
                         .listRowBackground(Palette.surface.color)

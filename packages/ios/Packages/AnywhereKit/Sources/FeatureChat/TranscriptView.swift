@@ -124,7 +124,7 @@ struct TranscriptView: View {
                         ForEach(ids, id: \.self) { id in
                             // The end rides with the last row: built whenever it is, so a scroll to the end always lands.
                             VStack(alignment: .leading, spacing: 0) {
-                                RowSlot(box: rows.box(id), provider: store.provider, flash: flash == id, actions: actions)
+                                RowSlot(box: rows.box(id), flash: flash == id, actions: actions)
                                     .background(frame(rows.index(id)))
                                     .onAppear { rows.appeared(id) }
                                     .onDisappear { rows.disappeared(id) }
@@ -312,11 +312,10 @@ struct TranscriptView: View {
         scroll.proxy?.scrollTo(old, anchor: .top)
     }
 
-    /// Opens what hides the call's phase, then glides to it and flashes it.
+    /// Glides to the call's row and flashes it.
     private func show(call id: String) {
         let session = store.session
         guard let (turn, block) = findCall(session.transcript, id), let row = rowOf(session.rows, turn: turn, block: block) else { return }
-        store.show(row)
         let rowId = session.ids[row]
         scroll.following = false
         scroll.pin = nil
@@ -367,12 +366,11 @@ struct TranscriptView: View {
 @MainActor
 private struct RowSlot: View {
     let box: RowBox
-    let provider: String
     let flash: Bool
     let actions: RowActions
 
     var body: some View {
-        RowView(item: box.item, provider: provider, flash: flash, actions: actions).equatable()
+        RowView(item: box.item, flash: flash, actions: actions).equatable()
     }
 }
 

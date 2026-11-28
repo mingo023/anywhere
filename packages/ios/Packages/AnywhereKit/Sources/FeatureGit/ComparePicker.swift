@@ -30,7 +30,7 @@ struct ComparePicker: View {
             }
             .overlay {
                 if let error {
-                    Placeholder("Couldn't list branches", systemImage: "exclamationmark.triangle", detail: error) { Task { await load() } }
+                    Placeholder("Couldn't list branches", icon: .triangleAlert, detail: error) { Task { await load() } }
                 } else if branches == nil {
                     ProgressView()
                 } else if listed.isEmpty && !search.isEmpty {

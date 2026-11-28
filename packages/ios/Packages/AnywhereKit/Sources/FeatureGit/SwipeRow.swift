@@ -9,7 +9,7 @@ import SwiftUI
 /// A button a row shows when swiped from one edge, as `swipeActions` does in a `List`.
 struct SwipeAction {
     let title: String
-    let systemImage: String
+    let icon: Lucide
     let tint: Color
     let action: () -> Void
 }
@@ -118,15 +118,14 @@ private struct Swipe: ViewModifier {
                 settle { open.close() }
                 a.action()
             } label: {
-                Label(a.title, systemImage: a.systemImage)
-                    .labelStyle(.iconOnly)
-                    .font(.title3)
+                LucideIcon(a.icon, size: 20)
                     .foregroundStyle(.white)
                     .frame(width: width)
                     .frame(maxHeight: .infinity)
                     .background(a.tint)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(a.title)
         }
 
         private func settle(_ change: () -> Void) {

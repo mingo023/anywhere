@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>@keyframes awdot{0%,100%{opacity:.22}30%{opacity:1}}</style></helmet>
+<div style="display:flex;align-items:flex-start;opacity:{{ op }};font-family:var(--sans);color:var(--tx);pointer-events:{{ pe }}">
+<div style="width:52px;flex:none;height:22px;margin-top:12px;display:flex;align-items:center;justify-content:center">
+<sc-if value="{{ isNeeds }}"><div style="width:18px;height:18px;border-radius:9px;background:color-mix(in srgb,var(--tx) 16%,transparent);display:flex;align-items:center;justify-content:center"><div style="width:8px;height:8px;border-radius:4px;background:var(--tx)"></div></div></sc-if>
+<sc-if value="{{ isWorking }}">{{ spinner }}</sc-if>
+<sc-if value="{{ isFailed }}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:#E5484D;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg></sc-if>
+<sc-if value="{{ isFinished }}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:#30A46C;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></sc-if>
+<sc-if value="{{ isIdle }}"><div style="width:9px;height:9px;border-radius:6px;border:1.5px solid var(--t4)"></div></sc-if>
+</div>
+<div style="flex:1;min-width:0;padding:12px 16px 12px 0;border-top:{{ sep }}">
+<div style="display:flex;align-items:center;gap:8px">
+<div style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:{{ tSize }};font-family:{{ tFont }};line-height:22px;color:var(--tx)">{{ title }}</div>
+<sc-if value="{{ pinned }}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;flex:none;color:var(--t3);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg></sc-if>
+<div style="flex:none;font-size:13px;color:var(--t3);font-variant-numeric:tabular-nums">{{ time }}</div>
+</div>
+<div style="margin-top:2px;font-size:13px;line-height:18px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+<sc-if value="{{ hasNote }}">{{ note }}</sc-if>
+<sc-if value="{{ noNote }}">{{ project }} · <span style="font-family:var(--mono);font-size:12.5px">{{ branch }}</span> · {{ mac }}</sc-if>
+</div>
+<sc-if value="{{ showActions }}">
+<div style="display:flex;gap:8px;margin-top:10px">
+<div onClick="{{ deny }}" style="height:32px;padding:0 16px;border-radius:16px;background:var(--fill);color:{{ aDeny }};pointer-events:{{ aPe }};font-size:15px;font-weight:600;display:flex;align-items:center;cursor:pointer">Deny</div>
+<div onClick="{{ approve }}" style="height:32px;padding:0 16px;border-radius:16px;background:{{ aBg }};color:{{ aFg }};pointer-events:{{ aPe }};font-size:15px;font-weight:600;display:flex;align-items:center;cursor:pointer">Approve</div>
+</div>
+</sc-if>
+<sc-if value="{{ answered }}"><div style="margin-top:8px;font-size:13px;color:var(--t2)">{{ answeredText }}</div></sc-if>
+<sc-if value="{{ error }}"><div style="margin-top:8px;font-size:13px;color:var(--errt)">Couldn't send your answer. <span style="color:var(--tx);font-weight:600">Try again</span></div></sc-if>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:361,&quot;height&quot;:120},&quot;kind&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;needs&quot;,&quot;working&quot;,&quot;failed&quot;,&quot;finished&quot;,&quot;idle&quot;],&quot;default&quot;:&quot;needs&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;title&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;pnpm test checkout --repeat 20&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;mono&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;project&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;anywhere&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;branch&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;flaky-checkout&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;mac&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;MacBook Pro&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;note&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;time&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;2m&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;actions&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;dim&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;error&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;first&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;pinned&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { ans: null };
+  renderVals() {
+    const p = this.props, k = p.kind || 'idle', o = [0,1,2,5,8,7,6,3,4];
+    const spinner = k === 'working' ? React.createElement('div', { style: { display:'grid', gridTemplateColumns:'repeat(3,3px)', gap:2 } },
+      [0,1,2,3,4,5,6,7,8].map(i => React.createElement('div', { key:i, style:{ width:3, height:3, borderRadius:2, background:'#FF8B3E', animation:'awdot 1s ease-in-out infinite', animationDelay:(o.indexOf(i)*0.11)+'s' } }))) : null;
+    const a = this.state.ans;
+    const cut = (t, n) => { if (!t || t.length <= n) return t; const i = t.lastIndexOf(' ', n - 1); return t.slice(0, i > 0 ? i : n - 1) + '…'; };
+    return {
+      title: p.mono ? cut(p.title, 30) : p.title, time: p.time, note: cut(p.note, 40), project: p.project, branch: p.branch, mac: p.mac,
+      isNeeds: k==='needs', isWorking: k==='working', isFailed: k==='failed', isFinished: k==='finished', isIdle: k==='idle',
+      spinner, op: p.dim ? .42 : 1, pe: p.dim ? 'none' : 'auto',
+      sep: p.first ? 'none' : '.5px solid var(--sep)',
+      tFont: p.mono ? 'var(--mono)' : 'inherit', tSize: p.mono ? '14px' : '17px',
+      hasNote: !!p.note, noNote: !p.note, pinned: !!p.pinned,
+      showActions: !!p.actions && !a, aPe: p.locked ? 'none' : 'auto', aDeny: p.locked ? 'var(--t4)' : 'var(--tx)', aBg: p.locked ? 'var(--fill)' : 'var(--ink)', aFg: p.locked ? 'var(--t4)' : 'var(--on)', answered: !!a, answeredText: a === 'y' ? 'Approved · sent to ' + (p.mac||'Mac') : 'Denied',
+      error: !!p.error && !a,
+      approve: () => this.setState({ ans:'y' }), deny: () => this.setState({ ans:'n' })
+    };
+  }
+}
+</script>
+</body>
+</html>

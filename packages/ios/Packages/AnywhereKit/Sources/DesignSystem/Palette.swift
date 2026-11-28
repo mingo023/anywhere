@@ -1,5 +1,5 @@
-/// The desktop's colours (packages/desktop/crates/theme/src/theme.rs), by the same names. The phone's canvas and surfaces
-/// are its own: true black or white, with surfaces a step off it, so content sits on depth rather than grey.
+/// The desktop's colours (packages/desktop/crates/theme/src/theme.rs), by the same names. The canvas, surfaces, fills and
+/// separators are the iOS redesign's (`.ui-review/prototypes/ios-redesign`): grouped rows on a near-black or pale grey canvas.
 public enum Palette {
     public static let text = Token(0x111113ff, 0xebebebff)
     public static let textBody = Token(0x3f3f46ff, 0xbcbcbcff)
@@ -14,22 +14,32 @@ public enum Palette {
     public static let onText = Token(0xffffffff, 0x171717ff)
 
     /// The screen behind grouped content.
-    public static let background = Token(0xffffffff, 0x000000ff)
+    public static let background = Token(0xf4f4f5ff, 0x111111ff)
     /// Grouped rows and cards.
-    public static let surface = Token(0xf7f7f7ff, 0x181818ff)
-    public static let surfaceRaised = Token(0xffffffff, 0x242424ff)
+    public static let surface = Token(0xffffffff, 0x1f1f21ff)
+    public static let surfaceRaised = Token(0xffffffff, 0x2a2a2cff)
     /// A recessed block inside a page: tables, code blocks.
-    public static let well = Token(0xf5f5f5ff, 0x141414ff)
+    public static let well = Token(0xf4f4f5ff, 0x111111ff)
     /// A floating card's shadow: soft in light mode, none on black, where it would read as nothing.
     public static let shadow = Token(0x0000000f, 0x00000000)
-    public static let popover = Token(0xffffffff, 0x202020ff)
+    public static let popover = Token(0xffffffff, 0x2a2a2cff)
+    /// The tab bar, the strips and the round buttons floating over content.
+    public static let glass = Token(0xffffffcc, 0x2c2c2eb8)
+    public static let glassBorder = Token(0x00000014, 0xffffff1a)
+    /// A segmented control's selected segment.
+    public static let segment = Token(0xffffffff, 0x5a5a5eff)
 
-    public static let fill1 = Token(0x00000005, 0xffffff08)
-    public static let fill2 = Token(0x00000008, 0xffffff0d)
-    public static let fill3 = Token(0x0000000d, 0xffffff14)
-    public static let fill4 = Token(0x00000014, 0xffffff1f)
-    public static let hairline = Token(0x0000000f, 0xffffff14)
-    public static let separator = Token(0x00000014, 0xffffff1a)
+    public static let fill1 = Token(0x11111308, 0xebebeb0a)
+    /// The design's `fill2`.
+    public static let fill2 = Token(0x1111130a, 0xebebeb0f)
+    /// The design's `fill`: secondary buttons, the selected tab's pill.
+    public static let fill3 = Token(0x11111312, 0xebebeb1a)
+    /// The design's `fill3`.
+    public static let fill4 = Token(0x11111324, 0xebebeb2e)
+    public static let hairline = Token(0x1111131a, 0xebebeb14)
+    public static let separator = Token(0x1111131a, 0xebebeb14)
+    /// An inset group's edge: a hairline on the dark canvas, none on the light one.
+    public static let groupBorder = Token(0x00000000, 0xebebeb14)
     public static let separatorStrong = Token(0x00000024, 0xffffff2e)
     public static let selection = Token(0x11111324, 0xebebeb33)
     public static let rowSelected = Token(0x00000008, 0xffffff14)
@@ -49,19 +59,21 @@ public enum Palette {
     public static let onWaiting = Token.fixed(0x1a1306ff)
     public static let waitingBackground = Token.fixed(0xffb2242e)
     public static let failed = Token(0xcd2b31ff, 0xe5484dff)
-    public static let failedText = Token(0xcd2b31ff, 0xff9592ff)
+    public static let failedText = Token(0xce2c31ff, 0xff9592ff)
     public static let failedBackground = Token.fixed(0xe5484d1c)
     public static let success = Token(0x2b9a66ff, 0x30a46cff)
     public static let successText = Token(0x18794eff, 0x3dd68cff)
     public static let successBackground = Token.fixed(0x30a46c21)
     public static let working = Token(0xcc4e00ff, 0xf76b15ff)
+    /// The working spinner's dots.
+    public static let workingDot = Token.fixed(0xff8b3eff)
     public static let merged = Token(0x8250dfff, 0xa371f7ff)
     public static let modified = Token(0xad5700ff, 0xffca16ff)
     public static let teal = Token(0x0e7c86ff, 0x0bd8b6ff)
 
     /// A chat's work rail: the line a reply's steps hang from.
     public static let rail = Token(0xe0e0e0ff, 0x282828ff)
-    public static let bubble = Token(0xf2f2f2ff, 0x242424ff)
+    public static let bubble = Token(0xe8e8eaff, 0x2c2c30ff)
     public static let mention = Token(0x0284c7ff, 0x5bb8f0ff)
     /// A prompt's opening `/command`.
     public static let command = Token(0x5b5bd6ff, 0xb1a9ffff)
@@ -83,9 +95,6 @@ public enum Palette {
     public static let diffHunkText = Token(0x59636eff, 0x9198a1ff)
 
     public static let graphHead = Token(0x1a5cffff, 0x57a3f8ff)
-    public static let graphUpstream = Token(0x652d90ff, 0xad80d7ff)
-    public static let graphBase = Token.fixed(0xea5c00ff)
-    public static let graphLanes: [Token] = [.fixed(0xffb000ff), .fixed(0xdc267fff), .fixed(0x994f00ff), .fixed(0x40b0a6ff), .fixed(0xb66dffff)]
 
     public static let markdownText = Token(0x000000d9, 0xffffffd9)
     public static let markdownText2 = Token(0x00000080, 0xffffff8c)

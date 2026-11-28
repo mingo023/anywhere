@@ -19,7 +19,7 @@ struct Destination: View {
     let app: AppModel
     let pair: @MainActor () -> Void
     let open: @MainActor (Route) -> Void
-    let leave: @MainActor (String) -> Void
+    let leave: @MainActor (_ mac: String, _ tree: String) -> Void
     /// Shows the reconnecting banner under the bar; the iPad's column shows its own.
     var banner = false
 
@@ -32,18 +32,23 @@ struct Destination: View {
         default:
             if let mac = route.mac, let host = app.host(mac: mac) {
                 // A Mac dialed again is a new host, so the screen's stores bind to it afresh.
-                Self.screen(route, host, open: open, leave: leave)
+                Self.screen(route, host, open: open, leave: { leave(host.mac, $0) })
                     .id(ObjectIdentifier(host))
                     .safeAreaInset(edge: .top, spacing: 0) {
                         VStack(spacing: 0) {
-                            if banner { ConnectionBanner(host: host) }
+                            // The chat draws its own strip under its floating bar.
+                            if banner, !Self.isChat(route) { ConnectionBanner(host: host) }
                             EndedStrip(app: app, host: host)
                         }
                     }
             } else {
-                Placeholder("This Mac isn't paired", systemImage: "laptopcomputer.slash", detail: "Pair it again from Settings.")
+                Placeholder("This Mac isn't paired", icon: .laptop, detail: "Pair it again from Machines.")
             }
         }
+    }
+
+    static func isChat(_ route: Route) -> Bool {
+        if case .chat = route { true } else { false }
     }
 
     @ViewBuilder
@@ -55,15 +60,8 @@ struct Destination: View {
             SessionsView(host: host, route: route, open: open, leave: leave)
         case .chat(_, let agentId):
             ChatView(host: host, agentId: agentId, open: open)
-                #if os(iOS)
-                    // A session takes the screen: the composer sits where the tab bar would.
-                    .toolbar(.hidden, for: .tabBar)
-                #endif
         case .subAgent(_, let agentId, let callId):
             SubAgentView(host: host, agentId: agentId, callId: callId, open: open)
-                #if os(iOS)
-                    .toolbar(.hidden, for: .tabBar)
-                #endif
         case .terminals, .terminal:
             TerminalsView(host: host, route: route)
         case .changes, .diff, .history, .commit, .branches:
@@ -77,32 +75,16 @@ struct Destination: View {
         }
     }
 
-    /// The root of a section for a Mac, its sessions narrowed to `tree` if given; a Mac whose link ended shows why instead.
-    /// With `upNext`, a Mac's sessions leave out its projects, as the iPad's sidebar holds them.
+    /// The root of a section: Inbox, Sessions and PRs across every paired Mac, and Machines.
     @ViewBuilder
     static func root(
-        _ tab: Tab, host: HostModel?, app: AppModel, tree: Route? = nil, upNext: Bool = false, pair: @escaping @MainActor () -> Void,
-        open: @escaping @MainActor (Route) -> Void, leave: @escaping @MainActor (String) -> Void
+        _ tab: Tab, app: AppModel, pair: @escaping @MainActor () -> Void, open: @escaping @MainActor (Route) -> Void
     ) -> some View {
         switch tab {
-        case .settings:
-            SettingsView(app: app, pair: pair)
-        case .sessions, .terminals:
-            if let host {
-                if host.reachability(at: .now).isFinal {
-                    EndedView(app: app, host: host)
-                } else if tab == .sessions {
-                    if upNext && tree == nil {
-                        UpNextList(host: host, open: open)
-                    } else {
-                        SessionsView(host: host, route: tree ?? .sessions(mac: host.mac), open: open, leave: leave)
-                    }
-                } else {
-                    TerminalsView(host: host, route: .terminals(mac: host.mac))
-                }
-            } else {
-                Placeholder("No Mac selected", systemImage: "laptopcomputer")
-            }
+        case .inbox: InboxView(hosts: app.hosts, open: open)
+        case .sessions: SessionsHome(hosts: app.hosts, open: open)
+        case .prs: PullRequestsHome(hosts: app.hosts, open: open)
+        case .machines: SettingsView(app: app, pair: pair)
         }
     }
 }
@@ -112,7 +94,7 @@ extension View {
     func routeDestinations(app: AppModel, navigator: Navigator, banner: Bool = false, pair: @escaping @MainActor () -> Void) -> some View {
         navigationDestination(for: Route.self) {
             // The iPad swaps the route in place: without the id, the next chat keeps the last one's store.
-            Destination(route: $0, app: app, pair: pair, open: navigator.push, leave: navigator.leave, banner: banner).id($0)
+            Destination(route: $0, app: app, pair: pair, open: navigator.push, leave: navigator.leave(mac:tree:), banner: banner).id($0)
         }
     }
 }

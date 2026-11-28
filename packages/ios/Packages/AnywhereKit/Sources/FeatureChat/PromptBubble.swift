@@ -3,7 +3,8 @@ import DesignSystem
 import Domain
 import SwiftUI
 
-/// The user's prompt: right-aligned, its commands tinted and mentions shown by name, clipped past five lines.
+/// The user's prompt: right-aligned, its commands tinted and mentions shown by name, clipped past five lines. A long
+/// press copies it and says when it was sent.
 @MainActor
 struct PromptBubble: View {
     let text: String
@@ -13,16 +14,13 @@ struct PromptBubble: View {
 
     var body: some View {
         let _ = BodyCount.hit("PromptBubble")
-        VStack(alignment: .trailing, spacing: Space.xs) {
-            BubbleBody(text: text, images: images).opacity(dimmed ? 0.65 : 1)
-            if let at {
-                HStack(spacing: Space.xs) {
-                    CopyButton(text: text)
-                    Text(TimeText.clock(ms: at)).font(ChatFont.caption).monospacedDigit().foregroundStyle(Palette.text4.color)
-                }
+        BubbleBody(text: text, images: images)
+            .opacity(dimmed ? 0.65 : 1)
+            .contextMenu {
+                Button { Clipboard.copy(text) } label: { Label("Copy", lucide: .copy) }
+                if let at { Text("Sent \(TimeText.clock(ms: at))") }
             }
-        }
-        .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
 
@@ -55,7 +53,7 @@ struct BubbleBody: View {
                         } label: {
                             HStack(spacing: Space.xs) {
                                 Text(expanded ? "Show less" : "Show more")
-                                Image(systemName: expanded ? "chevron.up" : "chevron.down").imageScale(.small)
+                                LucideIcon(expanded ? .chevronUp : .chevronDown, size: 12)
                             }
                             .font(ChatFont.caption.weight(.medium))
                             .foregroundStyle(Palette.text3.color)
@@ -64,9 +62,9 @@ struct BubbleBody: View {
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 9)
-            .background(Palette.bubble.color, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Palette.bubble.color, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
     }
 }
@@ -89,7 +87,7 @@ struct BubbleText: View {
             switch s.kind {
             case .plain: Text("\(acc)\(Text(verbatim: s.text))")
             case .command: Text("\(acc)\(Text(verbatim: s.text).foregroundStyle(Palette.command.color))")
-            case .mention: Text("\(acc)\(Text("\(Image(systemName: "doc")) \(s.text)").foregroundStyle(Palette.mention.color))")
+            case .mention: Text("\(acc)\(Text("\(Image.lucide(.file, size: 13)) \(s.text)").foregroundStyle(Palette.mention.color))")
             }
         }
     }
@@ -104,7 +102,7 @@ struct ImageTiles: View {
         HStack(spacing: Space.xs) {
             ForEach(paths, id: \.self) { path in
                 VStack(spacing: 2) {
-                    Image(systemName: "photo").font(.system(size: 16))
+                    LucideIcon(.imagePlus, size: 18)
                     Text(FileChip.name(path)).font(.system(size: 8)).lineLimit(1).truncationMode(.middle)
                 }
                 .foregroundStyle(Palette.text3.color)

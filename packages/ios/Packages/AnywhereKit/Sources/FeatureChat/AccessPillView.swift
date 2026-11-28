@@ -2,7 +2,7 @@ import DesignSystem
 import Domain
 import SwiftUI
 
-/// What the agent may do without asking: a shield and the access, a picker for a chat agent pocketd lets the phone set.
+/// What the agent may do without asking: the access, or a shield when short of room; a picker for a chat agent pocketd lets the phone set.
 /// Full asks first.
 @MainActor
 struct AccessPillView: View {
@@ -43,9 +43,12 @@ struct AccessPillView: View {
 
     private var label: some View {
         let warns = AccessPill.warns(access)
-        return PillLabel(opens: editable) {
-            Image(systemName: warns ? "exclamationmark.shield" : "shield").font(.system(size: 12)).foregroundStyle(Palette.text2.color)
-            if fit <= .short { Text(AccessPill.label(access)).foregroundStyle((warns ? Palette.waitingText : Palette.text).color) }
+        return PillLabel {
+            if fit <= .short {
+                Text(AccessPill.label(access)).foregroundStyle((warns ? Palette.waitingText : Palette.textBody).color)
+            } else {
+                LucideIcon(warns ? .shieldAlert : .shield, size: 14).foregroundStyle(Palette.text2.color)
+            }
         }
         .accessibilityLabel("Access: \(AccessPill.label(access))")
     }

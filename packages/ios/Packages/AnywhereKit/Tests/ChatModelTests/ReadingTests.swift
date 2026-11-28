@@ -28,11 +28,6 @@ func aLiveFoldSaysWhoWorks() {
     #expect(liveLabel("Claude", "Opus 5.5", .answer) == "Needs your answer")
 }
 
-@Test("a settled fold says how long the agent worked")
-func aSettledFoldSaysHowLong() {
-    #expect(settledLabel("Claude", 64_900) == "Claude worked for 1m 4s")
-}
-
 @Test("live thinking keeps its tail and settled thinking its head")
 func liveThinkingKeepsItsTail() {
     let text = (1...30).map { "step \($0)\n" }.joined()
@@ -129,6 +124,19 @@ func eachToolReadsAsAVerb() {
     }
 }
 
+@Test("a finished call reads in the past tense, and a command it ran as Ran")
+func aFinishedCallReadsInThePast() {
+    let call = { (name: String, kind: ToolKind) in Call(id: "t", name: name, kind: kind, status: .ok) }
+    #expect(pastVerb(call("Read", .read(path: "a"))) == "Read")
+    #expect(pastVerb(call("Edit", .edit(path: "a", diff: nil))) == "Edited")
+    #expect(pastVerb(call("Write", .write(path: "a", diff: nil))) == "Created")
+    #expect(pastVerb(call("Grep", .search(query: "x"))) == "Searched")
+    #expect(pastVerb(call("WebFetch", .fetch(url: "https://x.dev"))) == "Fetched")
+    #expect(pastVerb(call("Bash", .shell(command: "ls"))) == "Ran")
+    #expect(pastVerb(call("TaskStop", .shell(command: "bun run dev"))) == "Stopped")
+    #expect(pastVerb(call("NotebookEdit", .other(input: "{}", description: ""))) == "")
+}
+
 private func subTool(_ id: String, _ status: CallStatus) -> Block {
     .tool(Call(id: id, name: "Bash", kind: .shell(command: "ls"), status: status))
 }
@@ -205,16 +213,6 @@ func aTextCountsTheLines() {
     #expect(Agent.lineCount("one") == 1)
     #expect(Agent.lineCount("one\n\nthree") == 3)
     #expect(Agent.lineCount(String(repeating: "x", count: 91)) == 2)
-}
-
-@Test("a phase is headed by the kind of its first step")
-func aPhaseIsHeaded() {
-    let t = { (kind: ToolKind) in Block.tool(Call(id: "t", name: "x", kind: kind, status: .ok)) }
-    #expect(Phase.glyph([t(.read(path: "a")), t(.shell(command: "ls"))]) == .search)
-    #expect(Phase.glyph([t(.edit(path: "a", diff: nil))]) == .pencil)
-    #expect(Phase.glyph([t(.shell(command: "ls"))]) == .terminal)
-    #expect(Phase.glyph([.thinking(Message(id: "", at: 0, text: ""))]) == .bulb)
-    #expect(Phase.glyph([t(.other(input: "{}", description: ""))]) == .tool)
 }
 
 @Test("a phases steps leave out its todos")
@@ -308,34 +306,6 @@ func aPhaseIsLive() {
 func aLiveFoldCountsSubAgents() {
     let t = turn([tool(.agent(SubAgent(description: "")), .running, 2000)], done)
     #expect(liveState(t, 0..<1, ask: nil, stopping: false, now: 5000) == .working(secs: 4, background: 1))
-}
-
-@Test("a phase hangs off its fold only once the live line leaves it")
-func aPhaseHangsOffItsFold() {
-    let a = { (status: CallStatus) in tool(.agent(SubAgent(description: "")), status, 1) }
-    let phase = Row.phase(turn: 0, blocks: 0..<1)
-    let live = turn([a(.running)], done)
-    #expect(!inFold(live, liveTail: liveTail(live), phase, foldOpen: true))
-    let settled = turn([a(.ok)], done)
-    #expect(inFold(settled, liveTail: liveTail(settled), phase, foldOpen: true))
-}
-
-@Test("a closed fold hides its work but not a failed sub agent")
-func aClosedFoldHidesItsWork() {
-    let a = { (status: CallStatus) in tool(.agent(SubAgent(description: "")), status, 1) }
-    let t = turn([shell(1), a(.ok), a(.failed)], nil)
-    #expect(!shown(t, .phase(turn: 0, blocks: 0..<2), foldOpen: false))
-    #expect(shown(t, .phase(turn: 0, blocks: 2..<3), foldOpen: false))
-    #expect(shown(t, .phase(turn: 0, blocks: 0..<2), foldOpen: true))
-}
-
-@Test("a closed fold still shows the text between its work")
-func aClosedFoldStillShowsText() {
-    let t = turn([.text(msg("Let me look.", 1)), shell(2), .text(msg("All good.", 3))], done)
-    let text = { Row.text(turn: 0, block: $0, range: 0..<1) }
-    #expect(shown(t, text(0), foldOpen: false) && shown(t, text(2), foldOpen: false))
-    #expect(inFold(t, liveTail: nil, text(0), foldOpen: true) && !inFold(t, liveTail: nil, text(0), foldOpen: false))
-    #expect(!inFold(t, liveTail: nil, text(2), foldOpen: true))
 }
 
 @Test("a replys answer leaves out the text between its work")

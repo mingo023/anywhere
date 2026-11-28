@@ -35,42 +35,72 @@ extension Color {
     }
 }
 
-/// The status a state leads with, as a filled symbol tinted by urgency.
+/// What the activity's words say, as plain values the views and their tests share.
+enum ActivityText {
+    /// The ask as the Lock Screen quotes it: a command alone, any other ask led by its verb.
+    static func command(_ top: MacActivity.Top) -> String? {
+        guard let subject = top.subject, !subject.isEmpty else { return nil }
+        guard let verb = top.verb, !verb.isEmpty, verb.lowercased() != "run" else { return subject }
+        return "\(verb.lowercased()) \(subject)"
+    }
+
+    /// A place "project · worktree" split so the worktree can be set in mono.
+    static func place(_ place: String) -> (project: String, worktree: String?) {
+        let parts = place.components(separatedBy: " · ")
+        return parts.count == 2 ? (parts[0], parts[1]) : (place, nil)
+    }
+
+    /// The Mac's name, with how many more sessions want a look.
+    static func header(_ s: ActivitySnapshot) -> String {
+        [s.attributes.macName, s.isStale ? nil : ActivityDisplay.more(s.state)].compactMap(\.self).joined(separator: " · ")
+    }
+}
+
+/// A place in the caption's weight, its worktree in mono.
+private struct PlaceLine: View {
+    let place: String
+    let color: Color
+
+    var body: some View {
+        let parts = ActivityText.place(place)
+        HStack(spacing: 0) {
+            Text(parts.worktree == nil ? parts.project : "\(parts.project) · ")
+            if let worktree = parts.worktree { Text(worktree).font(.system(size: 12.5, design: .monospaced)) }
+        }
+        .font(.system(size: 13))
+        .foregroundStyle(color)
+        .lineLimit(1)
+    }
+}
+
+/// The dot a state leads with, haloed: amber when it needs you, orange working, red failed, green done.
 @MainActor
-public struct ActivityGlyph: View {
+public struct ActivityDot: View {
     let glyph: ActivityDisplay.Glyph
     let size: CGFloat
     let dark: Bool
 
-    public init(_ glyph: ActivityDisplay.Glyph, size: CGFloat = 22, dark: Bool = true) {
+    public init(_ glyph: ActivityDisplay.Glyph, size: CGFloat = 7, dark: Bool = true) {
         self.glyph = glyph
         self.size = size
         self.dark = dark
     }
 
     public var body: some View {
-        Image(systemName: Self.symbol(glyph))
-            .font(.system(size: size * 0.86, weight: .semibold))
-            .foregroundStyle(Color.of(Self.tint(glyph), dark: dark))
+        let tint = Color.of(Self.tint(glyph), dark: dark)
+        Circle()
+            .fill(tint)
             .frame(width: size, height: size)
+            .padding(size * 0.45)
+            .background(tint.opacity(0.18), in: Circle())
             .accessibilityLabel(Self.label(glyph))
-    }
-
-    public nonisolated static func symbol(_ g: ActivityDisplay.Glyph) -> String {
-        switch g {
-        case .needsYou: "hand.raised.circle.fill"
-        case .failed: "xmark.circle.fill"
-        case .working: "ellipsis.circle.fill"
-        case .done: "checkmark.circle.fill"
-        case .idle: "checkmark.circle"
-        }
     }
 
     nonisolated static func tint(_ g: ActivityDisplay.Glyph) -> Token {
         switch g {
-        case .needsYou: Palette.text
+        case .needsYou: Palette.waitingDot
         case .failed: Palette.failed
-        case .working: Palette.working
+        case .working: Palette.workingDot
         case .done: Palette.success
         case .idle: Palette.text4
         }
@@ -87,39 +117,49 @@ public struct ActivityGlyph: View {
     }
 }
 
-/// The compact trailing text: "!2", the longest turn's elapsed time, or the unseen count.
+/// The compact trailing region: the state's dot and how long it has waited, or how many are done.
 @MainActor
 public struct ActivityTrailing: View {
-    let trailing: ActivityDisplay.Trailing
+    /// What follows the dot.
+    enum Reading: Hashable {
+        case elapsed(since: Date)
+        case count(Int)
+        case none
+    }
+
+    let s: ActivitySnapshot
     let dark: Bool
 
-    public init(_ trailing: ActivityDisplay.Trailing, dark: Bool = true) {
-        self.trailing = trailing
+    public init(_ snapshot: ActivitySnapshot, dark: Bool = true) {
+        s = snapshot
         self.dark = dark
     }
 
-    public var body: some View {
-        switch trailing {
-        case .needs(let n):
-            Text("!\(n)")
-                .font(.system(.body, weight: .bold).monospacedDigit())
-                .foregroundStyle(Color.of(Palette.text, dark: dark))
-                .accessibilityLabel("\(n) \(n == 1 ? "needs" : "need") you")
-        case .timer(let since):
-            Text(timerInterval: since...Date.distantFuture, countsDown: false)
-                .font(.system(.body, weight: .semibold).monospacedDigit())
-                .foregroundStyle(Color.of(Palette.working, dark: dark))
-                .multilineTextAlignment(.trailing)
-                .frame(maxWidth: 56)
-        case .unseen(let n):
-            Label("\(n)", systemImage: "checkmark")
-                .labelStyle(.titleAndIcon)
-                .font(.system(.body, weight: .semibold).monospacedDigit())
-                .foregroundStyle(Color.of(Palette.success, dark: dark))
-                .accessibilityLabel("\(n) done")
-        case .none:
-            EmptyView()
+    nonisolated static func reading(_ state: MacActivity.ContentState) -> Reading {
+        switch ActivityDisplay.trailing(state) {
+        case .needs(let n): state.top.map { .elapsed(since: $0.since) } ?? .count(n)
+        case .timer(let since): .elapsed(since: since)
+        case .unseen(let n): .count(n)
+        case .none: .none
         }
+    }
+
+    public var body: some View {
+        HStack(spacing: 6) {
+            ActivityDot(ActivityDisplay.glyph(s.state), dark: dark)
+            switch Self.reading(s.state) {
+            case .elapsed(let since):
+                Text(timerInterval: since...Date.distantFuture, countsDown: false)
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: 56, alignment: .trailing)
+            case .count(let n):
+                Text("\(n)").accessibilityLabel("\(n) done")
+            case .none:
+                EmptyView()
+            }
+        }
+        .font(.system(size: 13, weight: .semibold).monospacedDigit())
+        .foregroundStyle(Color.of(Palette.text, dark: dark))
     }
 }
 
@@ -128,39 +168,43 @@ public struct ActivityTrailing: View {
 public struct AnswerButtons: View {
     let mac: String
     let request: String
+    let height: CGFloat
+    let dark: Bool
 
-    public init(mac: String, request: String) {
+    public init(mac: String, request: String, height: CGFloat = 42, dark: Bool = true) {
         self.mac = mac
         self.request = request
+        self.height = height
+        self.dark = dark
     }
+
+    private static let denyBackground = Token.fixed(0xe5484d2e)
 
     public var body: some View {
         HStack(spacing: Space.s) {
-            button("Deny", decision: "deny", role: .destructive)
-                .tint(Color.of(Palette.failed, dark: true))
-            button("Allow", decision: "allow", role: nil)
-                .tint(Color.of(Palette.success, dark: true))
+            button("Deny", decision: "deny", role: .destructive, foreground: Palette.failedText, background: Self.denyBackground)
+            button("Allow", decision: "allow", role: nil, foreground: Palette.onText, background: Palette.text)
         }
-        .font(.system(.subheadline, weight: .semibold))
     }
 
     @ViewBuilder
-    func button(_ title: String, decision: String, role: ButtonRole?) -> some View {
+    func button(_ title: String, decision: String, role: ButtonRole?, foreground: Token, background: Token) -> some View {
+        let label = Text(title)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(Color.of(foreground, dark: dark))
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .background(Color.of(background, dark: dark), in: Capsule())
         #if os(iOS)
-            Button(role: role, intent: AnswerIntent(mac: mac, request: request, decision: decision)) {
-                Text(title).frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
+            Button(role: role, intent: AnswerIntent(mac: mac, request: request, decision: decision)) { label }
+                .buttonStyle(.plain)
         #else
-            Button(role: role) {} label: { Text(title).frame(maxWidth: .infinity) }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+            Button(role: role) {} label: { label }.buttonStyle(.plain)
         #endif
     }
 }
 
-/// The Lock Screen banner: the top session, what it asks, and the Mac's counts.
+/// The Lock Screen banner: the Mac, the top session, what it asks.
 @MainActor
 public struct LockScreenActivity: View {
     let s: ActivitySnapshot
@@ -171,132 +215,130 @@ public struct LockScreenActivity: View {
     }
 
     public var body: some View {
-        let dark = scheme == .dark
-        VStack(alignment: .leading, spacing: Space.m) {
-            HStack(alignment: .center, spacing: Space.m) {
-                ActivityGlyph(s.isStale ? .idle : ActivityDisplay.glyph(s.state), size: 34, dark: dark)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(s.state.top == nil ? s.attributes.macName : s.entry.title)
-                        .font(.system(.headline))
-                        .lineLimit(1)
-                    Text(subtitle)
-                        .font(.system(.subheadline))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: Space.s) {
+                LucideIcon(.laptop, size: 16)
+                Text(ActivityText.header(s)).lineLimit(1)
                 Spacer(minLength: Space.s)
-                if !s.isStale {
-                    ActivityTrailing(ActivityDisplay.trailing(s.state), dark: dark)
+                if !s.isStale, case .elapsed(let since) = ActivityTrailing.reading(s.state) {
+                    Text(timerInterval: since...Date.distantFuture, countsDown: false)
+                        .monospacedDigit().multilineTextAlignment(.trailing).frame(maxWidth: 56, alignment: .trailing)
                 }
             }
-            if let answer = s.answer {
-                AnswerButtons(mac: answer.mac, request: answer.request)
-            }
-            HStack(spacing: Space.xs) {
-                Image(systemName: "laptopcomputer")
-                Text(footer).lineLimit(1)
-            }
-            .font(.system(.caption))
+            .font(.system(size: 13))
             .foregroundStyle(.secondary)
+            Text(s.state.top == nil ? ActivityDisplay.summary(s.state) : s.entry.title)
+                .font(.system(size: 17, weight: .semibold))
+                .lineLimit(1)
+                .padding(.top, 10)
+            detail.padding(.top, 4)
+            if let answer = s.answer {
+                AnswerButtons(mac: answer.mac, request: answer.request, height: 40, dark: scheme == .dark).padding(.top, Space.m)
+            }
         }
         .padding(Space.l)
     }
 
-    var subtitle: String {
-        if s.isStale { return ActivityDisplay.offline(s.attributes.macName) }
-        guard let top = s.state.top else { return ActivityDisplay.summary(s.state) }
-        let ask = ActivityDisplay.ask(top)
-        return s.entry.place.isEmpty ? ask : "\(ask) · \(s.entry.place)"
-    }
-
-    var footer: String {
-        [s.attributes.macName, ActivityDisplay.summary(s.state), ActivityDisplay.more(s.state)].compactMap(\.self).joined(separator: " · ")
+    @ViewBuilder
+    private var detail: some View {
+        if s.isStale {
+            Text(ActivityDisplay.offline(s.attributes.macName)).font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1)
+        } else if let top = s.state.top {
+            if let command = ActivityText.command(top) {
+                Text(command).font(.system(size: 14, design: .monospaced)).lineLimit(1)
+            } else {
+                let ask = ActivityDisplay.ask(top)
+                Text(s.entry.place.isEmpty ? ask : "\(ask) · \(s.entry.place)").font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
     }
 }
 
 /// The Dynamic Island's regions, each its own view so the widget places them and the gallery draws them.
 @MainActor
 public enum IslandRegion {
+    private static let mute = Color.of(Palette.text2, dark: true)
+
     public static func compactLeading(_ s: ActivitySnapshot) -> some View {
-        ActivityGlyph(s.isStale ? .idle : ActivityDisplay.glyph(s.state), size: 22)
+        LucideIcon(.laptop, size: 15).foregroundStyle(Color.of(Palette.text, dark: true))
     }
 
     @ViewBuilder
     public static func compactTrailing(_ s: ActivitySnapshot) -> some View {
         if s.isStale {
-            Image(systemName: "wifi.slash").foregroundStyle(.secondary)
+            LucideIcon(.cloudOff, size: 15).foregroundStyle(mute)
         } else {
-            ActivityTrailing(ActivityDisplay.trailing(s.state))
+            ActivityTrailing(s)
         }
     }
 
     public static func minimal(_ s: ActivitySnapshot) -> some View {
-        ZStack(alignment: .topTrailing) {
-            ActivityGlyph(s.isStale ? .idle : ActivityDisplay.glyph(s.state), size: 22)
-            if !s.isStale, let n = ActivityDisplay.badge(s.state), n > 1 {
-                Text("\(n)")
-                    .font(.system(size: 10, weight: .bold).monospacedDigit())
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 3)
-                    .background(Color.of(ActivityGlyph.tint(ActivityDisplay.glyph(s.state)), dark: true), in: Capsule())
-                    .offset(x: 6, y: -4)
-            }
-        }
+        ActivityDot(s.isStale ? .idle : ActivityDisplay.glyph(s.state), size: 8)
     }
 
     public static func expandedLeading(_ s: ActivitySnapshot) -> some View {
-        Label(s.attributes.macName, systemImage: "laptopcomputer")
-            .font(.system(.footnote, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.75))
-            .lineLimit(1)
+        HStack(spacing: Space.s) {
+            LucideIcon(.laptop, size: 16)
+            Text(s.attributes.macName).lineLimit(1)
+        }
+        .font(.system(size: 13))
+        .foregroundStyle(mute)
     }
 
     @ViewBuilder
     public static func expandedTrailing(_ s: ActivitySnapshot) -> some View {
         if s.isStale {
-            Text("Offline").font(.system(.footnote, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
+            Text("Offline").font(.system(size: 13)).foregroundStyle(mute)
         } else {
-            ActivityTrailing(ActivityDisplay.trailing(s.state))
-        }
-    }
-
-    public static func expandedCenter(_ s: ActivitySnapshot) -> some View {
-        VStack(spacing: 1) {
-            Text(s.state.top == nil ? ActivityDisplay.summary(s.state) : s.entry.title)
-                .font(.system(.headline))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-            if s.state.top != nil, !s.entry.place.isEmpty {
-                Text(s.entry.place).font(.system(.caption)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
-            }
+            ActivityTrailing(s)
         }
     }
 
     @ViewBuilder
     public static func expandedBottom(_ s: ActivitySnapshot) -> some View {
-        VStack(spacing: Space.s) {
-            if s.isStale {
-                Label(ActivityDisplay.offline(s.attributes.macName), systemImage: "wifi.slash")
-                    .font(.system(.subheadline)).foregroundStyle(.white.opacity(0.7))
-            } else if let top = s.state.top {
-                HStack(spacing: Space.s) {
-                    ActivityGlyph(ActivityDisplay.glyph(s.state), size: 16)
-                    Text(ActivityDisplay.ask(top)).font(.system(.subheadline, weight: .medium)).foregroundStyle(.white).lineLimit(1)
-                    Spacer(minLength: 0)
-                    if let more = ActivityDisplay.more(s.state) {
-                        Text(more).font(.system(.caption)).foregroundStyle(.white.opacity(0.6))
+        let white = Color.of(Palette.text, dark: true)
+        VStack(alignment: .leading, spacing: 0) {
+            Text(s.state.top == nil ? ActivityDisplay.summary(s.state) : s.entry.title)
+                .font(.system(size: 17, weight: .semibold)).foregroundStyle(white).lineLimit(1)
+            if s.state.top != nil, !s.entry.place.isEmpty {
+                HStack {
+                    PlaceLine(place: s.entry.place, color: mute)
+                    Spacer(minLength: Space.s)
+                    if !s.isStale, let more = ActivityDisplay.more(s.state) {
+                        Text(more).font(.system(size: 13)).foregroundStyle(mute)
                     }
                 }
+                .padding(.top, 2)
+            }
+            if s.isStale {
+                HStack(spacing: Space.s) {
+                    LucideIcon(.cloudOff, size: 14)
+                    Text(ActivityDisplay.offline(s.attributes.macName)).lineLimit(1)
+                }
+                .font(.system(size: 15)).foregroundStyle(mute).padding(.top, Space.m)
+            } else if let top = s.state.top {
+                if let command = ActivityText.command(top) {
+                    Text(command)
+                        .font(.system(size: 14, design: .monospaced)).foregroundStyle(white).lineLimit(1)
+                        .padding(.horizontal, Space.m).padding(.vertical, 9)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.of(Palette.surface, dark: true), in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
+                        .padding(.top, Space.m)
+                } else if s.answer == nil {
+                    Text(ActivityDisplay.ask(top)).font(.system(size: 15)).foregroundStyle(mute).padding(.top, Space.m)
+                }
                 if let answer = s.answer {
-                    AnswerButtons(mac: answer.mac, request: answer.request)
+                    AnswerButtons(mac: answer.mac, request: answer.request).padding(.top, Space.m)
                 } else {
                     Link(destination: s.link) {
-                        Text("Open").font(.system(.subheadline, weight: .semibold)).frame(maxWidth: .infinity).padding(.vertical, 7)
-                            .background(.white.opacity(0.16), in: Capsule())
+                        Text("Open").font(.system(size: 15, weight: .semibold)).foregroundStyle(white)
+                            .frame(maxWidth: .infinity).frame(height: 42)
+                            .background(Color.of(Palette.fill3, dark: true), in: Capsule())
                     }
-                    .foregroundStyle(.white)
+                    .padding(.top, Space.m)
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

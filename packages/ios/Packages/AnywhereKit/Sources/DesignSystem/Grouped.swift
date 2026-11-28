@@ -7,12 +7,6 @@ extension View {
         background(Palette.background.color.ignoresSafeArea())
     }
 
-    /// A grouped card: rows inset from the screen's edges on a raised surface.
-    public func groupedCard() -> some View {
-        padding(.vertical, Space.xs)
-            .background(Palette.surface.color, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-            .padding(.horizontal, Space.l)
-    }
 }
 
 /// What a screen shows before its feature is built, or while it has nothing yet; with an action, such as Try Again
@@ -20,14 +14,14 @@ extension View {
 @MainActor
 public struct Placeholder: View {
     let title: String
-    let systemImage: String
+    let icon: Lucide
     let detail: String?
     let actionTitle: String
     let action: (() -> Void)?
 
-    public init(_ title: String, systemImage: String, detail: String? = nil, actionTitle: String = "Try Again", action: (() -> Void)? = nil) {
+    public init(_ title: String, icon: Lucide, detail: String? = nil, actionTitle: String = "Try Again", action: (() -> Void)? = nil) {
         self.title = title
-        self.systemImage = systemImage
+        self.icon = icon
         self.detail = detail
         self.actionTitle = actionTitle
         self.action = action
@@ -35,13 +29,13 @@ public struct Placeholder: View {
 
     public var body: some View {
         VStack(spacing: Space.m) {
-            Image(systemName: systemImage).font(.system(size: 28)).foregroundStyle(Palette.text3.color)
-            Text(title).font(Typography.headline).foregroundStyle(Palette.text.color)
+            LucideIcon(icon, size: 28).foregroundStyle(Palette.text3.color)
+            Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(Palette.text.color)
             if let detail {
-                Text(detail).font(Typography.subheadline).foregroundStyle(Palette.text2.color).multilineTextAlignment(.center)
+                Text(detail).font(.system(size: 15)).foregroundStyle(Palette.text2.color).multilineTextAlignment(.center)
             }
             if let action {
-                Button(actionTitle, action: action).buttonStyle(.bordered).controlSize(.large).padding(.top, Space.xs)
+                Button(actionTitle, action: action).buttonStyle(PillButtonStyle(.secondary)).padding(.top, Space.xs)
             }
         }
         .padding(Space.xxl)
@@ -107,7 +101,7 @@ public struct SearchField: View {
                 .font(Typography.body)
                 .autocorrectionDisabled()
             if !text.isEmpty {
-                Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.text4.color).hitTarget() }
+                Button { text = "" } label: { LucideIcon(.circleX, size: 17).foregroundStyle(Palette.text4.color).hitTarget() }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Clear")
             }
@@ -126,12 +120,12 @@ public struct SearchBox<Content: View>: View {
 
     public var body: some View {
         HStack(spacing: Space.s) {
-            Image(systemName: "magnifyingglass").foregroundStyle(Palette.text3.color)
+            LucideIcon(.search, size: 17).foregroundStyle(Palette.text3.color)
             content
         }
         .padding(.horizontal, 14)
-        .frame(minHeight: HitTarget.minimum)
-        .background(Palette.fill2.color, in: RoundedRectangle(cornerRadius: Radius.float, style: .continuous))
+        .frame(minHeight: 40)
+        .background(Palette.fill3.color, in: Capsule())
     }
 }
 
@@ -140,11 +134,14 @@ public struct SearchBox<Content: View>: View {
 @MainActor
 public struct PushRow<Content: View>: View {
     let value: Route
+    let inList: Bool
     let content: Content
     @Environment(\.showInDetail) private var showInDetail
 
-    public init(value: Route, @ViewBuilder content: () -> Content) {
+    /// `inList` for a row of a `List`, which draws a chevron beside a link before iOS 26.
+    public init(value: Route, inList: Bool = false, @ViewBuilder content: () -> Content) {
         self.value = value
+        self.inList = inList
         self.content = content()
     }
 
@@ -164,6 +161,8 @@ public struct PushRow<Content: View>: View {
         #if os(iOS)
             if #available(iOS 26, *) {
                 NavigationLink(value: value) { content }.navigationLinkIndicatorVisibility(.hidden)
+            } else if !inList {
+                NavigationLink(value: value) { content }
             } else {
                 // Before iOS 26 only a link hidden behind the row drops the chevron; VoiceOver reads it as a button.
                 ZStack(alignment: .leading) {

@@ -2,31 +2,13 @@ import ChatModel
 import DesignSystem
 import SwiftUI
 
-extension Glyph {
-    /// The SF Symbol standing in for the desktop's icon.
-    var symbol: String {
-        switch self {
-        case .terminal: "terminal"
-        case .file: "doc"
-        case .pencil: "pencil"
-        case .filePlus: "doc.badge.plus"
-        case .search: "magnifyingglass"
-        case .globe: "globe"
-        case .bot: "cpu"
-        case .blocks: "square.grid.2x2"
-        case .bulb: "lightbulb"
-        case .tool: "wrench.and.screwdriver"
-        }
-    }
-}
-
 /// The chat's own sizes, from the desktop's points.
 enum ChatFont {
     static let body = Font.system(size: 14)
     static let bubble = Font.system(size: Bubble.textSize)
-    static let fold = Font.system(size: 14)
     static let small = Font.system(size: 13)
     static let mono = Font.system(size: 12, design: .monospaced)
+    static let toolArg = Font.system(size: 13, design: .monospaced)
     static let monoSmall = Font.system(size: 11.5, design: .monospaced)
     static let caption = Font.system(size: 12)
 }
@@ -76,7 +58,7 @@ struct CopyButton: View {
             }
         } label: {
             HStack(spacing: Space.xs) {
-                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                LucideIcon(copied ? .check : .copy, size: 14)
                 if let label { Text(label) }
             }
             .font(ChatFont.caption)

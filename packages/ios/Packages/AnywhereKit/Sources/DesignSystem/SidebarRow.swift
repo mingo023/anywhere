@@ -57,8 +57,7 @@ public struct SidebarChevron: View {
     public init(open: Bool) { self.open = open }
 
     public var body: some View {
-        Image(systemName: open ? "chevron.down" : "chevron.right")
-            .font(.system(size: 10, weight: .semibold)).foregroundStyle(Palette.text4.color).frame(width: 16, height: 16)
+        LucideIcon(open ? .chevronDown : .chevronRight, size: 12, weight: 2.5).foregroundStyle(Palette.text4.color).frame(width: 16, height: 16)
     }
 }
 

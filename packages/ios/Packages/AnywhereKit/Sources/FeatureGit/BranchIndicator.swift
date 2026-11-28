@@ -10,7 +10,7 @@ struct BranchIndicator: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.xs) {
             HStack(spacing: Space.s) {
-                Image.named(head.detached ? "circle.dashed" : "branch", size: 17)
+                LucideIcon(head.detached ? .commit : .branch, size: 17)
                     .foregroundStyle(Palette.graphHead.color)
                 Text(GitText.branchLine(head))
                     .font(Typography.headline)

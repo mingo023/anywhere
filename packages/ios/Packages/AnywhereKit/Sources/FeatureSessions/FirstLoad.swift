@@ -15,7 +15,7 @@ struct FirstLoad: View {
             if Self.waits(reachability) {
                 ProgressView()
             } else if !reachability.isFinal {
-                Placeholder("Can't reach \(host.name)", systemImage: "wifi.slash", detail: "Is your Mac awake and on Tailscale?") {
+                Placeholder("Can't reach \(host.name)", icon: .cloudOff, detail: "Is your Mac awake and on Tailscale?") {
                     Task { await host.connection.reconnectNow() }
                 }
             }

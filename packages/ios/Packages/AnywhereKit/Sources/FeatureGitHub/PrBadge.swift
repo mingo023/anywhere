@@ -15,6 +15,18 @@ extension PrTone {
         }
     }
 
+    /// A state icon's colour: the saturated tone, not the one tuned for words.
+    nonisolated var icon: Token {
+        switch self {
+        case .success: Palette.success
+        case .failed: Palette.failed
+        case .waiting: Palette.waiting
+        case .merged: Palette.merged
+        case .muted: Palette.text4
+        case .quiet: Palette.text3
+        }
+    }
+
     /// A pill's fill behind `text`; merged takes GitHub's purple at 12%.
     nonisolated var fill: Token {
         switch self {
@@ -32,13 +44,13 @@ extension PrTone {
 struct PrPill: View {
     let text: String
     let tone: PrTone
-    var systemImage: String?
+    var icon: Lucide?
     var dot = false
 
     var body: some View {
         HStack(spacing: Space.xs) {
             if dot { Circle().frame(width: 6, height: 6) }
-            if let systemImage { Image(systemName: systemImage).imageScale(.small) }
+            if let icon { LucideIcon(icon, size: 11) }
             Text(text).lineLimit(1)
         }
         .font(Typography.captionStrong)
@@ -49,23 +61,7 @@ struct PrPill: View {
     }
 }
 
-/// The PR's state icon, as GitHub draws it.
-@MainActor
-struct PrGlyph: View {
-    let state: String
-    let draft: Bool
-
-    var body: some View {
-        let g = PullRequestText.glyph(state: state, draft: draft)
-        Image(systemName: g.systemImage)
-            .font(.system(.body, weight: .semibold))
-            .foregroundStyle(g.tone.text.color)
-            .frame(width: 22)
-            .accessibilityLabel(state == "OPEN" ? (draft ? "Draft" : "Open") : state.capitalized)
-    }
-}
-
-/// The PR's state as GitHub's header badge: its icon and word in white on the state's colour.
+/// The PR's state as the header's pill: its icon and word in the state's colour on a tint of it.
 @MainActor
 struct PrStateBadge: View {
     let state: String
@@ -74,23 +70,31 @@ struct PrStateBadge: View {
     var body: some View {
         let g = PullRequestText.glyph(state: state, draft: draft)
         HStack(spacing: Space.xs) {
-            Image(systemName: g.systemImage).font(.system(size: 12, weight: .semibold))
+            LucideIcon(g.icon, size: 14)
             Text(PullRequestText.stateLabel(state: state, draft: draft))
         }
-        .font(Typography.subheadline.weight(.semibold))
-        .foregroundStyle(.white)
-        .padding(.horizontal, Space.m)
-        .padding(.vertical, Space.xs + 1)
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(ink.color)
+        .padding(.leading, 7)
+        .padding(.trailing, 10)
+        .frame(height: 26)
         .background(fill.color, in: Capsule())
         .fixedSize()
     }
 
-    /// Primer's `fgColor.open`, `done`, `closed` and `neutral` emphasis fills.
+    private var ink: Token {
+        switch state {
+        case "MERGED": Token(0x8250dfff, 0xb07fe0ff)
+        case "CLOSED": Palette.failedText
+        default: draft ? Palette.text2 : Palette.successText
+        }
+    }
+
     private var fill: Token {
         switch state {
-        case "MERGED": Token(0x8250dfff, 0x8957e5ff)
-        case "CLOSED": Token(0xcf222eff, 0xda3633ff)
-        default: draft ? Token(0x59636eff, 0x656c76ff) : Token(0x1f883dff, 0x238636ff)
+        case "MERGED": Token(0x8250df1f, 0x8e4ec633)
+        case "CLOSED": Palette.failedBackground
+        default: draft ? Palette.fill3 : Token.fixed(0x30a46c29)
         }
     }
 }
@@ -124,7 +128,7 @@ struct BranchRoute: View {
             if head == nil { Text("into").foregroundStyle(Palette.text3.color) }
             BranchChip(name: PullRequestText.baseBranch(base)).layoutPriority(1)
             if let head {
-                Image(systemName: "arrow.left").font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.text3.color)
+                LucideIcon(.chevronLeft, size: 11).foregroundStyle(Palette.text3.color)
                 BranchChip(name: head)
             }
             if let commits { Text("· \(PullRequestText.commits(commits))").foregroundStyle(Palette.text3.color).lineLimit(1).fixedSize() }

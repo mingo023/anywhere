@@ -23,12 +23,11 @@ struct RowActions {
 @MainActor
 struct RowView: View, Equatable {
     let item: RowItem
-    let provider: String
     let flash: Bool
     let actions: RowActions
 
     nonisolated static func == (a: RowView, b: RowView) -> Bool {
-        a.item == b.item && a.provider == b.provider && a.flash == b.flash
+        a.item == b.item && a.flash == b.flash
     }
 
     var body: some View {
@@ -38,10 +37,6 @@ struct RowView: View, Equatable {
         } else {
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, item.rail == .none ? 0 : RailSpine.indent)
-                .background(alignment: .topLeading) {
-                    if item.rail != .none { RailSpine(last: item.rail == .last, gap: item.gap).stroke(Palette.rail.color, lineWidth: 1) }
-                }
                 .flash(flash)
                 .padding(.top, item.gap)
         }
@@ -52,9 +47,7 @@ struct RowView: View, Equatable {
         switch item.content {
         case .hidden: EmptyView()
         case .prompt(let p): PromptBubble(text: p.text, images: p.images, at: p.at)
-        case .fold(let label, let open, let settled):
-            FoldRow(label: label, open: open, settled: settled, provider: provider) { actions.toggle(item.id, false) }
-        case .phase(let p): PhaseRow(phase: p, actions: actions)
+        case .step(let step): StepView(step: step, actions: actions)
         case .notice(let label, let call): NoticeRow(label: label) { if let call { actions.showCall(call) } }
         case .note(let text, let error): NoteRow(text: text, error: error)
         case .tasks(let todos): TasksCard(todos: todos)
@@ -62,31 +55,10 @@ struct RowView: View, Equatable {
         case .question(let value): QuestionMarker(value: value)
         case .compacted(let auto): CompactedRow(auto: auto)
         case .end(let end): EndRow(end: end, actions: actions)
-        case .live(let live): LiveRow(live: live, provider: provider)
+        case .live(let live): LiveRow(live: live)
         case .working: Text("Sending…").font(ChatFont.small).foregroundStyle(Palette.text3.color).shimmer().padding(.top, 6)
         case .pending(let p): PendingBubble(pending: p, actions: actions)
         }
-    }
-}
-
-/// The 1 pt spine at x = 7 a fold's rows hang from, with an 8 pt rounded elbow into each; the last row's spine stops there.
-struct RailSpine: Shape {
-    static let indent: CGFloat = 22
-    static let x: CGFloat = 7
-    static let elbow: CGFloat = 11
-    let last: Bool
-    let gap: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: Self.x, y: -gap))
-        p.addLine(to: CGPoint(x: Self.x, y: Self.elbow - 8))
-        p.addQuadCurve(to: CGPoint(x: Self.x + 8, y: Self.elbow), control: CGPoint(x: Self.x, y: Self.elbow))
-        if !last {
-            p.move(to: CGPoint(x: Self.x, y: Self.elbow - 8))
-            p.addLine(to: CGPoint(x: Self.x, y: rect.maxY))
-        }
-        return p
     }
 }
 

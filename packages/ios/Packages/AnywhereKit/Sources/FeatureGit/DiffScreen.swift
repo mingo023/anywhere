@@ -2,7 +2,6 @@ import CodeView
 import DesignSystem
 import DiffModel
 import Domain
-import FileIcons
 import Stores
 import SwiftUI
 import Wire
@@ -34,6 +33,8 @@ struct DiffScreen: View {
     @State private var asking: (quote: String, sessions: [ChatSession])?
     @State private var askable = false
     @State private var toast: Toast?
+    /// Files marked as read on this screen; the Mac keeps no such mark.
+    @State private var viewed: Set<String> = []
     @AppStorage("git.diff.sideBySide") private var sideBySide = true
     /// Nil until set, so wrap follows the width: on when compact.
     @AppStorage("diff.wrap") private var wrapSet: Bool?
@@ -58,46 +59,50 @@ struct DiffScreen: View {
         let rev = host.git.changes(tree).head?.rev
         let siblings = siblings
         let index = siblings.firstIndex(of: path)
+        let counts = totals
         GeometryReader { geo in
             VStack(spacing: 0) {
-                DiffHeader(path: path, doc: doc, status: status)
-                Divider()
+                HStack(spacing: 0) {
+                    FileHeaderLead(
+                        title: doc?.oldPath.map { "\($0) → \(path)" } ?? GitText.shortPath(path), open: true,
+                        added: doc?.state == .rows ? doc?.added : nil, removed: doc?.state == .rows ? doc?.removed : nil)
+                    FileHeaderTail(viewed: viewed.contains(path), toggleViewed: toggleViewed) { fileMenu(siblings) }
+                }
+                .fileHeaderBar()
                 content(wide: geo.size.width >= 700)
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         DiffBar(
                             previous: index.flatMap { $0 > 0 ? { step(-1, siblings) } : nil },
                             next: index.flatMap { $0 + 1 < siblings.count || more ? { step(1, siblings) } : nil },
-                            stage: stageTitle, staging: { stage(siblings) }, writable: host.link == .online
+                            place: GitText.fileOf(index, of: siblings.count),
+                            step: hasNextChange || index.map({ $0 + 1 < siblings.count || more }) == true ? { nextChange(siblings) } : nil
                         )
                     }
             }
         }
         .screenBackground()
-        .navigationTitle(GitText.split(path).name)
+        .navigationTitle("Files Changed")
         #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
             ToolbarItem(placement: .principal) {
-                BarTitle(GitText.split(path).name, detail: GitText.place(index, of: siblings.count, at: at), mono: false, truncation: .tail)
+                BarHeading("Files Changed") {
+                    if let counts {
+                        HStack(spacing: Space.s) {
+                            Text("+\(counts.added)").foregroundStyle(Palette.successText.color)
+                            Text("−\(counts.removed)").foregroundStyle(Palette.failedText.color)
+                        }
+                    }
+                }
             }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    if let doc, doc.path == path, !doc.changes.isEmpty {
-                        Section(GitText.position(change, of: doc.changes.count)) {
-                            Button("Previous Change", systemImage: "arrow.up") { stepChange(-1, doc) }.disabled((change ?? 0) <= 0)
-                            Button("Next Change", systemImage: "arrow.down") { stepChange(1, doc) }.disabled((change ?? -1) + 1 >= doc.changes.count)
-                        }
-                    }
-                    Toggle("Wrap Lines", systemImage: "text.alignleft", isOn: Binding(get: { wrap }, set: { wrapSet = $0 }))
-                    Toggle("Side by Side When Wide", systemImage: "rectangle.split.2x1", isOn: $sideBySide)
-                    Toggle("Ignore Whitespace", systemImage: "space", isOn: $ignoreWhitespace)
-                    if at == .working {
-                        Button("Discard Changes…", systemImage: "arrow.uturn.backward", role: .destructive) { discarding = true }
-                            .disabled(host.link != .online)
-                    }
+                    Toggle(isOn: Binding(get: { wrap }, set: { wrapSet = $0 })) { Label("Wrap Lines", lucide: .textWrap) }
+                    Toggle(isOn: $sideBySide) { Label("Side by Side When Wide", lucide: .splitRight) }
+                    Toggle(isOn: $ignoreWhitespace) { Label("Ignore Whitespace", lucide: .eyeOff) }
                 } label: {
-                    Label("Options", systemImage: "ellipsis")
+                    BarMenuLabel()
                 }
             }
         }
@@ -151,12 +156,47 @@ struct DiffScreen: View {
         let context: Int?
     }
 
-    /// The file's letter from the tree's status, which a commit's or a comparison's files aren't in.
-    private var status: FileStatus? {
-        switch at {
-        case .working, .staged: host.git.changes(tree).files.first { $0.path == path }?.status
-        case .commit, .base: nil
+    /// Lines added and removed across the files the bar steps through: the tree's own, the comparison's or the commit's.
+    private var totals: (added: Int, removed: Int)? {
+        switch files {
+        case .changes: return host.git.changes(tree).head.map { ($0.totals.added, $0.totals.removed) }
+        case .compare(let against): return host.git.compare(tree, against: against).totals.map { ($0.added, $0.removed) }
+        case .list:
+            guard case .commit(let rev) = at, let commit = host.git.cachedCommit(rev) else { return nil }
+            return (commit.files.reduce(0) { $0 + ($1.added ?? 0) }, commit.files.reduce(0) { $0 + ($1.removed ?? 0) })
         }
+    }
+
+    private var hasNextChange: Bool {
+        guard let doc, doc.path == path else { return false }
+        return ChangeStep.step(from: change, by: 1, count: doc.changes.count) != nil
+    }
+
+    private func toggleViewed() {
+        Haptics.tap()
+        if viewed.remove(path) == nil { viewed.insert(path) }
+    }
+
+    /// The next change of this file, then the first of the next.
+    private func nextChange(_ siblings: [String]) {
+        if hasNextChange, let doc { stepChange(1, doc) } else { step(1, siblings) }
+    }
+
+    @ViewBuilder
+    private func fileMenu(_ siblings: [String]) -> some View {
+        if let doc, doc.path == path, !doc.changes.isEmpty {
+            Section(GitText.position(change, of: doc.changes.count)) {
+                Button { stepChange(-1, doc) } label: { Label("Previous Change", lucide: .arrowUp) }.disabled((change ?? 0) <= 0)
+                Button { stepChange(1, doc) } label: { Label("Next Change", lucide: .arrowDown) }.disabled(!hasNextChange)
+            }
+        }
+        if let stageTitle {
+            Button { stage(siblings) } label: { Label(stageTitle, lucide: stageTitle == "Stage" ? .plus : .minus) }.disabled(host.link != .online)
+        }
+        if at == .working {
+            Button(role: .destructive) { discarding = true } label: { Label("Discard Changes…", lucide: .discard) }.disabled(host.link != .online)
+        }
+        Button { Pasteboard.copy(path) } label: { Label("Copy Path", lucide: .copy) }
     }
 
     private var siblings: [String] {
@@ -287,55 +327,26 @@ struct DiffScreen: View {
                 VStack(spacing: 0) {
                     DiffView(doc, sideBySide: wide && sideBySide, wrap: wrap, scrollTo: target, onHunk: expand, onAsk: onAsk)
                     if let t = doc.truncated {
-                        Text("Showing \(t.shown) of \(t.total) lines")
-                            .font(Typography.caption)
-                            .foregroundStyle(Palette.text3.color)
-                            .frame(maxWidth: .infinity)
-                            .padding(Space.s)
-                            .background(Palette.fill2.color)
+                        Text("Showing \(t.shown) of \(t.total) lines.")
+                            .font(.system(size: 15))
+                            .foregroundStyle(Palette.text2.color)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(Space.l)
                     }
                 }
             case .binary:
-                Placeholder("Binary file", systemImage: "doc.zipper", detail: "Its changes can't be shown as text.")
+                Placeholder("Binary file", icon: .package, detail: "Its changes can't be shown as text.")
             case .image:
-                Placeholder("Image", systemImage: "photo", detail: "Open it in Files to see it.")
+                Placeholder("Image", icon: .imagePlus, detail: "Open it in Files to see it.")
             case .tooLarge:
-                Placeholder("Too large to diff", systemImage: "doc.badge.ellipsis", detail: "One side is over 16 MB.")
+                Placeholder("Too large to diff", icon: .file, detail: "One side is over 16 MB.")
             case .unchanged:
-                Placeholder("No changes", systemImage: "checkmark.circle", detail: "Nothing differs in this comparison.")
+                Placeholder("No changes", icon: .circleCheck, detail: "Nothing differs in this comparison.")
             }
         } else if let error {
-            Placeholder("Couldn't load the diff", systemImage: "exclamationmark.triangle", detail: error)
+            Placeholder("Couldn't load the diff", icon: .triangleAlert, detail: error)
         } else {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
-}
-
-/// The file's status mark, icon, path or rename, and its counts above its diff.
-@MainActor
-private struct DiffHeader: View {
-    let path: String
-    let doc: DiffDocument?
-    let status: FileStatus?
-
-    var body: some View {
-        HStack(spacing: Space.s) {
-            if let status { FileStatusMark(status: status) }
-            MaterialIcon(path)
-            Text(doc?.oldPath.map { "\($0) → \(path)" } ?? path)
-                .font(Typography.codeSmall)
-                .foregroundStyle(Palette.text2.color)
-                .lineLimit(1)
-                .truncationMode(.head)
-            Spacer(minLength: Space.s)
-            if let doc, doc.state == .rows {
-                LineCounts(added: doc.added, removed: doc.removed)
-                    .accessibilityLabel("\(doc.added) added, \(doc.removed) removed")
-            }
-        }
-        .padding(.horizontal, Space.l)
-        .padding(.vertical, Space.s)
-        .background(Palette.surface.color)
     }
 }

@@ -109,6 +109,13 @@ struct ReachabilityTests {
         #expect(Reachability(link: .connecting, offlineFor: seconds) == want)
     }
 
+    @Test("back online is said only after a drop that showed a strip", arguments: [(3.9, false), (4, true), (60, true)])
+    func backOnline(_ seconds: Double, _ want: Bool) {
+        let now = Date(timeIntervalSince1970: 1000)
+        #expect(Reachability.backOnline(offlineSince: now - seconds, at: now) == want)
+        #expect(!Reachability.backOnline(offlineSince: nil, at: now))
+    }
+
     @Test("an ended link reads as what ended it, however long ago")
     func ended() {
         #expect(Reachability(link: .ended(.revoked), offlineFor: 1) == .revoked)

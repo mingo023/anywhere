@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet></helmet>
+<div style="position:absolute;inset:0;background:var(--bg);color:var(--tx);font-family:var(--sans);overflow:hidden">
+
+<sc-if value="{{ m33 }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:54px;left:16px;right:16px;height:44px;display:flex;align-items:center;justify-content:flex-end;z-index:2">
+<div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></div>
+</div>
+<div style="position:absolute;top:98px;left:0;right:0">
+<div style="font-size:34px;font-weight:700;line-height:41px;padding:0 20px">Machines</div>
+<sc-if value="{{ net }}"><div style="margin:8px 16px 0"><dc-import name="NetStrip" kind="{{ netKind }}" text="{{ netText }}" action="{{ netAction }}" hint-size="100%,36px"></dc-import></div></sc-if>
+<div style="margin:16px 16px 0;background:var(--sf);border-radius:14px;overflow:hidden;opacity:{{ dimOp }};pointer-events:{{ dimPe }}">
+<div style="display:flex;align-items:flex-start"><div style="width:52px;flex:none;height:22px;margin-top:12px;display:flex;align-items:center;justify-content:center;color:var(--t2)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z"/><path d="M20.054 15.987H3.946"/></svg></div><div style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;padding:12px 12px 12px 0"><div style="flex:1;min-width:0"><div style="font-size:17px;line-height:22px">Minh's MacBook Pro</div><div style="display:flex;align-items:center;gap:6px;font-size:13px;line-height:18px;color:var(--t2);margin-top:2px"><div style="width:7px;height:7px;border-radius:4px;background:{{ mbDot }}"></div>{{ mbStatus }}</div><div style="font-size:13px;line-height:18px;color:var(--t2);margin-top:2px">2 working · 1 needs you</div></div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t4);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"/></svg></div></div>
+<div style="display:flex;align-items:flex-start"><div style="width:52px;flex:none;height:22px;margin-top:12px;display:flex;align-items:center;justify-content:center;color:var(--t2)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg></div><div style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;padding:12px 12px 12px 0;border-top:.5px solid var(--sep)"><div style="flex:1;min-width:0"><div style="font-size:17px;line-height:22px">Studio Mac Mini</div><div style="display:flex;align-items:center;gap:6px;font-size:13px;line-height:18px;color:var(--t2);margin-top:2px"><div style="width:7px;height:7px;border-radius:4px;background:var(--t4)"></div>Offline · Check Tailscale</div></div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t4);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"/></svg></div></div>
+</div>
+<div style="padding:24px 32px 8px;font-size:13px;font-weight:600;color:var(--t2)">Settings</div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;overflow:hidden">
+<div style="display:flex;align-items:center;height:44px"><div style="width:52px;display:flex;justify-content:center;color:var(--t2)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg></div><div style="flex:1;font-size:17px">Notifications</div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t4);margin-right:12px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"/></svg></div>
+<div style="display:flex;align-items:center;height:44px"><div style="width:52px;display:flex;justify-content:center;color:var(--t2)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="M12 18a6 6 0 0 0 0-12v12z"/></svg></div><div style="flex:1;align-self:stretch;display:flex;align-items:center;border-top:.5px solid var(--sep)"><div style="flex:1;font-size:17px">Appearance</div><div style="font-size:17px;color:var(--t2)">System</div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t4);margin:0 12px 0 4px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"/></svg></div></div>
+<div style="display:flex;align-items:center;height:44px"><div style="width:52px;display:flex;justify-content:center;color:var(--t2)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg></div><div style="flex:1;align-self:stretch;display:flex;align-items:center;border-top:.5px solid var(--sep)"><div style="flex:1;font-size:17px">About</div><div style="font-size:17px;color:var(--t2)">0.1.48</div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t4);margin:0 12px 0 4px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"/></svg></div></div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ detail }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:54px;left:16px;height:44px;z-index:2"><div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"/></svg></div></div>
+<div style="position:absolute;top:106px;left:0;right:0">
+<div style="padding:0 20px">
+<sc-if value="{{ is.s34 }}"><div style="font-size:28px;font-weight:700;line-height:34px">Minh's MacBook Pro</div><div style="display:flex;align-items:center;gap:6px;font-size:15px;color:var(--t2);margin-top:4px"><div style="width:8px;height:8px;border-radius:4px;background:#30A46C"></div>Connected</div></sc-if>
+<sc-if value="{{ is.s35 }}"><div style="font-size:28px;font-weight:700;line-height:34px">Studio Mac Mini</div><div style="display:flex;align-items:center;gap:6px;font-size:15px;color:var(--t2);margin-top:4px"><div style="width:8px;height:8px;border-radius:4px;background:var(--t4)"></div>Offline · last seen 10:42</div>
+<div style="margin-top:12px;height:44px;border-radius:24px;background:var(--ink);color:var(--on);font-size:17px;font-weight:600;display:flex;align-items:center;justify-content:center">Reconnect</div></sc-if>
+<sc-if value="{{ is.s35b }}"><div style="font-size:28px;font-weight:700;line-height:34px">Minh's MacBook Pro</div><div style="display:flex;align-items:center;gap:6px;font-size:15px;color:var(--t2);margin-top:4px"><div style="width:8px;height:8px;border-radius:4px;background:var(--t4)"></div>Connected · versions don't match</div>
+<div style="font-size:15px;line-height:21px;color:var(--body);margin-top:12px;text-wrap:pretty">Anywhere on the Mac is 0.1.40. This app needs 0.1.46 or newer to send prompts and answers.</div>
+<div style="display:flex;gap:8px;margin-top:14px"><div style="flex:1;height:44px;border-radius:22px;background:var(--ink);color:var(--on);font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center">Update the Mac</div><div style="flex:1;height:44px;border-radius:22px;background:var(--fill);font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center">Update this app</div></div></sc-if>
+<sc-if value="{{ is.s35c }}"><div style="font-size:28px;font-weight:700;line-height:34px">Minh's MacBook Pro</div><div style="display:flex;align-items:center;gap:6px;font-size:15px;color:var(--t2);margin-top:4px"><div style="width:8px;height:8px;border-radius:4px;background:#E5484D"></div>Access removed</div>
+<div style="font-size:15px;line-height:21px;color:var(--body);margin-top:12px;text-wrap:pretty">This Mac removed this iPhone on Nov 22. Pair again to see and drive its sessions.</div>
+<div style="margin-top:14px;height:44px;border-radius:22px;background:var(--ink);color:var(--on);font-size:17px;font-weight:600;display:flex;align-items:center;justify-content:center">Pair again</div></sc-if>
+</div>
+<div style="margin:16px 16px 0;background:var(--sf);border-radius:14px;overflow:hidden;opacity:{{ dimOp }}">
+<div style="display:flex;align-items:center;height:44px;padding:0 16px;gap:12px"><div style="font-size:17px">Address</div><div style="flex:1;min-width:0;text-align:right;font:14px var(--mono);color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;user-select:text">{{ addr }}</div></div>
+<div style="display:flex;align-items:center;height:44px;margin-left:16px;padding-right:16px;border-top:.5px solid var(--sep)"><div style="flex:1;font-size:17px">Anywhere version</div><div style="font-size:17px;color:var(--t2)">{{ ver }}</div></div>
+<div style="display:flex;align-items:center;height:44px;margin-left:16px;padding-right:16px;border-top:.5px solid var(--sep)"><div style="flex:1;font-size:17px">Tailscale</div><div style="font-size:17px;color:var(--t2)">{{ ts }}</div></div>
+<sc-if value="{{ online }}"><div style="display:flex;align-items:center;height:44px;margin-left:16px;padding-right:16px;border-top:.5px solid var(--sep)"><div style="flex:1;font-size:17px">Keeping awake</div><div style="font-size:17px;color:var(--t2)">{{ awake }}</div></div></sc-if>
+</div>
+<sc-if value="{{ showCan }}" hint-placeholder-val="{{ true }}">
+<div style="padding:24px 32px 8px;font-size:13px;font-weight:600;color:var(--t2)">This iPhone can</div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;overflow:hidden;opacity:{{ dimOp }}">
+<div style="display:flex;align-items:center;height:44px"><div style="width:48px;display:flex;justify-content:center;color:var(--t2)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 6 9 17l-5-5"/></svg></div><div style="font-size:17px">See sessions and changes</div></div>
+<div style="display:flex;align-items:center;height:44px"><div style="width:48px;display:flex;justify-content:center;color:var(--t2)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 6 9 17l-5-5"/></svg></div><div style="flex:1;align-self:stretch;display:flex;align-items:center;font-size:17px;border-top:.5px solid var(--sep)">Send prompts and type</div></div>
+<div style="display:flex;align-items:center;height:44px"><div style="width:48px;display:flex;justify-content:center;color:var(--t2)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 6 9 17l-5-5"/></svg></div><div style="flex:1;align-self:stretch;display:flex;align-items:center;font-size:17px;border-top:.5px solid var(--sep)">Answer permissions</div></div>
+<div style="display:flex;align-items:center;height:44px"><div style="width:48px;display:flex;justify-content:center;color:var(--t2)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 6 9 17l-5-5"/></svg></div><div style="flex:1;align-self:stretch;display:flex;align-items:center;font-size:17px;border-top:.5px solid var(--sep)">Start sessions and worktrees</div></div>
+</div>
+<div style="padding:8px 32px 0;font-size:13px;color:var(--t3)">{{ canFoot }}</div>
+<div style="margin:16px 16px 0;background:var(--sf);border-radius:14px;height:44px;display:flex;align-items:center;padding:0 16px;gap:12px;opacity:{{ dimOp }}"><div style="flex:1;font-size:17px">Notifications for this Mac</div>
+<div onClick="{{ flip.mac }}" style="width:52px;height:32px;border-radius:16px;background:{{ tk.mac.bg }};position:relative;flex:none;cursor:pointer;pointer-events:{{ pe }}"><div style="position:absolute;top:2px;left:{{ tk.mac.left }};width:28px;height:28px;border-radius:14px;background:{{ tk.mac.knob }};box-shadow:0 2px 4px rgba(0,0,0,.25)"></div></div></div>
+</sc-if>
+<div style="margin:16px 16px 0;background:var(--sf);border-radius:14px;height:44px;display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--errt)">Forget this machine</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.s36 }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:54px;left:16px;height:44px;z-index:2"><div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"/></svg></div></div>
+<div style="position:absolute;top:98px;left:0;right:0">
+<div style="font-size:34px;font-weight:700;line-height:41px;padding:0 20px">Notifications</div>
+<div style="margin:16px 16px 0;background:var(--sf);border-radius:14px;display:flex;align-items:center;gap:12px;padding:12px 16px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t2);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M17 17H4a1 1 0 0 1-.74-1.673C4.59 13.956 6 12.499 6 8a6 6 0 0 1 .258-1.742"/><path d="m2 2 20 20"/><path d="M8.668 3.01A6 6 0 0 1 18 8c0 2.687.77 4.653 1.707 6.05"/></svg><div style="flex:1;font-size:15px;line-height:20px">Notifications are off for Anywhere in iOS Settings.</div><div style="font-size:15px;font-weight:600">Open Settings</div></div>
+<div style="padding:24px 32px 8px;font-size:13px;font-weight:600;color:var(--t2)">Notify me about</div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;overflow:hidden">
+<sc-for list="{{ notif1 }}" as="n" hint-placeholder-count="4"><div style="display:flex;align-items:center;height:44px;margin-left:16px;padding-right:16px;gap:12px;border-top:{{ n.sep }}"><div style="flex:1;font-size:17px">{{ n.label }}</div><div onClick="{{ n.flip }}" style="width:52px;height:32px;border-radius:16px;background:{{ n.bg }};position:relative;flex:none;cursor:pointer"><div style="position:absolute;top:2px;left:{{ n.left }};width:28px;height:28px;border-radius:14px;background:{{ n.knob }};box-shadow:0 2px 4px rgba(0,0,0,.25)"></div></div></div></sc-for>
+</div>
+<div style="margin:24px 16px 0;background:var(--sf);border-radius:14px;overflow:hidden">
+<sc-for list="{{ notif2 }}" as="n" hint-placeholder-count="2"><div style="display:flex;align-items:center;height:44px;margin-left:16px;padding-right:16px;gap:12px;border-top:{{ n.sep }}"><div style="flex:1;font-size:17px">{{ n.label }}</div><div onClick="{{ n.flip }}" style="width:52px;height:32px;border-radius:16px;background:{{ n.bg }};position:relative;flex:none;cursor:pointer"><div style="position:absolute;top:2px;left:{{ n.left }};width:28px;height:28px;border-radius:14px;background:{{ n.knob }};box-shadow:0 2px 4px rgba(0,0,0,.25)"></div></div></div></sc-for>
+</div>
+<div style="padding:8px 32px 0;font-size:13px;line-height:18px;color:var(--t3)">Show commands puts the pending command on the Lock Screen and in notifications.</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.s39 }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:54px;left:16px;height:44px;z-index:2"><div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"/></svg></div></div>
+<div style="position:absolute;top:98px;left:0;right:0">
+<div style="font-size:34px;font-weight:700;line-height:41px;padding:0 20px">Automations</div>
+<div style="margin:16px 16px 0;background:var(--sf);border-radius:14px;overflow:hidden">
+<sc-for list="{{ autos }}" as="a" hint-placeholder-count="3">
+<div style="margin-left:16px;padding:12px 16px 12px 0;border-top:{{ a.sep }};opacity:{{ a.op }}">
+<div style="display:flex;align-items:center;gap:12px"><div style="flex:1;min-width:0;font-size:17px;line-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.name }}</div><div onClick="{{ a.flip }}" style="width:52px;height:32px;border-radius:16px;background:{{ a.bg }};position:relative;flex:none;cursor:pointer"><div style="position:absolute;top:2px;left:{{ a.left }};width:28px;height:28px;border-radius:14px;background:{{ a.knob }};box-shadow:0 2px 4px rgba(0,0,0,.25)"></div></div></div>
+<div style="font-size:13px;line-height:18px;color:var(--t2);margin-top:2px">{{ a.when }}</div>
+<div style="display:flex;align-items:center;gap:12px;margin-top:6px"><div style="flex:1;font-size:13px;color:{{ a.lastColor }}">{{ a.last }}</div><div style="height:30px;padding:0 14px;border-radius:15px;background:var(--fill);font-size:15px;font-weight:600;display:flex;align-items:center;color:{{ a.runColor }}">Run now</div></div>
+</div>
+</sc-for>
+</div>
+<div style="padding:8px 32px 0;font-size:13px;color:var(--t3)">Make and edit automations on your Mac.</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.s37 }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:54px;left:16px;height:44px;z-index:2"><div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"/></svg></div></div>
+<div style="position:absolute;top:98px;left:0;right:0">
+<div style="font-size:34px;font-weight:700;line-height:41px;padding:0 20px">Appearance</div>
+<div style="margin:16px 16px 0;background:var(--sf);border-radius:14px;overflow:hidden">
+<sc-for list="{{ appear }}" as="a" hint-placeholder-count="3"><div onClick="{{ a.pick }}" style="display:flex;align-items:center;height:44px;margin-left:16px;padding-right:16px;border-top:{{ a.sep }};cursor:pointer"><div style="flex:1;font-size:17px">{{ a.label }}</div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;opacity:{{ a.op }};fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 6 9 17l-5-5"/></svg></div></sc-for>
+</div>
+<div style="padding:8px 32px 0;font-size:13px;color:var(--t3)">System follows your iPhone's setting.</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.s38 }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:54px;left:16px;height:44px;z-index:2"><div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"/></svg></div></div>
+<div style="position:absolute;top:120px;left:0;right:0">
+<div style="display:flex;flex-direction:column;align-items:center">
+<div style="width:64px;height:64px;border-radius:16px;background:var(--ink);color:var(--on);display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:34px;height:34px;flex:none;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round"><path d="M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8"/><path d="M10 19v-3.96 3.15"/><path d="M7 19h5"/><rect width="6" height="10" x="16" y="12" rx="2"/></svg></div>
+<div style="font-size:22px;font-weight:700;margin-top:14px">Anywhere</div>
+</div>
+<div style="margin:28px 16px 0;background:var(--sf);border-radius:14px;overflow:hidden">
+<div style="display:flex;align-items:center;height:44px;padding:0 16px"><div style="flex:1;font-size:17px">Version</div><div style="font-size:17px;color:var(--t2)">0.1.48 (212)</div></div>
+<div style="display:flex;align-items:center;height:44px;margin-left:16px;padding-right:16px;border-top:.5px solid var(--sep)"><div style="flex:1;font-size:17px">Protocol</div><div style="font-size:17px;color:var(--t2)">3</div></div>
+<div style="display:flex;align-items:center;height:44px;margin-left:16px;padding-right:14px;border-top:.5px solid var(--sep)"><div style="flex:1;font-size:17px">Setting up Tailscale</div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t3);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></div>
+</div>
+<div style="padding:8px 32px 0;font-size:13px;line-height:18px;color:var(--t3);text-wrap:pretty">Anywhere talks straight to your Macs over Tailscale. Nothing passes through our servers.</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.s39b }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:54px;left:16px;height:44px;z-index:2"><div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"/></svg></div></div>
+<div style="position:absolute;top:98px;left:0;right:0">
+<div style="font-size:34px;font-weight:700;line-height:41px;padding:0 20px">Automations</div>
+<div style="padding:248px 40px 0;text-align:center;font-size:15px;color:var(--t2)">No automations yet. Make one on your Mac.</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ tabbar }}" hint-placeholder-val="{{ true }}"><dc-import name="TabBar" active="{{ tab }}" inbox="2" prs="1" dot="{{ true }}" style="position:absolute;left:0;right:0;bottom:0" hint-size="393px,100px"></dc-import></sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:393,&quot;height&quot;:852},&quot;screen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;33&quot;,&quot;33b&quot;,&quot;33c&quot;,&quot;33d&quot;,&quot;34&quot;,&quot;35&quot;,&quot;35b&quot;,&quot;35c&quot;,&quot;36&quot;,&quot;37&quot;,&quot;38&quot;,&quot;39&quot;,&quot;39b&quot;],&quot;default&quot;:&quot;33&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { t: {}, ap: 'System' };
+  tog(k, def) {
+    const on = this.state.t[k] ?? def;
+    return { on, bg: on ? 'var(--ink)' : 'var(--fill3)', left: on ? '22px' : '2px', knob: on ? 'var(--on)' : '#FFFFFF', flip: () => this.setState(s => ({ t: { ...s.t, [k]: !on } })) };
+  }
+  renderVals() {
+    const s = String(this.props.screen ?? '33'), off = s === '35';
+    const nk = { b: ['reconnecting','Reconnecting to MacBook Pro…',''], c: ['back','Back online',''], d: ['failed',"Couldn't reconnect to MacBook Pro · showing data from 9:39",'Retry'] }[s.slice(2)] || null;
+    const mac = this.tog('mac', true);
+    const list = (defs) => defs.map(([k, l, d], i) => ({ label: l, sep: i ? '.5px solid var(--sep)' : 'none', ...this.tog(k, d) }));
+    const autos = [
+      ['a1','Nightly dependency check','Every day at 02:00 · anywhere · MacBook Pro','Last run 6h ago · Finished','var(--t3)',true,false],
+      ['a2','Triage new issues','Weekdays at 09:00 · garden-mobile · MacBook Pro','Last run 2h ago · Failed','var(--errt)',true,false],
+      ['a3','Weekly changelog draft','Mondays at 08:00 · fox-api · Mac Mini','Mac offline · last run Nov 17','var(--t3)',false,true]
+    ].map(([k,name,when,last,lastColor,d,dis], i) => ({ name, when, last, lastColor, sep: i ? '.5px solid var(--sep)' : 'none', op: dis ? .45 : 1, runColor: dis ? 'var(--t4)' : 'var(--tx)', ...this.tog(k, d) }));
+    const dim = off || s === '35c';
+    return {
+      is: { ['s' + s]: true }, m33: s.startsWith('33'), net: !!nk, noNet: !nk, netKind: nk ? nk[0] : '', netText: nk ? nk[1] : '', netAction: nk ? nk[2] : '', stale: !!nk && nk[0] !== 'back', dimOp: nk && nk[0] !== 'back' ? .5 : 1, dimPe: nk && nk[0] !== 'back' ? 'none' : 'auto', mbDot: { b: 'var(--t3)', d: '#E5484D' }[s.slice(2)] || '#30A46C', mbStatus: { b: 'Reconnecting…', d: "Couldn't reconnect · Check Tailscale" }[s.slice(2)] || 'Connected · 0.1.48',
+      detail: ['34','35','35b','35c'].includes(s),
+      showCan: s === '34' || s === '35', ver: s === '35b' ? '0.1.40' : '0.1.48',
+      canFoot: off ? "Can't change while Studio Mac Mini is offline." : 'Change these on the Mac.',
+      appear: ['System','Light','Dark'].map((l, i) => ({ label: l, sep: i ? '.5px solid var(--sep)' : 'none', op: this.state.ap === l ? 1 : 0, pick: () => this.setState({ ap: l }) })),
+      tab: s === '39' || s === '39b' ? 'sessions' : 'machines', tabbar: true, online: !dim,
+      addr: off ? 'studio-mac-mini.tail3c2e.ts.net' : 'minhs-macbook-pro.tail3c2e.ts.net',
+      ts: off ? 'Not reachable' : 'Connected', awake: off ? '—' : 'On',
+      dimOp: dim ? .4 : 1, pe: dim ? 'none' : 'auto',
+      tk: { mac }, flip: { mac: mac.flip },
+      notif1: list([['n1','Needs you',true],['n2','Failed',true],['n3','Finished',false],['n4','Automations',false]]),
+      notif2: list([['n5','Live Activities',true],['n6','Show commands',true]]),
+      autos
+    };
+  }
+}
+</script>
+</body>
+</html>

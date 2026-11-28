@@ -13,9 +13,8 @@ enum Making: Identifiable, Hashable {
     var id: Self { self }
 }
 
-/// One Mac's sessions: Up next and Working, then each project with its worktrees and Locals, as the desktop's sidebar
-/// groups them; a worktree or Local opens onto its sessions. While searching, matching sessions lead. `only` narrows it
-/// to one project; without `projects` they're left out, for a column beside a sidebar that holds them.
+/// One project of a Mac: its worktrees and Locals, each opening onto its sessions. Without `only`, the sessions of the
+/// Mac that are in no project: Other folders.
 @MainActor
 struct HomeView: View {
     let host: HostModel
@@ -23,206 +22,151 @@ struct HomeView: View {
     var only: String?
     /// Pushes a route from where a link can't, as a menu.
     var open: ((Route) -> Void)?
-    var projects = true
-    @State private var query = ""
     @AppStorage("sessions.sort") private var sort = Sidebar.SessionSort.newest
     @AppStorage("sessions.projectSort") private var projectSort = HomeList.ProjectSort.manual
-    @AppStorage("sessions.folds") private var folds = Folds()
     @State private var action: RowAction?
     @State private var making: Making?
     @State private var toast: Toast?
 
     var body: some View {
-        let built = host.homeList(query: query, sort: sort, projectSort: projectSort)
-        let sections = projects ? only.map { p in built.sections.filter { $0.id == p } } ?? built.sections : []
-        let searching = !query.trimmingCharacters(in: .whitespaces).isEmpty
-        let onlyName = only.flatMap { host.workspace.project($0)?.name }
-        let places = Dictionary((projects ? sections : built.sections).flatMap { s in
-            s.trees.flatMap { t in t.sessions.map { ($0, SessionPlace(project: s.name, tree: t.branch ?? t.label)) } }
-        }, uniquingKeysWith: { a, _ in a })
-        let now = Int(Date().timeIntervalSince1970 * 1000)
-        List {
-            Section {
-                VStack(alignment: .leading, spacing: 20) {
-                    if only == nil { HomeHeader(host: host) }
-                    SearchField("Search sessions, branches", text: $query)
-                }
-            }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 0, leading: Space.xs, bottom: Space.s, trailing: Space.xs))
-            .listRowSeparator(.hidden)
-            if only == nil && !searching {
-                UpNextSections(host: host, mac: mac, places: places, action: $action)
-            }
-            if searching && !built.matches.isEmpty {
-                Section {
-                    ForEach(built.matches.filter { onlyName == nil || $0.project == onlyName }) { match in
-                        sessionRow(match.id, place: "\(match.project) · \(match.tree)")
-                    }
-                } header: {
-                    Text("Sessions").sectionTitle()
-                }
-            }
-            if !sections.isEmpty {
-                Section {
-                    ForEach(sections) { projectRows($0, now: now, open: searching || only != nil || folds.isOpen($0.id, lively: $0.rollUp != nil)).bareRow() }
-                } header: {
-                    HStack {
-                        Text("Projects").sectionTitle()
-                        Spacer()
-                        if only == nil { projectSortMenu.font(Typography.footnote).foregroundStyle(Palette.text3.color).textCase(nil) }
-                    }
-                }
-            }
-            if only == nil && !built.elsewhere.isEmpty {
-                Section {
-                    ForEach(built.elsewhere, id: \.self) { id in
-                        if let session = host.sessions.session(id) {
-                            PushRow(value: Route.chat(mac: mac, agentId: id)) { SessionRow(session: session) }
-                                .modifier(SessionActions(host: host, session: session, action: $action))
-                                .bareRow()
-                        }
-                    }
-                } header: {
-                    Text("Other folders").sectionTitle()
-                }
+        TimelineView(.explicit(host.reachabilityMarks)) { _ in
+            screen(asOf: host.staleAsOf(at: .now))
+        }
+        .toast($toast)
+        .sheet(item: $making) { making in MakingSheet(host: host, mac: mac, making: making) }
+        .rowActions(host, $action)
+    }
+
+    @ViewBuilder
+    private func screen(asOf: Int?) -> some View {
+        let built = host.homeList(sort: sort, projectSort: projectSort)
+        let section = only.flatMap { project in built.sections.first { $0.id == project } }
+        Group {
+            if !host.workspace.loaded && host.workspace.projects.isEmpty {
+                FirstLoad(host: host)
+            } else if let section {
+                project(section, built: built)
+            } else if only == nil {
+                otherFolders(built.elsewhere)
+            } else {
+                Placeholder("It's gone", icon: .folder, detail: "This project is no longer on the Mac.")
             }
         }
-        #if os(iOS)
-            .listStyle(.insetGrouped)
-        #else
-            .listStyle(.inset)
-        #endif
-        .scrollContentBackground(.hidden)
+        .environment(\.staleSince, asOf)
+        .opacity(asOf == nil ? 1 : Staleness.dim)
         .screenBackground()
-        .overlay { empty(sections, built: built, searching: searching) }
-        .navigationTitle(only.flatMap { host.workspace.project($0)?.name } ?? "Sessions")
-        #if os(iOS)
-            .navigationBarTitleDisplayMode(only == nil ? .inline : .large)
-        #endif
-        .toolbar { toolbar }
         .refreshable {
             var failed: (any Error)?
             do { try await host.sessions.refresh() } catch { failed = error }
             do { try await host.workspace.refreshProjects() } catch { failed = failed ?? error }
             if let note = Self.refreshNote(failed, mac: host.name, online: host.link == .online) { toast = Toast(note) }
         }
-        .task(id: pullRequestProjects(sections, searching: searching)) {
-            guard host.hello?.has(Caps.gh) == true else { return }
-            for project in pullRequestProjects(sections, searching: searching) { try? await host.github.refreshList(project) }
+        .task(id: only) {
+            guard let only, host.hello?.has(Caps.gh) == true else { return }
+            try? await host.github.refreshList(only)
         }
-        .stale(host)
-        .toast($toast)
-        .sheet(item: $making) { making in MakingSheet(host: host, mac: mac, making: making) }
-        .rowActions(host, $action)
     }
 
-    @ToolbarContentBuilder
-    private var toolbar: some ToolbarContent {
-        if only == nil { NoBarTitle() }
-        ToolbarItem(placement: .primaryAction) {
-            Menu {
-                Picker("Sessions", selection: $sort) {
-                    Text("Newest").tag(Sidebar.SessionSort.newest)
-                    Text("Status").tag(Sidebar.SessionSort.status)
-                    Text("Recent activity").tag(Sidebar.SessionSort.activity)
-                    Text("Name").tag(Sidebar.SessionSort.name)
+    private func project(_ section: HomeList.Section, built: HomeList.Built) -> some View {
+        let worktrees = section.trees.filter { $0.kind == .worktree }
+        let locals = section.trees.filter { $0.kind != .worktree }
+        let creations = host.workspace.creations.filter { $0.value.project == section.id && !$0.value.done }.sorted { $0.key < $1.key }
+        let pulls = host.github.lists[section.id] ?? []
+        return ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top, spacing: 0) {
+                    ScreenTitle(section.name, detail: host.name)
+                    TitleMenu {
+                        ProjectMenu(section: section, canManage: host.workspace.canManage, making: $making, action: $action, pullRequests: pullRequests(section.id))
+                    }
+                    .padding(.top, 5)
+                    .padding(.trailing, 20)
                 }
-                if only == nil, let open, host.workspace.automations != nil {
-                    // A link inside a Menu doesn't push onto the stack.
-                    Button { open(.automations(mac: mac)) } label: { Label("Automations", systemImage: "clock.arrow.circlepath") }
+                if !creations.isEmpty {
+                    VStack(spacing: 0) {
+                        ForEach(Array(creations.enumerated()), id: \.element.key) { index, creation in
+                            CreationRow(creation: creation.value, retry: { host.workspace.runKept(creation.key) }, dismiss: { host.workspace.forget(creation: creation.key) })
+                                .onTapGesture { making = .progress(requestId: creation.key) }
+                                .rowDivider(index > 0)
+                        }
+                    }
+                    .insetGroup()
+                    .padding(.top, Space.xl)
                 }
-            } label: {
-                Label("Options", systemImage: "line.3.horizontal.decrease")
+                trees("Worktrees", worktrees, project: section, pulls: pulls)
+                trees("Local", locals, project: section, pulls: pulls)
+                if !built.elsewhere.isEmpty {
+                    PushRow(value: Route.sessions(mac: mac)) {
+                        HStack(spacing: 0) {
+                            LucideIcon(.folderOpen, size: 20).foregroundStyle(Palette.text2.color).frame(width: Inset.textColumn)
+                            Text("Other folders").font(.system(size: 17)).foregroundStyle(Palette.text.color).frame(maxWidth: .infinity, alignment: .leading)
+                            LucideIcon(.chevronRight, size: 16).foregroundStyle(Palette.text4.color).padding(.trailing, Space.m)
+                        }
+                        .frame(height: HitTarget.minimum)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .insetGroup()
+                    .padding(.top, Space.xl)
+                }
             }
+            .padding(.bottom, Space.xl)
         }
-        #if os(iOS) && compiler(>=6.2)
-            if #available(iOS 26, *) { ToolbarSpacer(.fixed, placement: .primaryAction) }
-        #endif
-        ToolbarItem(placement: .primaryAction) { newSession }
-    }
-
-    private var newSession: some View {
-        Button { making = .session(project: only, place: nil) } label: { Label("New Session", systemImage: "plus") }
-            .disabled(host.workspace.projects.isEmpty)
-    }
-
-    private var projectSortMenu: some View {
-        Menu {
-            Picker("Projects", selection: $projectSort) {
-                Text("As on the Mac").tag(HomeList.ProjectSort.manual)
-                Text("Name").tag(HomeList.ProjectSort.name)
-                Text("Recent first").tag(HomeList.ProjectSort.recent)
-            }
-        } label: {
-            Text(projectSort == .recent ? "Recent first" : projectSort == .name ? "By name" : "As on the Mac").hitTarget()
+        .cornerButtons(back: true) {
+            Button { making = .session(project: section.id, place: nil) } label: { LucideIcon(.plus, size: 20).foregroundStyle(Palette.text.color) }
+                .disabled(host.link != .online)
+                .accessibilityLabel("New session")
         }
     }
 
     @ViewBuilder
-    private func empty(_ sections: [HomeList.Section], built: HomeList.Built, searching: Bool) -> some View {
-        if !host.workspace.loaded && host.workspace.projects.isEmpty {
-            FirstLoad(host: host)
-        } else if sections.isEmpty && built.matches.isEmpty && searching {
-            ContentUnavailableView.search(text: query)
-        } else if host.workspace.projects.isEmpty && host.sessions.sessions.isEmpty {
-            ContentUnavailableView("No projects yet", systemImage: "folder", description: Text("Add a project on your Mac to start sessions here."))
-        } else if !projects && !searching && built.elsewhere.isEmpty && host.sessions.upNext.isEmpty
-            && !host.sessions.sessions.values.contains(where: { $0.status == .working })
-        {
-            ContentUnavailableView("Nothing needs you", systemImage: "checkmark.circle", description: Text("Sessions that need you, fail or finish show here."))
-        }
-    }
-
-    /// What a pull to refresh that failed says; nothing while offline, which the stale strip already says, or when cancelled.
-    nonisolated static func refreshNote(_ error: (any Error)?, mac: String, online: Bool) -> String? {
-        guard let error, online, let why = ErrorText.describe(error, mac: mac) else { return nil }
-        return "Couldn't refresh · \(why)"
-    }
-
-    /// The open projects with worktrees, whose pull requests badge their rows.
-    private func pullRequestProjects(_ sections: [HomeList.Section], searching: Bool) -> [String] {
-        sections.filter { s in
-            s.trees.contains { $0.kind == .worktree } && (searching || only != nil || folds.isOpen(s.id, lively: s.rollUp != nil))
-        }.map(\.id)
-    }
-
-    private func latest(_ ids: [String]) -> Int {
-        ids.compactMap { host.sessions.session($0)?.summary.updatedAt }.max() ?? 0
-    }
-
-    @ViewBuilder
-    private func projectRows(_ section: HomeList.Section, now: Int, open: Bool) -> some View {
-        let lively = section.rollUp != nil
-        let statuses = host.statuses(section)
-        Button {
-            Haptics.tap()
-            withAnimation(.snappy(duration: 0.25)) { folds.toggle(section.id, lively: lively) }
-        } label: {
-            ProjectRow(section: section,
-                       line: Workspaces.line(worktrees: section.trees.filter { $0.kind == .worktree }.count, locals: section.trees.filter { $0.kind != .worktree }.count),
-                       ago: TimeText.ago(ms: latest(section.trees.flatMap(\.sessions)), now: now), open: open, statuses: statuses,
-                       breakdown: Workspaces.breakdown(statuses))
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            ProjectMenu(section: section, canManage: host.workspace.canManage, making: $making, action: $action, pullRequests: pullRequests(section.id))
-        }
-        ForEach(creations(section.id), id: \.id) { creation in
-            CreationRow(creation: creation.value, retry: { host.workspace.runKept(creation.id) }, dismiss: { host.workspace.forget(creation: creation.id) })
-                .onTapGesture { making = .progress(requestId: creation.id) }
-                .listRowInsets(WorkspaceRow.insets)
-        }
-        if open {
-            let pulls = host.github.lists[section.id] ?? []
-            ForEach(section.trees) { tree in
-                PushRow(value: TreeRow.route(tree, mac: mac)) {
-                    WorkspaceRow(tree: tree, ago: TimeText.ago(ms: latest(tree.sessions), now: now), pr: pulls.first { $0.tree == tree.id })
+    private func trees(_ title: String, _ trees: [HomeList.Tree], project: HomeList.Section, pulls: [PrItem]) -> some View {
+        if !trees.isEmpty {
+            GroupHeader(title)
+            VStack(spacing: 0) {
+                ForEach(Array(trees.enumerated()), id: \.element.id) { index, tree in
+                    let checkout = Self.checkout(tree, project: host.workspace.project(project.id))
+                    PushRow(value: TreeRow.route(tree, mac: mac)) {
+                        WorktreeRow(tree: tree, name: tree.kind == .own ? project.name : tree.label, head: host.git.changes(checkout).head, pr: pulls.first { $0.tree == tree.id })
+                    }
+                    .buttonStyle(.plain)
+                    .onAppear { host.git.show(checkout) }
+                    .onDisappear { host.git.hide(checkout) }
+                    .contextMenu { TreeMenu(tree: tree, project: project.id, canManage: host.workspace.canManage, making: $making, action: $action) }
+                    .rowDivider(index > 0)
                 }
-                .listRowInsets(WorkspaceRow.insets)
-                .listRowSeparator(.hidden)
-                .modifier(TreeActions(tree: tree, project: section.id, canManage: host.workspace.canManage, making: $making, action: $action))
             }
+            .insetGroup()
+        }
+    }
+
+    private func otherFolders(_ ids: [String]) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ScreenTitle("Other folders", detail: host.name)
+                if ids.isEmpty {
+                    Text("Nothing here.").font(.system(size: 15)).foregroundStyle(Palette.text2.color).frame(maxWidth: .infinity).padding(.top, 60)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(Array(ids.enumerated()), id: \.element) { index, id in
+                            if let session = host.sessions.session(id) {
+                                PushRow(value: Route.chat(mac: mac, agentId: id)) { SessionRow(session: session) }
+                                    .buttonStyle(.plain)
+                                    .modifier(SessionActions(host: host, session: session, action: $action))
+                                    .rowDivider(index > 0)
+                            }
+                        }
+                    }
+                    .insetGroup()
+                    .padding(.top, Space.xl)
+                }
+            }
+            .padding(.bottom, Space.xl)
+        }
+        .cornerButtons(back: true) {
+            Button { making = .session(project: nil, place: nil) } label: { LucideIcon(.plus, size: 20).foregroundStyle(Palette.text.color) }
+                .disabled(host.link != .online || host.workspace.projects.isEmpty)
+                .accessibilityLabel("New session")
         }
     }
 
@@ -232,91 +176,65 @@ struct HomeView: View {
         return { open(.pullRequests(mac: mac, project: project)) }
     }
 
-    /// The sessions of a project being started, oldest request first.
-    private func creations(_ project: String) -> [(id: String, value: Creation)] {
-        host.workspace.creations.filter { $0.value.project == project && !$0.value.done }.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+    /// The folder a tree's git is read in: a Local's is its project's own checkout.
+    static func checkout(_ tree: HomeList.Tree, project: Project?) -> String {
+        guard tree.kind == .local, let project else { return tree.id }
+        return project.worktrees.first(where: \.isMain)?.path ?? project.path
     }
 
-    @ViewBuilder
-    private func sessionRow(_ id: String, place: String) -> some View {
-        if let session = host.sessions.session(id) {
-            PushRow(value: Route.chat(mac: mac, agentId: id)) { ActiveRow(session: session, place: place, titled: true) }
-                .modifier(SessionActions(host: host, session: session, action: $action))
-        }
-    }
-}
-
-/// The top of the list: the Mac, which switches Macs where there are several, and how it's connected.
-@MainActor
-struct HomeHeader: View {
-    let host: HostModel
-    @Environment(\.macSwitch) private var macSwitch
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if let macSwitch {
-                Menu { macSwitch.menu() } label: { title }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Mac: \(host.name)")
-                    .accessibilityValue(macSwitch.othersWaiting ? "Another Mac has sessions up next" : "")
-            } else {
-                title
-            }
-            TimelineView(.explicit(host.reachabilityMarks)) { _ in
-                HStack(spacing: Space.xs + 2) {
-                    LinkDot(host.reachability(at: .now).tone)
-                    Text(Self.status(host.reachability(at: .now), sessions: host.sessions.sessions.count))
-                        .font(Typography.footnote).foregroundStyle(Palette.text3.color).lineLimit(1)
-                }
-            }
-        }
-    }
-
-    private var title: some View {
-        HStack(spacing: Space.s) {
-            Text(host.name).font(.system(.title, weight: .bold)).foregroundStyle(Palette.text.color).lineLimit(2)
-            if macSwitch?.othersWaiting == true { Circle().fill(Palette.text.color).frame(width: 7, height: 7) }
-            if macSwitch != nil { Image(systemName: "chevron.down").font(Typography.caption.weight(.semibold)).foregroundStyle(Palette.text3.color) }
-        }
-    }
-
-    /// "Connected over Tailscale · 40 sessions".
-    nonisolated static func status(_ reachability: Reachability, sessions: Int) -> String {
-        let link = reachability == .online ? "Connected over Tailscale" : reachability.label
-        return "\(link) · \(sessions) session\(sessions == 1 ? "" : "s")"
+    /// What a pull to refresh that failed says; nothing while offline, which the Mac's strip already says, or when cancelled.
+    nonisolated static func refreshNote(_ error: (any Error)?, mac: String, online: Bool) -> String? {
+        guard let error, online, let why = ErrorText.describe(error, mac: mac) else { return nil }
+        return "Couldn't refresh · \(why)"
     }
 }
 
-/// A worktree's or Local's row: its kind, name, branch, and its most urgent sessions.
+/// A worktree or Local of a project: its icon, name, where its branch stands, its pull request and what its sessions
+/// are doing.
 @MainActor
-struct TreeRow: View {
+struct WorktreeRow: View {
     let tree: HomeList.Tree
+    let name: String
+    let head: GitHead?
+    var pr: PrItem?
 
     var body: some View {
-        HStack(spacing: Space.s) {
-            Image.named(Self.symbol(tree.kind), size: 17).foregroundStyle(Palette.text3.color).frame(width: 18)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(tree.label).font(Typography.body.weight(.medium)).foregroundStyle(Palette.text.color).lineLimit(1)
-                if let place = tree.place, place != tree.label {
-                    Text(place).font(Typography.caption).foregroundStyle(Palette.text3.color).lineLimit(1)
+        HStack(spacing: 0) {
+            LucideIcon(TreeRow.symbol(tree.kind), size: 20).foregroundStyle(Palette.text2.color).frame(width: Inset.textColumn)
+            HStack(spacing: Space.s) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
+                    Text(name).font(.system(size: 17)).foregroundStyle(Palette.text.color).lineLimit(1)
+                    Self.line(branch: tree.branch ?? tree.place, standing: TreeText.standing(head)).lineLimit(1)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if let pr { PrBadge(item: pr) }
+                if let roll = tree.rollUp { StatusGlyph(roll.status) }
+                LucideIcon(.chevronRight, size: 16).foregroundStyle(Palette.text4.color)
             }
-            Spacer(minLength: Space.s)
-            if let roll = tree.rollUp, let label = Workspaces.label(roll.status, count: roll.count) {
-                Pill(label, tone: SessionText.tone(roll.status))
-            }
+            .padding(.vertical, Space.m)
+            .padding(.trailing, Space.m)
         }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 
+    /// "flaky-checkout · 3 ahead", the branch in code.
+    static func line(branch: String?, standing: String?) -> Text {
+        let parts = [branch.map { Text($0).font(.system(size: 12.5, design: .monospaced)) }, standing.map { Text($0) }].compactMap(\.self)
+        return parts.dropFirst().reduce(parts.first ?? Text("")) { $0 + Text(" · ") + $1 }.font(.system(size: 13)).foregroundStyle(Palette.text2.color)
+    }
+}
+
+/// Where a worktree or Local goes, and how it is drawn.
+enum TreeRow {
     static func route(_ tree: HomeList.Tree, mac: String) -> Route {
         tree.kind == .local ? .local(mac: mac, id: tree.id) : .worktree(mac: mac, path: tree.id)
     }
 
-    static func symbol(_ kind: HomeList.Tree.Kind) -> String {
+    static func symbol(_ kind: HomeList.Tree.Kind) -> Lucide {
         switch kind {
-        case .own: "laptopcomputer"
-        case .local: "folder"
-        case .worktree: "worktree"
+        case .own, .local: .folder
+        case .worktree: .gitBranch
         }
     }
 }
@@ -331,11 +249,11 @@ struct TreeMenu: View {
     @Binding var action: RowAction?
 
     var body: some View {
-        Button { making = .session(project: project, place: Self.place(tree)) } label: { Label("New Session Here", systemImage: "square.and.pencil") }
+        Button { making = .session(project: project, place: Self.place(tree)) } label: { Label("New Session Here", lucide: .compose) }
         if canManage {
-            Button { action = .rename(tree) } label: { Label("Rename", systemImage: "pencil") }
+            Button { action = .rename(tree) } label: { Label("Rename", lucide: .pencil) }
             if tree.kind != .own {
-                Button(role: .destructive) { action = .delete(tree) } label: { Label("Delete", systemImage: "trash") }
+                Button(role: .destructive) { action = .delete(tree) } label: { Label("Delete", lucide: .trash) }
             }
         }
     }
@@ -355,13 +273,13 @@ struct ProjectMenu: View {
     let pullRequests: (() -> Void)?
 
     var body: some View {
-        Button { making = .session(project: section.id, place: nil) } label: { Label("New Session", systemImage: "square.and.pencil") }
+        Button { making = .session(project: section.id, place: nil) } label: { Label("New Session", lucide: .compose) }
         if canManage {
-            Button { making = .worktree(project: section.id) } label: { Label("New Worktree", systemImage: "plus.square.on.square") }
-            Button { action = .newLocal(project: section.id) } label: { Label("New Local", systemImage: "folder.badge.plus") }
+            Button { making = .worktree(project: section.id) } label: { Label("New Worktree", lucide: .worktree) }
+            Button { action = .newLocal(project: section.id) } label: { Label("New Local", lucide: .folderPlus) }
         }
         if let pullRequests {
-            Button(action: pullRequests) { Label("Pull Requests", systemImage: "arrow.triangle.pull") }
+            Button(action: pullRequests) { Label("Pull Requests", lucide: .pullRequest) }
         }
     }
 }
