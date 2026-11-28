@@ -46,7 +46,10 @@ public enum LiveActivityGallery {
         ]
         let framed = frames.flatMap { frame in
             [true, false].map { dark in
-                GalleryScene("\(frame.name)-\(dark ? "dark" : "light")", size: CGSize(width: 393, height: frame.height), dark: dark, view: frame.view)
+                // Each draws the whole Lock Screen, measured from the screen's edges.
+                GalleryScene("\(frame.name)-\(dark ? "dark" : "light")", size: CGSize(width: 393, height: frame.height), dark: dark) {
+                    AnyView(frame.view().ignoresSafeArea())
+                }
             }
         }
         let boards = states().flatMap { state in
