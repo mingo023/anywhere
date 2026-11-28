@@ -478,7 +478,7 @@ impl Desktop {
         op: impl FnOnce(&str) -> serde_json::Value,
         cx: &mut Context<Self>,
     ) {
-        let Some(tree) = self.place(cx) else { return };
+        let Some(tree) = self.place(cx).filter(|tree| self.shows_session(tree)) else { return };
         let Some(cwd) = self.folder_of(&tree, cx) else { return };
         let mut op = match hosts::split(&cwd) {
             (Some(_), path) => hosts::session::spawn_op(path, argv),

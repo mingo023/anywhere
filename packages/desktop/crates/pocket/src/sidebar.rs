@@ -465,10 +465,6 @@ impl Desktop {
             SidebarEvent::Swipe(e) => self.swipe_spaces(e, window, cx),
             SidebarEvent::RestartToUpdate => self.restart_to_update(cx),
             SidebarEvent::DismissWhatsNew => self.dismiss_whats_new(cx),
-            SidebarEvent::Reconnect(id) => {
-                self.retry_host(id);
-                cx.notify();
-            }
             SidebarEvent::OpenFolder => self.open_folder(Opener::Sidebar, window, cx),
             SidebarEvent::CloneProject => self.clone_project(window, cx),
             SidebarEvent::AddHost => self.add_host_from_sidebar(window, cx),
@@ -552,7 +548,7 @@ impl Desktop {
             screen: self.screen,
             pages: pages::offered(&self.agents).map(|p| (p.name, p.icon, p.screen)).collect(),
             scratch: self.scratch_frame(&query, space, cx),
-            offline: self.offline_frame(space),
+            locked: self.locked_space().is_some(),
             body: self.body_frame(&query, space, cx),
             slide: self.spaces.sliding(Instant::now()).filter(|_| !reduce_motion && !self.capturing),
             update: self.updates.update.clone(),
