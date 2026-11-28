@@ -314,7 +314,12 @@ impl Spaces {
         self.slide.filter(|s| now.duration_since(s.at) < SLIDE).map(|s| (s.n, s.heading))
     }
 
-    /// Notes the reach of `space`, the one on screen.
+    /// The spaces last seen unreachable.
+    pub(crate) fn unreached(&self) -> impl Iterator<Item = &Space> {
+        self.unreached.keys()
+    }
+
+    /// Notes the reach of `space`.
     pub(crate) fn track(&mut self, space: &Space, reach: Reach, now: Instant) -> Option<Tracked> {
         if reach == Reach::Online {
             return self.unreached.remove(space).map(|_| Tracked::Back);

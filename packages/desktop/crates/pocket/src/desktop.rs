@@ -426,6 +426,8 @@ impl Desktop {
         // After `set_project`, whose space switch reads whether the new-session page was up.
         if moved {
             self.set_project(Some(p), cx);
+        } else {
+            self.follow_space(&p, cx);
         }
         self.screen = Screen::Sessions;
         self.new_form.update(cx, |f, cx| f.set_shown(false, cx));

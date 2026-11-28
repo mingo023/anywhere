@@ -19,11 +19,15 @@ impl Desktop {
         self.spaces.locked(&space, self.space_reach(&space), Instant::now()).then_some(space)
     }
 
-    /// Notes the reach of the space on screen: draws again when a sign-in's grace runs out, and once the space is
+    /// Notes the reach of the space on screen, and forgets the outages of spaces back while off it: draws again when a sign-in's grace runs out, and once the space is
     /// back, lands where entering it would have, unless a session of its own already shows.
     pub(crate) fn track_reach(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let space = self.space();
-        match self.spaces.track(&space, self.space_reach(&space), Instant::now()) {
+        let (space, now) = (self.space(), Instant::now());
+        let reached: Vec<Space> = self.spaces.unreached().filter(|s| **s != space && self.space_reach(s) == Reach::Online).cloned().collect();
+        for s in reached {
+            self.spaces.track(&s, Reach::Online, now);
+        }
+        match self.spaces.track(&space, self.space_reach(&space), now) {
             Some(Tracked::Grace(grace)) => cx
                 .spawn(async move |this, cx| {
                     cx.background_executor().timer(grace).await;
@@ -31,7 +35,7 @@ impl Desktop {
                 })
                 .detach(),
             Some(Tracked::Back) => cx.defer_in(window, move |this, window, cx| {
-                if this.space() == space && this.screen == Screen::Sessions && this.session_tree(cx).is_none() {
+                if this.space() == space && this.screen == Screen::Sessions && !this.new_form.read(cx).shown() && this.session_tree(cx).is_none() {
                     this.land(&space, true, window, cx);
                     cx.notify();
                 }
