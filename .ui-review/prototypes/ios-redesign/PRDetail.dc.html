@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet></helmet>
+<div style="position:absolute;inset:0;background:var(--bg);color:var(--tx);font-family:var(--sans);overflow:hidden">
+
+<sc-if value="{{ detail }}" hint-placeholder-val="{{ true }}">
+<div style="position:absolute;top:54px;left:16px;right:16px;height:44px;display:flex;align-items:center;gap:10px;z-index:2">
+<div style="flex:none;width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"/></svg></div>
+<div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ pr.title }}</div><div style="font-size:12px;color:var(--t2)">{{ pr.repo }} <span style="font-family:var(--mono)">{{ pr.num }}</span></div></div>
+<div style="flex:none;width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></div>
+</div>
+<div style="position:absolute;top:110px;left:0;right:0">
+<sc-if value="{{ net }}"><div style="padding:0 16px 16px"><dc-import name="NetStrip" kind="{{ netKind }}" text="{{ netText }}" action="{{ netAction }}" hint-size="100%,36px"></dc-import></div></sc-if>
+<div style="opacity:{{ dimOp }};pointer-events:{{ dimPe }}">
+<div style="padding:0 16px">
+<div style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--t2)"><div style="width:18px;height:18px;border-radius:5px;background:var(--fill);font-size:8px;font-weight:700;color:var(--body);display:flex;align-items:center;justify-content:center">{{ pr.init }}</div>{{ pr.repo }} <span style="font-family:var(--mono)">{{ pr.num }}</span></div>
+<div style="font-size:24px;font-weight:700;line-height:30px;margin-top:6px;text-wrap:pretty">{{ pr.title }}</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+<div style="height:26px;padding:0 10px 0 7px;border-radius:13px;background:{{ pr.pillBg }};color:{{ pr.pillFg }};display:flex;align-items:center;gap:4px;font-size:13px;font-weight:600"><sc-if value="{{ pr.isOpen }}" hint-placeholder-val="{{ true }}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" x2="6" y1="9" y2="21"/></svg></sc-if><sc-if value="{{ pr.isMerged }}" hint-placeholder-val="{{ false }}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg></sc-if>{{ pr.state }}</div>
+</div>
+<div style="font-size:13px;line-height:19px;color:var(--t2);margin-top:8px">{{ pr.who }} {{ pr.verb }} {{ pr.commits }} into <span style="font-family:var(--mono);color:var(--body)">main</span> from <span style="font-family:var(--mono);color:var(--body)">{{ pr.branch }}</span></div>
+</div>
+
+<div style="padding:24px 16px 8px;font-size:20px;font-weight:700">Changes</div>
+<div style="background:var(--sf);border-top:.5px solid var(--sep);border-bottom:.5px solid var(--sep)">
+<div style="display:flex;align-items:center;gap:12px;height:44px;padding:0 12px 0 16px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t2);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M9 10h6"/><path d="M12 13V7"/><path d="M9 17h6"/></svg><div style="flex:1;font-size:17px">{{ pr.files }}</div><div style="font:14px var(--mono);display:flex;gap:6px"><span style="color:var(--okt)">{{ pr.add }}</span><span style="color:var(--errt)">{{ pr.del }}</span></div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t4);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"/></svg></div>
+<div style="display:flex;align-items:center;gap:12px;height:44px;padding:0 12px 0 16px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t2);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="3"/><line x1="3" x2="9" y1="12" y2="12"/><line x1="15" x2="21" y1="12" y2="12"/></svg><div style="flex:1;align-self:stretch;display:flex;align-items:center;gap:8px;border-top:.5px solid var(--sep)"><div style="flex:1;font-size:17px">{{ pr.commits }}</div><div style="font-size:15px;color:var(--t2)">{{ pr.when }}</div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t4);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"/></svg></div></div>
+</div>
+
+<div style="padding:24px 16px 8px;font-size:20px;font-weight:700">Status</div>
+<div style="background:var(--sf);border-top:.5px solid var(--sep);border-bottom:.5px solid var(--sep)">
+
+<sc-if value="{{ is.s23 }}">
+<div style="display:flex;align-items:center;gap:12px;height:44px;padding:0 12px 0 16px"><div style="width:20px;display:flex;justify-content:center"><div style="width:14px;height:14px;border-radius:7px;border:1.5px solid var(--t3);box-sizing:border-box"></div></div><div style="flex:1;font-size:17px">Reviews <span style="color:var(--t2)">· Review requested</span></div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t3);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m18 15-6-6-6 6"/></svg></div>
+<div style="display:flex;align-items:center;gap:10px;height:44px;padding:0 16px 0 48px"><div style="width:7px;height:7px;border-radius:4px;background:#FFB224;flex:none"></div><div style="width:24px;height:24px;border-radius:12px;background:var(--fill);font-size:10px;font-weight:600;color:var(--body);display:flex;align-items:center;justify-content:center">LP</div><div style="flex:1;font-size:15px">Lan Pham</div><div style="font-size:13px;color:var(--t2)">Pending</div></div>
+<div style="display:flex;align-items:center;gap:12px;height:44px;padding:0 12px 0 16px;border-top:.5px solid var(--sep)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:#E5484D;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg><div style="flex:1;font-size:17px">Checks <span style="color:var(--t2)">· 2 failing</span></div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t3);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m18 15-6-6-6 6"/></svg></div>
+<div style="display:flex;align-items:center;gap:10px;padding:8px 16px 8px 48px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:#E5484D;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg><div style="flex:1;min-width:0"><div style="font:15px/20px var(--mono)">test / checkout</div><div style="font-size:13px;color:var(--t2);font-variant-numeric:tabular-nums">Failed after 3m 12s</div></div><div style="height:30px;padding:0 14px;border-radius:15px;background:var(--fill);font-size:15px;font-weight:600;display:flex;align-items:center">Send</div></div>
+<div style="display:flex;align-items:center;gap:10px;padding:8px 16px 8px 48px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:#E5484D;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg><div style="flex:1;min-width:0"><div style="font:15px/20px var(--mono)">test / e2e</div><div style="font-size:13px;color:var(--t2);font-variant-numeric:tabular-nums">Failed after 6m 40s</div></div><div style="height:30px;padding:0 14px;border-radius:15px;background:var(--fill);font-size:15px;font-weight:600;display:flex;align-items:center">Send</div></div>
+<div style="display:flex;align-items:center;gap:10px;height:44px;padding:0 12px 0 48px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:#30A46C;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg><div style="flex:1;font-size:15px;color:var(--t2)">2 successful checks</div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t4);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"/></svg></div>
+<div style="padding:14px 16px 16px;border-top:.5px solid var(--sep)">
+<div style="display:flex;gap:12px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:#E5484D;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg><div><div style="font-size:15px;font-weight:600">Some checks were not successful</div><div style="font-size:13px;color:var(--t2);margin-top:2px">2 failing and 2 successful checks</div></div></div>
+<div style="margin-top:14px;height:44px;border-radius:22px;background:var(--ink);color:var(--on);font-size:17px;font-weight:600;display:flex;align-items:center;justify-content:center">Send all to Claude</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.s24 }}">
+<div style="display:flex;align-items:center;gap:12px;height:44px;padding:0 12px 0 16px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:#30A46C;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg><div style="flex:1;font-size:17px">Reviews <span style="color:var(--t2)">· Approved</span></div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t3);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m6 9 6 6 6-6"/></svg></div>
+<div style="display:flex;align-items:center;gap:12px;height:44px;padding:0 12px 0 16px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:#30A46C;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg><div style="flex:1;align-self:stretch;display:flex;align-items:center;gap:8px;border-top:.5px solid var(--sep)"><div style="flex:1;font-size:17px">Checks <span style="color:var(--t2)">· 4 passed</span></div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t3);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m6 9 6 6 6-6"/></svg></div></div>
+<div style="padding:14px 16px 16px;border-top:.5px solid var(--sep);position:relative">
+<div style="display:flex;gap:12px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:#30A46C;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg><div><div style="font-size:15px;font-weight:600">Ready to merge</div><div style="font-size:13px;color:var(--t2);margin-top:2px">This branch has no conflicts with the base branch.</div></div></div>
+<div style="display:flex;gap:8px;margin-top:14px">
+<div style="flex:1;height:44px;border-radius:22px;background:var(--ink);color:var(--on);font-size:17px;font-weight:600;display:flex;align-items:center;justify-content:center">{{ mergeLabel }}</div>
+<div onClick="{{ toggleMenu }}" style="width:44px;height:44px;border-radius:22px;background:var(--fill);display:flex;align-items:center;justify-content:center;cursor:pointer"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg></div>
+</div>
+<div style="display:flex;align-items:center;gap:12px;margin-top:14px"><div style="flex:1;font-size:15px">Delete the worktree after merging</div>
+<div onClick="{{ flip }}" style="width:52px;height:32px;border-radius:16px;background:{{ tg.bg }};position:relative;flex:none;cursor:pointer"><div style="position:absolute;top:2px;left:{{ tg.left }};width:28px;height:28px;border-radius:14px;background:{{ tg.knob }};box-shadow:0 2px 4px rgba(0,0,0,.25)"></div></div></div>
+<sc-if value="{{ menu }}"><div style="position:absolute;right:16px;bottom:112px;width:240px;background:var(--sf2);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.35);overflow:hidden;z-index:3">
+<sc-for list="{{ methods }}" as="m" hint-placeholder-count="3"><div onClick="{{ m.pick }}" style="display:flex;align-items:center;height:44px;padding:0 16px;font-size:17px;border-top:{{ m.sep }};cursor:pointer"><div style="flex:1">{{ m.label }}</div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;opacity:{{ m.op }};fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 6 9 17l-5-5"/></svg></div></sc-for>
+</div></sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.s25 }}">
+<div style="display:flex;align-items:center;gap:12px;height:44px;padding:0 12px 0 16px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:#30A46C;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg><div style="flex:1;font-size:17px">Reviews <span style="color:var(--t2)">· Approved</span></div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t3);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m6 9 6 6 6-6"/></svg></div>
+<div style="display:flex;align-items:center;gap:12px;height:44px;padding:0 12px 0 16px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:#30A46C;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg><div style="flex:1;align-self:stretch;display:flex;align-items:center;gap:8px;border-top:.5px solid var(--sep)"><div style="flex:1;font-size:17px">Checks <span style="color:var(--t2)">· 4 passed</span></div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t3);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m6 9 6 6 6-6"/></svg></div></div>
+<div style="padding:14px 16px 16px;border-top:.5px solid var(--sep)">
+<div style="display:flex;gap:12px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:#8E4EC6;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg><div><div style="font-size:15px;font-weight:600">Pull request merged</div><div style="font-size:13px;line-height:18px;color:var(--t2);margin-top:2px">The <span style="font-family:var(--mono)">upload-limit</span> worktree is still on Minh's MacBook Pro.</div></div></div>
+<div style="display:flex;gap:8px;margin-top:14px">
+<div style="flex:1;height:44px;border-radius:22px;background:rgba(229,72,77,.11);color:var(--errt);font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center">Delete worktree</div>
+<div style="flex:1;height:44px;border-radius:22px;background:var(--fill);font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center">Keep</div>
+</div>
+</div>
+</sc-if>
+</div>
+
+<div style="padding:24px 16px 8px;font-size:20px;font-weight:700">Conversation</div>
+<sc-for list="{{ timeline }}" as="e" hint-placeholder-count="3">
+<div style="display:flex;gap:12px;padding:9px 16px;align-items:flex-start">
+<div style="width:24px;height:24px;border-radius:12px;background:var(--fill);flex:none;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:var(--body)"><sc-if value="{{ e.k.commit }}" hint-placeholder-val="{{ false }}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;flex:none;color:{{ e.ic }};fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="3"/><line x1="3" x2="9" y1="12" y2="12"/><line x1="15" x2="21" y1="12" y2="12"/></svg></sc-if><sc-if value="{{ e.k.cancel }}" hint-placeholder-val="{{ false }}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;flex:none;color:{{ e.ic }};fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg></sc-if><sc-if value="{{ e.k.chat_bubble }}" hint-placeholder-val="{{ false }}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;flex:none;color:{{ e.ic }};fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/></svg></sc-if><sc-if value="{{ e.k.check }}" hint-placeholder-val="{{ false }}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;flex:none;color:{{ e.ic }};fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 6 9 17l-5-5"/></svg></sc-if><sc-if value="{{ e.k.merge }}" hint-placeholder-val="{{ false }}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;flex:none;color:{{ e.ic }};fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg></sc-if></div>
+<div style="flex:1;min-width:0;font-size:15px;line-height:21px;color:var(--t2);padding-top:1px"><span style="color:var(--tx);font-weight:600">{{ e.who }}</span> {{ e.what }} <span style="font-family:var(--mono);font-size:13px;color:var(--body)">{{ e.code }}</span> <span style="color:var(--t3)">{{ e.when }}</span></div>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:0;height:60px;background:linear-gradient(transparent,var(--bg))"></div>
+</sc-if>
+
+<sc-if value="{{ is.s26 }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;background:#000"></div>
+<div style="position:absolute;top:52px;left:14px;right:14px;height:40px;border-radius:14px 14px 0 0;background:var(--sf);opacity:.5"></div>
+<div style="position:absolute;top:64px;left:0;right:0;bottom:0;border-radius:22px 22px 0 0;background:var(--bg)">
+<div style="width:36px;height:5px;border-radius:3px;background:var(--t4);margin:6px auto 0;opacity:.7"></div>
+<div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;height:44px;padding:0 16px">
+<div style="width:36px;height:36px;border-radius:18px;background:var(--fill);display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></div>
+<div style="font-size:17px;font-weight:600">New pull request</div><div></div>
+</div>
+<div style="padding:16px 32px 8px;font-size:13px;font-weight:600;color:var(--t2)">Title</div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;padding:13px 16px;font-size:17px">Fix flaky checkout test</div>
+<div style="padding:24px 32px 8px;font-size:13px;font-weight:600;color:var(--t2)">Description</div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;padding:13px 16px;min-height:96px;box-sizing:border-box;font-size:17px;line-height:23px;color:var(--body)">Moves the payment mock into beforeEach and awaits server.listen(), so the test no longer races the handler.</div>
+<div style="margin:24px 16px 0;background:var(--sf);border-radius:14px;overflow:hidden">
+<div style="display:flex;align-items:center;height:44px;padding:0 12px 0 16px"><div style="flex:1;font-size:17px">Base</div><div style="font:15px var(--mono);color:var(--t2)">main</div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t3);margin-left:4px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg></div>
+<div style="display:flex;align-items:center;height:44px;margin-left:16px;padding-right:16px;border-top:.5px solid var(--sep)"><div style="flex:1;font-size:17px">Draft</div><div style="width:52px;height:32px;border-radius:16px;background:var(--fill3);position:relative;flex:none"><div style="position:absolute;top:2px;left:2px;width:28px;height:28px;border-radius:14px;background:#FFFFFF;box-shadow:0 2px 4px rgba(0,0,0,.25)"></div></div></div>
+</div>
+<div style="display:flex;align-items:center;gap:6px;padding:8px 32px 0;font-size:13px;color:var(--t3)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>Pushes the branch first</div>
+<div style="position:absolute;left:20px;right:20px;bottom:42px;height:52px;border-radius:26px;background:var(--ink);color:var(--on);font-size:17px;font-weight:600;display:flex;align-items:center;justify-content:center">Create</div>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:393,&quot;height&quot;:852},&quot;screen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;23&quot;,&quot;23b&quot;,&quot;23c&quot;,&quot;23d&quot;,&quot;24&quot;,&quot;25&quot;,&quot;26&quot;],&quot;default&quot;:&quot;23&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { del: true, menu: false, method: 'Squash and merge' };
+  renderVals() {
+    const sRaw = String(this.props.screen ?? '23'), s = sRaw === '26' ? '26' : sRaw.slice(0, 2), on = this.state.del;
+    const nk = { b: ['reconnecting','Reconnecting to MacBook Pro…',''], c: ['back','Back online',''], d: ['failed',"Couldn't reconnect to MacBook Pro · showing data from 9:39",'Retry'] }[sRaw.slice(2)] || null;
+    const open = { isOpen: true, state: 'Open', pillBg: 'rgba(48,164,108,.16)', pillFg: 'var(--okt)', verb: 'wants to merge' };
+    const prs = {
+      '23': { ...open, title: 'Fix flaky checkout test', repo: 'anywhere', init: 'AN', num: '#42', branch: 'flaky-checkout', who: 'Claude', commits: '3 commits', files: '4 files changed', add: '+12', del: '−3', when: '12m ago' },
+      '24': { ...open, title: 'Migrate to React 19', repo: 'anywhere', init: 'AN', num: '#214', branch: 'react-19', who: 'Claude', commits: '14 commits', files: '38 files changed', add: '+612', del: '−540', when: '40m ago' },
+      '25': { title: 'Rate-limit the upload route', repo: 'fox-api', init: 'FA', num: '#57', branch: 'upload-limit', who: 'Minh', verb: 'merged', commits: '3 commits', files: '6 files changed', add: '+40', del: '−8', when: '1h ago', isMerged: true, state: 'Merged', pillBg: 'rgba(142,78,198,.2)', pillFg: '#B07FE0' }
+    };
+    const T = (icon, ic, who, what, code, when) => ({ icon, k: { [icon]: true }, ic, who, what, code: code || '', when });
+    const tl = {
+      '23': [T('commit','var(--t2)','Claude','pushed','a1c9e3f','12m'), T('cancel','#E5484D','test / checkout','failed on','a1c9e3f','9m'), T('chat_bubble','var(--t2)','codecov','commented: Coverage 84.1% (−0.3%)','','8m')],
+      '24': [T('check','#30A46C','Lan Pham','approved these changes','','40m'), T('chat_bubble','var(--t2)','Lan Pham','commented: Ship it after the release cut.','','38m')],
+      '25': [T('merge','#8E4EC6','Minh','merged commit','4be01c9','1h'), T('check','#30A46C','Lan Pham','approved these changes','','2h')]
+    };
+    const labels = ['Squash and merge', 'Create a merge commit', 'Rebase and merge'];
+    return {
+      is: { ['s' + s]: true }, detail: s !== '26', net: !!nk, noNet: !nk, netKind: nk ? nk[0] : '', netText: nk ? nk[1] : '', netAction: nk ? nk[2] : '', stale: !!nk && nk[0] !== 'back', dimOp: nk && nk[0] !== 'back' ? .5 : 1, dimPe: nk && nk[0] !== 'back' ? 'none' : 'auto', pr: prs[s] || prs['23'], timeline: tl[s] || [],
+      menu: this.state.menu, mergeLabel: this.state.method,
+      toggleMenu: () => this.setState(st => ({ menu: !st.menu })),
+      methods: labels.map((l, i) => ({ label: l, sep: i ? '.5px solid var(--sep)' : 'none', op: l === this.state.method ? 1 : 0, pick: () => this.setState({ method: l, menu: false }) })),
+      tg: { bg: on ? 'var(--ink)' : 'var(--fill3)', left: on ? '22px' : '2px', knob: on ? 'var(--on)' : '#FFFFFF' },
+      flip: () => this.setState(st => ({ del: !st.del }))
+    };
+  }
+}
+</script>
+</body>
+</html>

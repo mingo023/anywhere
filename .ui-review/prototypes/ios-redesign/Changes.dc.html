@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet></helmet>
+<div style="position:absolute;inset:0;background:var(--bg);color:var(--tx);font-family:var(--sans);overflow:hidden">
+
+<sc-if value="{{ chg }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:54px;left:16px;right:16px;height:44px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;z-index:2">
+<div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"/></svg></div>
+<div style="text-align:center"><div style="font-size:17px;font-weight:600">Changes</div><div style="font:12px var(--mono);color:var(--t2)">flaky-checkout</div></div>
+<div style="display:flex;justify-content:flex-end;gap:8px">
+<div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></div>
+</div>
+</div>
+<div style="position:absolute;top:112px;left:0;right:0">
+<div style="margin:0 16px;height:36px;border-radius:18px;background:var(--fill);display:flex;padding:2px;box-sizing:border-box">
+<div onClick="{{ segA }}" style="flex:1;border-radius:16px;background:{{ sg.a }};box-shadow:{{ sg.as }};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;cursor:pointer">Uncommitted</div>
+<div onClick="{{ segB }}" style="flex:1;border-radius:16px;background:{{ sg.b }};box-shadow:{{ sg.bs }};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;cursor:pointer">vs main</div>
+</div>
+<sc-if value="{{ is.s27c }}"><div style="margin:16px 16px 0"><dc-import name="NetStrip" kind="offline" text="Can't reach Minh's MacBook Pro · as of 10:42" hint-size="100%,36px"></dc-import></div></sc-if>
+<sc-if value="{{ is.s27b }}">
+<div style="padding:32px 20px 0;text-align:center;font-size:17px;font-weight:600">No changes</div>
+<div style="padding:24px 32px 8px;font-size:13px;font-weight:600;color:var(--t2)">Last commits</div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;overflow:hidden">
+<sc-for list="{{ commits3 }}" as="c" hint-placeholder-count="3"><div style="margin-left:16px;padding:12px 16px 12px 0;border-top:{{ c.sep }}"><div style="font-size:17px;line-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.msg }}</div><div style="font-size:13px;line-height:18px;color:var(--t2);margin-top:2px"><span style="font-family:var(--mono)">{{ c.sha }}</span> · {{ c.author }} · {{ c.time }}</div></div></sc-for>
+<div style="display:flex;align-items:center;height:44px;margin-left:16px;padding-right:12px;border-top:.5px solid var(--sep)"><div style="flex:1;font-size:17px">Show all in History</div><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t4);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"/></svg></div>
+</div>
+</sc-if>
+<div style="opacity:{{ lop }}">
+<sc-if value="{{ segUL }}">
+<div style="padding:24px 32px 8px;font-size:13px;font-weight:600;color:var(--t2)">Staged</div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;overflow:hidden">
+<div style="display:flex;align-items:center"><div style="width:52px;flex:none;display:flex;justify-content:center;color:var(--t2)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></div><div style="flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:12px 16px 12px 0"><div style="flex:1;min-width:0"><div style="font-size:17px;line-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">checkout.test.ts</div><div style="font:12.5px var(--mono);color:var(--t2)">src/checkout</div></div><div style="font:13px var(--mono);display:flex;gap:6px"><span style="color:#FFCA16">M</span><span style="color:var(--okt)">+7</span><span style="color:var(--errt)">−2</span></div></div></div>
+</div>
+<div style="padding:24px 32px 8px;font-size:13px;font-weight:600;color:var(--t2)">Changes</div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;overflow:hidden">
+<div style="display:flex;align-items:center"><div style="width:52px;flex:none;display:flex;justify-content:center;color:var(--t2)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></div><div style="flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:12px 16px 12px 0"><div style="flex:1;min-width:0"><div style="font-size:17px;line-height:22px">server.ts</div><div style="font:12.5px var(--mono);color:var(--t2)">src/mocks</div></div><div style="font:13px var(--mono);display:flex;gap:6px"><span style="color:#FFCA16">M</span><span style="color:var(--okt)">+2</span><span style="color:var(--errt)">−1</span></div></div></div>
+<div style="display:flex;align-items:center"><div style="width:52px;flex:none;display:flex;justify-content:center;color:var(--t2)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></div><div style="flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:12px 16px 12px 0;border-top:.5px solid var(--sep)"><div style="flex:1;min-width:0"><div style="font-size:17px;line-height:22px">setup.ts</div><div style="font:12.5px var(--mono);color:var(--t2)">test</div></div><div style="font:13px var(--mono);display:flex;gap:6px"><span style="color:#FFCA16">M</span><span style="color:var(--okt)">+1</span><span style="color:var(--errt)">−0</span></div></div></div>
+<div style="display:flex;align-items:center"><div style="width:52px;flex:none;display:flex;justify-content:center;color:var(--t2)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></div><div style="flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:12px 16px 12px 0;border-top:.5px solid var(--sep)"><div style="flex:1;min-width:0"><div style="font-size:17px;line-height:22px">flaky-tests.md</div><div style="font:12.5px var(--mono);color:var(--t2)">docs</div></div><div style="font:13px var(--mono);display:flex;gap:6px"><span style="color:var(--okt)">A</span><span style="color:var(--okt)">+2</span><span style="color:var(--errt)">−0</span></div></div></div>
+</div>
+</sc-if>
+<sc-if value="{{ segML }}">
+<div style="padding:24px 32px 8px;font-size:13px;font-weight:600;color:var(--t2);display:flex;justify-content:space-between"><span>3 commits ahead of main</span><span style="font-family:var(--mono)"><span style="color:var(--okt)">+31</span> <span style="color:var(--errt)">−9</span></span></div>
+<div style="margin:0 16px;background:var(--sf);border-radius:14px;overflow:hidden">
+<div style="display:flex;align-items:center"><div style="width:52px;flex:none;display:flex;justify-content:center;color:var(--t2)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></div><div style="flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:12px 16px 12px 0"><div style="flex:1;min-width:0"><div style="font-size:17px;line-height:22px">checkout.test.ts</div><div style="font:12.5px var(--mono);color:var(--t2)">src/checkout</div></div><div style="font:13px var(--mono);display:flex;gap:6px"><span style="color:var(--okt)">+18</span><span style="color:var(--errt)">−6</span></div></div></div>
+<div style="display:flex;align-items:center"><div style="width:52px;flex:none;display:flex;justify-content:center;color:var(--t2)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></div><div style="flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:12px 16px 12px 0;border-top:.5px solid var(--sep)"><div style="flex:1;min-width:0"><div style="font-size:17px;line-height:22px">package.json</div><div style="font:12.5px var(--mono);color:var(--t2)">.</div></div><div style="font:13px var(--mono);display:flex;gap:6px"><span style="color:var(--okt)">+13</span><span style="color:var(--errt)">−3</span></div></div></div>
+</div>
+</sc-if>
+</div>
+</div>
+<sc-if value="{{ hasList }}"><div style="position:absolute;left:8px;right:8px;bottom:34px;background:var(--sf);border-radius:24px;padding:8px 8px 8px 18px;display:flex;align-items:center;gap:8px;border:.5px solid var(--sep);opacity:{{ lop }}">
+<div style="flex:1;font-size:17px;color:var(--t3)">Commit message</div>
+<div style="height:40px;border-radius:20px;background:var(--ink);color:var(--on);display:flex;align-items:center;padding:0 8px 0 16px;gap:2px;font-size:15px;font-weight:600">Commit &amp; Push<svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m6 9 6 6 6-6"/></svg></div>
+</div></sc-if>
+</sc-if>
+
+<sc-if value="{{ dif }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:0;left:0;right:0;height:108px;background:var(--bg);z-index:1"></div>
+<div style="position:absolute;top:54px;left:16px;right:16px;height:44px;display:flex;align-items:center;gap:8px;z-index:2">
+<div style="flex:none;width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"/></svg></div>
+<div style="flex:1;min-width:0;text-align:center"><div style="font-size:17px;font-weight:600">Files Changed</div><div style="font:12px var(--mono);color:var(--t2)"><span style="color:var(--okt)">{{ diffAdd }}</span> <span style="color:var(--errt)">{{ diffDel }}</span></div></div>
+<div style="flex:none;width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></div>
+</div>
+<div style="position:absolute;top:108px;left:0;right:0;font:12px/21px var(--mono)">
+<sc-for list="{{ ghRows }}" as="l" hint-placeholder-count="16">
+<sc-if value="{{ l.file }}"><div style="display:flex;align-items:center;gap:8px;height:44px;padding:0 12px 0 10px;background:var(--sf);border-top:.5px solid var(--sep);border-bottom:.5px solid var(--sep);font-family:var(--mono)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t2);transform:rotate({{ l.rot }});transition:transform .2s;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"/></svg><div style="flex:1;min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;color:var(--tx)">{{ l.path }}</div><span style="font-size:12px;color:var(--okt)">{{ l.add }}</span><span style="font-size:12px;color:var(--errt)">{{ l.del }}</span><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t2);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg><div style="flex:none;width:20px;height:20px;border-radius:10px;border:1.5px solid {{ l.vb }};background:{{ l.vbg }};box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;flex:none;color:var(--on);opacity:{{ l.vop }};fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 6 9 17l-5-5"/></svg></div></div></sc-if>
+<sc-if value="{{ l.line }}"><div style="display:flex;background:{{ l.bg }};white-space:pre;overflow:hidden"><span style="width:38px;flex:none;text-align:right;padding-right:8px;box-sizing:border-box;background:{{ l.gbg }};color:{{ l.nc }}">{{ l.n }}</span><span style="width:18px;flex:none;text-align:center;color:{{ l.sc }}">{{ l.s }}</span><span style="color:{{ l.tc }};padding-right:12px">{{ l.t }}</span></div></sc-if>
+<sc-if value="{{ l.note }}"><div style="padding:14px 16px;font-family:var(--sans);font-size:15px;color:var(--t2);display:flex;gap:6px">{{ l.text }}<span style="color:#419CFF;font-weight:600">{{ l.link }}</span></div></sc-if>
+</sc-for>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:0;height:120px;background:linear-gradient(transparent,var(--bg) 55%)"></div>
+<div style="position:absolute;left:16px;right:16px;bottom:34px;display:flex;align-items:center;justify-content:space-between">
+<div style="width:48px;height:48px;border-radius:24px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"/></svg></div>
+<div style="height:48px;padding:0 18px;border-radius:24px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;gap:6px;font-size:15px;font-weight:600"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>Next change<span style="font-weight:400;color:var(--t2);margin-left:4px">{{ fileOf }}</span></div>
+<div style="width:48px;height:48px;border-radius:24px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"/></svg></div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.s31 }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:54px;left:16px;right:16px;height:44px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;z-index:2">
+<div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"/></svg></div>
+<div style="text-align:center"><div style="font-size:17px;font-weight:600">Files</div><div style="font:12px var(--mono);color:var(--t2)">flaky-checkout</div></div>
+<div style="display:flex;justify-content:flex-end"><div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></div></div>
+</div>
+<div style="position:absolute;top:110px;left:0;right:0">
+<div style="margin:0 16px;height:40px;border-radius:20px;background:var(--fill);display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--t3);font-size:17px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>Go to file</div>
+<div style="margin:16px 16px 0;background:var(--sf);border-radius:14px;overflow:hidden">
+<sc-for list="{{ tree }}" as="f" hint-placeholder-count="12">
+<div style="display:flex;align-items:center;height:44px;padding-left:{{ f.pad }};gap:6px">
+<svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t3);opacity:{{ f.chevOp }};transform:rotate({{ f.rot }});fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"/></svg>
+<sc-if value="{{ f.isDir }}" hint-placeholder-val="{{ true }}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t2);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></sc-if><sc-if value="{{ f.isFile }}" hint-placeholder-val="{{ false }}"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t2);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></sc-if>
+<div style="flex:1;min-width:0;align-self:stretch;display:flex;align-items:center;gap:8px;margin-left:4px;padding-right:16px;border-top:{{ f.sep }}"><div style="flex:1;min-width:0;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.name }}</div><span style="font:13px var(--mono);color:#FFCA16">{{ f.m }}</span></div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.s29 }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:54px;left:16px;right:16px;height:44px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;z-index:2">
+<div style="flex:none;width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"/></svg></div>
+<div style="text-align:center"><div style="font-size:17px;font-weight:600">Commits</div><div style="font:12px var(--mono);color:var(--t2)">{{ histBranch }}</div></div><div></div>
+</div>
+<div style="position:absolute;top:110px;left:0;right:0">
+<div style="background:var(--sf);border-top:.5px solid var(--sep);border-bottom:.5px solid var(--sep);height:44px;display:flex;align-items:center;padding:0 16px;gap:12px"><div style="flex:1;font-size:17px">All branches</div><div onClick="{{ flipAll }}" style="width:52px;height:32px;border-radius:16px;background:{{ ab.bg }};position:relative;flex:none;cursor:pointer"><div style="position:absolute;top:2px;left:{{ ab.left }};width:28px;height:28px;border-radius:14px;background:{{ ab.knob }};box-shadow:0 2px 4px rgba(0,0,0,.25)"></div></div></div>
+<sc-for list="{{ histRows }}" as="c" hint-placeholder-count="8">
+<sc-if value="{{ c.hdr }}"><div style="padding:24px 16px 8px;font-size:13px;font-weight:600;color:var(--t2)">{{ c.label }}</div></sc-if>
+<sc-if value="{{ c.row }}"><div style="background:var(--sf);padding-left:16px;border-top:{{ c.outer }};border-bottom:{{ c.bottom }}"><div style="padding:12px 16px 12px 0;border-top:{{ c.sep }}">
+<div style="font-size:16px;font-weight:600;line-height:21px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.msg }}</div>
+<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:13px;color:var(--t2);font-variant-numeric:tabular-nums"><div style="width:18px;height:18px;border-radius:9px;background:var(--fill);font-size:8px;font-weight:700;color:var(--body);display:flex;align-items:center;justify-content:center">{{ c.init }}</div><span style="color:var(--body)">{{ c.author }}</span><span>committed {{ c.time }}</span><span style="font-family:var(--mono);font-size:12px">{{ c.br }}</span><div style="flex:1"></div><span style="font:12px var(--mono);padding:2px 6px;border-radius:5px;background:var(--fill);color:var(--body)">{{ c.sha }}</span></div>
+</div></div></sc-if>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.s30 }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:0;left:0;right:0;height:108px;background:var(--bg);z-index:1"></div>
+<div style="position:absolute;top:54px;left:16px;right:16px;height:44px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;z-index:2">
+<div style="flex:none;width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"/></svg></div>
+<div style="text-align:center"><div style="font-size:17px;font-weight:600">Commit</div><div style="font:12px var(--mono);color:var(--t2)">a1c9e3f</div></div>
+<div style="display:flex;justify-content:flex-end"><div style="flex:none;width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></div></div>
+</div>
+<div style="position:absolute;top:108px;left:0;right:0">
+<div style="padding:4px 16px 18px">
+<div style="font-size:20px;font-weight:700;line-height:26px">Await server.listen in checkout tests</div>
+<div style="font-size:15px;line-height:21px;color:var(--body);margin-top:8px;text-wrap:pretty">The payment mock registered its handlers after the first request, so about one run in five read an empty cart.</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--t2)"><div style="width:20px;height:20px;border-radius:10px;background:var(--fill);font-size:9px;font-weight:700;color:var(--body);display:flex;align-items:center;justify-content:center">MI</div><span style="color:var(--tx);font-weight:600">Minh</span>committed 12m ago<div style="flex:1"></div><span style="font:12px var(--mono);padding:2px 6px;border-radius:5px;background:var(--fill);color:var(--body)">a1c9e3f</span></div>
+</div>
+<div style="display:flex;align-items:center;padding:0 16px 10px;font-size:15px;font-weight:600"><span style="flex:1">2 files changed</span><span style="font:13px var(--mono)"><span style="color:var(--okt)">+7</span> <span style="color:var(--errt)">−3</span></span></div>
+<div style="font:12px/21px var(--mono)">
+<sc-for list="{{ commitRows }}" as="l" hint-placeholder-count="16">
+<sc-if value="{{ l.file }}"><div style="display:flex;align-items:center;gap:8px;height:44px;padding:0 12px 0 10px;background:var(--sf);border-top:.5px solid var(--sep);border-bottom:.5px solid var(--sep);font-family:var(--mono)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t2);transform:rotate({{ l.rot }});transition:transform .2s;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 18 6-6-6-6"/></svg><div style="flex:1;min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;color:var(--tx)">{{ l.path }}</div><span style="font-size:12px;color:var(--okt)">{{ l.add }}</span><span style="font-size:12px;color:var(--errt)">{{ l.del }}</span><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:var(--t2);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg><div style="flex:none;width:20px;height:20px;border-radius:10px;border:1.5px solid {{ l.vb }};background:{{ l.vbg }};box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;flex:none;color:var(--on);opacity:{{ l.vop }};fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M20 6 9 17l-5-5"/></svg></div></div></sc-if>
+<sc-if value="{{ l.line }}"><div style="display:flex;background:{{ l.bg }};white-space:pre;overflow:hidden"><span style="width:38px;flex:none;text-align:right;padding-right:8px;box-sizing:border-box;background:{{ l.gbg }};color:{{ l.nc }}">{{ l.n }}</span><span style="width:18px;flex:none;text-align:center;color:{{ l.sc }}">{{ l.s }}</span><span style="color:{{ l.tc }};padding-right:12px">{{ l.t }}</span></div></sc-if>
+<sc-if value="{{ l.note }}"><div style="padding:14px 16px;font-family:var(--sans);font-size:15px;color:var(--t2);display:flex;gap:6px">{{ l.text }}<span style="color:#419CFF;font-weight:600">{{ l.link }}</span></div></sc-if>
+</sc-for>
+</div>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:0;height:60px;background:linear-gradient(transparent,var(--bg))"></div>
+</sc-if>
+
+<sc-if value="{{ is.s32c }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:54px;left:16px;right:16px;height:44px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;z-index:2">
+<div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"/></svg></div>
+<div style="text-align:center"><div style="font-size:17px;font-weight:600">README.md</div><div style="font:12px var(--mono);color:var(--t2)">anywhere</div></div>
+<div style="display:flex;justify-content:flex-end"><div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></div></div>
+</div>
+<div style="position:absolute;top:112px;left:0;right:0">
+<div style="margin:0 16px;height:36px;border-radius:18px;background:var(--fill);display:flex;padding:2px;box-sizing:border-box">
+<div onClick="{{ mdA }}" style="flex:1;border-radius:16px;background:{{ mg.a }};box-shadow:{{ mg.as }};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;cursor:pointer">Preview</div>
+<div onClick="{{ mdB }}" style="flex:1;border-radius:16px;background:{{ mg.b }};box-shadow:{{ mg.bs }};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;cursor:pointer">Source</div>
+</div>
+<sc-if value="{{ mdP }}"><div style="padding:24px 20px 0">
+<div style="font-size:28px;font-weight:700;line-height:34px">anywhere</div>
+<div style="font-size:17px;line-height:25px;color:var(--body);margin-top:10px">Watch and drive coding agents on your own Macs.</div>
+<div style="font-size:20px;font-weight:600;margin-top:24px">Develop</div>
+<div style="margin-top:10px;background:var(--sf);border-radius:8px;padding:12px 14px;font:13px/21px var(--mono);white-space:pre">pnpm install
+pnpm dev</div>
+<div style="font-size:20px;font-weight:600;margin-top:24px">Requirements</div>
+<div style="display:flex;flex-direction:column;gap:6px;margin-top:10px;font-size:17px;line-height:24px;color:var(--body)">
+<div style="display:flex;gap:10px"><span style="color:var(--t3)">•</span>Node 22 or newer</div>
+<div style="display:flex;gap:10px"><span style="color:var(--t3)">•</span>pnpm 9</div>
+<div style="display:flex;gap:10px"><span style="color:var(--t3)">•</span>Tailscale on both devices</div>
+</div>
+</div></sc-if>
+<sc-if value="{{ mdS }}"><div style="padding:20px 0 0;font:12.5px/22px var(--mono);color:var(--body)">
+<sc-for list="{{ mdSrc }}" as="l" hint-placeholder-count="14"><div style="display:flex;white-space:pre"><span style="width:34px;flex:none;text-align:right;padding-right:14px;color:var(--t4)">{{ l.n }}</span><span>{{ l.t }}</span></div></sc-for>
+</div></sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.s32d }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:54px;left:16px;right:16px;height:44px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;z-index:2">
+<div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"/></svg></div>
+<div style="text-align:center"><div style="font-size:17px;font-weight:600">Files</div><div style="font:12px var(--mono);color:var(--t2)">flaky-checkout</div></div><div></div>
+</div>
+<div style="position:absolute;top:384px;left:40px;right:40px;display:flex;flex-direction:column;align-items:center;text-align:center">
+<div style="font-size:17px;font-weight:600">Can't show these files</div>
+<div style="font-size:15px;line-height:21px;color:var(--t2);margin-top:6px;text-wrap:pretty">Minh's MacBook Pro is offline · last seen 10:42. Files aren't saved on this iPhone.</div>
+<div style="margin-top:18px;height:44px;padding:0 20px;border-radius:22px;background:var(--fill);font-size:15px;font-weight:600;display:flex;align-items:center">Try again</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ codeV }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:54px;left:16px;right:16px;height:44px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;z-index:2">
+<div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m15 18-6-6 6-6"/></svg></div>
+<div style="text-align:center"><div style="font-size:17px;font-weight:600">checkout.ts</div><div style="font:12px var(--mono);color:var(--t2)">src/checkout</div></div>
+<div style="display:flex;justify-content:flex-end"><div style="width:44px;height:44px;border-radius:22px;background:var(--glass);border:.5px solid var(--gb);box-sizing:border-box;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></div></div>
+</div>
+<div style="position:absolute;top:112px;left:0;right:0;font:12.5px/22px var(--mono);color:var(--body)">
+<sc-for list="{{ code }}" as="l" hint-placeholder-count="26">
+<div style="display:flex;white-space:pre;overflow:hidden"><span style="width:34px;flex:none;text-align:right;padding-right:14px;color:var(--t4)">{{ l.n }}</span><span style="color:{{ l.c }}">{{ l.t }}</span></div>
+</sc-for>
+</div>
+<sc-if value="{{ is.s32b }}"><div style="position:absolute;left:0;right:0;bottom:0;height:130px;background:linear-gradient(transparent,var(--bg) 45%)"></div><div style="position:absolute;left:20px;right:20px;bottom:42px;height:52px;border-radius:26px;background:var(--ink);color:var(--on);font-size:17px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/></svg>Mention in chat</div></sc-if>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:393,&quot;height&quot;:852},&quot;screen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;27&quot;,&quot;27b&quot;,&quot;27c&quot;,&quot;28&quot;,&quot;28b&quot;,&quot;29&quot;,&quot;30&quot;,&quot;31&quot;,&quot;32&quot;,&quot;32b&quot;,&quot;32c&quot;,&quot;32d&quot;],&quot;default&quot;:&quot;27&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { seg: 'u', md: 'p', allb: false };
+  renderVals() {
+    const s = String(this.props.screen ?? '27'), u = this.state.seg === 'u';
+    const add = { bg: 'rgba(48,164,108,.11)', fg: 'var(--okt)', s: '+' }, del = { bg: 'rgba(229,72,77,.09)', fg: 'var(--errt)', s: '−' }, ctx = { bg: 'transparent', fg: 'var(--body)', s: '' };
+    const hunk = t => ({ bg: 'var(--fill2)', fg: 'var(--t3)', s: '', a: '', b: '', t });
+    const L = (k, a, b, t) => ({ ...k, a, b, t });
+    const diff = [
+      hunk('@@ -18,11 +18,14 @@'),
+      L(ctx,18,18,"import { render } from '@testing-library/react'"),
+      L(ctx,19,19,"import { server } from '../mocks/server'"),
+      L(ctx,20,20,"import { submitOrder } from './checkout'"),
+      L(ctx,21,21,''),
+      L(del,22,'','server.listen()'),
+      L(add,'',22,'beforeEach(async () => {'),
+      L(add,'',23,'  server.resetHandlers()'),
+      L(add,'',24,"  await server.listen({ onUnhandledRequest: 'error' })"),
+      L(add,'',25,'})'),
+      L(ctx,23,26,''),
+      L(ctx,24,27,"describe('checkout', () => {"),
+      L(ctx,25,28,"  it('submits the cart', async () => {"),
+      L(del,26,'','    const order = submitOrder(cart)'),
+      L(add,'',29,'    const order = await submitOrder(cart)'),
+      L(ctx,27,30,'    expect(order.items).toHaveLength(3)'),
+      L(ctx,28,31,'  })'),
+      hunk("@@ -51,6 +54,8 @@ describe('checkout')"),
+      L(ctx,51,54,"  it('retries a declined card', async () => {"),
+      L(ctx,52,55,'    mockDecline(once)'),
+      L(add,'',56,'    await server.ready()'),
+      L(add,'',57,''),
+      L(ctx,53,58,'    const order = await submitOrder(cart)'),
+      L(ctx,54,59,"    expect(order.status).toBe('paid')"),
+      L(ctx,55,60,'  })')
+    ];
+    const T = (name, depth, kind, open, m) => ({ name, pad: (12 + depth * 22) + 'px', rot: kind === 'dir' && open ? '90deg' : '0deg', chevOp: kind === 'dir' ? 1 : 0, isDir: kind === 'dir', isFile: kind !== 'dir', m: m || '' });
+    const tree = [T('src',0,'dir',1,'•'),T('checkout',1,'dir',1),T('cart.ts',2),T('checkout.ts',2),T('checkout.test.ts',2,0,0,'M'),T('mocks',1,'dir',0,'•'),T('theme',1,'dir',0),T('docs',0,'dir',0,'•'),T('test',0,'dir',0,'•'),T('package.json',0),T('README.md',0),T('tsconfig.json',0)].map((r,i) => ({ ...r, sep: i ? '.5px solid var(--sep)' : 'none' }));
+    const kw = 'var(--tx)', st = 'var(--t2)', cm = 'var(--t4)', bd = 'var(--body)';
+    const code = [
+      [bd,"import { api } from '../api'"],[bd,"import type { Cart, Order } from './types'"],[bd,''],[bd,'const RETRIES = 2'],[bd,''],
+      [cm,'/** Submits the cart and waits for payment. */'],[kw,'export async function submitOrder(cart: Cart): Promise<Order> {'],
+      [bd,'  if (cart.items.length === 0) {'],[st,"    throw new Error('Cart is empty')"],[bd,'  }'],[bd,''],
+      [bd,'  let attempt = 0'],[bd,'  while (true) {'],[bd,'    try {'],[st,"      const res = await api.post('/orders', cart)"],
+      [bd,'      return res.data'],[bd,'    } catch (err) {'],[bd,'      if (++attempt > RETRIES) throw err'],[bd,'      await wait(250 * attempt)'],
+      [bd,'    }'],[bd,'  }'],[bd,'}'],[bd,''],[kw,'function wait(ms: number) {'],[bd,'  return new Promise((r) => setTimeout(r, ms))'],[bd,'}']
+    ].map(([c, t], i) => ({ c, t, n: i + 1 }));
+    const sel = 'var(--seg)', sh = '0 1px 3px rgba(0,0,0,.18)';
+    const lock = [
+      hunk('@@ -388,13 +388,13 @@ packages:'),
+      L(ctx,388,388,'  /@babel/core@7.26.0:'),
+      L(ctx,389,389,'    resolution: {integrity: sha512-i1SLeK+DzNnQ3LL/CswPCa}'),
+      L(ctx,390,390,"    engines: {node: '>=6.9.0'}"),
+      L(ctx,391,391,'    dependencies:'),
+      L(del,392,'',"      '@babel/code-frame': 7.25.9"),
+      L(add,'',392,"      '@babel/code-frame': 7.26.2"),
+      L(del,393,'',"      '@babel/generator': 7.25.9"),
+      L(add,'',393,"      '@babel/generator': 7.26.2"),
+      L(ctx,394,394,"      '@babel/helper-compilation-targets': 7.25.9"),
+      L(del,395,'',"      '@babel/parser': 7.25.9"),
+      L(add,'',395,"      '@babel/parser': 7.26.2"),
+      L(ctx,396,396,'      convert-source-map: 2.0.0'),
+      L(ctx,397,397,'      debug: 4.3.7'),
+      L(ctx,398,398,'      gensync: 1.0.0-beta.2'),
+      L(ctx,399,399,'      json5: 2.2.3'),
+      L(ctx,400,400,'      semver: 6.3.1')
+    ];
+    const allb = this.state.allb, md = this.state.md === 'p';
+    const GA='rgba(48,164,108,.11)',GG='rgba(48,164,108,.24)',RA='rgba(229,72,77,.09)',RG='rgba(229,72,77,.2)',HA='rgba(65,156,255,.08)',HG='rgba(65,156,255,.16)';
+    const gl = (k, n, t) => k === '+' ? { line:1, bg:GA, gbg:GG, nc:'var(--okt)', s:'+', sc:'var(--okt)', tc:'var(--tx)', n, t }
+      : k === '-' ? { line:1, bg:RA, gbg:RG, nc:'var(--errt)', s:'−', sc:'var(--errt)', tc:'var(--tx)', n, t }
+      : k === '@' ? { line:1, bg:HA, gbg:HG, nc:'#419CFF', s:'', sc:'', tc:'#419CFF', n:'⋯', t:n }
+      : { line:1, bg:'transparent', gbg:'transparent', nc:'var(--t4)', s:'', sc:'', tc:'var(--body)', n, t };
+    const mid = (p, max = 32) => { if (p.length <= max) return p; const parts = p.split('/'), f = parts.pop(), m = parts[0] + '/…/' + f; return m.length <= max ? m : '…/' + f; };
+    const fh = (path, ad, de, open, viewed) => ({ file:1, path: mid(path), add:'+' + ad, del:'−' + de, rot: open ? '90deg' : '0deg', vb: viewed ? 'var(--ink)' : 'var(--t4)', vbg: viewed ? 'var(--ink)' : 'transparent', vop: viewed ? 1 : 0 });
+    const testHunk = [
+      gl('@','@@ -18,11 +18,14 @@'), gl(' ',18,"import { render } from '@testing-library/react'"), gl(' ',19,"import { server } from '../mocks/server'"), gl(' ',20,"import { submitOrder } from './checkout'"), gl(' ',21,''),
+      gl('-',22,'server.listen()'), gl('+',22,'beforeEach(async () => {'), gl('+',23,'  server.resetHandlers()'), gl('+',24,"  await server.listen({ onUnhandledRequest: 'error' })"), gl('+',25,'})'),
+      gl(' ',26,''), gl(' ',27,"describe('checkout', () => {"), gl(' ',28,"  it('submits the cart', async () => {"), gl('-',26,'    const order = submitOrder(cart)'), gl('+',29,'    const order = await submitOrder(cart)'), gl(' ',30,'    expect(order.items).toHaveLength(3)')
+    ];
+    const ghDiff = [fh('src/checkout/checkout.test.ts',7,2,true,false), ...testHunk,
+      gl('@',"@@ -51,6 +54,8 @@ describe('checkout')"), gl(' ',54,"  it('retries a declined card', async () => {"), gl('+',56,'    await server.ready()'), gl(' ',58,'    const order = await submitOrder(cart)'),
+      fh('src/mocks/server.ts',2,1,false,true), fh('test/setup.ts',1,0,false,false), fh('docs/flaky-tests.md',2,0,false,false)];
+    const lockRows = lock.map(r => r.a === '' && r.b === '' ? gl('@', r.t) : r.s === '+' ? gl('+', r.b, r.t) : r.s === '−' ? gl('-', r.a, r.t) : gl(' ', r.b, r.t));
+    const ghTrunc = [fh('src/checkout/checkout.test.ts',7,2,false,true), fh('pnpm-lock.yaml',2140,1860,true,false), ...lockRows, { note:1, text:'Showing 400 of 4000 lines.', link:'Load all' }];
+    const commitRows = [fh('src/checkout/checkout.test.ts',5,2,true,false), ...testHunk.slice(0, 13), fh('src/mocks/server.ts',2,1,false,false)];
+    const histRows = [];
+    let lastDay = null, grp = [];
+    const hdata = [['Await server.listen in checkout tests','a1c9e3f','Minh','12m ago','flaky-checkout','Today'],['Move payment mock into beforeEach','7d02b4a','Claude','25m ago','flaky-checkout','Today'],['Bump React to 19.0.0','e81b3c2','Claude','40m ago','react-19','Today'],['Add repeat flag to the test script','3f8e910','Claude','1h ago','flaky-checkout','Today'],['Merge main into flaky-checkout','c41aa07','Minh','3h ago','flaky-checkout','Today'],['Log cart state when the test fails','9be2d15','Claude','yesterday','flaky-checkout','Yesterday'],['Bump vitest to 2.1','05c7f3e','Minh','on Mon','main','Monday 23 November']]
+      .filter(c => allb || c[4] === 'flaky-checkout');
+    hdata.forEach((c, i) => {
+      if (c[5] !== lastDay) { histRows.push({ hdr:1, label:c[5] }); lastDay = c[5]; }
+      const nextSame = hdata[i + 1] && hdata[i + 1][5] === c[5], prevSame = hdata[i - 1] && hdata[i - 1][5] === c[5];
+      histRows.push({ row:1, msg:c[0], sha:c[1], author:c[2], init: c[2] === 'Minh' ? 'MI' : 'CL', time:c[3], br: allb ? '· ' + c[4] : '', outer: prevSame ? 'none' : '.5px solid var(--sep)', bottom: nextSame ? 'none' : '.5px solid var(--sep)', sep: prevSame ? '.5px solid var(--sep)' : 'none' });
+    });
+
+    const commits = [['Await server.listen in checkout tests','a1c9e3f','Minh','12m','flaky-checkout'],['Move payment mock into beforeEach','7d02b4a','Claude','25m','flaky-checkout'],['Bump React to 19.0.0','e81b3c2','Claude','40m','react-19'],['Add repeat flag to the test script','3f8e910','Claude','1h','flaky-checkout'],['Merge main into flaky-checkout','c41aa07','Minh','3h','flaky-checkout'],['Log cart state when the test fails','9be2d15','Claude','Yesterday','flaky-checkout'],['Bump vitest to 2.1','05c7f3e','Minh','Mon','main']]
+      .filter(c => allb || c[4] === 'flaky-checkout').map(([msg,sha,author,time,b], i) => ({ msg, sha, author, time, br: allb ? ' · ' + b : '', sep: i ? '.5px solid var(--sep)' : 'none' }));
+    const mdSrc = ['# anywhere','','Watch and drive coding agents on your own Macs.','','## Develop','','```bash','pnpm install','pnpm dev','```','','## Requirements','','- Node 22 or newer','- pnpm 9','- Tailscale on both devices'].map((t, i) => ({ t, n: i + 1 }));
+    const is28b = s === '28b';
+    return {
+      is: { ['s' + s]: true }, diff, tree, code,
+      chg: ['27','27b','27c'].includes(s), hasList: s === '27' || s === '27c', lop: s === '27c' ? .45 : 1,
+      segUL: u && s !== '27b', segML: !u && s !== '27b',
+      dif: s === '28' || is28b, diffRows: is28b ? lock : diff, ghRows: is28b ? ghTrunc : ghDiff, commitRows, histRows, histBranch: allb ? 'All branches' : 'flaky-checkout',
+      diffTitle: is28b ? 'pnpm-lock.yaml' : 'src/checkout/…/checkout.test.ts', diffAdd: is28b ? '+2147' : '+12', diffDel: is28b ? '−1862' : '−3', fileOf: is28b ? 'File 2 of 2' : 'File 1 of 4',
+      codeV: s === '32' || s === '32b',
+      commits, commits3: commits.slice(0, 3),
+      ab: { bg: allb ? 'var(--ink)' : 'var(--fill3)', left: allb ? '22px' : '2px', knob: allb ? 'var(--on)' : '#FFFFFF' },
+      flipAll: () => this.setState(st => ({ allb: !st.allb })),
+      mdP: md, mdS: !md, mdSrc,
+      mg: { a: md ? sel : 'transparent', as: md ? sh : 'none', b: md ? 'transparent' : sel, bs: md ? 'none' : sh },
+      mdA: () => this.setState({ md: 'p' }), mdB: () => this.setState({ md: 's' }),
+      segU: u, segM: !u,
+      sg: { a: u ? sel : 'transparent', as: u ? sh : 'none', b: u ? 'transparent' : sel, bs: u ? 'none' : sh },
+      segA: () => this.setState({ seg: 'u' }), segB: () => this.setState({ seg: 'm' })
+    };
+  }
+}
+</script>
+</body>
+</html>

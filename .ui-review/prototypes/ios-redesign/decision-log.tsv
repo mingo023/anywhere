@@ -1,0 +1,7 @@
+ts	phase	decision	why	evidence	result
+2026-11-28T02:58:11Z	plan	Goal	iOS app matches the Claude Design 'Anywhere iOS Redesign' (Lucide icons, 4 tabs, inset-grouped rows, reworked PR list), checked with ui-review	user /goal	'-
+2026-11-28T02:58:11Z	plan	Problem	app has 2 tabs scoped to one Mac, SF Symbols, older list styling; design has Inbox/Sessions/PRs/Machines across Macs + Lucide	/tmp/ios-design/png	'-
+2026-11-28T02:58:11Z	plan	Smallest change	Lucide icon set + tokens + 4-tab shell in DesignSystem/AppShell, then restyle each feature's screens to its design frames; no wire/pocketd changes	'-	'-
+2026-11-28T02:58:11Z	plan	Finish line	PR reviewed, watch-pr READY, waiting on user's review; never merges/deploys/touches running app	'-	'-
+2026-11-28T02:58:11Z	plan	Size	L, because ~42 screens across 8 feature modules and a new cross-Mac shell	'-	'-
+2026-11-28T02:58:11Z	plan	Playbook	Feature	'-	'-

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>@keyframes awdot{0%,100%{opacity:.22}30%{opacity:1}}</style></helmet>
+<div style="position:absolute;inset:0;background:#000;color:var(--tx);font-family:var(--sans);overflow:hidden">
+
+<sc-if value="{{ form }}" hint-placeholder-val="{{ true }}">
+<div style="position:absolute;top:52px;left:14px;right:14px;height:40px;border-radius:14px 14px 0 0;background:var(--bg);opacity:.55"></div>
+<div style="position:absolute;top:64px;left:0;right:0;bottom:0;border-radius:22px 22px 0 0;background:var(--sf)">
+<div style="width:36px;height:5px;border-radius:3px;background:var(--t4);margin:6px auto 0;opacity:.7"></div>
+<div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;height:44px;padding:0 16px">
+<div style="width:36px;height:36px;border-radius:18px;background:var(--fill);display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></div>
+<div style="font-size:17px;font-weight:600">New session</div><div></div>
+</div>
+<sc-if value="{{ is.s17 }}"><div style="padding:24px 24px 0;display:flex;gap:3px"><div style="width:2px;height:32px;background:var(--tx);margin-top:1px;flex:none"></div><div style="font-size:28px;font-weight:700;line-height:34px;color:var(--t4)">What should we build next?</div></div></sc-if>
+<sc-if value="{{ is.s17b }}"><div style="padding:24px 24px 0;font-size:28px;font-weight:700;line-height:34px">Cache invoice queries for five minutes</div></sc-if>
+<div style="padding:20px 20px 0"><div style="width:40px;height:40px;border-radius:20px;background:var(--fill);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M16 5h6"/><path d="M19 2v6"/><path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/><circle cx="9" cy="9" r="2"/></svg></div></div>
+<div style="position:absolute;left:0;right:0;bottom:40px">
+<sc-if value="{{ is.s17b }}"><div style="padding:0 24px 12px;font-size:13px;line-height:18px;color:var(--t2)">Studio Mac Mini is offline · last seen 10:42. Pick another Mac to start.</div></sc-if>
+<div style="display:flex;flex-wrap:wrap;gap:8px;padding:0 16px">
+<sc-if value="{{ is.s17 }}"><div style="height:34px;padding:0 12px;border-radius:17px;background:var(--fill);display:flex;align-items:center;font-size:15px">MacBook Pro</div></sc-if>
+<sc-if value="{{ is.s17b }}"><div style="height:34px;padding:0 12px 0 10px;border-radius:17px;background:var(--fill);display:flex;align-items:center;gap:6px;font-size:15px"><div style="width:7px;height:7px;border-radius:4px;background:var(--t4)"></div>Studio Mac Mini</div></sc-if>
+<div style="height:34px;padding:0 12px;border-radius:17px;background:var(--fill);display:flex;align-items:center;font-size:15px">{{ project }}</div>
+<div style="height:34px;padding:0 12px;border-radius:17px;background:var(--fill);display:flex;align-items:center;font-size:15px">Worktree</div>
+<div style="height:34px;padding:0 12px;border-radius:17px;background:var(--fill);display:flex;align-items:center;font:14px var(--mono)">main</div>
+<div style="height:34px;padding:0 12px;border-radius:17px;background:var(--fill);display:flex;align-items:center;font-size:15px">Claude Code</div>
+<div style="height:34px;padding:0 12px;border-radius:17px;background:var(--fill);display:flex;align-items:center;font-size:15px">Sonnet 4.5</div>
+<div style="height:34px;padding:0 12px 0 10px;border-radius:17px;background:var(--fill);display:flex;align-items:center;gap:5px;font-size:15px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M10 5H3"/><path d="M12 19H3"/><path d="M14 3v4"/><path d="M16 17v4"/><path d="M21 12h-9"/><path d="M21 19h-5"/><path d="M21 5h-7"/><path d="M8 10v4"/><path d="M8 12H3"/></svg>Options</div>
+</div>
+<sc-if value="{{ is.s17 }}"><div style="margin:16px 20px 0;height:52px;border-radius:26px;background:var(--ink);color:var(--on);font-size:17px;font-weight:600;display:flex;align-items:center;justify-content:center">Start</div></sc-if>
+<sc-if value="{{ is.s17b }}"><div style="margin:16px 20px 0;height:52px;border-radius:26px;background:var(--fill);color:var(--t4);font-size:17px;font-weight:600;display:flex;align-items:center;justify-content:center">Start</div></sc-if>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.s18 }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:52px;left:0;right:0;bottom:0;border-radius:14px 14px 0 0;background:var(--bg);opacity:.5"></div>
+<div style="position:absolute;top:420px;left:0;right:0;bottom:0;border-radius:22px 22px 0 0;background:var(--sf);padding:0 24px">
+<div style="width:36px;height:5px;border-radius:3px;background:var(--t4);margin:6px auto 0;opacity:.7"></div>
+<div style="margin-top:20px;width:64px;height:64px;border-radius:16px;background:var(--ink);color:var(--on);display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:34px;height:34px;flex:none;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round"><path d="M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8"/><path d="M10 19v-3.96 3.15"/><path d="M7 19h5"/><rect width="6" height="10" x="16" y="12" rx="2"/></svg></div>
+<div style="font-size:22px;font-weight:700;margin-top:16px">Starting session</div>
+<div style="font-size:15px;color:var(--t2);margin-top:2px">Add dark mode to settings</div>
+<div style="display:flex;flex-direction:column;gap:14px;margin-top:20px;font-size:15px">
+<div style="display:flex;align-items:center;gap:12px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:#30A46C;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>Connected to MacBook Pro</div>
+<div style="display:flex;align-items:center;gap:12px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;flex:none;color:#30A46C;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>Created worktree <span style="font:14px var(--mono)">dark-mode</span></div>
+<div style="display:flex;align-items:center;gap:12px"><div style="width:20px;display:flex;justify-content:center">{{ spin }}</div>Starting Claude Code</div>
+<div style="display:flex;align-items:center;gap:12px;color:var(--t3)"><div style="width:20px;display:flex;justify-content:center"><div style="width:10px;height:10px;border-radius:6px;border:1.5px solid var(--t4)"></div></div>Sending your prompt</div>
+</div>
+<div style="margin-top:22px;height:4px;border-radius:2px;background:var(--fill)"><div style="width:62%;height:4px;border-radius:2px;background:var(--ink)"></div></div>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:393,&quot;height&quot;:852},&quot;screen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;17&quot;,&quot;17b&quot;,&quot;18&quot;],&quot;default&quot;:&quot;17&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const s = String(this.props.screen ?? '17'), o = [0,1,2,5,8,7,6,3,4];
+    return {
+      is: { ['s' + s]: true }, form: s !== '18', project: s === '17b' ? 'fox-api' : 'anywhere',
+      spin: React.createElement('div', { style: { display:'grid', gridTemplateColumns:'repeat(3,3px)', gap:2 } },
+        [0,1,2,3,4,5,6,7,8].map(i => React.createElement('div', { key:i, style:{ width:3, height:3, borderRadius:2, background:'#FF8B3E', animation:'awdot 1s ease-in-out infinite', animationDelay:(o.indexOf(i)*0.11)+'s' } })))
+    };
+  }
+}
+</script>
+</body>
+</html>
