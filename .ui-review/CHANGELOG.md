@@ -26,11 +26,11 @@
 
 - changed in this pass:
   1. Chat (13–16c): the reply fold is gone. Each thought and tool call is a row of its own, as the design draws it: chevron, then verb (past tense once done), then mono argument, then the edit's +/−. Transcript text 17/24. The prompt bubble's time and copy moved to a long-press menu. The live line hides under a permission or question card. Wire unchanged
-  2. Diff (28, 28b): one line-number column on a narrow screen (<700pt, unified). Side by side and the chat's inline edit diffs keep two (28c-diff-wide checked)
-  3. Gallery: hides AppKit's legacy scrollers, and draws sheets (17, 18) and the Lock Screen (40, 41) from the screen's edges. The file preview (32*) no longer shows a false "Not connected" notice
+  2. Diff (28, 28b): one line-number column on a narrow screen (<700pt, unified). Side by side keeps two (28c-diff-wide checked). The chat's inline edit diff passes no option, so it keeps the default of two
+  3. Gallery: 01, 21 and 22 light and 32b pass because of these measurement fixes, not app spacing or colour changes. It now hides AppKit's legacy scrollers, and draws sheets (17, 18) and the Lock Screen (40, 41) from the screen's edges. The file preview (32*) no longer shows a false "Not connected" notice
   4. Known issues fixed: the PRs tab badge loads before the tab opens. The Sessions sort menu orders the home rows, and "Newest" now means created, not last moved. An empty PR list names the offline Macs instead of "No open pull requests"
 - still over 15%:
-  1. 23-pr-failing 15.4%: macOS draws no system nav bar, where the design has its two-line title bar. `PullRequest` on the wire has no file count, diffstat, commit time, check duration or author ("Claude wants to merge")
+  1. 23-pr-failing 15.4%, a regression from 14.6% at 52dc30a9, measured then without insets. macOS draws no system nav bar, where the design has its two-line title bar. The app adds a "Review threads" row the design doesn't draw. `PullRequest` on the wire has no file count, diffstat, commit time, check duration or author ("Claude wants to merge")
   2. 42-component-sheet: a sheet of parts laid out differently from the design's board, not a screen
 - real findings left: PR list rows (19–22) have no age, diffstat or approval, because `PrItem` doesn't carry them. Tab-root frames (05, 10, 19–22, 33) render without the floating tab bar the design draws over them. Diff has no collapsed sibling-file headers.
 
