@@ -105,7 +105,7 @@ public enum ChatGallery {
                 }
             }
         }
-        return frames + chats + narrow + subAgents
+        return frames + permissionNarrow + chats + narrow + subAgents
     }
 
     struct Entry {

@@ -82,18 +82,18 @@ struct PermissionCard: View {
                 } label: {
                     Text("Deny").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(PillButtonStyle(.destructive))
+                .buttonStyle(AnswerStyle(.destructive))
                 .keyboardShortcut(.escape, modifiers: [])
                 .frame(width: unit * weights[0])
                 if feedback {
                     if replying {
                         Button { deny(reply) } label: { Text("Send reply").frame(maxWidth: .infinity) }
-                            .buttonStyle(PillButtonStyle(.secondary))
+                            .buttonStyle(AnswerStyle(.secondary))
                             .disabled(reply.allSatisfy(\.isWhitespace))
                             .frame(width: unit * weights[1])
                     } else {
                         Button { replying = true } label: { Text("Reply").frame(maxWidth: .infinity) }
-                            .buttonStyle(PillButtonStyle(.secondary))
+                            .buttonStyle(AnswerStyle(.secondary))
                             .frame(width: unit * weights[1])
                     }
                 }
@@ -103,12 +103,53 @@ struct PermissionCard: View {
                 } label: {
                     Text("Allow once").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(PillButtonStyle(.primary))
+                .buttonStyle(AnswerStyle(.primary))
                 // Return while typing a reply mustn't allow what the reply argues against.
                 .keyboardShortcut(replying ? nil : KeyboardShortcut(.return, modifiers: []))
                 .frame(width: unit * weights[weights.count - 1])
             }
         }
         .frame(height: 44)
+    }
+}
+
+/// `PillButtonStyle` with room for its words on a narrow screen, where the buttons share the row.
+private struct AnswerStyle: ButtonStyle {
+    let kind: PillButtonStyle.Kind
+    @Environment(\.isEnabled) private var isEnabled
+
+    init(_ kind: PillButtonStyle.Kind) {
+        self.kind = kind
+    }
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 15, weight: .semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
+            .foregroundStyle(foreground.color)
+            .padding(.horizontal, Space.s)
+            .frame(height: 44)
+            .background(background.color, in: Capsule())
+            .contentShape(Capsule())
+            .opacity(configuration.isPressed ? 0.7 : 1)
+    }
+
+    private var foreground: Token {
+        guard isEnabled else { return Palette.text4 }
+        switch kind {
+        case .primary: return Palette.onText
+        case .secondary: return Palette.text
+        case .destructive: return Palette.failedText
+        }
+    }
+
+    private var background: Token {
+        guard isEnabled else { return Palette.fill3 }
+        switch kind {
+        case .primary: return Palette.text
+        case .secondary: return Palette.fill3
+        case .destructive: return Palette.failedBackground
+        }
     }
 }

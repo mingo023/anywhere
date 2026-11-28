@@ -245,7 +245,7 @@ struct ComposerView: View {
         let placeholder = Composer.placeholder(working: store.busy, stopping: store.stopping, canQueue: caps.sendWhileWorking)
         let prompt = Text(placeholder).foregroundStyle(Palette.text3.color)
         #if os(iOS)
-            TextField(text: $store.draft.text, selection: $selection, prompt: prompt, axis: .vertical) { Text(placeholder) }
+            TextField(placeholder, text: $store.draft.text, selection: $selection, prompt: prompt, axis: .vertical)
         #else
             TextField(placeholder, text: $store.draft.text, prompt: prompt, axis: .vertical)
         #endif

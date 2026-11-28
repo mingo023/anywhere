@@ -30,10 +30,25 @@ extension ChatGallery {
                         model: "claude-sonnet-4-5", title: "Fix flaky checkout test", branch: "flaky-checkout")
                     return AnyView(NavigationStack {
                         ChatScreen(
-                            store: frame.settled ? opened(chat) : chat, machine: "MacBook Pro", host: host, openLink: { _ in }, live: false,
+                            store: frame.settled ? unfolded(chat) : chat, machine: "MacBook Pro", host: host, openLink: { _ in }, live: false,
                             git: host.git.changes(cwd), menu: [ChatMenuItem(title: "Changes", icon: .fileDiff) {}], net: frame.net)
                     })
                 }
+            }
+        }
+    }
+
+    /// The permission card on the narrowest screens, where its buttons share the least room.
+    @MainActor static var permissionNarrow: [GalleryScene] {
+        [true, false].map { dark in
+            GalleryScene("14-chat-permission-narrow-\(dark ? "dark" : "light")", size: CGSize(width: 320, height: 568), dark: dark) {
+                let ask = PermissionRequest(
+                    requestId: "r-checkout", agentId: agentId, toolName: "Bash", detail: .shell(command: "pnpm test checkout --repeat 20", description: nil),
+                    feedback: true)
+                let chat = store(checkoutItems(settled: false), status: .needsYou, requests: [ask], branch: "flaky-checkout")
+                return AnyView(NavigationStack {
+                    ChatScreen(store: chat, machine: "MacBook Pro", host: HostModel.offline(hello: Sample.hello, messages: []), openLink: { _ in }, live: false)
+                })
             }
         }
     }
@@ -46,6 +61,12 @@ extension ChatGallery {
 
         /// The turn is over, its work shown open; else it is under way, and the agent works or waits on an answer.
         var settled: Bool { requests.isEmpty && status != .working }
+    }
+
+    /// The reply's fold and phases open, as the design lists its steps; a step's own diff stays shut.
+    @MainActor private static func unfolded(_ s: ChatStore) -> ChatStore {
+        for id in s.session.ids where id.hasSuffix("#fold") || id.contains("#p") { s.toggle(id, false) }
+        return s
     }
 
     private static var branchStatus: GitStatus {
