@@ -52,7 +52,7 @@ struct QuestionWizard: View {
                     }
                 }
                 HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "pencil").font(.system(size: 12)).foregroundStyle(Palette.text3.color).padding(.top, 3)
+                    LucideIcon(.pencil, size: 14).foregroundStyle(Palette.text3.color).padding(.top, 3)
                     TextField(wizard.currentPlaceholder, text: Binding(get: { wizard.currentTyped }, set: { text in change { w in w.setTyped(text); return .stay } }), axis: .vertical)
                         .lineLimit(1...4)
                         .textFieldStyle(.plain)
@@ -153,7 +153,7 @@ struct OptionCard: View {
                 Group {
                     if multi {
                         RoundedRectangle(cornerRadius: 5).strokeBorder((picked ? Palette.text : Palette.text5).color, lineWidth: 1.5)
-                            .overlay { if picked { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)) } }
+                            .overlay { if picked { LucideIcon(.check, size: 11, weight: 3) } }
                     } else {
                         Circle().strokeBorder((picked ? Palette.text : Palette.text5).color, lineWidth: picked ? 5 : 1.5)
                     }

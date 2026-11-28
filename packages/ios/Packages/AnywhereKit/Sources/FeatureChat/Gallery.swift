@@ -9,6 +9,7 @@ import Wire
 /// Chat screens from the fixtures, light and dark: one per transcript scenario, then the composer's states.
 public enum ChatGallery {
     static let agentId = "a-gallery"
+    static let cwd = "/Users/mingo/dev/anywhere"
 
     @MainActor public static var scenes: [GalleryScene] {
         let transcripts = Sample.chatScenarios.map { scenario in
@@ -104,7 +105,7 @@ public enum ChatGallery {
                 }
             }
         }
-        return chats + narrow + subAgents
+        return frames + chats + narrow + subAgents
     }
 
     struct Entry {
@@ -136,13 +137,13 @@ public enum ChatGallery {
     static func store(
         _ items: [TimelineItem], status: AgentStatus? = nil, requests: [PermissionRequest] = [], scopes: [Scope]? = nil, goal: Goal? = nil,
         tokens: Int = 48_000, window: Int = 1_000_000, chatOnly: Bool? = nil, access: String = "edits", provider: String = "claude",
-        model: String = "claude-opus-5-5"
+        model: String = "claude-opus-5-5", title: String = "Port the commit graph lanes", branch: String = "mobile/chat", effort: String = "high"
     ) -> ChatStore {
         let open = fold(items).turns.last.map { $0.end == nil } ?? false
         let agent = AgentSummary(
-            id: agentId, terminalId: "t-\(agentId)", title: "Port the commit graph lanes", cwd: "/Users/mingo/dev/anywhere", provider: provider,
-            model: model, effort: "high", access: access, status: status ?? (open ? .working : .idle), attached: true, epoch: 1,
-            maxSeq: items.last?.seq ?? 0, createdAt: Sample.now - 600_000, updatedAt: Sample.now, branch: "mobile/chat", tokensUsed: tokens,
+            id: agentId, terminalId: "t-\(agentId)", title: title, cwd: cwd, provider: provider,
+            model: model, effort: effort, access: access, status: status ?? (open ? .working : .idle), attached: true, epoch: 1,
+            maxSeq: items.last?.seq ?? 0, createdAt: Sample.now - 600_000, updatedAt: Sample.now, branch: branch, tokensUsed: tokens,
             contextWindow: window, chatOnly: chatOnly, goal: goal)
         var hello = Sample.hello
         if let scopes { hello.scopes = scopes }

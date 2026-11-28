@@ -10,7 +10,7 @@ struct NoteRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: error ? "exclamationmark.triangle" : "arrow.uturn.forward").font(.system(size: 11))
+            if error { LucideIcon(.triangleAlert, size: 13) } else { Image(systemName: "arrow.uturn.forward").font(.system(size: 11)) }
             Text(text).lineLimit(2)
         }
         .font(ChatFont.small)
@@ -30,9 +30,9 @@ struct NoticeRow: View {
             show()
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: "bell").font(.system(size: 11))
+                LucideIcon(.bell, size: 13)
                 Self.text(label).lineLimit(2)
-                Image(systemName: "arrow.up").font(.system(size: 9, weight: .semibold))
+                LucideIcon(.arrowUp, size: 11)
             }
             .font(ChatFont.small)
             .foregroundStyle(Palette.text3.color)

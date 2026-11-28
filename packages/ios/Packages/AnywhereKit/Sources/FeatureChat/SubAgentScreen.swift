@@ -26,7 +26,7 @@ struct SubAgentScreen: View {
                     .toolbar {
                         // Balances Back, so the title stays centred.
                         ToolbarItem(placement: .primaryAction) {
-                            Button(action: showInChat) { Label("Show in chat", systemImage: "text.bubble") }
+                            Button(action: showInChat) { Label("Show in chat", lucide: .messageCircle, size: 20) }
                         }
                     }
             } else if store.whole {

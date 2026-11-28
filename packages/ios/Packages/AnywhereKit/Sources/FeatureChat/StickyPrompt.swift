@@ -25,13 +25,13 @@ struct StickyPrompt: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Button(action: jump) {
-                Image(systemName: "arrow.up").font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.text3.color)
+                LucideIcon(.arrowUp, size: 13).foregroundStyle(Palette.text3.color)
                     .frame(width: Sticky.knob, height: Sticky.knob)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Go to the prompt")
             ForEach(images.prefix(Sticky.thumbs), id: \.self) { _ in
-                Image(systemName: "photo").font(.system(size: 10)).frame(width: 20, height: 20)
+                LucideIcon(.imagePlus, size: 12).frame(width: 20, height: 20)
                     .background(Palette.fill3.color, in: RoundedRectangle(cornerRadius: 4)).padding(.top, 1)
             }
             if images.count > Sticky.thumbs {
@@ -64,7 +64,7 @@ struct StickyPrompt: View {
                 Button {
                     withAnimation(.easeOut(duration: 0.2)) { open.toggle() }
                 } label: {
-                    Image(systemName: open ? "chevron.up" : "chevron.down").font(.system(size: 10, weight: .semibold))
+                    LucideIcon(open ? .chevronUp : .chevronDown, size: 12)
                         .foregroundStyle(Palette.text3.color).frame(width: Sticky.knob, height: Sticky.knob)
                 }
                 .buttonStyle(.plain)

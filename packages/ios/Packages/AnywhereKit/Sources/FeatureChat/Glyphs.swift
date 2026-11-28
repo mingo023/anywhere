@@ -3,19 +3,34 @@ import DesignSystem
 import SwiftUI
 
 extension Glyph {
-    /// The SF Symbol standing in for the desktop's icon.
-    var symbol: String {
+    /// The Lucide icon for the desktop's; the lightbulb and the wrench have none.
+    var lucide: Lucide? {
         switch self {
-        case .terminal: "terminal"
-        case .file: "doc"
-        case .pencil: "pencil"
-        case .filePlus: "doc.badge.plus"
-        case .search: "magnifyingglass"
-        case .globe: "globe"
-        case .bot: "cpu"
-        case .blocks: "square.grid.2x2"
-        case .bulb: "lightbulb"
-        case .tool: "wrench.and.screwdriver"
+        case .terminal: .terminal
+        case .file: .file
+        case .pencil: .pencil
+        case .filePlus: .filePlus
+        case .search: .search
+        case .globe: .globe
+        case .bot: .bot
+        case .blocks: .blocks
+        case .bulb, .tool: nil
+        }
+    }
+
+}
+
+/// A tool's glyph: its Lucide icon, else the SF Symbol standing in.
+@MainActor
+struct GlyphMark: View {
+    let glyph: Glyph
+    var size: CGFloat = 13
+
+    var body: some View {
+        if let icon = glyph.lucide {
+            LucideIcon(icon, size: size)
+        } else {
+            Image(systemName: glyph == .bulb ? "lightbulb" : "wrench.and.screwdriver").font(.system(size: size - 2))
         }
     }
 }
@@ -76,7 +91,7 @@ struct CopyButton: View {
             }
         } label: {
             HStack(spacing: Space.xs) {
-                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                LucideIcon(copied ? .check : .copy, size: 14)
                 if let label { Text(label) }
             }
             .font(ChatFont.caption)

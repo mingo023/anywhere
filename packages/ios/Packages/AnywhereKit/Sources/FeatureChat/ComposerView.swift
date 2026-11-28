@@ -26,6 +26,8 @@ struct ComposerView: View {
     let openLink: (MarkdownLink) -> Void
     /// The field holding the keyboard; the chat screen lets it go on a tap or swipe down the transcript.
     var focus: FocusState<ChatField?>.Binding
+    /// The Mac's link is down: answers and sends are off, and the box dims.
+    var frozen = false
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @State private var keyboard = HardwareKeyboard.attached
@@ -95,8 +97,10 @@ struct ComposerView: View {
             footer
         }
         .animation(.easeOut(duration: 0.2), value: store.mode)
-        .padding(.horizontal, Space.m)
-        .padding(.bottom, Space.s)
+        .opacity(frozen ? 0.45 : 1)
+        .allowsHitTesting(!frozen)
+        .padding(.horizontal, Space.s)
+        .padding(.bottom, Space.xs)
         .frame(maxWidth: 744)
         .frame(maxWidth: .infinity)
         .onChange(of: store.authUrl) { _, url in
@@ -129,13 +133,14 @@ struct ComposerView: View {
     // MARK: Box
 
     private var box: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let shape = RoundedRectangle(cornerRadius: Radius.composer, style: .continuous)
+        return VStack(alignment: .leading, spacing: 6) {
             if !store.draft.images.isEmpty {
                 AttachmentStrip(images: store.draft.images, locked: store.armed, detach: { store.detach($0) }, retry: { store.retryUpload($0) })
             }
             input
                 .lineLimit(1...Composer.rows(height: Double(height)))
-                .font(ChatFont.bubble)
+                .font(.system(size: 17))
                 .textFieldStyle(.plain)
                 .focused(focus, equals: .composer)
                 .disabled(store.armed)
@@ -144,8 +149,7 @@ struct ComposerView: View {
                     .pastesImages(attach)
                 #endif
                 .padding(.trailing, overflows ? 24 : 0)
-                .padding(.horizontal, 4)
-                .padding(.top, 4)
+                .padding(.horizontal, 6)
                 .onChange(of: store.draft.text) { _, _ in
                     store.suggest.selected = 0
                     store.drafted(cursor: cursor)
@@ -172,10 +176,11 @@ struct ComposerView: View {
                 .overlay(alignment: .topTrailing) {
                     if overflows { expandButton }
                 }
-            bar
+            bar.padding(.top, 8)
         }
-        .padding(12)
-        .raised(in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous), fill: Palette.surfaceRaised)
+        .padding(EdgeInsets(top: 14, leading: 12, bottom: 10, trailing: 12))
+        .background(Palette.surface.color, in: shape)
+        .overlay(shape.strokeBorder(Palette.separator.color, lineWidth: 0.5))
         .background {
             GeometryReader { g in
                 let top = g.frame(in: .named(Self.space)).minY
@@ -214,7 +219,7 @@ struct ComposerView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fullHeight = $0 }
         }
-        .font(ChatFont.bubble)
+        .font(.system(size: 17))
         .hidden()
     }
 
@@ -238,10 +243,11 @@ struct ComposerView: View {
     @ViewBuilder
     private var input: some View {
         let placeholder = Composer.placeholder(working: store.busy, stopping: store.stopping, canQueue: caps.sendWhileWorking)
+        let prompt = Text(placeholder).foregroundStyle(Palette.text3.color)
         #if os(iOS)
-            TextField(placeholder, text: $store.draft.text, selection: $selection, axis: .vertical)
+            TextField(text: $store.draft.text, selection: $selection, prompt: prompt, axis: .vertical) { Text(placeholder) }
         #else
-            TextField(placeholder, text: $store.draft.text, axis: .vertical)
+            TextField(placeholder, text: $store.draft.text, prompt: prompt, axis: .vertical)
         #endif
     }
 
@@ -260,10 +266,11 @@ struct ComposerView: View {
         #endif
     }
 
-    /// The desktop's bar: the settings lead, shortened when a phone is too narrow for them, and the context ring, attach,
-    /// Stop and Send stay in view under the thumb at the right.
+    /// Attach leads, then the settings, shortened when a phone is too narrow for them; the context ring, Stop and Send stay
+    /// in view under the thumb at the right.
     private var bar: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 6) {
+            AttachMenu(enabled: !store.armed, circled: true, attach: attach, unreadable: { store.attachUnreadable() })
             ViewThatFits(in: .horizontal) {
                 settings(.full)
                 settings(.short)
@@ -273,8 +280,10 @@ struct ComposerView: View {
                     .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if let agent = store.summary, let (used, window) = ContextMeter.context(agent) { ContextRing(used: used, window: window) }
-            AttachMenu(enabled: !store.armed, attach: attach, unreadable: { store.attachUnreadable() })
+            // The design's bar has no ring; it shows once the window runs short.
+            if let agent = store.summary, let (used, window) = ContextMeter.context(agent), ContextMeter.level(used, window) != .low {
+                ContextRing(used: used, window: window)
+            }
             HStack(spacing: Space.s) {
                 if Composer.stopBesideSteer(store.action, interrupt: caps.interrupt) { GhostStop(enabled: store.online) { store.stop() } }
                 SendButton(
@@ -315,15 +324,10 @@ struct ComposerView: View {
                 Haptics.tap()
                 mapOpen = true
             } label: {
-                HStack(spacing: 5) {
+                PillLabel {
                     Circle().fill((live ? Palette.success : Palette.text4).color).frame(width: 6, height: 6)
                     Text(label)
                 }
-                .font(ChatFont.caption)
-                .foregroundStyle(Palette.text2.color)
-                .padding(.horizontal, 8)
-                .frame(height: 28)
-                .hitTarget()
             }
             .buttonStyle(.plain)
             .accessibilityLabel(full)
@@ -332,29 +336,51 @@ struct ComposerView: View {
 
     // MARK: Footer
 
-    private var footer: some View {
-        HStack(spacing: Space.s) {
-            if let agent = store.summary {
-                if let branch = agent.branch, !branch.isEmpty {
-                    Label { Text(branch) } icon: { Image.lucide(.worktree, size: 12) }.font(ChatFont.monoSmall).lineLimit(1).truncationMode(.middle)
-                }
-                if agent.chatOnly == true, let current = currentAccount(agent) {
-                    AccountChip(accounts: providerAccounts(agent), current: current, provider: agent.provider, machine: machine) { store.switchAccount($0) }
-                }
-            }
-            Spacer(minLength: 0)
-            if let notice = store.notice {
-                Text(notice).foregroundStyle(Palette.waitingText.color).lineLimit(2)
-            } else if let hint = Composer.hint(
-                store.mode, working: store.busy, stopping: store.stopping, empty: store.draft.isEmpty, canQueue: caps.sendWhileWorking, keyboard: keyboard,
-                mac: machine)
-            {
-                Text(hint).lineLimit(1)
-            }
+    /// The branch the agent asks about, which the bar names the rest of the time.
+    private var footerBranch: String? {
+        switch store.mode {
+        case .permission, .question: store.summary?.branch.flatMap { $0.isEmpty ? nil : $0 }
+        default: nil
         }
-        .font(.system(size: 11.5))
-        .foregroundStyle(Palette.text4.color)
-        .padding(.horizontal, 4)
+    }
+
+    private var footerAccount: (agent: AgentSummary, current: Account)? {
+        guard let agent = store.summary, agent.chatOnly == true, let current = currentAccount(agent) else { return nil }
+        return (agent, current)
+    }
+
+    /// An empty box tells what its button does by the button; a draft waiting to go is told how it goes.
+    private var footerHint: String? {
+        if case .prompt = store.mode, store.draft.isEmpty, !store.stopping { return nil }
+        return Composer.hint(
+            store.mode, working: store.busy, stopping: store.stopping, empty: store.draft.isEmpty, canQueue: caps.sendWhileWorking, keyboard: keyboard,
+            mac: machine)
+    }
+
+    @ViewBuilder
+    private var footer: some View {
+        let branch = footerBranch
+        let account = footerAccount
+        let hint = footerHint
+        if branch != nil || account != nil || store.notice != nil || hint != nil {
+            HStack(spacing: Space.s) {
+                if let branch { Text(branch).font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle) }
+                if let account {
+                    AccountChip(
+                        accounts: providerAccounts(account.agent), current: account.current, provider: account.agent.provider, machine: machine
+                    ) { store.switchAccount($0) }
+                }
+                Spacer(minLength: 0)
+                if let notice = store.notice {
+                    Text(notice).foregroundStyle(Palette.waitingText.color).lineLimit(2)
+                } else if let hint {
+                    Text(hint).lineLimit(1)
+                }
+            }
+            .font(.system(size: 12))
+            .foregroundStyle(Palette.text3.color)
+            .padding(.horizontal, Space.m)
+        }
     }
 
     private func providerAccounts(_ agent: AgentSummary) -> [Account] {

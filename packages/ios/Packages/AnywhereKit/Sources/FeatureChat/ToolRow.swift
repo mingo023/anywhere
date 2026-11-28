@@ -37,7 +37,7 @@ struct ToolRow: View {
         let (verb, arg) = toolLine(call)
         let tint = failed ? Palette.failedText : Palette.text3
         return HStack(spacing: 6) {
-            if failed { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)) }
+            if failed { LucideIcon(.close, size: 12, weight: 2.5) }
             HStack(spacing: 6) {
                 if !verb.isEmpty { Text(verb) }
                 switch arg {
@@ -48,7 +48,7 @@ struct ToolRow: View {
             }
             .shimmer(call.status == .running && !background)
             if background { Text("background").foregroundStyle(Palette.text4.color) }
-            if opens { Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .semibold)) }
+            if opens { LucideIcon(open ? .chevronDown : .chevronRight, size: 11) }
         }
         .font(ChatFont.small)
         .foregroundStyle(tint.color)

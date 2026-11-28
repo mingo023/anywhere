@@ -10,7 +10,7 @@ struct TasksCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Image(systemName: "list.bullet").font(.system(size: 11))
+                LucideIcon(.listFlat, size: 13)
                 Text("Tasks").font(ChatFont.mono.weight(.medium))
                 Spacer()
                 Pill(todoProgress(todos), tone: todoCount(todos).done == todos.count ? .success : .neutral)
@@ -35,7 +35,7 @@ struct TasksCard: View {
     private func mark(_ status: Todo.Status) -> some View {
         switch status {
         case .done:
-            Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Palette.successText.color)
+            LucideIcon(.check, size: 10, weight: 3).foregroundStyle(Palette.successText.color)
                 .frame(width: 14, height: 14).background(Palette.successBackground.color, in: Circle())
         case .active: RingSpinner(size: 12)
         case .pending: Circle().strokeBorder(Palette.text5.color, lineWidth: 1.2)

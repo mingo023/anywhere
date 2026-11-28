@@ -20,29 +20,28 @@ struct PermissionCard: View {
     @State private var reply = ""
 
     var body: some View {
-        let (glyph, verb, what) = permissionSubject(ask.tool, ask.toolName)
-        VStack(alignment: .leading, spacing: Space.m) {
+        let what = permissionSubject(ask.tool, ask.toolName).what
+        VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 Circle().fill(Palette.waitingDot.color).frame(width: 8, height: 8)
-                    .padding(3).overlay(Circle().strokeBorder(Palette.waitingBackground.color, lineWidth: 3))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Allow \(ask.toolName)?").font(ChatFont.body.weight(.semibold)).foregroundStyle(Palette.text.color)
-                    Text("\(who) is paused until you answer").font(ChatFont.caption).foregroundStyle(Palette.text3.color)
-                }
+                    .background(Circle().fill(Palette.waitingBackground.color).frame(width: 16, height: 16))
+                Text("Allow \(ask.toolName)?").font(.system(size: 17, weight: .semibold)).foregroundStyle(Palette.text.color)
+                Spacer(minLength: 0)
+                if sent { ProgressView().controlSize(.small) }
             }
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: glyph.symbol).font(.system(size: 12)).foregroundStyle(Palette.text3.color).frame(width: 16)
-                ScrollView {
-                    Text("\(Text(verb).foregroundStyle(Palette.text3.color)) \(Text(what))")
-                        .font(ChatFont.mono).foregroundStyle(Palette.text.color)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-                .frame(maxHeight: 120)
-                .fixedSize(horizontal: false, vertical: true)
+            Text("\(who) is paused until you answer").font(.system(size: 13)).foregroundStyle(Palette.text2.color)
+                .padding(.leading, 18).padding(.top, 4)
+            ScrollView {
+                Text(what)
+                    .font(.system(size: 14, design: .monospaced)).lineSpacing(3).foregroundStyle(Palette.text.color)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding(Space.m)
             }
-            .padding(Space.s)
+            .frame(maxHeight: 120)
+            .fixedSize(horizontal: false, vertical: true)
             .background(Palette.well.color, in: RoundedRectangle(cornerRadius: Radius.small))
+            .padding(.top, 14)
             if answerable {
                 if replying {
                     TextField("Tell the agent what to do instead", text: $reply, axis: .vertical)
@@ -52,50 +51,64 @@ struct PermissionCard: View {
                         .textFieldStyle(.plain)
                         .padding(Space.s)
                         .background(Palette.fill2.color, in: RoundedRectangle(cornerRadius: Radius.small))
+                        .padding(.top, Space.s)
                         .onAppear { focus.wrappedValue = .reply }
                 }
-                HStack(spacing: Space.s) {
-                    button("Deny", primary: false, destructive: true) {
-                        Haptics.warning()
-                        deny(nil)
-                    }
-                    .keyboardShortcut(.escape, modifiers: [])
-                    if feedback {
-                        if replying {
-                            button("Send reply", primary: false) { deny(reply) }.disabled(reply.allSatisfy(\.isWhitespace))
-                        } else {
-                            button("Reply", primary: false) { replying = true }
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    if sent { ProgressView().controlSize(.small) }
-                    button("Allow once", primary: true) {
-                        Haptics.success()
-                        allow()
-                    }
-                    // Return while typing a reply mustn't allow what the reply argues against.
-                    .keyboardShortcut(replying ? nil : KeyboardShortcut(.return, modifiers: []))
-                }
-                .disabled(sent || !online)
-                .opacity(sent || !online ? 0.5 : 1)
+                buttons
+                    .padding(.top, 16)
+                    .disabled(sent || !online)
+                    .opacity(sent || !online ? 0.5 : 1)
             }
         }
-        .padding(Space.m)
-        .background(Palette.surface.color, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Palette.waitingBackground.color, lineWidth: 1))
+        .padding(EdgeInsets(top: 18, leading: 16, bottom: 16, trailing: 16))
+        .background(Palette.surface.color, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Palette.separator.color, lineWidth: 0.5))
         .transition(.opacity)
     }
 
-    private func button(_ title: String, primary: Bool, destructive: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(role: destructive ? .destructive : nil, action: action) {
-            Text(title)
-                .font(ChatFont.small.weight(.semibold))
-                .foregroundStyle((primary ? Palette.onText : destructive ? Palette.failedText : Palette.text).color)
-                .padding(.horizontal, 14)
-                .frame(minHeight: 36)
-                .background((primary ? Palette.text : destructive ? Palette.failedBackground : Palette.fill3).color, in: Capsule())
-                .hitTarget()
+    /// Deny and Reply take a share each and Allow once 1.3, as the design sets them; without Reply, Deny and Allow once.
+    nonisolated static func shares(feedback: Bool) -> [CGFloat] {
+        feedback ? [1, 1, 1.3] : [1, 1.3]
+    }
+
+    private var buttons: some View {
+        let weights = Self.shares(feedback: feedback)
+        return GeometryReader { row in
+            let unit = (row.size.width - Space.s * CGFloat(weights.count - 1)) / weights.reduce(0, +)
+            HStack(spacing: Space.s) {
+                Button(role: .destructive) {
+                    Haptics.warning()
+                    deny(nil)
+                } label: {
+                    Text("Deny").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PillButtonStyle(.destructive))
+                .keyboardShortcut(.escape, modifiers: [])
+                .frame(width: unit * weights[0])
+                if feedback {
+                    if replying {
+                        Button { deny(reply) } label: { Text("Send reply").frame(maxWidth: .infinity) }
+                            .buttonStyle(PillButtonStyle(.secondary))
+                            .disabled(reply.allSatisfy(\.isWhitespace))
+                            .frame(width: unit * weights[1])
+                    } else {
+                        Button { replying = true } label: { Text("Reply").frame(maxWidth: .infinity) }
+                            .buttonStyle(PillButtonStyle(.secondary))
+                            .frame(width: unit * weights[1])
+                    }
+                }
+                Button {
+                    Haptics.success()
+                    allow()
+                } label: {
+                    Text("Allow once").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PillButtonStyle(.primary))
+                // Return while typing a reply mustn't allow what the reply argues against.
+                .keyboardShortcut(replying ? nil : KeyboardShortcut(.return, modifiers: []))
+                .frame(width: unit * weights[weights.count - 1])
+            }
         }
-        .buttonStyle(.plain)
+        .frame(height: 44)
     }
 }
