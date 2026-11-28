@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.69
+
+- fix(desktop): keep a long path chip inside the chat column (#453): (0130d6bf)
+- fix(chat): settle every steer Claude took as one prompt (#454): (bcc78ecc)
+- feat(desktop): an unreachable host's space shows a status page and locks its lists (#452): (7ce32a9a)
+- feat(chat): show every Add to chat quote as a reply (#450): (f93721c2)
+- fix(e2e): end host holders at any depth under a test home (#448): (9523737a)
+
 ## 0.1.68
 
 - feat(desktop): wash the window in a space's theme colours (#447): (6d5a4d11)
