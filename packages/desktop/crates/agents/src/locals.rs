@@ -16,6 +16,11 @@ pub fn is_local(key: &str) -> bool {
     !key.starts_with('/')
 }
 
+/// The host holding the Local `id`, from the tag a host's ids carry; `None` for this Mac's.
+pub fn host(id: &str) -> Option<&str> {
+    id.split_once('/').map(|(host, _)| host)
+}
+
 /// The `agent.create` checkout that starts a session in the tree `key` as it is.
 pub fn checkout(key: &str) -> Value {
     if is_local(key) { json!({"local": key}) } else { json!({"worktree": key}) }
@@ -42,6 +47,8 @@ mod tests {
         assert!(is_local(&new_id()));
         assert!(!is_local("/w/app"));
         assert!(!is_local("//devbox/w/app"));
+        assert!(is_local("devbox/local-1"));
+        assert_eq!((host("devbox/local-1"), host("local-1")), (Some("devbox"), None));
     }
 
     #[test]

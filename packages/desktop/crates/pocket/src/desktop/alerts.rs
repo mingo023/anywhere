@@ -215,9 +215,11 @@ impl Desktop {
         if let Some(term) = exited.filter(|t| self.workspaces.read(cx).values().any(|w| w.holds_term(t))) {
             self.close_pane(&term, cx);
         }
-        if connected && host.is_none() {
-            let offered = self.agents.locals_offered();
+        if connected {
+            let offered = self.agents.locals_offered_by();
             self.new_form.update(cx, |f, _| f.offer_locals(offered));
+        }
+        if connected && host.is_none() {
             self.leave_unoffered_automations();
             self.leave_unoffered_board();
         }

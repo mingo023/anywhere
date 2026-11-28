@@ -1,5 +1,6 @@
 //! Terminals and agents on hosts next to this Mac's: their ids carry the host's, and ops go back to the pocketd holding them.
 
+use agents::locals::Local;
 use agents::{Decision, Event, McpAction, Outbox, Summary};
 use daemon::{Daemon, Info, Msg};
 use serde_json::{Value, json};
@@ -22,8 +23,9 @@ pub fn untag(id: &str) -> (Option<&str>, &str) {
 fn tag_info(host: &str, info: &mut Info) {
     info.id = tag(host, &info.id);
     info.cwd = crate::place(host, &info.cwd);
-    // Locals live on this Mac only.
-    info.local.clear();
+    if !info.local.is_empty() {
+        info.local = tag(host, &info.local);
+    }
 }
 
 /// A message from host `host`'s pocketd, in the desktop's terms: its terminal ids tagged and its folders as keys.
@@ -121,7 +123,7 @@ fn tag_delegation(host: &str, d: &mut agents::delegations::Delegation) {
     }
 }
 
-/// An agent event from host `host`'s pocketd in the desktop's terms, as `tag_msg`; false for news only this Mac's pocketd gives: pairing, the phone, Locals, automations, hosts.
+/// An agent event from host `host`'s pocketd in the desktop's terms, as `tag_msg`; false for news only this Mac's pocketd gives: pairing, the phone, automations, hosts.
 pub fn tag_event(host: &str, ev: &mut Event) -> bool {
     let t = |id: &mut String| *id = tag(host, id);
     match ev {
@@ -173,6 +175,12 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
                 p.worktrees.iter_mut().for_each(|w| w.path = crate::place(host, &w.path));
             }
         }
+        Event::Locals(locals) => {
+            for l in locals {
+                t(&mut l.id);
+                l.project = crate::place(host, &l.project);
+            }
+        }
         Event::WorktreeInspected { request, .. } => t(request),
         Event::WorktreeDeleted { request, reply } => {
             t(request);
@@ -188,7 +196,6 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
         | Event::Paired(_)
         | Event::PairFailed(_)
         | Event::Providers { .. }
-        | Event::Locals(_)
         | Event::Automations { .. }
         | Event::AutomationError(_)
         | Event::Board { .. }
@@ -205,7 +212,7 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
 /// This Mac's pocketd's agent channel and each linked host's, sending every message to the pocketd its ids name, in that one's terms.
 #[derive(Clone)]
 pub struct Outboxes {
-    /// For what only this Mac's pocketd does: pairing, the phone, Locals, automations.
+    /// For what only this Mac's pocketd does: pairing, the phone, automations.
     pub local: Outbox,
     hosts: Arc<Mutex<HashMap<String, Outbox>>>,
 }
@@ -392,6 +399,21 @@ impl Outboxes {
         }
     }
 
+    pub fn local_create(&self, local: &Local) {
+        let (host, id) = untag(&local.id);
+        if let Some(out) = self.to(host) {
+            out.local_create(&Local { id: id.into(), project: crate::split(&local.project).1.into(), name: local.name.clone() });
+        }
+    }
+
+    pub fn local_rename(&self, id: &str, title: &str) {
+        self.by_id(id, |o, id| o.local_rename(id, title));
+    }
+
+    pub fn local_delete(&self, id: &str) {
+        self.by_id(id, |o, id| o.local_delete(id));
+    }
+
     /// Sends `send` to the pocketd holding `key`, with `key` in its paths; false while that one isn't connected.
     fn by_path(&self, key: &str, send: impl FnOnce(&Outbox, &str)) -> bool {
         let (host, path) = crate::split(key);
@@ -442,6 +464,9 @@ impl Outboxes {
         if let Some(tree) = spec["checkout"]["worktree"].as_str().map(|t| crate::split(t).1.to_string()) {
             spec["checkout"]["worktree"] = tree.into();
         }
+        if let Some(local) = spec["checkout"]["local"].as_str().map(|l| untag(l).1.to_string()) {
+            spec["checkout"]["local"] = local.into();
+        }
         let request = agents::request_id();
         let tagged = tag(host, &request);
         let Some(out) = self.to(Some(host)) else { return Err(host.into()) };
@@ -487,10 +512,17 @@ mod tests {
     }
 
     #[test]
-    fn a_hosts_terminal_is_tagged_with_the_host_and_its_folder_keyed_under_it() {
-        let mut m = Msg { ev: "terminals".into(), items: vec![Info { local: "local-1".into(), ..info("7f3a", "/home/me/app") }], ..Msg::default() };
+    fn a_hosts_terminal_is_tagged_with_the_host_and_its_folder_and_local_keyed_under_it() {
+        let mut m = Msg {
+            ev: "terminals".into(),
+            items: vec![Info { local: "local-1".into(), ..info("7f3a", "/home/me/app") }, info("8b4c", "/home/me/app")],
+            ..Msg::default()
+        };
         tag_msg("devbox", &mut m);
-        assert_eq!(m.items, vec![info("devbox/7f3a", "//devbox/home/me/app")]);
+        assert_eq!(
+            m.items,
+            vec![Info { local: "devbox/local-1".into(), ..info("devbox/7f3a", "//devbox/home/me/app") }, info("devbox/8b4c", "//devbox/home/me/app")]
+        );
         let mut out = Msg { ev: "output".into(), id: "7f3a".into(), ..Msg::default() };
         tag_msg("devbox", &mut out);
         assert_eq!(out.id, "devbox/7f3a");
@@ -558,7 +590,34 @@ mod tests {
         assert!(matches!(unstopped, Event::InterruptFailed { agent, .. } if agent == "devbox/a1"));
 
         assert!(!tag_event("devbox", &mut Event::Paired("iPhone".into())));
-        assert!(!tag_event("devbox", &mut Event::Locals(Vec::new())));
+    }
+
+    #[test]
+    fn a_hosts_locals_are_named_by_tagged_ids_under_its_projects() {
+        let mut locals = Event::Locals(vec![Local { id: "local-1".into(), project: "/home/me/app".into(), name: "Local 2".into() }]);
+        assert!(tag_event("devbox", &mut locals));
+        assert!(matches!(locals, Event::Locals(l) if l[0].id == "devbox/local-1" && l[0].project == "//devbox/home/me/app" && l[0].name == "Local 2"));
+    }
+
+    #[test]
+    fn a_hosts_locals_are_made_renamed_and_deleted_there_in_its_own_ids_and_paths() {
+        let (out, here, there) = outboxes();
+        out.local_create(&Local { id: "devbox/local-1".into(), project: "//devbox/home/me/app".into(), name: "Local 2".into() });
+        out.local_rename("devbox/local-1", "Fix");
+        out.local_delete("devbox/local-1");
+        out.local_rename("local-9", "Mine");
+        let sent: Vec<Value> = there.try_iter().collect();
+        assert_eq!(sent[0], json!({"type": "local.create", "id": "local", "localId": "local-1", "project": "/home/me/app", "name": "Local 2"}));
+        assert_eq!((&sent[1]["type"], &sent[1]["localId"]), (&json!("local.rename"), &json!("local-1")));
+        assert_eq!((&sent[2]["type"], &sent[2]["localId"]), (&json!("local.delete"), &json!("local-1")));
+        assert_eq!(here.try_iter().map(|m| m["localId"].clone()).collect::<Vec<_>>(), [json!("local-9")]);
+    }
+
+    #[test]
+    fn a_create_in_a_hosts_local_names_the_local_by_that_hosts_id() {
+        let (out, _here, there) = outboxes();
+        out.create(json!({"project": "//devbox/home/me/app", "checkout": {"local": "devbox/local-1"}})).unwrap();
+        assert_eq!(there.try_iter().next().unwrap()["spec"]["checkout"], json!({"local": "local-1"}));
     }
 
     #[test]

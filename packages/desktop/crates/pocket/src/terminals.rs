@@ -126,7 +126,7 @@ impl Terminals {
     /// pocketd went away: the spawns it never answered will never be.
     pub(crate) fn disconnected(&mut self, now: Instant) {
         self.link.down(now);
-        self.intents.retain(|i| hosts::split(&i.0).0.is_some());
+        self.intents.retain(|i| hosts::host_of(&i.0).is_some());
     }
 
     /// pocketd answered again: its terminals may have changed, so forget the screens.
@@ -137,7 +137,7 @@ impl Terminals {
 
     /// A host's pocketd went away: its spawns go unanswered, and its terminals' screens are gone until it lists them again.
     pub(crate) fn host_down(&mut self, host: &str) {
-        self.intents.retain(|i| hosts::split(&i.0).0 != Some(host));
+        self.intents.retain(|i| hosts::host_of(&i.0) != Some(host));
         self.forget_screens(Some(host));
     }
 
@@ -158,7 +158,7 @@ impl Terminals {
 
     /// Matches a terminal pocketd `host` spawned to the oldest intent sent to it.
     pub(crate) fn spawned(&mut self, host: Option<&str>) -> Option<Intent> {
-        let at = self.intents.iter().position(|i| hosts::split(&i.0).0 == host)?;
+        let at = self.intents.iter().position(|i| hosts::host_of(&i.0) == host)?;
         self.intents.remove(at)
     }
 
@@ -404,7 +404,7 @@ impl Desktop {
         if self.agents.observe_only() {
             return;
         }
-        let host = hosts::split(&intent.0).0.map(str::to_string);
+        let host = hosts::host_of(&intent.0).map(str::to_string);
         let sent = self.daemon.send_to(host.as_deref(), op);
         self.terminals.update(cx, |t, _| t.spawn_sent(sent, intent));
         match host.filter(|_| !sent).map(|h| format!("{} isn't connected", self.host_name(&h))) {
@@ -488,7 +488,7 @@ impl Desktop {
             daemon::as_agent(&mut op, agent, argv);
         }
         if is_local(&tree) {
-            op["local"] = tree.clone().into();
+            op["local"] = hosts::session::untag(&tree).1.into();
         }
         self.send_spawn(op, Intent(tree, place), cx);
     }

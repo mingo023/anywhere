@@ -149,6 +149,11 @@ pub fn split(key: &str) -> (Option<&str>, &str) {
     (Some(id), drive.unwrap_or(path))
 }
 
+/// The host holding the tree `key`, a path or a Local's id; `None` for this Mac's.
+pub fn host_of(key: &str) -> Option<&str> {
+    if agents::locals::is_local(key) { agents::locals::host(key) } else { split(key).0 }
+}
+
 /// Whether a host's `path` starts with a drive, as only Windows paths do.
 pub fn on_windows(path: &str) -> bool {
     matches!(path.as_bytes(), [d, b':', ..] if d.is_ascii_alphabetic())
@@ -171,6 +176,13 @@ mod tests {
 
     fn address(addr: &str) -> Target {
         Target::Address { addr: addr.into(), port: 22, user: String::new(), key_file: None }
+    }
+
+    #[test]
+    fn a_tree_is_held_by_the_host_its_path_or_local_id_names() {
+        assert_eq!(host_of("//devbox/home/me/app"), Some("devbox"));
+        assert_eq!(host_of(&session::tag("devbox", "local-1")), Some("devbox"));
+        assert_eq!((host_of("/src/app"), host_of("local-1")), (None, None));
     }
 
     #[test]

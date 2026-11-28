@@ -77,7 +77,7 @@ impl Desktop {
             return cx.notify();
         }
         if is_local(tree) && !title.is_empty() {
-            self.outbox.local.local_rename(tree, title);
+            self.outbox.local_rename(tree, title);
             self.agents.rename_local(tree, title);
         } else if !is_local(tree) {
             self.outbox.rename(tree, title);
