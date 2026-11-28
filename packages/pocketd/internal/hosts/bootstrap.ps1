@@ -39,10 +39,14 @@ function WriteShim($exe) {
   [IO.File]::WriteAllText((Join-Path $bin 'pocketd.cmd'), "@set `"POCKET_HOME=$HomeDir`"`r`n@`"$exe`" %*`r`n")
 }
 
+function Listener {
+  Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort (Port) -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+}
+
 # A pocketd the Windows app started never got a shim.
 function EnsureShim {
   if (Test-Path (Join-Path $HomeDir 'bin\pocketd.cmd')) { return }
-  $listener = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort (Port) -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+  $listener = Listener
   if ($listener) { WriteShim (Get-Process -Id $listener.OwningProcess).Path }
 }
 
@@ -90,6 +94,13 @@ try {
       $ErrorActionPreference = 'Continue'
       schtasks.exe /End /TN $Label 2>&1 | Out-Null
       $ErrorActionPreference = 'Stop'
+      # /End ends only the process the task started, so a pocketd started through a wrapper like cmd.exe outlives it.
+      $listener = Listener
+      if ($listener) {
+        $old = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
+        if ($old.Path -and $old.Path -notlike (Join-Path $HomeDir 'runtime\*')) { throw "pocketd here runs from $($old.Path), which an update can't replace; update the Zoes app on this PC instead" }
+        Stop-Process -Force -Id $listener.OwningProcess -ErrorAction SilentlyContinue
+      }
       $deadline = (Get-Date).AddSeconds(15)
       while (Answers) {
         if ((Get-Date) -gt $deadline) { throw "pocketd didn't stop within 15s" }
