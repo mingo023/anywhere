@@ -10,52 +10,53 @@ struct EnterCodeView: View {
     @State private var code = ""
     @State private var pasteFound = true
 
-    init(model: PairingModel) {
+    init(model: PairingModel, code: String = "") {
         self.model = model
         _host = State(initialValue: model.knownHost ?? "")
+        _code = State(initialValue: code)
     }
 
     private var link: PairingLink? { PairingEntry.link(host: host, code: code) }
 
     var body: some View {
-        Form {
-            Section {
-                TextField("100.101.102.103", text: $host)
-                    .plainEntry()
-                    .accessibilityLabel("Mac address")
-            } header: {
-                Text("Mac address")
-            } footer: {
-                Text("The Mac's Tailscale address or name. Port 4517 is added if you leave it out.")
-            }
-            Section {
-                TextField("22 letters and digits", text: $code)
-                    .font(Typography.code)
-                    .plainEntry()
-                    .onSubmit(next)
-                    .accessibilityLabel("Pairing code")
-            } header: {
-                Text("Code")
-            } footer: {
-                Text("Your Mac shows it under the QR code.")
-            }
-            Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                GroupHeader("Machine address")
+                field(TextField("100.101.102.103", text: $host).font(.system(size: 16, design: .monospaced)).accessibilityLabel("Machine address"))
+                Footnote("Tailscale address or name. Port 4517 is added automatically.")
+                GroupHeader("Code")
+                field(
+                    TextField("22 letters and digits", text: $code).font(.system(size: 17, design: .monospaced)).onSubmit(next).accessibilityLabel("Pairing code"))
+                Footnote("Shown under the QR code on your Mac.")
                 PasteButton(payloadType: String.self) { strings in
                     Task { @MainActor in pasteFound = strings.first.map { model.open($0) } ?? false }
                 }
                 .labelStyle(.titleAndIcon)
-            } footer: {
-                Text(pasteFound ? "Paste the pairing link or the line pocketd pair prints." : "There's no pairing code in what you copied.")
-                    .foregroundStyle(pasteFound ? Palette.text3.color : Palette.failedText.color)
+                .padding(.horizontal, Inset.margin)
+                .padding(.top, Space.xl)
+                Footnote(pasteFound ? "Paste the pairing link or the line pocketd pair prints." : "There's no pairing code in what you copied.", failed: !pasteFound)
             }
         }
-        .formStyle(.grouped)
-        .navigationTitle("Enter code")
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Next", action: next).disabled(link == nil)
-            }
+        .scrollDismissesKeyboard(.interactively)
+        .safeAreaInset(edge: .bottom) {
+            Button("Next", action: next)
+                .buttonStyle(LargeButtonStyle())
+                .disabled(link == nil)
+                .padding(.horizontal, 20)
+                .padding(.bottom, Space.s)
         }
+        .screenBackground()
+        .pairingBar("Enter code")
+    }
+
+    private func field(_ field: some View) -> some View {
+        field
+            .textFieldStyle(.plain)
+            .plainEntry()
+            .foregroundStyle(Palette.text.color)
+            .padding(.horizontal, Inset.margin)
+            .frame(height: HitTarget.minimum)
+            .insetGroup()
     }
 
     private func next() {

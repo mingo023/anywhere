@@ -100,6 +100,23 @@ struct PairingFailureCopyTests {
         #expect(EndedView.copy(.updatePhone, mac: "Studio").title == "Update this app")
     }
 
+    @Test("a code that fails is a Couldn't pair that says which way, with the frame's wording for an expired one")
+    func codeFailures() {
+        let codes: [PairingFailure] = [.expired, .used, .invalid, .locked, .rateLimited, .failed("x")]
+        #expect(codes.allSatisfy { $0.copy(mac: "Studio").title == "Couldn't pair" })
+        #expect(PairingFailure.expired.copy(mac: "Studio").message == "The code expired. Make a new one on your Mac and try again.")
+        #expect(PairingFailure.locked.copy(mac: "Studio").message.contains("Studio"))
+    }
+
+    @MainActor
+    @Test("every onboarding frame is a scene in dark and light")
+    func gallery() {
+        let names = PairingGallery.scenes.map(\.name)
+        for frame in ["01-welcome", "02-scan", "02b-scan-camera-denied", "03-enter-code", "04-confirm", "04b-confirm-pairing", "04c-confirm-failed", "04d-confirm-tailscale-missing"] {
+            #expect(names.contains("\(frame)-dark") && names.contains("\(frame)-light"), "\(frame)")
+        }
+    }
+
     @Test("a failure the phone doesn't know shows what the Mac said")
     func passthrough() {
         #expect(PairingFailure.failed("Pairing failed. Make a new code on your Mac.").copy(mac: "M").message == "Pairing failed. Make a new code on your Mac.")
