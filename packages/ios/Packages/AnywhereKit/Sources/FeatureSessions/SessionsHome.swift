@@ -109,7 +109,7 @@ public struct SessionsHome: View {
             if block.rows.isEmpty {
                 FirstLoad(host: host).frame(maxWidth: .infinity, minHeight: 96)
             } else {
-                VStack(spacing: 0) {
+                LazyVStack(spacing: 0) {
                     ForEach(Array(block.rows.enumerated()), id: \.element.id) { index, row in
                         self.row(row, host: host).rowDivider(index > 0)
                     }

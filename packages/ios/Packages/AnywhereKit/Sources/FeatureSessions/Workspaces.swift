@@ -1,14 +1,6 @@
 import Domain
 import Stores
 
-/// Where a session runs, as Up next and Working name it: its project and its branch, or its Local.
-struct SessionPlace: Hashable {
-    let project: String
-    let tree: String
-
-    var line: String { "\(project) · \(tree)" }
-}
-
 /// What the Sessions home says about projects and sessions, over plain data.
 enum Workspaces {
     /// "GM" for glow-me; a one-word name gives its first two letters.

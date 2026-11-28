@@ -61,6 +61,12 @@ public enum Reachability: Hashable, Sendable {
         }
     }
 
+    /// Whether a link that just came back says "Back online": only after a drop long enough to have shown a strip, so a
+    /// first connect or a blip passes quietly.
+    public static func backOnline(offlineSince: Date?, at now: Date) -> Bool {
+        offlineSince.map { now.timeIntervalSince($0) >= reconnectingAfter } ?? false
+    }
+
     /// How long until the reading changes on its own, so a view redraws then and not every second.
     public static func nextChange(offlineFor: TimeInterval) -> TimeInterval? {
         if offlineFor < reconnectingAfter { return reconnectingAfter - offlineFor }

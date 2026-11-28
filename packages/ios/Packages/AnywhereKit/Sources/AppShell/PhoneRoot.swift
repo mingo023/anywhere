@@ -36,7 +36,10 @@ struct PhoneRoot: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if Tab.showsBar(over: navigator.path(tab)) {
-                GlassTabBar(TabItems.items(app.hosts), selection: $navigator.tab)
+                // Redrawn when a Mac's link crosses into reconnecting or unreachable, which changes nothing observable.
+                TimelineView(.explicit(app.hosts.flatMap(\.reachabilityMarks))) { _ in
+                    GlassTabBar(TabItems.items(app.hosts), selection: $navigator.tab)
+                }
             }
         }
     }

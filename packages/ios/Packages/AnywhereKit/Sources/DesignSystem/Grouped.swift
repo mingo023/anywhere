@@ -7,12 +7,6 @@ extension View {
         background(Palette.background.color.ignoresSafeArea())
     }
 
-    /// A grouped card: rows inset from the screen's edges on a raised surface.
-    public func groupedCard() -> some View {
-        padding(.vertical, Space.xs)
-            .background(Palette.surface.color, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-            .padding(.horizontal, Space.l)
-    }
 }
 
 /// What a screen shows before its feature is built, or while it has nothing yet; with an action, such as Try Again

@@ -61,23 +61,6 @@ struct PrPill: View {
     }
 }
 
-/// The PR's state icon, as GitHub draws it.
-@MainActor
-struct PrGlyph: View {
-    let state: String
-    let draft: Bool
-    var size: CGFloat = 16
-    var tone: PrTone?
-
-    var body: some View {
-        let g = PullRequestText.glyph(state: state, draft: draft)
-        LucideIcon(g.icon, size: size)
-            .foregroundStyle((tone ?? g.tone).icon.color)
-            .accessibilityElement()
-            .accessibilityLabel(state == "OPEN" ? (draft ? "Draft" : "Open") : state.capitalized)
-    }
-}
-
 /// The PR's state as the header's pill: its icon and word in the state's colour on a tint of it.
 @MainActor
 struct PrStateBadge: View {

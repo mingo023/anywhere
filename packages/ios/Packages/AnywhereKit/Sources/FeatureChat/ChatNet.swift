@@ -62,9 +62,8 @@ struct ChatNetwork<Content: View>: View {
                 content(forced)
             }
         }
-        .onChange(of: host?.link == .online) { was, now in
-            guard now, !was, host?.hello != nil else { return }
-            back = true
+        .onChange(of: host?.offlineSince) { was, now in
+            if now == nil, Reachability.backOnline(offlineSince: was, at: .now) { back = true }
         }
         .task(id: back) {
             guard back else { return }

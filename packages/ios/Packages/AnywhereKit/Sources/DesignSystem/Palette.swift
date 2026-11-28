@@ -95,9 +95,6 @@ public enum Palette {
     public static let diffHunkText = Token(0x59636eff, 0x9198a1ff)
 
     public static let graphHead = Token(0x1a5cffff, 0x57a3f8ff)
-    public static let graphUpstream = Token(0x652d90ff, 0xad80d7ff)
-    public static let graphBase = Token.fixed(0xea5c00ff)
-    public static let graphLanes: [Token] = [.fixed(0xffb000ff), .fixed(0xdc267fff), .fixed(0x994f00ff), .fixed(0x40b0a6ff), .fixed(0xb66dffff)]
 
     public static let markdownText = Token(0x000000d9, 0xffffffd9)
     public static let markdownText2 = Token(0x00000080, 0xffffff8c)

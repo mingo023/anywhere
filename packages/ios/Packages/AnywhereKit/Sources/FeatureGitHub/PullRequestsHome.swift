@@ -42,7 +42,7 @@ public struct PullRequestsHome: View {
                 }
                 ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                     CountedHeader(group.section.title, count: group.entries.count, first: index == 0)
-                    VStack(spacing: 0) {
+                    LazyVStack(spacing: 0) {
                         ForEach(Array(group.entries.enumerated()), id: \.element.id) { row, entry in
                             self.row(entry, divided: row > 0)
                         }
@@ -83,7 +83,7 @@ public struct PullRequestsHome: View {
             case .fix?:
                 if let open { Button { open(entry.route) } label: { Label("Fix", lucide: .sparkle) } }
             case .merge?:
-                Button { merging = entry } label: { Label("Merge…", lucide: .merge) }.disabled(!online)
+                Button { merging = entry } label: { Label("Merge…", lucide: .merge) }.disabled(!online || busy.contains(entry.id))
             case nil:
                 EmptyView()
             }

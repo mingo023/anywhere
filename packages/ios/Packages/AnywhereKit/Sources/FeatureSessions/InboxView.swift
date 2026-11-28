@@ -33,8 +33,8 @@ public struct InboxView: View {
         }
         .screenBackground()
         .cornerButtons { NewSessionButton(hosts: hosts, open: open) }
-        .onChange(of: hosts.map { $0.link == .online }) { was, now in
-            if zip(was, now).enumerated().contains(where: { !$1.0 && $1.1 && hosts[$0].hello != nil }) { back = true }
+        .onChange(of: hosts.map(\.offlineSince)) { was, now in
+            if zip(was, now).contains(where: { $1 == nil && Reachability.backOnline(offlineSince: $0, at: .now) }) { back = true }
         }
         .task(id: back) {
             guard back else { return }
@@ -93,7 +93,7 @@ public struct InboxView: View {
     }
 
     private func rows(_ entries: [InboxLayout.Entry]) -> some View {
-        VStack(spacing: 0) { list(entries) }.insetGroup()
+        LazyVStack(spacing: 0) { list(entries) }.insetGroup()
     }
 
     @ViewBuilder

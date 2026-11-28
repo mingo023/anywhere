@@ -36,62 +36,6 @@ public enum PullRequestText {
         }
     }
 
-    /// Whether it merges cleanly into its base, when the gate hasn't said so already.
-    public static func mergeable(_ pr: PullRequest) -> String? {
-        if [.ready, .conflicts, .checking, .done].contains(pr.gate) { return nil }
-        switch pr.mergeable {
-        case "MERGEABLE": return gate(.ready, base: pr.base)
-        case "CONFLICTING": return gate(.conflicts, base: pr.base)
-        default: return gate(.checking, base: pr.base)
-        }
-    }
-
-    /// Where the PR stands in one line, in its colour: all a folded card says (`verdict`). `busy` is what gh is doing for it.
-    public static func verdict(_ pr: PullRequest, busy: String? = nil) -> (PrTone, String) {
-        switch pr.state {
-        case "MERGED": return (.merged, "Merged into \(pr.base)")
-        case "CLOSED": return (.muted, "Closed")
-        default: break
-        }
-        if let busy { return (.waiting, busy) }
-        let c = pr.checks
-        switch pr.gate {
-        case .draft: return (.muted, "Draft")
-        case .ready: return (.success, "Ready to merge")
-        case .conflicts: return (.failed, gate(.conflicts, base: pr.base))
-        case .checksFailed where pr.review == "CHANGES_REQUESTED": return (.failed, "\(plural(c.failed, "check")) failed · changes requested")
-        case .checksFailed: return (.failed, "\(plural(c.failed, "check")) failed")
-        case .checksRunning: return (.waiting, "\(plural(c.pending, "check")) in progress")
-        case .changesRequested: return (.failed, "Changes requested")
-        default: return (.quiet, gate(pr.gate, base: pr.base))
-        }
-    }
-
-    /// A list row's colour: by state, then by its worst check (`tone`).
-    public static func tone(state: String, draft: Bool, checks c: Checks) -> PrTone {
-        switch state {
-        case "MERGED": .merged
-        case "CLOSED": .muted
-        case _ where draft: .muted
-        case _ where c.failed > 0: .failed
-        case _ where c.pending > 0: .waiting
-        case _ where c.passed > 0: .success
-        default: .quiet
-        }
-    }
-
-    /// "Draft · 1 pending", "3 failed · 2 pending · 3 passed", "Merged · No checks" (`detail`).
-    public static func detail(state: String, draft: Bool, checks c: Checks) -> String {
-        let label: String? = switch state {
-        case "MERGED": "Merged"
-        case "CLOSED": "Closed"
-        default: draft ? "Draft" : nil
-        }
-        let counts = tally([(c.failed, "failed"), (c.pending, "pending"), (c.passed, "passed")])
-        let checks = counts.isEmpty ? "No checks" : counts
-        return label.map { "\($0) · \(checks)" } ?? checks
-    }
-
     /// The PR's icon and colour, as GitHub shows its state whatever its checks (`glyph`).
     public static func glyph(state: String, draft: Bool) -> (icon: Lucide, tone: PrTone) {
         switch state {
@@ -115,12 +59,6 @@ public enum PullRequestText {
         parts.filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }.joined(separator: " · ")
     }
 
-    /// "3 things to fix", over "1 failed check · 2 review comments" (`fix_summary`).
-    public static func fixSummary(checks: Int, comments: Int) -> (title: String, detail: String) {
-        let parts = [(checks, "failed check"), (comments, "review comment")].filter { $0.0 > 0 }.map { plural($0.0, $0.1) }
-        return ("\(plural(checks + comments, "thing")) to fix", parts.joined(separator: " · "))
-    }
-
     /// While the agent sent the conflict works on it (`resolving_text`).
     public static func resolving(_ agent: String) -> String {
         "\(agent) is resolving the conflict"
@@ -133,20 +71,6 @@ public enum PullRequestText {
     /// A reviewer's verdict or a pending ask, for the review rows.
     public enum ReviewMark: Hashable, Sendable {
         case approved, changesRequested, requested, none
-    }
-
-    /// Who approved or asked for changes, then who is still asked; "No review yet" when nobody (`review_lines`).
-    public static func reviews(_ pr: PullRequest) -> [(ReviewMark, String)] {
-        var lines: [(ReviewMark, String)] = pr.reviews.compactMap { r in
-            switch r.state {
-            case "APPROVED": (.approved, "\(r.login) approved")
-            case "CHANGES_REQUESTED": (.changesRequested, "\(r.login) requested changes")
-            default: nil
-            }
-        }
-        if !pr.requested.isEmpty { lines.append((.requested, "Review requested from \(pr.requested.joined(separator: ", "))")) }
-        if lines.isEmpty { lines.append((.none, "No review yet")) }
-        return lines
     }
 
     /// The checks named one by one, failed before pending; the passed and skipped ones are only counted (`check_rows`).
@@ -162,13 +86,6 @@ public enum PullRequestText {
         return CheckRows(
             named: failed + pending, passed: pr.runs.filter { $0.outcome == "passed" }.count,
             skipped: pr.runs.filter { $0.outcome == "skipped" }.count)
-    }
-
-    /// One line over the checks: "1 failed · 1 pending · 5 passed", or that there are none.
-    public static func checksSummary(_ pr: PullRequest) -> String {
-        let rows = checkRows(pr)
-        let s = tally([(pr.checks.failed, "failed"), (pr.checks.pending, "pending"), (rows.passed, "passed"), (rows.skipped, "skipped")])
-        return s.isEmpty ? "No checks on this branch" : s
     }
 
     /// "1 commit", "3 commits" (`commits`).

@@ -52,47 +52,6 @@ struct PullRequestTextTests {
         #expect(PullRequestText.gate(.done, base: "main") == "")
     }
 
-    @Test("the merge section says whether it merges cleanly unless the gate already did")
-    func mergeable() {
-        #expect(PullRequestText.mergeable(pr { $0.gate = .checksFailed }) == "No conflicts with main")
-        #expect(PullRequestText.mergeable(pr { $0.gate = .draft; $0.mergeable = "UNKNOWN" }) == "Checking for conflicts…")
-        #expect(PullRequestText.mergeable(pr { $0.gate = .ready }) == nil)
-        #expect(PullRequestText.mergeable(pr { $0.gate = .conflicts; $0.mergeable = "CONFLICTING" }) == nil)
-    }
-
-    @Test("a folded card says what holds the PR back in its colour")
-    func verdict() {
-        let failed = Checks(passed: 5, failed: 2, pending: 1)
-        #expect(PullRequestText.verdict(pr { $0.checks = failed; $0.review = "CHANGES_REQUESTED"; $0.gate = .checksFailed }) == (.failed, "2 checks failed · changes requested"))
-        #expect(PullRequestText.verdict(pr { $0.checks = Checks(passed: 0, failed: 0, pending: 1); $0.gate = .checksRunning }) == (.waiting, "1 check in progress"))
-        #expect(PullRequestText.verdict(pr { $0.checks = Checks(passed: 3, failed: 0, pending: 0); $0.review = "APPROVED" }) == (.success, "Ready to merge"))
-        #expect(PullRequestText.verdict(pr { $0.mergeable = "CONFLICTING"; $0.gate = .conflicts }) == (.failed, "Conflicts with main"))
-        #expect(PullRequestText.verdict(pr { $0.draft = true; $0.gate = .draft }) == (.muted, "Draft"))
-        #expect(PullRequestText.verdict(pr { $0.gate = .reviewRequired }) == (.quiet, "Needs an approving review"))
-    }
-
-    @Test("what gh is doing comes before what holds the PR back")
-    func busy() {
-        #expect(PullRequestText.verdict(pr { $0.gate = .checksFailed }, busy: "Merging…") == (.waiting, "Merging…"))
-    }
-
-    @Test("a merged card names where it went")
-    func merged() {
-        #expect(PullRequestText.verdict(pr { $0.state = "MERGED"; $0.gate = .done }, busy: "Merging…") == (.merged, "Merged into main"))
-        #expect(PullRequestText.verdict(pr { $0.state = "CLOSED"; $0.gate = .done }) == (.muted, "Closed"))
-    }
-
-    @Test("the review lists verdicts then who is still asked")
-    func reviews() {
-        let p = pr {
-            $0.reviews = [Review(login: "mira", state: "APPROVED"), Review(login: "bo", state: "COMMENTED"), Review(login: "li", state: "CHANGES_REQUESTED")]
-            $0.requested = ["kai", "jo"]
-        }
-        #expect(PullRequestText.reviews(p).map(\.1) == ["mira approved", "li requested changes", "Review requested from kai, jo"])
-        #expect(PullRequestText.reviews(pr()).map(\.0) == [.none])
-        #expect(PullRequestText.reviews(pr()).map(\.1) == ["No review yet"])
-    }
-
     @Test("failed checks are named before running ones and the rest are only counted")
     func checkRows() {
         let rows = PullRequestText.checkRows(pr { $0.runs = [check("a", "passed"), check("b", "pending"), check("c", "failed"), check("d", "skipped"), check("e", "passed")] })
@@ -105,28 +64,6 @@ struct PullRequestTextTests {
         #expect(PullRequestText.tally([(5, "passed"), (1, "skipped")]) == "5 passed · 1 skipped")
         #expect(PullRequestText.tally([(3, "passed"), (0, "skipped")]) == "3 passed")
         #expect(PullRequestText.tally([(0, "passed"), (2, "skipped")]) == "2 skipped")
-    }
-
-    @Test("a list row names the state and counts the checks")
-    func detail() {
-        #expect(PullRequestText.detail(state: "OPEN", draft: false, checks: Checks(passed: 3, failed: 3, pending: 2)) == "3 failed · 2 pending · 3 passed")
-        #expect(PullRequestText.detail(state: "MERGED", draft: false, checks: Checks(passed: 0, failed: 0, pending: 0)) == "Merged · No checks")
-        #expect(PullRequestText.detail(state: "OPEN", draft: true, checks: Checks(passed: 0, failed: 0, pending: 1)) == "Draft · 1 pending")
-    }
-
-    @Test("a row is toned by state then by its worst check")
-    func tone() {
-        let c = { (f: Int, p: Int, ok: Int) in Checks(passed: ok, failed: f, pending: p) }
-        let tones = [
-            PullRequestText.tone(state: "MERGED", draft: false, checks: c(1, 0, 0)),
-            PullRequestText.tone(state: "CLOSED", draft: false, checks: c(0, 0, 1)),
-            PullRequestText.tone(state: "OPEN", draft: true, checks: c(1, 0, 0)),
-            PullRequestText.tone(state: "OPEN", draft: false, checks: c(1, 1, 1)),
-            PullRequestText.tone(state: "OPEN", draft: false, checks: c(0, 1, 1)),
-            PullRequestText.tone(state: "OPEN", draft: false, checks: c(0, 0, 1)),
-            PullRequestText.tone(state: "OPEN", draft: false, checks: c(0, 0, 0)),
-        ]
-        #expect(tones == [.merged, .muted, .muted, .failed, .waiting, .success, .quiet])
     }
 
     @Test("a PR's icon shows its state as GitHub does, whatever its checks")
@@ -178,13 +115,6 @@ struct PullRequestTextTests {
     func problemText() {
         #expect(GhProblemView.text(.signedOut, mac: "Studio") == ("GitHub CLI isn't signed in", "On Studio, run gh auth login."))
         #expect(GhProblemView.text(.missing, mac: "Studio").detail == "On Studio, run brew install gh, then gh auth login.")
-    }
-
-    @Test("the callout counts what there is to fix")
-    func fixSummary() {
-        #expect(PullRequestText.fixSummary(checks: 1, comments: 2) == ("3 things to fix", "1 failed check · 2 review comments"))
-        #expect(PullRequestText.fixSummary(checks: 0, comments: 1) == ("1 thing to fix", "1 review comment"))
-        #expect(PullRequestText.resolving("Claude") == "Claude is resolving the conflict")
     }
 
     @Test("the create button says draft when it makes one, and what gh does while it works")
@@ -371,7 +301,6 @@ struct GoldenPrTests {
         let reply = try JSONDecoder().decode(GhPr.self, from: Data(contentsOf: url))
         let pr = try #require(reply.pr)
         #expect(pr.gate == .checksRunning)
-        #expect(PullRequestText.verdict(pr) == (.waiting, "1 check in progress"))
         #expect(PullRequestText.checkRows(pr).named.map(\.name) == ["lint"])
         #expect(ThreadGroups.group(pr.threads, ThreadFilter()).map(\.path) == ["src/sync.rs"])
         #expect(FixPrompt.hunkTail(pr.threads[0].comments[0].hunk) == [" fn sync() {", "+    loop {", "+        retry();"])

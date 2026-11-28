@@ -262,7 +262,6 @@ public final class Navigator {
         }
     }
 
-    /// What state restoration keeps.
     /// What state restoration keeps. Older saves have `terminals` and `settings` stacks and no Inbox or PRs ones.
     public struct Saved: Codable, Hashable, Sendable {
         public var tab: Tab
