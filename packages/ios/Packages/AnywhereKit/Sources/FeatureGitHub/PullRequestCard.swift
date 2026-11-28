@@ -143,10 +143,12 @@ struct PullRequestCard: View {
                     PrListRow(icon: .commit, title: PullRequestText.commits(commits)).rowDivider(true, leading: PrListRow.textColumn)
                 }
             }
-            // A value link, so the screen is in the stack's path and a file opened from it keeps it.
-            PushRow(value: Route.reviewThreads(mac: mac.id, tree: model.tree, chat: fix.opener)) {
-                PrListRow(icon: .comment, title: "Review threads", detail: pr.threads.isEmpty ? nil : open == 0 ? "All resolved" : "\(open) unresolved")
-                    .rowDivider(true, leading: PrListRow.textColumn)
+            if !pr.threads.isEmpty {
+                // A value link, so the screen is in the stack's path and a file opened from it keeps it.
+                PushRow(value: Route.reviewThreads(mac: mac.id, tree: model.tree, chat: fix.opener)) {
+                    PrListRow(icon: .comment, title: "Review threads", detail: open == 0 ? "All resolved" : "\(open) unresolved")
+                        .rowDivider(true, leading: PrListRow.textColumn)
+                }
             }
         }
         .buttonStyle(.plain)
