@@ -1,3 +1,4 @@
+import DesignSystem
 import Foundation
 import Wire
 
@@ -92,11 +93,11 @@ public enum PullRequestText {
     }
 
     /// The PR's icon and colour, as GitHub shows its state whatever its checks (`glyph`).
-    public static func glyph(state: String, draft: Bool) -> (systemImage: String, tone: PrTone) {
+    public static func glyph(state: String, draft: Bool) -> (icon: Lucide, tone: PrTone) {
         switch state {
-        case "MERGED": ("arrow.triangle.merge", .merged)
-        case "CLOSED": ("xmark.circle", .failed)
-        default: draft ? ("circle.dashed", .muted) : ("arrow.triangle.pull", .success)
+        case "MERGED": (.merge, .merged)
+        case "CLOSED": (.pullRequestClosed, .failed)
+        default: draft ? (.pullRequestDraft, .quiet) : (.pullRequest, .success)
         }
     }
 
@@ -194,7 +195,7 @@ public enum PullRequestText {
 
     /// The create button's words (`composer.rs`).
     public static func createLabel(draft: Bool, busy: String?) -> String {
-        busy ?? (draft ? "Create draft PR" : "Create PR")
+        busy ?? (draft ? "Create draft" : "Create")
     }
 
     /// A title and body from the branch's commits, given newest first, for when no agent writes them (`from_commits`).

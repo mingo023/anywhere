@@ -25,9 +25,9 @@ struct UnpostedReply: View {
                 .contentShape(Rectangle())
             }
             .disabled(offline)
-            Button(action: edit) { Image(systemName: "pencil").hitTarget() }
+            Button(action: edit) { LucideIcon(.pencil, size: 17).hitTarget() }
                 .accessibilityLabel("Edit")
-            Button(role: .destructive, action: delete) { Image(systemName: "trash").hitTarget() }
+            Button(role: .destructive, action: delete) { LucideIcon(.trash, size: 17).hitTarget() }
                 .accessibilityLabel("Delete")
         }
         .buttonStyle(.borderless)

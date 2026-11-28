@@ -3,11 +3,20 @@ import Stores
 import SwiftUI
 import Wire
 
-/// The Mac a PR screen is on: its id for routes, its name for copy, and whether it is offline now.
+/// The Mac a PR screen is on: its id for routes, its name for copy, and how its link reads now.
 struct PrMac: Hashable {
     var id = ""
     var name = ErrorText.unnamedMac
-    var offline = false
+    var reachability = Reachability.online
+
+    /// Writes wait for the Mac.
+    var offline: Bool { reachability != .online }
+
+    /// Controls wait for the Mac. A dimmed screen is out of reach as a whole, so its controls keep their look.
+    var writesWait: Bool { offline && !dimmed }
+
+    /// The banner is up for the Mac, so what the screen holds is the last it heard: dim it and take its answers away.
+    var dimmed: Bool { reachability == .reconnecting || reachability == .unreachable }
 }
 
 /// What a new PR from the tree would open: its branch into its base, and the commits since that base, newest first.
@@ -66,11 +75,13 @@ struct PullRequestScreen: View {
 
     var body: some View {
         content
+            .opacity(mac.dimmed ? 0.5 : 1)
+            .allowsHitTesting(!mac.dimmed)
+            .screenBackground()
             .safeAreaInset(edge: .top, spacing: 0) {
-                if mac.offline && model.loaded {
-                    NetStrip(.offline, NetStrip.offline(mac: mac.name, asOf: model.at)).padding(.horizontal, Inset.margin).padding(.vertical, Space.xs)
-                } else if model.stale && model.pr != nil {
-                    UnreachableStrip { recheck() }
+                if !mac.offline && model.stale && model.pr != nil {
+                    NetStrip(.offline, "Couldn't reach GitHub · showing the last answer", action: ("Retry", { recheck() }))
+                        .padding(.horizontal, Inset.margin).padding(.vertical, Space.xs)
                 }
             }
             .navigationTitle(model.pr.map { "#\($0.number)" } ?? "Pull request")
@@ -78,10 +89,10 @@ struct PullRequestScreen: View {
                 .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                NoBarTitle()
+                ToolbarItem(placement: .principal) { PrBarTitle(pr: model.pr) }
                 if let url = model.pr.flatMap({ URL(string: $0.url) }) {
                     ToolbarItem(placement: .primaryAction) {
-                        Link(destination: url) { Label("Open on GitHub", systemImage: "safari") }
+                        Link(destination: url) { LucideIcon(.external, size: 20) }.accessibilityLabel("Open on GitHub")
                     }
                 }
             }
@@ -163,5 +174,25 @@ struct GhProblemView: View {
         problem == .missing
             ? ("GitHub CLI isn't installed", "On \(mac), run brew install gh, then gh auth login.")
             : ("GitHub CLI isn't signed in", "On \(mac), run gh auth login.")
+    }
+}
+
+/// The bar's title: the PR's title over its repository and number.
+@MainActor
+private struct PrBarTitle: View {
+    let pr: PullRequest?
+
+    var body: some View {
+        VStack(spacing: 1) {
+            Text(pr?.title ?? "Pull request").font(.system(size: 15, weight: .semibold)).foregroundStyle(Palette.text.color)
+            if let pr, let repo = PullRequestText.repoName(pr.url) {
+                (Text(repo) + Text(" #\(pr.number)").font(.system(size: 12, design: .monospaced)))
+                    .font(.system(size: 12)).foregroundStyle(Palette.text2.color)
+            }
+        }
+        .lineLimit(1)
+        .padding(.horizontal, Space.l)
+        .frame(minHeight: HitTarget.minimum)
+        .accessibilityElement(children: .combine)
     }
 }

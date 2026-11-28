@@ -132,7 +132,8 @@ struct PullRequestTextTests {
     @Test("a PR's icon shows its state as GitHub does, whatever its checks")
     func glyph() {
         #expect(PullRequestText.glyph(state: "OPEN", draft: false).tone == .success)
-        #expect(PullRequestText.glyph(state: "OPEN", draft: true).tone == .muted)
+        #expect(PullRequestText.glyph(state: "OPEN", draft: true).tone == .quiet)
+        #expect(PullRequestText.glyph(state: "OPEN", draft: true).icon == .pullRequestDraft)
         #expect(PullRequestText.glyph(state: "MERGED", draft: false).tone == .merged)
         #expect(PullRequestText.glyph(state: "CLOSED", draft: false).tone == .failed)
     }
@@ -188,8 +189,8 @@ struct PullRequestTextTests {
 
     @Test("the create button says draft when it makes one, and what gh does while it works")
     func createLabel() {
-        #expect(PullRequestText.createLabel(draft: false, busy: nil) == "Create PR")
-        #expect(PullRequestText.createLabel(draft: true, busy: nil) == "Create draft PR")
+        #expect(PullRequestText.createLabel(draft: false, busy: nil) == "Create")
+        #expect(PullRequestText.createLabel(draft: true, busy: nil) == "Create draft")
         #expect(PullRequestText.createLabel(draft: true, busy: "Creating draft PR…") == "Creating draft PR…")
     }
 }
@@ -380,12 +381,16 @@ struct GoldenPrTests {
 @Suite("Gallery")
 @MainActor
 struct GitHubGalleryTests {
-    @Test("every screen has a light and a dark scene")
+    @Test("every screen has a light and a dark scene, the design's frames under their names")
     func scenes() {
         let names = GitHubGallery.scenes.map(\.name)
         #expect(names.count == Set(names).count)
         #expect(names.filter { $0.hasSuffix("-dark") }.count * 2 == names.count)
-        #expect(names.contains("github-pr-failing") && names.contains("github-threads-all-dark"))
+        for frame in ["19-prs-needs-action", "20-prs-empty", "21-prs-gh-not-signed-in", "22-prs-unreachable", "23-pr-failing", "23b-pr-reconnecting",
+                      "23c-pr-back-online", "23d-pr-reconnect-failed", "24-pr-ready-to-merge", "25-pr-merged", "26-create-pr"] {
+            #expect(names.contains("\(frame)-dark") && names.contains("\(frame)-light"))
+        }
+        #expect(names.contains("github-threads-all-dark"))
     }
 }
 

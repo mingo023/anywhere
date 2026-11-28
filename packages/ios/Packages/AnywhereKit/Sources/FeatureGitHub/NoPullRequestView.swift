@@ -48,7 +48,7 @@ struct NoPullRequestView: View {
     private var route: some View {
         Section {
             HStack(spacing: Space.s) {
-                Image(systemName: "arrow.triangle.pull").font(.system(size: 13, weight: .semibold)).foregroundStyle(Palette.text3.color)
+                LucideIcon(.pullRequest, size: 13).foregroundStyle(Palette.text3.color)
                 BranchRoute(base: newPr.base ?? "", head: newPr.branch)
                 Spacer(minLength: 0)
             }

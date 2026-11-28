@@ -127,15 +127,15 @@ struct ThreadsScreen: View {
     private func emptyRow(_ empty: ThreadGroups.Empty) -> some View {
         switch empty {
         case .noComments:
-            Label("No review comments yet", systemImage: "text.bubble").foregroundStyle(Palette.text3.color)
+            Label("No review comments yet", lucide: .messageCircle).foregroundStyle(Palette.text3.color)
         case .outdatedHidden(let n):
             HStack {
-                Label("\(n) outdated \(n == 1 ? "conversation" : "conversations") hidden", systemImage: "eye.slash").foregroundStyle(Palette.text3.color)
+                Label("\(n) outdated \(n == 1 ? "conversation" : "conversations") hidden", lucide: .eyeOff).foregroundStyle(Palette.text3.color)
                 Spacer(minLength: 0)
                 Button { filter.outdated = true } label: { Text("Show").hitTarget() }.buttonStyle(.borderless)
             }
         case .allResolved:
-            Label("All conversations resolved", systemImage: "checkmark.circle.fill").foregroundStyle(Palette.successText.color)
+            Label("All conversations resolved", lucide: .circleCheck).foregroundStyle(Palette.successText.color)
         }
     }
 }
@@ -164,14 +164,14 @@ struct ThreadRow: View {
     @ViewBuilder
     private var sendButton: some View {
         if let sendable {
-            Button(sendable.title, systemImage: "paperplane", action: sendable.action).buttonStyle(CapsuleButtonStyle()).disabled(offline)
+            Button(action: sendable.action) { Label(sendable.title, lucide: .send) }.buttonStyle(CapsuleButtonStyle()).disabled(offline)
         }
     }
 
     @ViewBuilder
     private var replyAndResolve: some View {
-        Button("Reply", systemImage: "arrowshape.turn.up.left", action: reply)
-        Button("Resolve", systemImage: "checkmark") { resolve(true) }.disabled(offline)
+        Button(action: reply) { Label("Reply", lucide: .reply) }
+        Button { resolve(true) } label: { Label("Resolve", lucide: .check) }.disabled(offline)
     }
 
     var body: some View {
@@ -231,22 +231,22 @@ struct ThreadRow: View {
         .opacity(thread.resolved ? 0.7 : 1)
         .swipeActions(edge: .trailing) {
             if thread.resolved {
-                Button("Unresolve", systemImage: "arrow.uturn.backward") { resolve(false) }.tint(.orange).disabled(offline)
+                Button { resolve(false) } label: { Label("Unresolve", lucide: .discard) }.tint(.orange).disabled(offline)
             } else {
-                Button("Resolve", systemImage: "checkmark") { resolve(true) }.tint(.green).disabled(offline)
+                Button { resolve(true) } label: { Label("Resolve", lucide: .check) }.tint(.green).disabled(offline)
             }
         }
         .swipeActions(edge: .leading) {
-            Button("Reply", systemImage: "arrowshape.turn.up.left", action: reply).tint(.blue)
-            if let sendable { Button(sendable.title, systemImage: "paperplane", action: sendable.action).tint(.indigo).disabled(offline) }
+            Button(action: reply) { Label("Reply", lucide: .reply) }.tint(.blue)
+            if let sendable { Button(action: sendable.action) { Label(sendable.title, lucide: .send) }.tint(.indigo).disabled(offline) }
         }
         .contextMenu {
-            if let sendable { Button(sendable.title, systemImage: "paperplane", action: sendable.action).disabled(offline) }
-            Button("Reply", systemImage: "arrowshape.turn.up.left", action: reply)
+            if let sendable { Button(action: sendable.action) { Label(sendable.title, lucide: .send) }.disabled(offline) }
+            Button(action: reply) { Label("Reply", lucide: .reply) }
             if thread.resolved {
-                Button("Unresolve", systemImage: "arrow.uturn.backward") { resolve(false) }.disabled(offline)
+                Button { resolve(false) } label: { Label("Unresolve", lucide: .discard) }.disabled(offline)
             } else {
-                Button("Resolve", systemImage: "checkmark") { resolve(true) }.disabled(offline)
+                Button { resolve(true) } label: { Label("Resolve", lucide: .check) }.disabled(offline)
             }
         }
     }
