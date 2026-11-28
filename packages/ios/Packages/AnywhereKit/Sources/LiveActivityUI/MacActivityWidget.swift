@@ -20,7 +20,6 @@
                 return DynamicIsland {
                     DynamicIslandExpandedRegion(.leading) { IslandRegion.expandedLeading(s).padding(.leading, 4) }
                     DynamicIslandExpandedRegion(.trailing) { IslandRegion.expandedTrailing(s).padding(.trailing, 4) }
-                    DynamicIslandExpandedRegion(.center) { IslandRegion.expandedCenter(s) }
                     DynamicIslandExpandedRegion(.bottom) { IslandRegion.expandedBottom(s) }
                 } compactLeading: {
                     IslandRegion.compactLeading(s)
@@ -30,7 +29,7 @@
                     IslandRegion.minimal(s)
                 }
                 .widgetURL(s.link)
-                .keylineTint(Color.of(ActivityGlyph.tint(ActivityDisplay.glyph(s.state)), dark: true))
+                .keylineTint(Color.of(ActivityDot.tint(ActivityDisplay.glyph(s.state)), dark: true))
             }
         }
 
