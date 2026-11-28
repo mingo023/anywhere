@@ -23,6 +23,7 @@ mod glide;
 mod handoff;
 mod host_agents;
 mod inbox;
+mod mascot;
 mod modals;
 mod models;
 mod notch;

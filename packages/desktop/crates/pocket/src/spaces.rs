@@ -2,6 +2,7 @@
 
 pub(crate) mod cards;
 pub(crate) mod header;
+pub(crate) mod offline;
 pub(crate) mod open;
 pub(crate) mod switcher;
 pub(crate) mod theme_card;
@@ -44,6 +45,11 @@ impl Space {
 /// The space a project key lives in. A folder on two machines is two keys, so two projects.
 pub(crate) fn space_of(project: &str) -> Space {
     Space::on(hosts::split(project).0)
+}
+
+/// Whether a session on `machine` (none when unknown) may show in `on_screen`, unless the space is locked.
+pub(crate) fn shows_session(machine: Option<&Space>, on_screen: &Space, locked: bool) -> bool {
+    !locked && machine.is_none_or(|m| m == on_screen)
 }
 
 /// `projects` in `space`, in their order.
@@ -151,12 +157,12 @@ pub(crate) fn reach(space: &Space, link: Option<&Link>) -> Reach {
     }
 }
 
-/// An unreachable host card's title.
+/// The offline page's title.
 pub(crate) fn offline_title(reach: Reach, name: &str) -> String {
     if reach == Reach::Connecting { format!("{name} is connecting\u{2026}") } else { format!("{name} is offline") }
 }
 
-/// What the card says under its title.
+/// What the offline page says under its title.
 pub(crate) fn offline_note(link: Option<&Link>, name: &str) -> String {
     match link {
         Some(Link::Connecting) => "Signing in over SSH.".into(),
@@ -214,6 +220,8 @@ impl Swipe {
 }
 
 const SLIDE: Duration = Duration::from_millis(220);
+/// How long a sign-in may take before its space locks.
+const GRACE: Duration = Duration::from_millis(500);
 /// How long a row or button a change just made stays lit.
 pub(crate) const FLASH: Duration = Duration::from_millis(1900);
 
@@ -237,6 +245,22 @@ pub(crate) struct Spaces {
     left: HashMap<Space, Spot>,
     /// The appearance the space on screen's look last asked for; `None` left the app's.
     pub(crate) look_dark: Option<bool>,
+    unreached: HashMap<Space, Unreached>,
+}
+
+/// A space seen on screen while its machine couldn't be reached: since when, and whether its link failed meanwhile.
+struct Unreached {
+    since: Instant,
+    failed: bool,
+}
+
+/// What noting a space's reach calls for.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Tracked {
+    /// A sign-in just began: draw again once this runs out, as the space may lock.
+    Grace(Duration),
+    /// The space came back from unreachable.
+    Back,
 }
 
 /// A session on screen: its project, and its tree, `None` for the project's main worktree.
@@ -244,7 +268,16 @@ pub(crate) type Spot = (String, Option<String>);
 
 impl Spaces {
     pub(crate) fn new(saved: Option<&str>) -> Self {
-        Self { shown: Space::on(saved), swipe: Swipe::default(), slide: None, switches: 0, flash: None, left: HashMap::new(), look_dark: None }
+        Self {
+            shown: Space::on(saved),
+            swipe: Swipe::default(),
+            slide: None,
+            switches: 0,
+            flash: None,
+            left: HashMap::new(),
+            look_dark: None,
+            unreached: HashMap::new(),
+        }
     }
 
     pub(crate) fn current(&self, order: &[Space]) -> Space {
@@ -279,6 +312,34 @@ impl Spaces {
     /// The slide in flight: a number for each switch, so the animation restarts, and its side.
     pub(crate) fn sliding(&self, now: Instant) -> Option<(u64, Heading)> {
         self.slide.filter(|s| now.duration_since(s.at) < SLIDE).map(|s| (s.n, s.heading))
+    }
+
+    /// The spaces last seen unreachable.
+    pub(crate) fn unreached(&self) -> impl Iterator<Item = &Space> {
+        self.unreached.keys()
+    }
+
+    /// Notes the reach of `space`.
+    pub(crate) fn track(&mut self, space: &Space, reach: Reach, now: Instant) -> Option<Tracked> {
+        if reach == Reach::Online {
+            return self.unreached.remove(space).map(|_| Tracked::Back);
+        }
+        if let Some(u) = self.unreached.get_mut(space) {
+            u.failed |= reach == Reach::Offline;
+            return None;
+        }
+        self.unreached.insert(space.clone(), Unreached { since: now, failed: reach == Reach::Offline });
+        (reach == Reach::Connecting).then_some(Tracked::Grace(GRACE))
+    }
+
+    /// Whether `space` shows its offline page and locks its lists. A first sign-in gets `GRACE`, so a quick one never
+    /// flashes them; once its link has failed they stay until it's back.
+    pub(crate) fn locked(&self, space: &Space, reach: Reach, now: Instant) -> bool {
+        match reach {
+            Reach::Online => false,
+            Reach::Offline => true,
+            Reach::Connecting => self.unreached.get(space).is_some_and(|u| u.failed || now.duration_since(u.since) >= GRACE),
+        }
     }
 
     /// Lights `key` until `FLASH` has passed.
@@ -360,7 +421,8 @@ impl Desktop {
     }
 
     fn enter_space(&mut self, to: Space, back_to_session: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.screen == Screen::Settings {
+        // An unreachable space's status shows on Sessions, and its rows can't lead there.
+        if self.screen == Screen::Settings || self.space_reach(&to) != Reach::Online {
             self.screen = Screen::Sessions;
         }
         if !self.go_space(&to, cx) {
@@ -368,19 +430,24 @@ impl Desktop {
         }
         self.remember_space(&to, cx);
         if self.space_reach(&to) == Reach::Online {
-            match self.spot_left_in(&to, cx).filter(|_| back_to_session) {
-                Some((project, tree)) => self.select_tree(project, tree, cx),
-                None => {
-                    let projects = in_space(&self.form_projects(cx), &to);
-                    let from = self.drafted_project(cx).or_else(|| self.project.clone());
-                    if let Some(target) = arrival(from.as_deref(), &to, &projects) {
-                        self.new_place(target, window, cx);
-                    }
-                }
-            }
+            self.land(&to, back_to_session, window, cx);
         }
         self.land_draft(window, cx);
         cx.notify();
+    }
+
+    /// Opens the session `to` showed when the sidebar left it, else the place `arrival` picks.
+    pub(crate) fn land(&mut self, to: &Space, back_to_session: bool, window: &mut Window, cx: &mut Context<Self>) {
+        match self.spot_left_in(to, cx).filter(|_| back_to_session) {
+            Some((project, tree)) => self.select_tree(project, tree, cx),
+            None => {
+                let projects = in_space(&self.form_projects(cx), to);
+                let from = self.drafted_project(cx).or_else(|| self.project.clone());
+                if let Some(target) = arrival(from.as_deref(), to, &projects) {
+                    self.new_place(target, window, cx);
+                }
+            }
+        }
     }
 
     /// Keeps the sidebar in the space of the project now shown, as a palette pick or a notification can show one anywhere.
@@ -454,12 +521,12 @@ fn unadded(projects: Vec<String>, added: &[String]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        FLASH, HOST_ICONS, Heading, Reach, SLIDE, Space, Spaces, Swipe, arrival, colour, crumbs, flash_key, glyph, heading, in_space, kept_name, labelled, nth,
-        offline_note, offline_title, on_host, order, reach, resolve, space_of, step, twin, unadded, waiting,
+        FLASH, GRACE, HOST_ICONS, Heading, Reach, SLIDE, Space, Spaces, Swipe, Tracked, arrival, colour, crumbs, flash_key, glyph, heading, in_space,
+        kept_name, labelled, nth, offline_note, offline_title, on_host, order, reach, resolve, shows_session, space_of, step, twin, unadded, waiting,
     };
     use agents::hosts::{Failure, Link};
     use std::collections::HashMap;
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
     use theme::ACCENT_SWATCHES;
 
     fn projects() -> Vec<String> {
@@ -674,5 +741,46 @@ mod tests {
     fn only_a_folder_never_added_is_a_thread_of_its_own() {
         let projects = ["/w/app", "/Users/me/Downloads"].map(String::from).to_vec();
         assert_eq!(unadded(projects, &["/w/app".to_string()]), ["/Users/me/Downloads"]);
+    }
+
+    #[test]
+    fn a_sign_in_locks_its_space_only_once_it_outlasts_the_grace() {
+        let (mut spaces, pc, t0) = (Spaces::new(None), host("pc"), Instant::now());
+        assert_eq!(spaces.track(&pc, Reach::Connecting, t0), Some(Tracked::Grace(GRACE)));
+        assert!(!spaces.locked(&pc, Reach::Connecting, t0 + GRACE - Duration::from_millis(1)));
+        assert_eq!(spaces.track(&pc, Reach::Connecting, t0 + GRACE), None, "the grace starts once");
+        assert!(spaces.locked(&pc, Reach::Connecting, t0 + GRACE));
+        assert_eq!(spaces.track(&pc, Reach::Online, t0 + GRACE), Some(Tracked::Back));
+        assert!(!spaces.locked(&pc, Reach::Online, t0 + GRACE));
+        assert_eq!(spaces.track(&pc, Reach::Online, t0 + GRACE), None, "back once");
+    }
+
+    #[test]
+    fn a_host_that_failed_locks_at_once_and_stays_locked_while_it_reconnects() {
+        let (mut spaces, pc, t0) = (Spaces::new(None), host("pc"), Instant::now());
+        assert_eq!(spaces.track(&pc, Reach::Offline, t0), None);
+        assert!(spaces.locked(&pc, Reach::Offline, t0));
+        let soon = t0 + Duration::from_millis(1);
+        assert_eq!(spaces.track(&pc, Reach::Connecting, soon), None);
+        assert!(spaces.locked(&pc, Reach::Connecting, soon), "a reconnect right after a failure keeps it locked");
+    }
+
+    #[test]
+    fn a_session_shows_only_in_its_own_machines_space_and_never_while_it_is_locked() {
+        let (mac, host) = (Space::Local, Space::Host("h".into()));
+        assert!(shows_session(Some(&mac), &mac, false));
+        assert!(!shows_session(Some(&mac), &host, false), "this Mac's chat stays out of a host's space");
+        assert!(!shows_session(Some(&host), &host, true));
+        assert!(shows_session(None, &host, false), "a session whose machine isn't known yet");
+    }
+
+    #[test]
+    fn each_space_gets_its_own_grace() {
+        let (mut spaces, t0) = (Spaces::new(None), Instant::now());
+        spaces.track(&host("a"), Reach::Offline, t0);
+        assert_eq!(spaces.track(&host("b"), Reach::Connecting, t0 + GRACE), Some(Tracked::Grace(GRACE)));
+        assert!(!spaces.locked(&host("b"), Reach::Connecting, t0 + GRACE));
+        spaces.track(&Space::Local, Reach::Online, t0 + GRACE);
+        assert!(spaces.locked(&host("a"), Reach::Connecting, t0 + GRACE), "a failed, so it stays locked while it reconnects, wherever the sidebar went");
     }
 }

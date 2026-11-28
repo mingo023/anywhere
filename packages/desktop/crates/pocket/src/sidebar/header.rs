@@ -34,6 +34,7 @@ impl EventEmitter<HeaderEvent> for ProjectsHeader {}
 pub(crate) struct HeaderFrame {
     pub(crate) sort: Sort,
     pub(crate) host: Option<String>,
+    pub(crate) locked: bool,
 }
 
 pub(crate) struct ProjectsHeader {
@@ -225,14 +226,17 @@ impl ProjectsHeader {
 
 impl Render for ProjectsHeader {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let header = section_head();
+        let labelled = || section_head().pl(px(6.)).child(div().flex_1().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(TEXT_3).child("PROJECTS"));
+        if self.frame.as_ref().is_some_and(|f| f.locked) {
+            return labelled().child(super::aside::lock());
+        }
         let header = if self.filter.open {
-            header.child(self.filter_field(cx))
+            section_head().child(self.filter_field(cx))
         } else {
             let search = icon_button_sized("aside-filter", "search", 22., TEXT_3)
                 .rounded(px(6.))
                 .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(HeaderEvent::OpenFilter)));
-            header.pl(px(6.)).child(div().flex_1().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(TEXT_3).child("PROJECTS")).child(search)
+            labelled().child(search)
         };
         header.child(self.organize_menu(cx)).child(self.add_menu(cx))
     }
