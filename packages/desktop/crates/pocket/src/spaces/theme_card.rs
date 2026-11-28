@@ -17,6 +17,12 @@ const HANDLE: f32 = 45.;
 const REACH: f32 = PAD / 2. * 0.85;
 const CENTRE: (f32, f32) = (INSET + PAD / 2., INSET + PAD / 2.);
 const SWATCH: f32 = 24.;
+const PAD_RECT: Bounds<f32> = Bounds { origin: Point { x: INSET, y: INSET }, size: Size { width: PAD, height: PAD } };
+/// The mode buttons and −/+ on the pad, which take their own clicks.
+const BUTTONS: [Bounds<f32>; 2] = [
+    Bounds { origin: Point { x: CENTRE.0 - 57., y: INSET + 24. }, size: Size { width: 114., height: 32. } },
+    Bounds { origin: Point { x: CENTRE.0 - 34., y: INSET + PAD - 17. - 28. }, size: Size { width: 68., height: 28. } },
+];
 const ROW: f32 = 40.;
 const WAVE_WIDTH: f32 = 234.;
 /// The wave slider and the grain dial, as card coordinates.
@@ -92,10 +98,13 @@ fn dial_centre() -> (f32, f32) {
 }
 
 /// What a press at `at` starts dragging, given where the colours show and the look's intensity and grain.
-fn press(at: (f32, f32), shown: &[(f32, f32)], look: &SpaceLook) -> Option<Drag> {
+fn press(at: (f32, f32), shown: &[(f32, f32)], selected: usize, look: &SpaceLook) -> Option<Drag> {
     if let Some(i) = colour_at(at, shown) {
         let (cx, cy) = on_card(shown[i].0, shown[i].1);
         return Some(Drag::Colour { i, grab: (at.0 - cx, at.1 - cy) });
+    }
+    if inside(PAD_RECT, at) && !BUTTONS.iter().any(|b| inside(*b, at)) {
+        return (!shown.is_empty()).then(|| Drag::Colour { i: selected.min(shown.len() - 1), grab: (0., 0.) });
     }
     if inside(WAVE, at) {
         let thumb = thumb_x(look.intensity);
@@ -209,9 +218,16 @@ impl ThemeCard {
     }
 
     fn press(&mut self, at: (f32, f32), cx: &mut Context<Self>) -> bool {
-        self.drag = press(at, &self.shown_at(), &self.look);
+        let shown = self.shown_at();
+        self.drag = press(at, &shown, self.selected, &self.look);
         match self.drag {
-            Some(Drag::Colour { i, .. }) => self.selected = i,
+            Some(Drag::Colour { i, .. }) => {
+                self.selected = i;
+                // A press on the pad off every handle brings the selected one there.
+                if colour_at(at, &shown).is_none() {
+                    self.drag_to(at, cx);
+                }
+            }
             Some(Drag::Intensity { grab: 0. }) => {
                 self.look.intensity = intensity_at(at.0);
                 self.changed(cx);
@@ -547,16 +563,15 @@ mod tests {
     fn a_press_on_a_handle_grabs_the_topmost_by_where_it_was_grabbed() {
         let shown = [(0., 0.), (0.1, 0.)];
         let (hx, hy) = on_card(0.1, 0.);
-        assert_eq!(press((hx + 3., hy), &shown, &look()), Some(Drag::Colour { i: 1, grab: (3., 0.) }));
-        let (far, _) = on_card(-0.9, 0.);
-        assert_eq!(press((far, CENTRE.1), &shown, &look()), None);
+        assert_eq!(press((hx + 3., hy), &shown, 0, &look()), Some(Drag::Colour { i: 1, grab: (3., 0.) }));
+        assert_eq!(press((INSET / 2., CENTRE.1), &shown, 0, &look()), None);
     }
 
     #[test]
     fn a_press_on_the_wave_grabs_the_thumb_or_jumps_it_there() {
         let y = WAVE.origin.y + 30.;
-        assert_eq!(press((thumb_x(0.5) + 4., y), &[], &look()), Some(Drag::Intensity { grab: 4. }));
-        assert_eq!(press((WAVE.origin.x + 2., y), &[], &look()), Some(Drag::Intensity { grab: 0. }));
+        assert_eq!(press((thumb_x(0.5) + 4., y), &[], 0, &look()), Some(Drag::Intensity { grab: 4. }));
+        assert_eq!(press((WAVE.origin.x + 2., y), &[], 0, &look()), Some(Drag::Intensity { grab: 0. }));
         assert_eq!(intensity_at(thumb_x(0.3)), 0.3);
         assert_eq!(intensity_at(WAVE.origin.x), 0.);
     }
@@ -564,8 +579,18 @@ mod tests {
     #[test]
     fn a_press_on_the_dial_holds_its_angle_and_one_off_it_does_nothing() {
         let (cx, cy) = dial_centre();
-        assert_eq!(press((cx, cy - 30.), &[], &look()), Some(Drag::Grain { bearing: 0., angle: wash::dial_angle(0.25) }));
-        assert_eq!(press((cx + 40., cy + 40.), &[], &look()), None);
+        assert_eq!(press((cx, cy - 30.), &[], 0, &look()), Some(Drag::Grain { bearing: 0., angle: wash::dial_angle(0.25) }));
+        assert_eq!(press((cx + 40., cy + 40.), &[], 0, &look()), None);
+    }
+
+    #[test]
+    fn a_press_on_the_pad_brings_the_selected_colour_but_not_one_on_its_buttons() {
+        let shown = [(0., 0.), (0.5, 0.)];
+        let (x, y) = on_card(-0.5, 0.3);
+        assert_eq!(press((x, y), &shown, 1, &look()), Some(Drag::Colour { i: 1, grab: (0., 0.) }));
+        assert_eq!(press((x, y), &[], 0, &look()), None);
+        assert_eq!(press((CENTRE.0, INSET + 40.), &shown, 1, &look()), None);
+        assert_eq!(press((CENTRE.0 + 20., INSET + PAD - 30.), &shown, 1, &look()), None);
     }
 
     #[test]

@@ -18,7 +18,7 @@ const GRAIN_TILE: f32 = 256.;
 const GRAIN_MAX: f32 = 0.4;
 pub(super) const PAD: f32 = 340.;
 const DOT_GAP: f32 = 4.5;
-const DOT_RADIUS: f32 = 0.55;
+const DOT_RADIUS: f32 = 0.5;
 /// How far the page card sits in from the window's edges, and how round it is.
 const INSET: f32 = 8.;
 const CARD_RADIUS: f32 = 12.;
@@ -45,7 +45,8 @@ pub(crate) fn look_dark(look: &SpaceLook) -> Option<bool> {
     }
 }
 
-/// A premultiplied BGRA image GPUI can draw, `side` px square, each pixel's alpha and grey from `at`.
+/// A BGRA image GPUI can draw, `side` px square, each pixel's grey and alpha from `at`. GPUI takes straight alpha: a white
+/// speck is 255 grey at its alpha, or it draws at about alpha squared.
 fn baked(side: u32, at: impl Fn(u32, u32) -> (u8, u8)) -> Arc<RenderImage> {
     let mut px = Vec::with_capacity((side * side * 4) as usize);
     for y in 0..side {
@@ -64,7 +65,7 @@ fn grain_tile(white: bool) -> Arc<RenderImage> {
     baked((GRAIN_TILE * 2.) as u32, |x, y| {
         let n = (noise.get([x as f64, y as f64]) as f32 + 1.) / 2.;
         let alpha = ((1.7 * n - 0.68).clamp(0., 1.) * 255.) as u8;
-        (if white { alpha } else { 0 }, alpha)
+        (if white { 255 } else { 0 }, alpha)
     })
 }
 
@@ -79,10 +80,11 @@ pub(super) fn dots_image() -> Arc<RenderImage> {
     DOTS.get_or_init(|| {
         let (scale, gap) = (2., DOT_GAP * 2.);
         baked((PAD * scale) as u32, |x, y| {
-            let near = |v: u32| ((v as f32 + 0.5) % gap - gap / 2.).abs();
+            // Centred on a pixel corner, a dot lights 2×2 pixels as Arc's do, not one pixel that blurs away.
+            let near = |v: u32| ((v as f32 + 0.5) % gap - (gap / 2. - 0.5)).abs();
             let cover = (DOT_RADIUS * scale + 0.5 - near(x).hypot(near(y))).clamp(0., 1.);
-            let alpha = (cover * 0.15 * 255.) as u8;
-            (alpha, alpha)
+            let alpha = (cover * 0.5 * 255.) as u8;
+            (255, alpha)
         })
     })
     .clone()
@@ -206,6 +208,7 @@ mod tests {
         let side = (PAD * 2.) as usize;
         let alpha = |x: usize, y: usize| bytes[(y * side + x) * 4 + 3];
         assert!(alpha(4, 4) > 0, "a dot at the first gap's centre");
+        assert_eq!(bytes[(4 * side + 4) * 4], 255, "white at full grey, as GPUI takes straight alpha");
         assert!(alpha(13, 13) > 0, "and one a gap on");
         assert_eq!(alpha(0, 0), 0);
         assert_eq!(alpha(8, 4), 0);

@@ -1224,7 +1224,7 @@ fn menu_item(id: impl Into<ElementId>, icon_name: &str, label: &str, tint: Token
         .text_size(px(13.5))
         .hover(move |s| s.bg(hover))
         .child(icon(icon_name, 14., tint))
-        .child(div().flex_1().child(label.to_string()))
+        .child(div().flex_1().min_w_0().truncate().child(label.to_string()))
 }
 
 pub fn menu_row(id: impl Into<ElementId>, icon_name: &str, label: &str, keys: Option<&str>) -> Stateful<Div> {

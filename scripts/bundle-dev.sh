@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds a signed "Anywhere Dev.app" and opens it: macOS drops notifications from a binary with no bundle id.
+# Builds a signed "Zoes Dev.app" and opens it: macOS drops notifications from a binary with no bundle id.
 # The ad-hoc signature changes every build, so macOS may ask to allow notifications again.
 # Usage: scripts/bundle-dev.sh [--no-open]
 set -eu
@@ -14,7 +14,7 @@ esac
 TARGET="${CARGO_TARGET_DIR:-$ROOT/packages/desktop/target}"
 (cd "$ROOT/packages/desktop" && cargo build --release -p pocket)
 swift build -c release --package-path "$ROOT/packages/desktop/notch"
-APP="$TARGET/release/Anywhere Dev.app"
+APP="$TARGET/release/Zoes Dev.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$TARGET/release/pocket-desktop" "$APP/Contents/MacOS/pocket-desktop"
@@ -26,7 +26,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key><string>$ID</string>
-  <key>CFBundleName</key><string>Anywhere Dev</string>
+  <key>CFBundleName</key><string>Zoes Dev</string>
   <key>CFBundleExecutable</key><string>pocket-desktop</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
