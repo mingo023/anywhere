@@ -1,5 +1,6 @@
 import DesignSystem
 import DiffModel
+import Domain
 import Foundation
 import Stores
 import Wire
@@ -86,16 +87,18 @@ enum GitText {
         return count == 1 ? "1 change" : "\(count) changes"
     }
 
-    /// "2 of 6 · Staged": where the file sits among those it steps through, and what it compares.
-    nonisolated static func place(_ index: Int?, of count: Int, at: DiffAt) -> String {
-        let side: String
-        switch at {
-        case .working: side = "Unstaged"
-        case .staged: side = "Staged"
-        case .commit(let rev): side = short(rev)
-        case .base(let rev): side = rev ?? "base"
-        }
-        return index.map { "\($0 + 1) of \(count) · \(side)" } ?? side
+    /// "File 2 of 6": where the file sits among those the bar steps through.
+    nonisolated static func fileOf(_ index: Int?, of count: Int) -> String {
+        index.map { "File \($0 + 1) of \(count)" } ?? "\(count) file\(count == 1 ? "" : "s")"
+    }
+
+    /// A path cut to `max` characters by dropping the folders between its first and its file: "src/…/checkout.test.ts".
+    nonisolated static func shortPath(_ path: String, max: Int = 32) -> String {
+        guard path.count > max else { return path }
+        let parts = path.split(separator: "/")
+        guard parts.count > 2, let first = parts.first, let file = parts.last else { return path }
+        let middle = "\(first)/…/\(file)"
+        return middle.count <= max ? middle : "…/\(file)"
     }
 
     /// The file's name and the folder it sits in, apart.
@@ -116,26 +119,86 @@ enum GitText {
         }
     }
 
-    /// GitHub's file-status octicon, as an SF Symbol: a square holding +, −, an arrow or a dot.
-    nonisolated static func glyph(_ s: FileStatus) -> String {
+    /// The letter a changed file wears at the end of its row: M, A, D, R, U for untracked and C for a conflict.
+    nonisolated static func letter(_ s: FileStatus) -> String {
         switch s {
-        case .added, .untracked: "plus.square"
-        case .deleted: "minus.square"
-        case .renamed: "arrow.right.square"
-        case .conflict: "exclamationmark.square"
-        default: "dot.square"
+        case .added: "A"
+        case .untracked: "U"
+        case .deleted: "D"
+        case .renamed: "R"
+        case .conflict: "C"
+        default: "M"
         }
     }
 
-    /// GitHub's diffstat: five blocks, green for added lines and red for removed in proportion, grey for the rest; a
-    /// change under five lines shows a block a line, and either side that has any keeps a block.
-    nonisolated static func diffstat(added: Int, removed: Int) -> (added: Int, removed: Int, neutral: Int) {
-        let total = added + removed
-        guard total > 5 else { return (added, removed, 5 - total) }
-        var green = Int((Double(added) / Double(total) * 5).rounded())
-        if added > 0 { green = max(green, 1) }
-        if removed > 0 { green = min(green, 4) }
-        return (green, 5 - green, 0)
+    /// What heads a compare's files: the commits the branch is ahead of its base, or just how many files differ.
+    nonisolated static func compareTitle(files: Int, ahead: Int?, against: String) -> String {
+        guard let ahead else { return "\(files) file\(files == 1 ? "" : "s") differ from \(against)" }
+        return "\(ahead) commit\(ahead == 1 ? "" : "s") ahead of \(against)"
+    }
+
+    /// A section's title over its card.
+    nonisolated static func title(_ section: ChangeSection) -> String {
+        section == .staged ? "Staged" : "Changes"
+    }
+
+    /// The filter box over the files shows once the list is long enough to need it, and while it holds a filter.
+    nonisolated static func showsFilter(files: Int, filter: String) -> Bool {
+        files >= 12 || !filter.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// The strip over a list kept from a Mac that has gone.
+    nonisolated static func unreachable(mac: String, asOf: Int, timeZone: TimeZone = .current) -> String {
+        "Can't reach \(mac) · as of \(TimeText.clock(ms: asOf, timeZone: timeZone))"
+    }
+
+    /// The commit button's words: its commit label and that it pushes after, or Amend.
+    nonisolated static func commitButton(label: String, amend: Bool, busy: Bool) -> String {
+        busy ? label : amend ? "Amend" : label + " & Push"
+    }
+
+    /// Whole calendar days from `at` to `now`, in `calendar`.
+    nonisolated private static func days(from at: Int, to now: Int, calendar: Calendar) -> Int {
+        let then = calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval(at)))
+        let today = calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval(now)))
+        return calendar.dateComponents([.day], from: then, to: today).day ?? 0
+    }
+
+    nonisolated private static func format(_ at: Int, _ pattern: String, calendar: Calendar) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = calendar.timeZone
+        f.dateFormat = pattern
+        return f.string(from: Date(timeIntervalSince1970: TimeInterval(at)))
+    }
+
+    /// What follows "committed": "just now", "12m ago", "3h ago", "yesterday", "on Mon", then "on 12 Nov".
+    nonisolated static func committed(at: Int, now: Int, calendar: Calendar = .current) -> String {
+        let s = max(now - at, 0)
+        if s < 60 { return "just now" }
+        if s < 3_600 { return "\(s / 60)m ago" }
+        switch days(from: at, to: now, calendar: calendar) {
+        case 0: return "\(s / 3_600)h ago"
+        case 1: return "yesterday"
+        case 2..<7: return "on " + format(at, "EEE", calendar: calendar)
+        default: return "on " + format(at, "d MMM", calendar: calendar)
+        }
+    }
+
+    /// The day a history section is headed by: "Today", "Yesterday", then "Monday 23 November".
+    nonisolated static func day(at: Int, now: Int, calendar: Calendar = .current) -> String {
+        switch days(from: at, to: now, calendar: calendar) {
+        case ...0: "Today"
+        case 1: "Yesterday"
+        default: format(at, "EEEE d MMMM", calendar: calendar)
+        }
+    }
+
+    /// An author's two letters for the avatar: the first letters of two names, or the first two of one.
+    nonisolated static func initials(_ author: String) -> String {
+        let words = author.split(whereSeparator: \.isWhitespace)
+        let letters = words.count > 1 ? words.prefix(2).compactMap(\.first) : Array((words.first ?? "").prefix(2))
+        return String(letters).uppercased()
     }
 
     nonisolated static func tint(_ s: FileStatus) -> Token {

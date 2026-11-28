@@ -37,9 +37,13 @@ struct GoToFileSheet: View {
     private var results: some View {
         if search.results.isEmpty, !search.searching {
             if let failure = search.failure {
-                ContentUnavailableView("Can't search", systemImage: "exclamationmark.triangle", description: Text(failure))
+                ContentUnavailableView {
+                    Label { Text("Can't search") } icon: { Image.lucide(.triangleAlert, size: 28) }
+                } description: {
+                    Text(failure)
+                }
             } else if search.query.isEmpty {
-                ContentUnavailableView("No files", systemImage: "doc")
+                ContentUnavailableView { Label { Text("No files") } icon: { Image.lucide(.file, size: 28) } }
             } else {
                 ContentUnavailableView.search(text: search.query)
             }

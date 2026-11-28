@@ -65,15 +65,10 @@ enum PreviewBody: Equatable {
         return "Showing the first \(FileText.size(read.text?.utf8.count ?? 0)) of \(FileText.size(read.size))"
     }
 
-    /// "src/chat · Rust · 2.0 KB", under the file's name; the folder alone until the file is read.
-    static func subtitle(_ read: FsRead?, path: String) -> String? {
+    /// The folder holding the file, under its name; the tree's own name for a file at the top.
+    static func subtitle(path: String, tree: String) -> String {
         let folder = FileText.folder(path)
-        var parts = folder.isEmpty ? [] : [folder]
-        if let read, read.kind != .unreadable {
-            if read.kind == .text { parts.append(FileText.language(language(read, path: path))) }
-            parts.append(FileText.size(read.size))
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        return folder.isEmpty ? FileText.baseName(tree) : folder
     }
 }
 
@@ -81,9 +76,9 @@ enum PreviewBody: Equatable {
 enum GitLetter {
     static func color(_ letter: String) -> Token {
         switch letter {
-        case "A", "?": Palette.success
-        case "D", "U": Palette.failed
-        default: Palette.waiting
+        case "A", "?": Palette.successText
+        case "D", "U": Palette.failedText
+        default: Palette.waitingText
         }
     }
 
