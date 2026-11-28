@@ -45,7 +45,7 @@ public struct SessionsHome: View {
             }
         }
         .screenBackground()
-        .cornerButtons { NewSessionButton(hosts: hosts, open: open) }
+        .cornerButtons { NewSessionButton(hosts: macId.map { id in hosts.filter { $0.id == id } } ?? hosts, open: open) }
         .refreshable { await refresh() }
         .toast($toast)
     }
@@ -82,6 +82,11 @@ public struct SessionsHome: View {
             Text("Recent first").tag(HomeList.ProjectSort.recent)
         }
         if let open {
+            ForEach(hosts) { host in
+                Button { open(.terminals(mac: host.mac)) } label: {
+                    Label(hosts.count > 1 ? "Terminals · \(host.name)" : "Terminals", lucide: .terminal)
+                }
+            }
             ForEach(hosts.filter { $0.workspace.automations != nil }) { host in
                 // A link inside a Menu doesn't push onto the stack.
                 Button { open(.automations(mac: host.mac)) } label: {

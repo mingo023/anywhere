@@ -151,7 +151,8 @@ public struct PullRequestsHome: View {
         let loads = targets.map { store, path in Task { (try? await store.recheckList(path)) != nil } }
         var answered = false
         for load in loads where await load.value { answered = true }
-        unanswered = !hosts.isEmpty && !answered
+        let emptyWorkspace = hosts.contains { $0.link == .online && $0.workspace.loaded && $0.workspace.projects.isEmpty }
+        unanswered = !hosts.isEmpty && !answered && !emptyWorkspace
         loaded = true
     }
 }

@@ -44,7 +44,7 @@ public struct InboxView: View {
     }
 
     private var loading: Bool {
-        !hosts.contains { $0.agentsListed } && hosts.contains { !$0.reachability(at: .now).isFinal }
+        !hosts.contains { $0.agentsListed } && hosts.contains { [.online, .connecting, .reconnecting].contains($0.reachability(at: .now)) }
     }
 
     private func screen(_ built: InboxLayout.Built, loading: Bool) -> some View {
@@ -167,7 +167,7 @@ struct InboxRow: View {
         let head = InboxText.headline(s, status, ask: ask)
         VStack(alignment: .leading, spacing: 0) {
             PushRow(value: Route.chat(mac: host.mac, agentId: session.id)) {
-                SessionRowFrame(status: status, title: head.text, code: head.code, pinned: s.pinned == true, updatedAt: s.updatedAt,
+                SessionRowFrame(status: status, title: head.text, code: head.code, wraps: plain != nil, pinned: s.pinned == true, updatedAt: s.updatedAt,
                                 ticking: status == .working, bottom: plain == nil ? 12 : 0) {
                     Self.place(InboxText.place(project: s.project, branch: s.branch ?? s.worktree, mac: showMac ? host.name : nil)).rowLine()
                 }

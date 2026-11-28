@@ -250,6 +250,10 @@ struct NavigatorTests {
         #expect(nav.sessionsPath == [.project(mac: "mbp", path: "/p")])
         #expect(nav.inboxPath.isEmpty)
         #expect(nav.machinesPath == [.settings])
+
+        nav.inboxPath = [.chat(mac: "studio", agentId: "a3")]
+        nav.keepSelection([online])
+        #expect(nav.inboxPath.isEmpty, "the selected Mac staying doesn't keep another's screens")
     }
 
     @Test("switching Macs, or a link to a chat, widens the sessions list from the tree it was narrowed to")

@@ -200,6 +200,7 @@ public final class Navigator {
 
     /// Keeps the selection on a Mac that exists: the first one when none is selected or the selected one was forgotten.
     public func keepSelection(_ macs: [MacRef]) {
+        dropForgotten(macs)
         if let macId, macs.contains(where: { $0.id == macId }) { return }
         // Not the user moving, so a held link stays.
         if let first = macs.first {
@@ -208,7 +209,6 @@ public final class Navigator {
             macId = nil
             tree = nil
         }
-        dropForgotten(macs)
     }
 
     /// Leaves the screens of a Mac no longer paired, with what was opened over them.

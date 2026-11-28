@@ -11,6 +11,8 @@ struct SessionRowFrame<Line: View>: View {
     let status: Status
     let title: String
     var code = false
+    /// The whole title, as a command answered from the row must be seen in full.
+    var wraps = false
     var pinned = false
     let updatedAt: Int
     var ticking = false
@@ -25,7 +27,7 @@ struct SessionRowFrame<Line: View>: View {
                     Text(title)
                         .font(code ? .system(size: 14, design: .monospaced) : .system(size: 17))
                         .foregroundStyle(Palette.text.color)
-                        .lineLimit(1)
+                        .lineLimit(wraps ? nil : 1)
                         .frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
                     if pinned { LucideIcon(.pin, size: 13).foregroundStyle(Palette.text3.color).accessibilityLabel("Pinned") }
                     Elapsed(updatedAt: updatedAt, ticking: ticking)
