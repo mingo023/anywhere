@@ -1,7 +1,8 @@
 //! The page a host's space shows while it can't be reached: the mascot, what the link is doing, Reconnect and Edit host.
 
-use super::{Reach, Space, offline_note, offline_title, shows_session, space_of};
+use super::{Reach, Space, Tracked, offline_note, offline_title, shows_session, space_of};
 use crate::desktop::Desktop;
+use crate::desktop::chrome::Screen;
 use crate::mascot::{BEAT, DOWN, Look, STILL, mascot, waiting};
 use agents::locals::is_local;
 use gpui_kit::*;
@@ -18,15 +19,24 @@ impl Desktop {
         self.spaces.locked(&space, self.space_reach(&space), Instant::now()).then_some(space)
     }
 
-    /// Notes the reach of the space on screen, and draws again when a sign-in's grace runs out.
-    pub(crate) fn track_reach(&mut self, cx: &mut Context<Self>) {
+    /// Notes the reach of the space on screen: draws again when a sign-in's grace runs out, and once the space is
+    /// back, lands where entering it would have, unless a session of its own already shows.
+    pub(crate) fn track_reach(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let space = self.space();
-        if let Some(grace) = self.spaces.track(&space, self.space_reach(&space), Instant::now()) {
-            cx.spawn(async move |this, cx| {
-                cx.background_executor().timer(grace).await;
-                this.update(cx, |_, cx| cx.notify()).ok();
-            })
-            .detach();
+        match self.spaces.track(&space, self.space_reach(&space), Instant::now()) {
+            Some(Tracked::Grace(grace)) => cx
+                .spawn(async move |this, cx| {
+                    cx.background_executor().timer(grace).await;
+                    this.update(cx, |_, cx| cx.notify()).ok();
+                })
+                .detach(),
+            Some(Tracked::Back) => cx.defer_in(window, move |this, window, cx| {
+                if this.space() == space && this.screen == Screen::Sessions && this.session_tree(cx).is_none() {
+                    this.land(&space, true, window, cx);
+                    cx.notify();
+                }
+            }),
+            None => {}
         }
     }
 

@@ -764,7 +764,7 @@ fn replaced_on_disk(cx: &App) -> Task<bool> {
 
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.track_reach(cx);
+        self.track_reach(window, cx);
         self.sync_panels(cx);
         self.sync_pr_side(cx);
         self.follow_space_look(window, cx);

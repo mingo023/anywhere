@@ -849,6 +849,7 @@ impl Render for Sidebar {
         };
         let list = div().flex().flex_col().gap(px(1.)).children(sections);
         let list = if f.locked { inert(list) } else { list };
+        let locked = f.locked;
         let list = match f.slide {
             Some((n, heading)) => list
                 .with_animation(
@@ -856,7 +857,7 @@ impl Render for Sidebar {
                     Animation::new(Duration::from_millis(SLIDE_MS)).with_easing(ease_out_quint()),
                     move |d, t| {
                         let off = 24. * heading.sign() * (1. - t);
-                        d.opacity(t).ml(px(off)).mr(px(-off))
+                        d.opacity(t * if locked { LOCKED } else { 1. }).ml(px(off)).mr(px(-off))
                     },
                 )
                 .into_any_element(),
@@ -899,6 +900,8 @@ fn moves_into(d: &DragRow, to: Section) -> bool {
     matches!(d.list, List::Projects(from) if from != to)
 }
 
+const LOCKED: f32 = 0.4;
+
 /// A section head's lock: the space's machine can't be reached, so its buttons are gone.
 pub(crate) fn lock() -> Div {
     div().size(px(22.)).flex().flex_none().items_center().justify_center().child(icon("lock", 13., TEXT_4))
@@ -906,5 +909,5 @@ pub(crate) fn lock() -> Div {
 
 /// `list` dimmed under a cover that takes its presses but lets it scroll, as a locked space's rows show but don't act.
 fn inert(list: impl IntoElement) -> Div {
-    div().relative().opacity(0.4).child(list).child(div().absolute().inset_0().block_mouse_except_scroll())
+    div().relative().opacity(LOCKED).child(list).child(div().absolute().inset_0().block_mouse_except_scroll())
 }
