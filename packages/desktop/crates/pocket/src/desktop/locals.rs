@@ -17,8 +17,9 @@ impl Desktop {
     pub(crate) fn new_local(&mut self, project: &str, cx: &App) -> String {
         let main = self.tree_of(project, cx).map(|t| self.local_name(&t));
         let taken: Vec<String> = self.agents.locals_in(project).map(|l| l.name.clone()).chain(main).collect();
-        let local = Local { id: locals::new_id(), project: project.to_string(), name: locals::next_name(taken.iter().map(String::as_str)) };
-        self.outbox.local.local_create(&local);
+        let id = hosts::split(project).0.map_or_else(locals::new_id, |host| hosts::session::tag(host, &locals::new_id()));
+        let local = Local { id, project: project.to_string(), name: locals::next_name(taken.iter().map(String::as_str)) };
+        self.outbox.local_create(&local);
         self.agents.add_local(local.clone());
         local.id
     }
@@ -33,7 +34,7 @@ impl Desktop {
         for term in self.tree_terminals(id, cx) {
             self.close_pane(&term, cx);
         }
-        self.outbox.local.local_delete(id);
+        self.outbox.local_delete(id);
         self.agents.remove_local(id);
         self.workspaces.update(cx, |w, _| w.remove(id));
         self.store.layouts.remove(id);

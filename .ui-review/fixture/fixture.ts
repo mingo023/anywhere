@@ -21,6 +21,7 @@
 // FIXTURE_HOST_DELAY_MS delays each of devbox's replies, as a host over a real link answers.
 // FIXTURE_HOST_AGENTS=1 (with FIXTURE_HOST_FILES) also serves devbox's agent websocket, logged to pocketd-frames-devbox-ws.jsonl: a create there
 // starts an agent and echoes its prompt. devbox lists no terminals, so its chat doesn't open.
+// FIXTURE_HOST_LOCALS=1 (with FIXTURE_HOST_AGENTS) has devbox's pocketd keep Locals (locals.v1): it lists them and makes, renames and deletes them.
 // FIXTURE_HOST_WRITE_FAILS=1 refuses each file written to devbox's attachments folder.
 // FIXTURE_HOST_GH=1 (with FIXTURE_HOST_FILES) gives devbox's app-ios a worktree, app-ios-login on fix/login, whose PR #42 only devbox's
 // `gh` account `work` can see, and app-ios has `work` chosen; its active account, `me`, can't see acme/app-ios.
@@ -864,6 +865,7 @@ const hostConns = new Set<{ write(s: string): unknown }>();
 if (process.env.FIXTURE_HOST_AGENTS) {
   const log = process.env.FIXTURE_LOG?.replace(/\.jsonl$/, "-devbox-ws.jsonl");
   const agents: typeof summaries = [];
+  let locals: { id: string; project: string; name: string }[] = [];
   Bun.serve({
     port: port + 1,
     fetch: (req, server) => (server.upgrade(req) ? undefined : new Response("devbox")),
@@ -872,8 +874,9 @@ if (process.env.FIXTURE_HOST_AGENTS) {
         const f = JSON.parse(raw.toString());
         if (log) appendFileSync(log, raw + "\n");
         if (f.type === "hello") {
-          ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "devbox", hostname: "devbox", protocolVersion: 3, caps: ["scopes.v1", "summary.v2", "access.v1", "workspace.v1", ...(process.env.FIXTURE_REGISTRY ? ["registry.v2"] : [])], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+          ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "devbox", hostname: "devbox", protocolVersion: 3, caps: ["scopes.v1", "summary.v2", "access.v1", "workspace.v1", ...(process.env.FIXTURE_REGISTRY ? ["registry.v2"] : []), ...(process.env.FIXTURE_HOST_LOCALS ? ["locals.v1"] : [])], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
           ws.send(JSON.stringify({ type: "agent.list", agents }));
+          if (process.env.FIXTURE_HOST_LOCALS) ws.send(JSON.stringify({ type: "local.list", locals }));
           if (process.env.FIXTURE_REGISTRY) ws.send(JSON.stringify({ type: "registry.list", projects: [], tracked: [], settings: registrySettings }));
           // Without worktrees.v1: devbox lists its worktrees but can't delete them.
           const listed = hostProjects.filter((p) => p.startsWith("//devbox/")).map((p) => p.slice("//devbox".length));
@@ -881,6 +884,13 @@ if (process.env.FIXTURE_HOST_AGENTS) {
           ws.send(JSON.stringify({ type: "project.list", projects: listed.map((path) => ({ path, worktrees: [{ path, branch: "main", isMain: true }, ...login(path)] })) }));
         }
         if (f.type.startsWith("project.")) ws.send(JSON.stringify({ type: "ack", id: f.id }));
+        if (process.env.FIXTURE_HOST_LOCALS && f.type.startsWith("local.")) {
+          if (f.type === "local.create") locals.push({ id: f.localId, project: f.project, name: f.name });
+          if (f.type === "local.rename") locals = locals.map((l) => (l.id === f.localId ? { ...l, name: f.title } : l));
+          if (f.type === "local.delete") locals = locals.filter((l) => l.id !== f.localId);
+          ws.send(JSON.stringify({ type: "ack", id: f.id }));
+          ws.send(JSON.stringify({ type: "local.list", locals }));
+        }
         if (f.type === "agent.create") {
           const { project, provider, prompt, checkout, fork } = f.spec;
           const id = `devbox-${f.requestId}`;

@@ -15,7 +15,7 @@ impl Desktop {
             return;
         }
         let (waiting, here): (BTreeMap<_, _>, BTreeMap<_, _>) =
-            std::mem::take(&mut self.store.layouts).into_iter().partition(|(tree, _)| hosts::split(tree).0.is_some());
+            std::mem::take(&mut self.store.layouts).into_iter().partition(|(tree, _)| hosts::host_of(tree).is_some());
         self.workspaces.update(cx, |all, _| all.wait(waiting));
         self.restore(here, cx);
     }
@@ -23,7 +23,7 @@ impl Desktop {
     /// Brings back the panels of `host`'s worktrees, once it has listed its terminals.
     pub(crate) fn restore_host_layouts(&mut self, host: &str, cx: &mut App) {
         if self.workspaces.read(cx).is_restored() {
-            let saved = self.workspaces.update(cx, |all, _| all.take_waiting(|tree| hosts::split(tree).0 == Some(host)));
+            let saved = self.workspaces.update(cx, |all, _| all.take_waiting(|tree| hosts::host_of(tree) == Some(host)));
             self.restore(saved, cx);
         }
     }

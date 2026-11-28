@@ -90,8 +90,8 @@ struct Draft {
     taken: HashSet<String>,
     seed: usize,
     picked_checkout: Target,
-    /// pocketd takes Locals; without them every session gets a Worktree, whatever was picked.
-    locals_offered: bool,
+    /// The pocketds taking Locals, this Mac's as "" and a host's by its id; in a project on any other, every session gets a Worktree, whatever was picked.
+    locals_offered: HashSet<String>,
     /// The Local an earlier send made, so a retry after a failed create starts there instead of making another.
     local: Option<String>,
     repo: Option<String>,
@@ -131,7 +131,7 @@ impl Default for Draft {
             taken: HashSet::new(),
             seed: 0,
             picked_checkout: Target::NewLocal,
-            locals_offered: true,
+            locals_offered: HashSet::from([String::new()]),
             local: None,
             repo: None,
             scratch: false,
@@ -185,9 +185,9 @@ impl Draft {
         self.picked_checkout == Target::Worktree || !self.locals_here() || matches!(self.source, Source::Pr(_))
     }
 
-    /// Only this Mac's pocketd keeps Locals, so a project on a host has none.
+    /// Whether the pocketd holding the project, this Mac's with none picked, takes Locals.
     fn locals_here(&self) -> bool {
-        self.locals_offered && self.repo.as_deref().is_none_or(|r| hosts::split(r).0.is_none())
+        self.locals_offered.contains(self.repo.as_deref().and_then(|r| hosts::split(r).0).unwrap_or_default())
     }
 
     fn link_pr(&mut self, typed: &str) {
@@ -293,7 +293,7 @@ impl Draft {
     }
 
     /// The page opened again: a kept draft keeps its checkout, base and Local, and waits on a send still out.
-    fn reopen(&mut self, keep: bool, worktree: bool, locals_offered: bool) {
+    fn reopen(&mut self, keep: bool, worktree: bool, locals_offered: HashSet<String>) {
         self.want_base = Some(self.base_branch()).filter(|b| keep && !b.is_empty());
         if !keep {
             (self.source, self.local) = (Source::New, None);
@@ -473,8 +473,8 @@ impl NewForm {
         self.draft.no_project()
     }
 
-    /// pocketd's caps change on every connect.
-    pub(crate) fn offer_locals(&mut self, offered: bool) {
+    /// Each pocketd's caps change on every connect.
+    pub(crate) fn offer_locals(&mut self, offered: HashSet<String>) {
         self.draft.locals_offered = offered;
     }
 
@@ -527,7 +527,7 @@ impl NewForm {
         &mut self,
         prompt: Option<String>,
         worktree: bool,
-        locals_offered: bool,
+        locals_offered: HashSet<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> (bool, bool, Option<String>) {
@@ -648,7 +648,7 @@ impl Desktop {
     /// and since it quotes the Project on screen, the draft moves there.
     pub fn reset_new_form(&mut self, prompt: Option<String>, worktree: bool, window: &mut Window, cx: &mut Context<Self>) {
         let worktree = worktree || self.store.agents.new_worktree;
-        let locals = self.agents.locals_offered();
+        let locals = self.agents.locals_offered_by();
         let (keep_project, none, repo) = self.new_form.update(cx, |f, cx| f.reopen(prompt, worktree, locals, window, cx));
         if keep_project && none {
             return;
@@ -1120,15 +1120,19 @@ mod tests {
     }
 
     #[test]
-    fn a_project_on_a_host_starts_in_a_new_worktree_since_its_pocketd_holds_no_locals() {
-        let draft = Draft { repo: Some("//devbox/p".into()), picked_checkout: Target::NewLocal, ..Draft::default() };
+    fn a_project_on_a_host_starts_in_a_new_local_only_when_that_hosts_pocketd_takes_locals() {
+        let mut draft = Draft { repo: Some("//devbox/p".into()), picked_checkout: Target::NewLocal, ..Draft::default() };
         assert_eq!(draft.target(), Target::Worktree);
+        draft.locals_offered = HashSet::from(["devbox".into()]);
+        assert_eq!((draft.target(), draft.ready("")), (Target::NewLocal, true));
+        draft.repo = Some("/p".into());
+        assert_eq!(draft.target(), Target::Worktree, "this Mac's pocketd takes none");
     }
 
     #[test]
     fn a_kept_draft_comes_back_with_its_checkout_base_and_local() {
         let mut draft = kept();
-        draft.reopen(true, true, true);
+        draft.reopen(true, true, Draft::default().locals_offered);
         assert_eq!((draft.picked_checkout, draft.source, draft.local), (Target::NewLocal, Source::Branch("fix".into()), Some("local-1".into())));
         assert_eq!(draft.want_base.as_deref(), Some("dev"));
     }
@@ -1136,14 +1140,14 @@ mod tests {
     #[test]
     fn an_empty_draft_starts_over() {
         let mut draft = kept();
-        draft.reopen(false, true, true);
+        draft.reopen(false, true, Draft::default().locals_offered);
         assert_eq!((draft.picked_checkout, draft.source, draft.local, draft.want_base), (Target::Worktree, Source::New, None, None));
     }
 
     #[test]
     fn a_send_still_out_is_still_awaited_when_the_page_comes_back() {
         let mut draft = Draft { reply: sent("r1"), ..kept() };
-        draft.reopen(true, false, true);
+        draft.reopen(true, false, Draft::default().locals_offered);
         assert!(draft.reply.answer("r1", None));
     }
 
@@ -1188,8 +1192,10 @@ mod tests {
     fn the_picker_offers_only_a_new_worktree_and_a_new_local() {
         let draft = Draft::default();
         assert_eq!(draft.targets(), [Target::Worktree, Target::NewLocal]);
-        assert_eq!(Draft { locals_offered: false, ..Draft::default() }.targets(), [Target::Worktree]);
-        assert_eq!(Draft { repo: Some("//devbox/p".into()), ..draft }.targets(), [Target::Worktree]);
+        assert_eq!(Draft { locals_offered: HashSet::new(), ..Draft::default() }.targets(), [Target::Worktree]);
+        let on_host = Draft { repo: Some("//devbox/p".into()), ..draft };
+        assert_eq!(on_host.targets(), [Target::Worktree]);
+        assert_eq!(Draft { locals_offered: HashSet::from(["devbox".into()]), ..on_host }.targets(), [Target::Worktree, Target::NewLocal]);
         let local = checkout_choice(Target::NewLocal);
         assert_eq!((local.glyph, local.label), ("laptop", "Local"));
     }
@@ -1208,9 +1214,9 @@ mod tests {
 
     #[test]
     fn without_locals_a_picked_local_becomes_a_worktree_until_pocketd_takes_them_again() {
-        let mut draft = Draft { repo: Some("/p".into()), locals_offered: false, ..Draft::default() };
+        let mut draft = Draft { repo: Some("/p".into()), locals_offered: HashSet::new(), ..Draft::default() };
         assert_eq!((draft.target(), draft.ready("")), (Target::Worktree, false));
-        draft.locals_offered = true;
+        draft.locals_offered = Draft::default().locals_offered;
         assert_eq!((draft.target(), draft.ready("")), (Target::NewLocal, true));
     }
 

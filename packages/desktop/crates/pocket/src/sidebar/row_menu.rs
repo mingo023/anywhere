@@ -408,7 +408,7 @@ impl Desktop {
                 if self.agents.renames_offered(&local) {
                     rows.push(row("aside-menu-rename", "compose", "Rename…", MenuAction::Rename(local.clone())));
                 }
-                if is_local(&local) && self.agents.locals_offered() {
+                if is_local(&local) && self.agents.locals_offered_on(agents::locals::host(&local)) {
                     if !rows.is_empty() {
                         rows.push(MenuItem::Divider);
                     }

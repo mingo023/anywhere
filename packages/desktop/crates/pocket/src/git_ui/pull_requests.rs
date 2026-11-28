@@ -162,7 +162,7 @@ impl PullRequests {
 
 /// The host holding `tree`, `None` on this Mac: each signs in to `gh` on its own.
 fn machine(tree: &str) -> Option<String> {
-    hosts::split(tree).0.map(str::to_string)
+    hosts::host_of(tree).map(str::to_string)
 }
 
 pub(crate) fn tone(pr: &Pr) -> Token {

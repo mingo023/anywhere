@@ -70,8 +70,10 @@ pub struct Agents {
     pub caps: Vec<String>,
     /// Worktree display names by path, from `worktree.names`.
     pub names: HashMap<String, String>,
-    /// The Locals the user added, in the order they were made, from `local.list`.
+    /// The Locals the user added, in the order they were made, from each pocketd's `local.list`; a host's carry its tagged ids.
     pub locals: Vec<Local>,
+    /// The hosts whose pocketd keeps Locals and takes this client's changes to them.
+    pub local_hosts: HashSet<String>,
     /// pocketd's build from `hello.ok`: the release tag, or a VCS stamp in dev.
     pub version: String,
     pub automations: Arc<Automations>,
@@ -142,7 +144,7 @@ impl Agents {
     /// what one pocketd sends whole replaces only its own share.
     pub fn apply_from(&mut self, source: Option<&str>, ev: Event) {
         let mine = |id: &str| id.split_once('/').map(|(h, _)| h) == source;
-        let my_name = |path: &str| path.strip_prefix("//").and_then(|p| p.split_once('/')).map(|(h, _)| h) == source;
+        let my_name = |path: &str| host_of_path(path) == source;
         let lineage = matches!(ev, Event::Agents(_) | Event::Agent(_) | Event::Delegations { .. } | Event::Delegated { .. });
         match ev {
             Event::Agents(list) => {
@@ -156,6 +158,8 @@ impl Agents {
                 self.holds_queues(source, &caps);
                 self.says_registry(source, &caps);
                 self.says_deletes(source, &caps);
+                self.locals.retain(|l| !mine(&l.id));
+                self.says_locals(source, &caps);
             }
             Event::Agent(a) if a.status == "closed" => self.list.retain(|x| x.id != a.id),
             Event::Agent(a) => {
@@ -191,7 +195,7 @@ impl Agents {
                 self.caps = caps;
                 self.version = version;
                 self.names.retain(|path, _| !my_name(path));
-                self.locals.clear();
+                self.locals.retain(|l| !mine(&l.id));
             }
             Event::Host(h) => self.host = Some(h),
             Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) => {}
@@ -206,7 +210,10 @@ impl Agents {
                 self.names.retain(|path, _| !my_name(path));
                 self.names.extend(names);
             }
-            Event::Locals(locals) => self.locals = locals,
+            Event::Locals(locals) => {
+                self.locals.retain(|l| !mine(&l.id));
+                self.locals.extend(locals);
+            }
             Event::Registry(_) | Event::RegistryFailed(_) | Event::WorktreeInspected { .. } | Event::WorktreeDeleted { .. } => {}
             Event::Projects(projects) => {
                 self.projects.retain(|path, _| !my_name(path));
@@ -308,9 +315,19 @@ impl Agents {
         self.caps.iter().any(|c| c == LOCALS_CAP) && !self.observe_only()
     }
 
+    /// Whether the pocketd on `host`, this Mac's for `None`, keeps Locals and takes this client's changes to them.
+    pub fn locals_offered_on(&self, host: Option<&str>) -> bool {
+        host.map_or_else(|| self.locals_offered(), |h| self.local_hosts.contains(h))
+    }
+
+    /// The pocketds that keep Locals and take this client's changes to them: this Mac's as "", a host's by its id.
+    pub fn locals_offered_by(&self) -> HashSet<String> {
+        self.local_hosts.iter().cloned().chain(self.locals_offered().then(String::new)).collect()
+    }
+
     /// Whether pocketd can rename the tree `key`, a Local's id or a worktree's path.
     pub fn renames_offered(&self, key: &str) -> bool {
-        if locals::is_local(key) { self.locals_offered() } else { self.names_offered() }
+        if locals::is_local(key) { self.locals_offered_on(locals::host(key)) } else { self.names_offered() }
     }
 
     pub fn local(&self, id: &str) -> Option<&Local> {
@@ -328,7 +345,7 @@ impl Agents {
 
     /// The ids of the Locals removing `project` deletes: none when pocketd won't take this client's deletes.
     pub fn locals_removed_with<'a>(&'a self, project: &'a str) -> impl Iterator<Item = &'a str> {
-        self.locals_offered().then(|| self.locals_in(project)).into_iter().flatten().map(|l| l.id.as_str())
+        self.locals_offered_on(host_of_path(project)).then(|| self.locals_in(project)).into_iter().flatten().map(|l| l.id.as_str())
     }
 
     /// Shows a new Local before pocketd lists it.
@@ -370,6 +387,15 @@ impl Agents {
     /// Whether `host`'s pocketd (this Mac's for `None`) said hello without taking registry changes: it needs updating.
     pub fn registry_outdated(&self, host: Option<&str>) -> bool {
         self.registries.get(host.unwrap_or_default()) == Some(&false)
+    }
+
+    fn says_locals(&mut self, source: Option<&str>, caps: &[String]) {
+        let Some(host) = source else { return };
+        if caps.iter().any(|c| c == LOCALS_CAP) {
+            self.local_hosts.insert(host.to_string());
+        } else {
+            self.local_hosts.remove(host);
+        }
     }
 
     fn says_deletes(&mut self, source: Option<&str>, caps: &[String]) {
@@ -470,6 +496,11 @@ impl Agents {
         }
         hasher.finish()
     }
+}
+
+/// The host in a `//host/path` key; `None` for this Mac's paths.
+fn host_of_path(path: &str) -> Option<&str> {
+    path.strip_prefix("//").and_then(|p| p.split_once('/')).map(|(h, _)| h)
 }
 
 #[cfg(test)]
@@ -739,6 +770,28 @@ mod tests {
         assert_eq!((a.local("l1").unwrap().name.as_str(), a.local("l2").unwrap().name.as_str()), ("Fix", "Local 2"));
         a.apply(Event::Connected { scopes: vec![], caps: vec!["locals.v1".into()], version: String::new() });
         assert!(a.locals.is_empty() && a.locals_offered());
+    }
+
+    #[test]
+    fn a_hosts_locals_live_beside_this_macs_until_that_host_reconnects_or_is_forgotten() {
+        let local = |id: &str, project: &str| Local { id: id.into(), project: project.into(), name: "Local 2".into() };
+        let ids = |a: &Agents| a.locals.iter().map(|l| l.id.clone()).collect::<Vec<_>>();
+        let mut a = Agents::default();
+        a.apply_from(Some("devbox"), Event::Connected { scopes: vec![], caps: vec![LOCALS_CAP.into()], version: String::new() });
+        a.apply_from(Some("devbox"), Event::Locals(vec![local("devbox/l1", "//devbox/home/me/app")]));
+        a.apply(Event::Connected { scopes: vec![], caps: vec![], version: String::new() });
+        a.apply(Event::Locals(vec![local("l2", "/src/app")]));
+        assert_eq!(ids(&a), ["devbox/l1", "l2"]);
+        assert!(a.locals_offered_on(Some("devbox")) && !a.locals_offered_on(None) && !a.locals_offered_on(Some("laptop")));
+        assert!(a.renames_offered("devbox/l1") && !a.renames_offered("l2"));
+        assert_eq!(a.locals_removed_with("//devbox/home/me/app").collect::<Vec<_>>(), ["devbox/l1"]);
+
+        a.apply_from(Some("devbox"), Event::Connected { scopes: vec![], caps: vec![LOCALS_CAP.into()], version: String::new() });
+        assert_eq!(ids(&a), ["l2"]);
+        a.apply_from(Some("devbox"), Event::Locals(vec![local("devbox/l1", "//devbox/home/me/app")]));
+        a.forget("devbox");
+        assert_eq!(ids(&a), ["l2"]);
+        assert!(!a.locals_offered_on(Some("devbox")));
     }
 
     #[test]
