@@ -4,54 +4,30 @@ import Stores
 import SwiftUI
 import Wire
 
-/// A worktree's or Local's ways into its code, as tiles: Changes, its pull request and Files. `tree` is the checkout
-/// they read: the worktree, or a Local's project checkout.
+/// A worktree's or Local's ways into its code, as one group of rows: Changes, its pull request and Files, each with what
+/// it holds at its end. `tree` is the checkout they read: the worktree, or a Local's project checkout.
 @MainActor
 struct TreeLinks: View {
     let host: HostModel
     let mac: String
     let project: String
     let tree: String
-    let open: ((Route) -> Void)?
-    @Environment(\.showInDetail) private var showInDetail
+    @Environment(\.staleSince) private var stale
 
     var body: some View {
-        let column = showInDetail != nil
         let head = host.git.changes(tree).head
         let item = host.github.lists[project]?.first { $0.tree == tree }
         let pr = Self.pullRequest(item, gh: host.github.status?.state, problem: host.github.pullRequest(tree).problem, readsGitHub: host.hello?.has(Caps.gh) == true)
-        Section {
-            LazyVGrid(columns: column ? [GridItem(.flexible())] : [GridItem(.flexible(), spacing: Space.s), GridItem(.flexible())], spacing: column ? 0 : Space.s) {
-                TileLink("Changes", systemImage: "plus.forwardslash.minus", first: true, value: Route.changes(mac: mac, tree: tree), open: open) {
-                    if let totals = head?.totals, totals.files > 0 {
-                        (Text(Self.changes(totals.files) ?? "") + Text(" +\(totals.added)").foregroundColor(Palette.diffAddText.color)
-                            + Text(" −\(totals.removed)").foregroundColor(Palette.diffDelText.color))
-                    } else {
-                        Text(Self.changes(head?.totals.files) ?? " ")
-                    }
-                }
-                if let pr {
-                    TileLink(pr.capitalized, systemImage: "arrow.triangle.pull", trailing: item.map { "#\($0.number)" }, value: Route.pullRequest(mac: mac, tree: tree), open: open) {
-                        if let item {
-                            HStack(spacing: Space.xs) {
-                                Circle().fill(Pill.colors(PrBadge.tone(item)).text.color).frame(width: 6, height: 6)
-                                Text(SessionText.pullRequestState(item))
-                            }
-                        } else {
-                            // Keeps the tile as tall as those with a line here.
-                            Text(Self.unopened(head) ?? " ")
-                        }
-                    }
-                }
-                TileLink("Files", systemImage: "folder", value: Route.files(mac: mac, tree: tree, dir: ""), open: open) {
-                    Text(FileText.home(tree)).truncationMode(.head)
+        VStack(spacing: 0) {
+            LinkRow(.fileDiff, "Changes", value: Route.changes(mac: mac, tree: tree)) { Self.changes(head?.totals) }
+            if let pr {
+                LinkRow(.pullRequest, pr, value: Route.pullRequest(mac: mac, tree: tree), divider: true) {
+                    item.map(TreeText.pullRequest).map { Text($0.text).foregroundStyle(Self.color($0.tone).color) } ?? Text(stale == nil ? Self.unopened(head) ?? "None" : "None")
                 }
             }
-            .background(column ? Palette.surface.color : .clear, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            LinkRow(.folder, "Files", value: Route.files(mac: mac, tree: tree, dir: ""), divider: true) { nil }
         }
-        .listRowBackground(Color.clear)
-        .listRowInsets(EdgeInsets(top: Space.xs, leading: 0, bottom: Space.s, trailing: 0))
-        .listRowSeparator(.hidden)
+        .insetGroup()
         .onAppear { host.git.show(tree) }
         .onDisappear { host.git.hide(tree) }
         .task {
@@ -62,9 +38,17 @@ struct TreeLinks: View {
         }
     }
 
-    /// "No changes", "1 file", "12 files"; nil before the status loads.
-    nonisolated static func changes(_ files: Int?) -> String? {
-        files.map { $0 == 0 ? "No changes" : $0 == 1 ? "1 file" : "\($0) files" }
+    /// "+12 −3 · 4 files", "No changes"; nothing before the status loads.
+    static func changes(_ totals: GitTotals?) -> Text? {
+        guard let totals else { return nil }
+        guard totals.files > 0 else { return Text("No changes") }
+        return Text("+\(totals.added)").foregroundStyle(Palette.successText.color) + Text(" ")
+            + Text("−\(totals.removed)").foregroundStyle(Palette.failedText.color) + Text(" · \(Self.files(totals.files))")
+    }
+
+    /// "1 file", "12 files".
+    nonisolated static func files(_ count: Int) -> String {
+        count == 1 ? "1 file" : "\(count) files"
     }
 
     /// What a pull request would hold, before there is one: "3 ahead of main".
@@ -73,75 +57,83 @@ struct TreeLinks: View {
         return "\(head.ahead) ahead of \(base)"
     }
 
-    /// The pull request tile's title: "Create pull request" once gh can make one. Nil hides the tile, for a repository with
+    /// The pull request row's title: "Create pull request" once gh can make one. Nil hides the row, for a repository with
     /// no GitHub remote or a Mac that can't read GitHub.
     nonisolated static func pullRequest(_ item: PrItem?, gh: GhState?, problem: GhState?, readsGitHub: Bool) -> String? {
         if !readsGitHub || problem == .noRemote { return nil }
         return item == nil && gh == .ready ? "Create pull request" : "Pull request"
     }
+
+    private static func color(_ tone: Pill.Tone) -> Token {
+        tone == .neutral ? Palette.text2 : Pill.colors(tone).text
+    }
 }
 
-/// One way into a tree: a tile of a title, an optional number at its end and a line of mono detail, or, in an iPad column,
-/// where height is short, one line of a card with its icon.
+/// One way into a tree: an icon, a title, what it holds, and a chevron. The hairline above starts at the text.
 @MainActor
-private struct TileLink<Detail: View>: View {
+private struct LinkRow: View {
+    let icon: Lucide
     let title: String
-    let systemImage: String
-    var first = false
-    var trailing: String?
     let value: Route
-    let open: ((Route) -> Void)?
-    @ViewBuilder let detail: Detail
-    @Environment(\.showInDetail) private var showInDetail
+    let divider: Bool
+    let detail: Text?
 
-    init(_ title: String, systemImage: String, first: Bool = false, trailing: String? = nil, value: Route, open: ((Route) -> Void)?, @ViewBuilder detail: () -> Detail) {
+    init(_ icon: Lucide, _ title: String, value: Route, divider: Bool = false, detail: () -> Text?) {
+        self.icon = icon
         self.title = title
-        self.systemImage = systemImage
-        self.first = first
-        self.trailing = trailing
         self.value = value
-        self.open = open
+        self.divider = divider
         self.detail = detail()
     }
 
     var body: some View {
-        // A button, not a link: a List row takes any tap for the last of the links it holds, whatever their style.
-        Button { open?(value) } label: {
-            if showInDetail != nil { row } else { tile }
+        PushRow(value: value) {
+            HStack(spacing: 0) {
+                LucideIcon(icon, size: 20).foregroundStyle(Palette.text2.color).frame(width: Inset.textColumn)
+                Text(title).font(.system(size: 17)).foregroundStyle(Palette.text.color).lineLimit(1).layoutPriority(1)
+                Spacer(minLength: Space.s)
+                detail?.font(.system(size: 15).monospacedDigit()).foregroundStyle(Palette.text2.color).lineLimit(1).truncationMode(.head)
+                LucideIcon(.chevronRight, size: 16).foregroundStyle(Palette.text4.color).padding(.leading, Space.xs).padding(.trailing, Space.m)
+            }
+            .frame(height: HitTarget.minimum)
+            .contentShape(Rectangle())
+            .rowDivider(divider)
         }
         .buttonStyle(.plain)
     }
+}
 
-    private var tile: some View {
-        VStack(alignment: .leading, spacing: Space.xs) {
-            Image(systemName: systemImage).font(.system(size: 17)).foregroundStyle(Palette.text2.color).frame(height: 22).padding(.bottom, Space.xs)
-            HStack {
-                Text(title).font(Typography.subheadline.weight(.semibold)).foregroundStyle(Palette.text.color).lineLimit(1)
-                Spacer(minLength: Space.xs)
-                if let trailing { Text(trailing).font(Typography.digits).foregroundStyle(Palette.text3.color) }
+/// What a tree's rows say, over plain data.
+enum TreeText {
+    /// A pull request as its row ends: "#42 · Checks failing", and how loudly to say it.
+    static func pullRequest(_ item: PrItem) -> (text: String, tone: Pill.Tone) {
+        let tone = PrBadge.tone(item)
+        let state: String
+        if item.state == "MERGED" {
+            state = "Merged"
+        } else if item.state == "CLOSED" {
+            state = "Closed"
+        } else if item.draft {
+            state = "Draft"
+        } else {
+            switch item.gate {
+            case .checksFailed: state = "Checks failing"
+            case .conflicts: state = "Conflicts"
+            case .changesRequested: state = "Changes requested"
+            case .checksRunning: state = "Checks running"
+            case .reviewRequired: state = "Review required"
+            case .ready: state = "Ready to merge"
+            default: state = "Open"
             }
-            detail.font(Typography.codeSmall).foregroundStyle(Palette.text3.color).lineLimit(1)
         }
-        .padding(Space.m)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.surface.color, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-        .contentShape(Rectangle())
+        return ("#\(item.number) · \(state)", tone)
     }
 
-    private var row: some View {
-        HStack(spacing: Space.m) {
-            Image(systemName: systemImage).font(.system(size: 16)).foregroundStyle(Palette.text2.color).frame(width: 16)
-            Text(title).font(Typography.subheadline).foregroundStyle(Palette.text.color).lineLimit(1).layoutPriority(1)
-            Spacer(minLength: Space.xs)
-            if let trailing { Text(trailing).font(Typography.digits).foregroundStyle(Palette.text3.color) }
-            detail.font(Typography.codeSmall).foregroundStyle(Palette.text3.color).lineLimit(1)
-            SidebarChevron(open: false)
-        }
-        .padding(.horizontal, Space.m)
-        .frame(minHeight: HitTarget.minimum)
-        .overlay(alignment: .top) {
-            if !first { Palette.separator.color.frame(height: 1).padding(.leading, Space.m * 2 + 16) }
-        }
-        .contentShape(Rectangle())
+    /// "3 ahead", "2 behind", "up to date": where a branch stands once git has answered.
+    static func standing(_ head: GitHead?) -> String? {
+        guard let head else { return nil }
+        if head.ahead > 0 { return "\(head.ahead) ahead" }
+        if head.behind > 0 { return "\(head.behind) behind" }
+        return "up to date"
     }
 }

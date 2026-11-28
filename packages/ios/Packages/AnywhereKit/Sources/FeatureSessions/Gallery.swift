@@ -7,9 +7,6 @@ import Wire
 public enum SessionsGallery {
     @MainActor public static var scenes: [GalleryScene] {
         let screens: [(String, @MainActor (HostModel) -> AnyView)] = [
-            ("sessions-home", { AnyView(HomeView(host: $0, mac: Sample.mac)) }),
-            ("sessions-up-next", { AnyView(UpNextList(host: $0)) }),
-            ("sessions-tree", { AnyView(TreeView(host: $0, mac: Sample.mac, key: "/Users/mingo/.worktrees/anywhere/calm-otter")) }),
             ("sessions-new", { AnyView(NewSessionView(host: $0, mac: Sample.mac, project: nil, place: nil)) }),
             ("sessions-new-images", { host in
                 let images = LaunchImages(
@@ -36,7 +33,7 @@ public enum SessionsGallery {
                     AnyView(NavigationStack { screen(host()) }.screenBackground().preferredColorScheme(dark ? .dark : .light))
                 }
             }
-        } + [small]
+        } + [small] + RedesignGallery.scenes
     }
 
     /// A launch into a new worktree of the first project, `steps` into it.
