@@ -9,32 +9,15 @@ enum SessionText {
         s.title.isEmpty ? "New session" : s.title
     }
 
-    /// The line under a session's title: what failed, else what it is doing, else its status, else its model. Working
-    /// shows as the glyph's spin, so it isn't spelled out; the other statuses are, as their dots differ by colour alone.
-    static func detail(_ s: AgentSummary, _ status: Status, model: Bool = true) -> String? {
-        if s.compacting == true { return "Compacting…" }
-        if status == .failed, let error = s.error, !error.isEmpty { return error }
-        if let doing = s.activity, !doing.isEmpty { return doing }
-        if status != .working, let label = status.label { return label }
-        guard model else { return nil }
-        return s.model.map(modelName).flatMap { $0.isEmpty ? nil : $0 }
-    }
-
-    /// What leads a session's row in Up next: the ask it waits on, what failed, else its title.
-    static func headline(_ s: AgentSummary, _ status: Status, requests: [PermissionRequest]) -> String {
+    /// The line under a session's title: the ask it waits on, what it is doing, how it failed or that it finished, or Idle.
+    static func note(_ s: AgentSummary, _ status: Status, requests: [PermissionRequest]) -> String? {
+        let said = [s.error, s.activity].compactMap(\.self).first { !$0.isEmpty }
         switch status {
-        case .needsYou: requests.first.map(ask) ?? title(s)
-        case .failed: s.error.flatMap { $0.isEmpty ? nil : $0 } ?? title(s)
-        default: title(s)
-        }
-    }
-
-    /// The word beside a finished session's place, as dots alone can't say which it is.
-    static func outcome(_ status: Status) -> String? {
-        switch status {
-        case .failed: status.label
-        case .done: "Finished"
-        default: nil
+        case .needsYou: return requests.first.map(ask) ?? said ?? status.label
+        case .working: return s.compacting == true ? "Compacting…" : said
+        case .failed: return ["Failed", said].compactMap(\.self).joined(separator: " · ")
+        case .done: return "Finished"
+        case .idle: return "Idle"
         }
     }
 
@@ -44,22 +27,6 @@ enum SessionText {
         switch p.detail {
         case .shell, .read, .edit, .write, .search, .task: ask(p).count <= 200
         case .other, .unknown: false
-        }
-    }
-
-    /// "Open · 3 of 4 checks": a worktree's pull request on its tile.
-    static func pullRequestState(_ item: PrItem) -> String {
-        let total = item.checks.passed + item.checks.failed + item.checks.pending
-        let state = item.draft ? "Draft" : item.state == "MERGED" ? "Merged" : item.state == "CLOSED" ? "Closed" : "Open"
-        return total == 0 ? state : "\(state) · \(item.checks.passed) of \(total) checks"
-    }
-
-    /// The line under a session that wants a look: the ask it waits on, what failed, else `detail`.
-    static func look(_ s: AgentSummary, _ status: Status, requests: [PermissionRequest]) -> String? {
-        switch status {
-        case .needsYou: requests.first.map(ask) ?? s.activity.flatMap { $0.isEmpty ? nil : $0 } ?? status.label
-        case .failed: [s.error, s.activity].compactMap(\.self).first { !$0.isEmpty } ?? status.label
-        default: detail(s, status)
         }
     }
 
