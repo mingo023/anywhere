@@ -48,16 +48,26 @@ struct FilePreviewScreen: View {
         let shown = PreviewBody.of(preview.phase, path: preview.path, source: showsSource)
         return VStack(spacing: 0) {
             if let read, let note = PreviewBody.truncation(read) {
-                strip(note, systemImage: "scissors")
+                // No Lucide icon is a pair of scissors.
+                strip(note) { Image(systemName: "scissors") }
             }
             if let notice = preview.notice {
-                strip(notice, systemImage: "exclamationmark.triangle")
+                strip(notice) { LucideIcon(.triangleAlert, size: 13) }
             }
             content(shown)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .screenBackground()
-        .fileTitle(FileText.baseName(preview.path), subtitle: PreviewBody.subtitle(read, path: preview.path))
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if PreviewBody.hasSource(read, path: preview.path) {
+                Segments(options: [(false, "Preview"), (true, "Source")], selection: Binding(get: { showsSource }, set: { shown in sourceHere = shown; source = shown }))
+                    .padding(.vertical, Space.s)
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if context.fromChat, context.target != .none { MentionBar { handoff = .mention(path: preview.path) } }
+        }
+        .navigationTitle(FileText.baseName(preview.path))
         #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -94,8 +104,8 @@ struct FilePreviewScreen: View {
         #endif
     }
 
-    private func strip(_ text: String, systemImage: String) -> some View {
-        Label(text, systemImage: systemImage)
+    private func strip(_ text: String, @ViewBuilder icon: () -> some View) -> some View {
+        Label { Text(text) } icon: { icon() }
             .font(Typography.footnote)
             .foregroundStyle(Palette.text3.color)
             .frame(maxWidth: .infinity)
@@ -156,56 +166,42 @@ struct FilePreviewScreen: View {
 
     @ToolbarContentBuilder
     private func toolbar(_ read: FsRead?, _ shown: PreviewBody) -> some ToolbarContent {
-        if PreviewBody.hasSource(read, path: preview.path) {
-            #if os(iOS)
-                ToolbarItem(placement: .bottomBar) { sourcePicker }
-            #else
-                ToolbarItem(placement: .automatic) { sourcePicker }
-            #endif
-        }
-        if read?.kind == .text {
-            ToolbarItem(placement: .primaryAction) {
-                Button { find(shown) } label: { Label("Find", systemImage: "magnifyingglass") }
-                    .keyboardShortcut("f", modifiers: .command)
-            }
+        ToolbarItem(placement: .principal) {
+            BarHeading(title: FileText.baseName(preview.path), detail: PreviewBody.subtitle(path: preview.path, tree: preview.tree))
         }
         ToolbarItem(placement: .primaryAction) { more(read, shown) }
     }
 
-    private var sourcePicker: some View {
-        Picker("Show", selection: Binding(get: { showsSource }, set: { shown in sourceHere = shown; source = shown })) {
-            Text("Preview").tag(false)
-            Text("Source").tag(true)
-        }
-        .pickerStyle(.segmented)
-        .fixedSize()
-    }
-
     private func more(_ read: FsRead?, _ shown: PreviewBody) -> some View {
         Menu {
-            if context.target != .none {
-                Button { handoff = .mention(path: preview.path) } label: { Label("Mention in Chat", systemImage: "at") }
+            if read?.kind == .text {
+                Button { find(shown) } label: { Label("Find", lucide: .search) }
+                    .keyboardShortcut("f", modifiers: .command)
             }
-            Button { copy(FileText.absolute(tree: preview.tree, preview.path)) } label: { Label("Copy Path", systemImage: "doc.on.doc") }
+            if context.target != .none {
+                Button { handoff = .mention(path: preview.path) } label: { Label("Mention in Chat", lucide: .atSign) }
+            }
+            Button { copy(FileText.absolute(tree: preview.tree, preview.path)) } label: { Label("Copy Path", lucide: .copy) }
             #if os(iOS)
                 if read?.text != nil {
+                    // No Lucide icon is a text cursor.
                     Button { selecting = true } label: { Label("Select Text", systemImage: "text.cursor") }
                 }
             #endif
-            Button { goingTo = true } label: { Label("Go to File", systemImage: "doc.text.magnifyingglass") }
+            Button { goingTo = true } label: { Label("Go to File", lucide: .search) }
             if case .code = shown { settings }
             if let read { share(read) }
-            Button { files.load(preview) } label: { Label("Reload", systemImage: "arrow.clockwise") }
+            Button { files.load(preview) } label: { Label("Reload", lucide: .rotateCw) }
         } label: {
-            Label("More", systemImage: "ellipsis.circle")
+            BarMenuLabel()
         }
     }
 
     /// The desktop's Files settings for code: wrap, line numbers, text size.
     private var settings: some View {
         Section {
-            Toggle(isOn: Binding(get: { wrap }, set: { wrapChoice = $0 })) { Label("Wrap Lines", systemImage: "text.word.spacing") }
-            Toggle(isOn: $lineNumbers) { Label("Line Numbers", systemImage: "list.number") }
+            Toggle(isOn: Binding(get: { wrap }, set: { wrapChoice = $0 })) { Label("Wrap Lines", lucide: .textWrap) }
+            Toggle(isOn: $lineNumbers) { Label("Line Numbers", lucide: .listChecks) }
             Menu {
                 Button { textSize = PreviewSettings.step(textSize, by: -1) ?? textSize } label: {
                     Label("Smaller", systemImage: "textformat.size.smaller")
@@ -231,10 +227,10 @@ struct FilePreviewScreen: View {
     private func share(_ read: FsRead) -> some View {
         let name = FileText.baseName(preview.path)
         if let text = read.text {
-            ShareLink(item: text, subject: Text(name), preview: SharePreview(name)) { Label("Share", systemImage: "square.and.arrow.up") }
+            ShareLink(item: text, subject: Text(name), preview: SharePreview(name)) { Label("Share", lucide: .upload) }
         } else if let data = read.data {
             ShareLink(item: SharedImage(data: data, name: name), preview: SharePreview(name)) {
-                Label("Share", systemImage: "square.and.arrow.up")
+                Label("Share", lucide: .upload)
             }
         }
     }

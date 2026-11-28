@@ -41,7 +41,6 @@ struct PreviewBodyTests {
         #expect(PreviewBody.of(read(.text, text: "x", language: "html"), path: "a.htm", source: false) == .code("x", language: "html"))
         #expect(PreviewBody.of(read(.text, text: "x"), path: "Makefile", source: false) == .code("x", language: "makefile"))
         #expect(PreviewBody.of(read(.text, text: "x", language: "text"), path: "Makefile", source: false) == .code("x", language: "makefile"))
-        #expect(PreviewBody.subtitle(read(.text, size: 2048, text: "", language: "text"), path: "a.scss") == "CSS · 2.0 KB")
     }
 
     @Test("an SVG draws unless its source is asked for")
@@ -52,17 +51,27 @@ struct PreviewBodyTests {
         #expect(PreviewBody.hasSource(svg, path: "icon.svg"))
     }
 
-    @Test("a cut file says how much of it shows, and the subtitle names its folder, the language it highlights and its size")
-    func lines() {
+    @Test("a cut file says how much of it shows")
+    func cut() {
         var cut = read(.text, size: 3 * 1024 * 1024, text: String(repeating: "a", count: 512 * 1024), language: "text")
         cut.truncated = true
         #expect(PreviewBody.truncation(cut) == "Showing the first 512.0 KB of 3.0 MB")
         #expect(PreviewBody.truncation(read(.text, text: "a")) == nil)
-        #expect(PreviewBody.subtitle(read(.text, size: 2048, text: ""), path: "a.rs") == "Rust · 2.0 KB")
-        #expect(PreviewBody.subtitle(read(.text, size: 2048, text: "", language: "html"), path: "web/a.htm") == "web · HTML · 2.0 KB")
-        #expect(PreviewBody.subtitle(read(.image, size: 612), path: "a.png") == "612 B")
-        #expect(PreviewBody.subtitle(read(.unreadable), path: "src/a.rs") == "src")
-        #expect(PreviewBody.subtitle(nil, path: "a.rs") == nil)
+    }
+
+    @Test("the subtitle names the folder holding the file, or the tree for a file at the top")
+    func subtitle() {
+        #expect(PreviewBody.subtitle(path: "src/checkout/checkout.ts", tree: "/Users/mingo/dev/anywhere") == "src/checkout")
+        #expect(PreviewBody.subtitle(path: "README.md", tree: "/Users/mingo/dev/anywhere") == "anywhere")
+    }
+
+    @Test("an offline tree says which Mac went and when, and that nothing of it is kept here")
+    func offline() {
+        let utc = TimeZone(identifier: "UTC")!
+        #expect(
+            FilesContext.Offline(mac: "Studio", since: 1_700_000_000_000).note(timeZone: utc)
+                == "Studio is offline · last seen 22:13. Files aren't saved on this iPhone.")
+        #expect(FilesContext.Offline(mac: "Studio", since: nil).note() == "Studio is offline. Files aren't saved on this iPhone.")
     }
 
     @Test("wrap follows the width until picked, and text size stops at its ends")

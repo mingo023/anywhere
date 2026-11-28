@@ -15,9 +15,25 @@ struct FilesContext {
     var project: String?
     var open: ((Route) -> Void)?
     var git: GitStore?
+    /// A chat opened the screen, so a file pins Mention in Chat.
+    var fromChat = false
+    /// Set while the Mac can't be reached.
+    var offline: Offline?
 
     /// Lines can go to a session, or start one.
     var canAsk: Bool { target != .none || open != nil }
+
+    /// The Mac that went, and when, in Unix milliseconds.
+    struct Offline: Equatable {
+        let mac: String
+        let since: Int?
+
+        /// What the tree says when it can't be read: the Mac is gone, and nothing of it is kept here.
+        func note(timeZone: TimeZone = .current) -> String {
+            let lastSeen = since.map { " · last seen \(TimeText.clock(ms: $0, timeZone: timeZone))" } ?? ""
+            return "\(mac) is offline\(lastSeen). Files aren't saved on this iPhone."
+        }
+    }
 }
 
 extension View {

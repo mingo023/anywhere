@@ -6,7 +6,7 @@ import Stores
 import SwiftUI
 import Wire
 
-/// A tree's history with its graph, fifty commits a page, loading more as the list nears its end.
+/// A tree's history by day, fifty commits a page, loading more as the list nears its end.
 @MainActor
 struct HistoryScreen: View {
     let host: HostModel
@@ -18,39 +18,62 @@ struct HistoryScreen: View {
         let store = host.git
         let history = store.history(tree)
         let head = store.changes(tree).head
-        let lanes = min(history.layout.width, GraphCell.maxLanes)
         let now = Int(Date().timeIntervalSince1970)
-        List {
-            ForEach(Array(zip(history.commits.indices, history.commits)), id: \.1.sha) { i, commit in
-                NavigationLink(value: Route.commit(mac: mac, tree: tree, sha: commit.sha)) {
-                    HistoryRow(
-                        commit: commit, edges: GraphEdges(history.layout.rows[i], sha: commit.sha, parents: commit.parents.count),
-                        column: history.layout.rows[i].column, color: history.layout.rows[i].color, lanes: lanes,
-                        labels: Self.labels(commit.sha, tips: history.tips, head: head), now: now)
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                Toggle("All branches", isOn: $all)
+                    .toggleStyle(InkToggleStyle())
+                    .padding(.horizontal, Inset.margin)
+                    .frame(height: HitTarget.minimum)
+                    .frame(maxWidth: .infinity)
+                    .background(Palette.surface.color)
+                    .overlay(alignment: .top) { Palette.separator.color.frame(height: 0.5) }
+                    .overlay(alignment: .bottom) { Palette.separator.color.frame(height: 0.5) }
+                    .padding(.top, Space.s)
+                ForEach(HistoryRows.items(history.commits, now: now)) { item in
+                    switch item.kind {
+                    case .day(let label):
+                        Text(label)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Palette.text2.color)
+                            .padding(.horizontal, Inset.margin)
+                            .padding(.top, Space.xl)
+                            .padding(.bottom, Space.s)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityAddTraits(.isHeader)
+                    case .commit(let commit, let index, let first, let last):
+                        PushRow(value: Route.commit(mac: mac, tree: tree, sha: commit.sha)) {
+                            HistoryRow(
+                                commit: commit, branch: all ? Self.labels(commit.sha, tips: history.tips, head: head).first?.name : nil, now: now
+                            )
+                            .equatable()
+                        }
+                        .buttonStyle(.plain)
+                        .background(Palette.surface.color)
+                        .overlay(alignment: .top) { Palette.separator.color.frame(height: 0.5).padding(.leading, first ? 0 : Inset.margin) }
+                        .overlay(alignment: .bottom) { if last { Palette.separator.color.frame(height: 0.5) } }
+                        .onAppear {
+                            if index >= history.commits.count - 10 { Task { await store.loadHistory(tree, all: all) } }
+                        }
+                    }
                 }
-                .listRowInsets(EdgeInsets(top: 0, leading: Space.m, bottom: 0, trailing: Space.m))
-                .onAppear {
-                    if i >= history.commits.count - 10 { Task { await store.loadHistory(tree, all: all) } }
+                if history.loading {
+                    ProgressView().frame(maxWidth: .infinity).padding(Space.l)
+                } else if let error = history.error {
+                    ErrorRow(message: error) { history.error = nil }.padding(Space.l)
+                } else if history.commits.isEmpty, !history.more {
+                    Text("No commits yet").foregroundStyle(Palette.text3.color).padding(Space.l)
                 }
             }
-            if history.loading {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
-                }
-            } else if let error = history.error {
-                ErrorRow(message: error) { history.error = nil }
-            } else if history.commits.isEmpty, !history.more {
-                Text("No commits yet").foregroundStyle(Palette.text3.color)
-            }
+            .padding(.bottom, Space.xl)
         }
-        .listStyle(.plain)
-        .navigationTitle("History")
+        .screenBackground()
+        .navigationTitle("Commits")
+        #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Toggle("All Branches", systemImage: "point.3.connected.trianglepath.dotted", isOn: $all)
-            }
+            ToolbarItem(placement: .principal) { BarHeading("Commits", detail: all ? "All branches" : head?.branch) }
         }
         .refreshable { await store.refreshHistory(tree) }
         .task(id: all) {
@@ -79,109 +102,67 @@ struct TipLabel: Hashable {
     let color: LaneColor
 }
 
-/// One commit: its graph cell, subject, tips, author and age.
+/// One commit: its subject, then its author's avatar and name, when it was made, and its sha.
 @MainActor
 private struct HistoryRow: View, Equatable {
     let commit: LogCommit
-    let edges: GraphEdges
-    let column: Int
-    let color: LaneColor
-    let lanes: Int
-    let labels: [TipLabel]
+    /// The branch a tip of this commit names, shown when every branch is.
+    let branch: String?
     let now: Int
 
     var body: some View {
-        HStack(spacing: Space.s) {
-            GraphCell(edges: edges, column: column, color: color, lanes: lanes, head: labels.contains { $0.color == .head })
-                .frame(height: 56)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: Space.xs) {
-                    ForEach(labels, id: \.self) { label in
-                        Text(label.name)
-                            .font(Typography.captionStrong)
-                            .lineLimit(1)
-                            .foregroundStyle(GraphCell.token(label.color).color)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
-                            .overlay(Capsule().strokeBorder(GraphCell.token(label.color).color.opacity(0.6)))
-                    }
-                    Text(commit.subject).font(Typography.subheadline).foregroundStyle(Palette.text.color).lineLimit(1)
-                }
-                HStack(spacing: Space.xs) {
-                    Text(GitText.short(commit.sha)).font(Typography.codeSmall)
-                    Text("·")
-                    Text(commit.author).lineLimit(1)
-                    Text("·")
-                    Text(GitText.age(commit.at, now: now)).monospacedDigit()
-                }
-                .font(Typography.caption)
-                .foregroundStyle(Palette.text3.color)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(commit.subject)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Palette.text.color)
+                .lineLimit(1)
+            HStack(spacing: 6) {
+                Text(GitText.initials(commit.author))
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Palette.textBody.color)
+                    .frame(width: 18, height: 18)
+                    .background(Palette.fill3.color, in: Circle())
+                Text(commit.author).foregroundStyle(Palette.textBody.color).lineLimit(1)
+                Text("committed \(GitText.committed(at: commit.at, now: now))").lineLimit(1)
+                if let branch { Text(branch).font(.system(size: 12, design: .monospaced)).lineLimit(1) }
+                Spacer(minLength: Space.s)
+                Text(GitText.short(commit.sha))
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(Palette.textBody.color)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Palette.fill3.color, in: RoundedRectangle(cornerRadius: Radius.chip))
             }
+            .font(Typography.footnote)
+            .foregroundStyle(Palette.text2.color)
+            .monospacedDigit()
         }
+        .padding(.vertical, Space.m)
+        .padding(.horizontal, Inset.margin)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 }
 
-/// The lanes through one commit's row, drawn with Canvas: lanes passing by curve to their new column, lanes waiting
-/// for the commit end in its dot, and lanes to its parents leave it.
-@MainActor
-struct GraphCell: View {
-    let edges: GraphEdges
-    let column: Int
-    let color: LaneColor
-    let lanes: Int
-    let head: Bool
-    nonisolated static let laneWidth: CGFloat = 14
-    nonisolated static let maxLanes = 8
-
-    var body: some View {
-        Canvas { ctx, size in
-            let mid = size.height / 2
-            let dot = CGPoint(x: Self.x(column), y: mid)
-            for t in edges.through {
-                stroke(&ctx, from: CGPoint(x: Self.x(t.from), y: 0), to: CGPoint(x: Self.x(t.to), y: size.height), t.color)
+/// A switch in the design's ink: the track fills with ink once on, the knob turning to match.
+struct InkToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button { configuration.isOn.toggle() } label: {
+            HStack {
+                configuration.label.font(Typography.body).foregroundStyle(Palette.text.color)
+                Spacer()
+                Capsule()
+                    .fill((configuration.isOn ? Palette.text : Palette.fill4).color)
+                    .frame(width: 52, height: 32)
+                    .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+                        Circle().fill(configuration.isOn ? Palette.onText.color : Color.white).frame(width: 28, height: 28)
+                            .shadow(color: .black.opacity(0.25), radius: 2, y: 2).padding(2)
+                    }
+                    .animation(.snappy(duration: 0.2), value: configuration.isOn)
             }
-            for e in edges.into {
-                stroke(&ctx, from: CGPoint(x: Self.x(e.column), y: 0), to: dot, e.color)
-            }
-            for e in edges.out {
-                stroke(&ctx, from: dot, to: CGPoint(x: Self.x(e.column), y: size.height), e.color)
-            }
-            let fill = Self.token(color).color
-            let r: CGFloat = head ? 5 : 4
-            let circle = Path(ellipseIn: CGRect(x: dot.x - r, y: dot.y - r, width: r * 2, height: r * 2))
-            if head {
-                ctx.fill(circle, with: .color(Palette.surface.color))
-                ctx.stroke(circle, with: .color(fill), lineWidth: 2.5)
-            } else {
-                ctx.fill(circle, with: .color(fill))
-            }
+            .contentShape(Rectangle())
         }
-        .frame(width: Self.laneWidth * CGFloat(max(lanes, 1)))
-        .clipped()
-        .accessibilityHidden(true)
-    }
-
-    private func stroke(_ ctx: inout GraphicsContext, from: CGPoint, to: CGPoint, _ color: LaneColor) {
-        var p = Path()
-        p.move(to: from)
-        if from.x == to.x {
-            p.addLine(to: to)
-        } else {
-            let midY = (from.y + to.y) / 2
-            p.addCurve(to: to, control1: CGPoint(x: from.x, y: midY), control2: CGPoint(x: to.x, y: midY))
-        }
-        ctx.stroke(p, with: .color(Self.token(color).color), style: StrokeStyle(lineWidth: 1.75, lineCap: .round))
-    }
-
-    nonisolated static func x(_ lane: Int) -> CGFloat { laneWidth * (CGFloat(lane) + 0.5) }
-
-    nonisolated static func token(_ color: LaneColor) -> Token {
-        switch color {
-        case .head: Palette.graphHead
-        case .upstream: Palette.graphUpstream
-        case .base: Palette.graphBase
-        case .lane(let n): Palette.graphLanes[n % Palette.graphLanes.count]
-        }
+        .buttonStyle(.plain)
+        .accessibilityValue(configuration.isOn ? "On" : "Off")
     }
 }

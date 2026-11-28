@@ -55,20 +55,23 @@ struct ChangesScreen: View {
                 }
             } else if comparing, let against {
                 CompareList(host: host, tree: tree, against: against) { if picked != nil { picked = nil } }
+                    .modifier(DimsWhenStale(host: host))
             } else {
-                uncommitted(changes, writable: !offline)
+                uncommitted(changes, writable: !offline).modifier(DimsWhenStale(host: host))
             }
         }
         .screenBackground()
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
+                if let against, changes.head != nil {
+                    ScopeBar(comparing: $comparing, against: against)
+                }
                 if changes.head != nil {
                     TimelineView(.explicit(host.reachabilityMarks)) { _ in
-                        if let asOf = host.staleAsOf(at: .now) { NetStrip(.offline, NetStrip.offline(mac: host.name, asOf: asOf)).padding(.horizontal, Inset.margin).padding(.vertical, Space.xs) }
+                        if let asOf = host.staleAsOf(at: .now) {
+                            NetStrip(.offline, GitText.unreachable(mac: host.name, asOf: asOf)).padding(.horizontal, Inset.margin).padding(.top, Space.l)
+                        }
                     }
-                }
-                if let against, changes.head != nil {
-                    ScopeBar(comparing: $comparing, against: against, picked: picked != nil, choose: { choosing = true }, reset: { picked = nil })
                 }
             }
         }
@@ -85,21 +88,25 @@ struct ChangesScreen: View {
             }
         #endif
         .toolbar {
-            ToolbarItem(placement: .principal) { BarTitle("Changes", detail: changes.head?.branch) }
+            ToolbarItem(placement: .principal) { BarHeading("Changes", detail: changes.head?.branch) }
             // One item, as wide as Back: a control beside it nests in the bar's glass and squeezes the title.
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Picker("View", selection: $asTree) {
-                        Label("List", systemImage: "list.bullet").tag(false)
-                        Label("Tree", systemImage: "list.bullet.indent").tag(true)
+                        Label("List", lucide: .listFlat).tag(false)
+                        Label("Tree", lucide: .listTree).tag(true)
                     }
                     .pickerStyle(.inline)
                     #if os(iOS)
-                        if !comparing { Button("Select Files", systemImage: "checkmark.circle", action: toggleSelecting) }
+                        if !comparing { Button(action: toggleSelecting) { Label("Select Files", lucide: .listChecks) } }
                     #endif
-                    NavigationLink(value: Route.history(mac: mac, tree: tree)) { Label("History", systemImage: "clock.arrow.circlepath") }
+                    if against != nil {
+                        Button { choosing = true } label: { Label("Compare Against…", lucide: .branch) }
+                        if picked != nil { Button { picked = nil } label: { Label("Compare Against the Base", lucide: .discard) } }
+                    }
+                    NavigationLink(value: Route.history(mac: mac, tree: tree)) { Label("History", lucide: .clock) }
                 } label: {
-                    Label("Options", systemImage: "ellipsis")
+                    BarMenuLabel()
                 }
             }
         }
@@ -108,8 +115,8 @@ struct ChangesScreen: View {
             .navigationBarTitleDisplayMode(.inline)
         #endif
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !comparing, !selection.selecting, changes.head != nil {
-                CommitComposer(store: store, changes: changes).disabled(offline)
+            if !comparing, !selection.selecting, let head = changes.head, head.totals.files > 0 {
+                CommitComposer(store: store, changes: changes).disabled(offline).modifier(DimsWhenStale(host: host))
             }
         }
         .navigationDestination(for: CompareFileRoute.self) { r in
@@ -145,7 +152,9 @@ struct ChangesScreen: View {
         return ScrollView {
             LazyVStack(spacing: 0) {
                 VStack(spacing: Space.l) {
-                    SearchField("Filter \(changes.files.count.formatted()) files", text: $filter).padding(.horizontal, Space.l)
+                    if GitText.showsFilter(files: changes.head?.totals.files ?? 0, filter: filter) {
+                        SearchField("Filter \(changes.files.count.formatted()) files", text: $filter).padding(.horizontal, Space.l)
+                    }
                     if let head = changes.head, GitText.showsHead(head) {
                         HeadRow(store: store, changes: changes, head: head, mac: mac).card().disabled(!writable)
                     } else if changes.head == nil, changes.loading {
@@ -154,11 +163,11 @@ struct ChangesScreen: View {
                     if let error = changes.error {
                         ErrorRow(message: error) { changes.error = nil }.card()
                     }
-                    if changes.head != nil, changes.files.isEmpty {
-                        Label("No changes", systemImage: "checkmark.circle").foregroundStyle(Palette.text3.color).card()
-                    }
                 }
                 .padding(.top, Space.s)
+                if changes.head != nil, changes.files.isEmpty {
+                    NoChanges(host: host, mac: mac, tree: tree)
+                }
                 ForEach(lines) { line in
                     let header = line.header
                     ChangeLineView(
@@ -257,13 +266,8 @@ private struct ChangeLineView: View, Equatable {
     let swiped: SwipeOpen
     let actions: ChangeActions
     // A grouped list's row heights: two lines of name and folder, or one.
-    #if os(iOS)
-        @ScaledMetric(relativeTo: .body) private var fileHeight: CGFloat = 50
-        @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 40
-    #else
-        @ScaledMetric(relativeTo: .body) private var fileHeight: CGFloat = 38
-        @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 28
-    #endif
+    @ScaledMetric(relativeTo: .body) private var fileHeight: CGFloat = 61
+    @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 44
 
     nonisolated static func == (a: Self, b: Self) -> Bool {
         a.line == b.line && a.nameOnly == b.nameOnly && a.folded == b.folded && a.mac == b.mac && a.tree == b.tree && a.chat == b.chat && a.stageAll == b.stageAll
@@ -292,12 +296,12 @@ private struct ChangeLineView: View, Equatable {
                 .contextMenu {
                     let staged = section == .staged
                     if writable {
-                        Button(staged ? "Unstage" : "Stage", systemImage: staged ? "minus.circle" : "plus.circle") { actions.stage([f.path], !staged) }
+                        Button { actions.stage([f.path], !staged) } label: { Label(staged ? "Unstage" : "Stage", lucide: staged ? .minus : .plus) }
                         if !staged {
-                            Button("Discard Changes…", systemImage: "arrow.uturn.backward", role: .destructive) { actions.discard([f.path]) }
+                            Button(role: .destructive) { actions.discard([f.path]) } label: { Label("Discard Changes…", lucide: .discard) }
                         }
                     }
-                    Button("Copy Path", systemImage: "doc.on.doc") { Pasteboard.copy(f.path) }
+                    Button { Pasteboard.copy(f.path) } label: { Label("Copy Path", lucide: .copy) }
                 }
                 .cell(line)
         }
@@ -313,13 +317,10 @@ private struct ChangeLineView: View, Equatable {
             Button {
                 selection.toggle(line.id)
             } label: {
-                HStack(spacing: Space.m) {
-                    Image(systemName: picked ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
-                        .foregroundStyle((picked ? Palette.link : Palette.text4).color)
+                HStack(spacing: 0) {
+                    CheckCircle(on: picked).padding(.leading, Space.l)
                     row
                 }
-                .padding(.horizontal, Space.l)
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
             }
@@ -328,7 +329,6 @@ private struct ChangeLineView: View, Equatable {
         } else {
             NavigationLink(value: Route.diff(mac: mac, tree: tree, path: f.path, staged: section == .staged, chat: chat)) {
                 row
-                .padding(.horizontal, Space.l)
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
             }
@@ -339,15 +339,14 @@ private struct ChangeLineView: View, Equatable {
     private func stageAction(_ section: ChangeSection, _ f: GitFile) -> SwipeAction? {
         guard !selection.selecting, writable else { return nil }
         let staged = section == .staged
-        return SwipeAction(
-            title: staged ? "Unstage" : "Stage", systemImage: staged ? "minus.circle" : "plus.circle",
-            tint: (staged ? Palette.text3 : Palette.success).color
-        ) { actions.stage([f.path], !staged) }
+        return SwipeAction(title: staged ? "Unstage" : "Stage", icon: staged ? .minus : .plus, tint: (staged ? Palette.text3 : Palette.success).color) {
+            actions.stage([f.path], !staged)
+        }
     }
 
     private func discardAction(_ section: ChangeSection, _ f: GitFile) -> SwipeAction? {
         guard !selection.selecting, writable, section == .changes else { return nil }
-        return SwipeAction(title: "Discard", systemImage: "arrow.uturn.backward", tint: Palette.failed.color) { actions.discard([f.path]) }
+        return SwipeAction(title: "Discard", icon: .discard, tint: Palette.failed.color) { actions.discard([f.path]) }
     }
 }
 
@@ -367,23 +366,22 @@ private struct RowPress: ButtonStyle {
 extension View {
     /// A row of a section's card: the card's surface, its rounded ends and the separator under all but the last.
     fileprivate func cell(_ line: ChangeLine) -> some View {
-        let r = Radius.card
+        let r = Inset.radius
         return background(Palette.surface.color)
             .overlay(alignment: .bottom) {
-                if !line.last { Palette.separator.color.frame(height: 1).padding(.leading, Space.l + 16 + Space.s) }
+                if !line.last { Palette.separator.color.frame(height: 0.5).padding(.leading, Inset.textColumn) }
             }
             .clipShape(UnevenRoundedRectangle(
                 topLeadingRadius: line.first ? r : 0, bottomLeadingRadius: line.last ? r : 0, bottomTrailingRadius: line.last ? r : 0,
                 topTrailingRadius: line.first ? r : 0, style: .continuous))
-            .padding(.horizontal, Space.l)
+            .padding(.horizontal, Inset.margin)
     }
 
-    /// One of the cards over the files: the branch, the composer, an error.
+    /// One of the cards over the files: the branch, an error.
     fileprivate func card() -> some View {
         padding(.horizontal, Space.l)
-            .padding(.vertical, Space.s)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .groupedCard()
+            .padding(.vertical, Space.m)
+            .insetGroup()
     }
 }
 
@@ -402,10 +400,12 @@ private struct HeadRow: View {
             BranchIndicator(head: head)
             HStack(spacing: Space.s) {
                 if let push = GitText.push(head) {
-                    Button(push, systemImage: "arrow.up") {
+                    Button {
                         if force != nil { forcing = true } else { run { await store.push(changes.tree) } }
+                    } label: {
+                        Label(push, lucide: .arrowUp, size: 13)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(RowActionStyle())
                     .confirmationDialog(force?.title ?? "", isPresented: $forcing, titleVisibility: .visible) {
                         Button("Force Push", role: .destructive) { run { await store.push(changes.tree, lease: true) } }
                     } message: {
@@ -413,8 +413,8 @@ private struct HeadRow: View {
                     }
                 }
                 if let pull = GitText.pull(head) {
-                    Button(pull, systemImage: "arrow.down") { run { await store.pull(changes.tree) } }
-                        .buttonStyle(.bordered)
+                    Button { run { await store.pull(changes.tree) } } label: { Label(pull, lucide: .arrowDown, size: 13) }
+                        .buttonStyle(RowActionStyle())
                 }
                 Spacer()
                 Text("\(head.totals.files) files · +\(head.totals.added) −\(head.totals.removed)")
@@ -434,7 +434,7 @@ private struct HeadRow: View {
                         }
                     }
                     NavigationLink(value: Route.history(mac: mac, tree: changes.tree)) {
-                        Text("Show all in History").foregroundStyle(Palette.link.color).frame(minHeight: HitTarget.minimum)
+                        Text("Show all in History").frame(minHeight: HitTarget.minimum)
                     }
                 }
                 .font(Typography.subheadline)
@@ -466,10 +466,10 @@ private struct SectionHeader: View {
         HStack {
             Button(action: fold) {
                 HStack(spacing: Space.xs) {
-                    Text(section.title).font(Typography.subheadline.weight(.semibold)).foregroundStyle(Palette.text.color)
+                    Text(GitText.title(section)).font(Typography.footnote.weight(.semibold)).foregroundStyle(Palette.text2.color)
                     Text(count.formatted()).monospacedDigit().foregroundStyle(Palette.text3.color)
                 }
-                .frame(minHeight: HitTarget.minimum)
+                .padding(.vertical, Space.s)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -477,7 +477,7 @@ private struct SectionHeader: View {
             Spacer()
             if let stageAll {
                 Button(action: stage) {
-                    Text(stageAll).monospacedDigit().hitTarget()
+                    Text(stageAll).monospacedDigit().padding(.vertical, Space.s).contentShape(Rectangle())
                 }
                 .font(Typography.footnote.weight(.semibold))
                 .foregroundStyle(Palette.text.color)
@@ -486,8 +486,7 @@ private struct SectionHeader: View {
             }
         }
         .font(Typography.footnote)
-        .foregroundStyle(Palette.text2.color)
-        .padding(.horizontal, Space.l * 2)
+        .padding(.horizontal, Inset.margin * 2)
         .padding(.top, Space.m)
     }
 }
@@ -499,10 +498,10 @@ struct ErrorRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: Space.s) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.failed.color)
+            LucideIcon(.triangleAlert, size: 17).foregroundStyle(Palette.failed.color)
             Text(message).font(Typography.subheadline).foregroundStyle(Palette.failedText.color).textSelection(.enabled)
             Spacer()
-            Button(action: dismiss) { Image(systemName: "xmark").hitTarget() }
+            Button(action: dismiss) { LucideIcon(.close, size: 13).hitTarget() }
                 .buttonStyle(.borderless)
                 .accessibilityLabel("Dismiss")
         }

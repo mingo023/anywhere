@@ -1,6 +1,5 @@
 import DesignSystem
 import Domain
-import FileIcons
 import Stores
 import SwiftUI
 
@@ -55,7 +54,7 @@ struct FileTreeScreen: View {
     @ViewBuilder
     private var content: some View {
         if let failure = model.failure, !model.loaded {
-            Placeholder("Can't show these files", icon: .folder, detail: failure) { files.open(model) }
+            FilesNote(title: "Can't show these files", detail: context.offline?.note() ?? failure) { files.open(model) }
         } else if !model.loaded {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).screenBackground()
         } else if model.rows.isEmpty {
@@ -69,35 +68,37 @@ struct FileTreeScreen: View {
     private var dirListed: Bool { !dir.isEmpty && model.state.listings[FileText.folder(dir)] != nil }
 
     private var list: some View {
-        ScrollViewReader { proxy in
+        let rows = model.rows
+        let (first, last) = (rows.first?.id, rows.last?.id)
+        return ScrollViewReader { proxy in
             List {
                 Button { searching = true } label: {
-                    SearchBox { Text("Go to File").font(Typography.body).foregroundStyle(Palette.text3.color).frame(maxWidth: .infinity, alignment: .leading) }
+                    SearchBox { Text("Go to file").font(Typography.body).foregroundStyle(Palette.text3.color).frame(maxWidth: .infinity, alignment: .leading) }
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut("p", modifiers: .command)
-                .listRowInsets(EdgeInsets(top: Space.xs, leading: Space.l, bottom: Space.s, trailing: Space.l))
+                .listRowInsets(EdgeInsets(top: Space.xs, leading: Space.l, bottom: Space.l, trailing: Space.l))
                 .listRowBackground(Palette.background.color)
                 .listRowSeparator(.hidden)
-                ForEach(model.rows) { row in
-                    Button { open(row) } label: { FileRowView(row: row).equatable().contentShape(Rectangle()) }
+                ForEach(rows) { row in
+                    Button { open(row) } label: { FileRowView(row: row, first: row.id == first).equatable().contentShape(Rectangle()) }
                         .buttonStyle(.plain)
                         .overlay(alignment: .trailing) {
                             if row.failure != nil {
                                 Button { files.retry(model, row.path) } label: {
-                                    Image(systemName: "arrow.clockwise").foregroundStyle(Palette.accent.color).hitTarget()
+                                    LucideIcon(.rotateCw, size: 17).foregroundStyle(Palette.accent.color).hitTarget()
                                 }
                                 .buttonStyle(.borderless)
                                 .accessibilityLabel("Try Again")
                             }
                         }
-                        .listRowInsets(EdgeInsets(top: 0, leading: Space.l, bottom: 0, trailing: Space.l))
-                        .listRowBackground(Palette.background.color)
+                        .listRowInsets(EdgeInsets(top: 0, leading: Inset.margin, bottom: 0, trailing: Inset.margin))
+                        .listRowBackground(card(first: row.id == first, last: row.id == last))
                         .swipeActions(edge: .trailing) {
                             if context.target != .none {
-                                Button { handoff = .mention(path: row.path) } label: { Label("Mention", systemImage: "at") }.tint(Palette.accent.color)
+                                Button { handoff = .mention(path: row.path) } label: { Label("Mention", lucide: .atSign) }.tint(Palette.accent.color)
                             }
-                            Button { copy(FileText.absolute(tree: model.tree, row.path)) } label: { Label("Copy Path", systemImage: "doc.on.doc") }
+                            Button { copy(FileText.absolute(tree: model.tree, row.path)) } label: { Label("Copy Path", lucide: .copy) }
                                 .tint(.gray)
                         }
                         .contextMenu { menu(row) }
@@ -112,16 +113,27 @@ struct FileTreeScreen: View {
         }
     }
 
+    /// A row of the tree's card: the card's surface, rounded at its first row's top and its last row's bottom.
+    private func card(first: Bool, last: Bool) -> some View {
+        let r = Inset.radius
+        return UnevenRoundedRectangle(
+            topLeadingRadius: first ? r : 0, bottomLeadingRadius: last ? r : 0, bottomTrailingRadius: last ? r : 0, topTrailingRadius: first ? r : 0,
+            style: .continuous
+        )
+        .fill(Palette.surface.color)
+        .padding(.horizontal, Inset.margin)
+    }
+
     @ViewBuilder
     private func menu(_ row: FileRow) -> some View {
         if !row.entry.dir {
-            Button { picked = FilePick(path: row.path) } label: { Label("Open", systemImage: "doc.text") }
+            Button { picked = FilePick(path: row.path) } label: { Label("Open", lucide: .fileText) }
         }
         if context.target != .none {
-            Button { handoff = .mention(path: row.path) } label: { Label("Mention in Chat", systemImage: "at") }
+            Button { handoff = .mention(path: row.path) } label: { Label("Mention in Chat", lucide: .atSign) }
         }
-        Button { copy(FileText.absolute(tree: model.tree, row.path)) } label: { Label("Copy Path", systemImage: "doc.on.doc") }
-        Button { copy(row.path) } label: { Label("Copy Relative Path", systemImage: "arrow.turn.down.right") }
+        Button { copy(FileText.absolute(tree: model.tree, row.path)) } label: { Label("Copy Path", lucide: .copy) }
+        Button { copy(row.path) } label: { Label("Copy Relative Path", lucide: .cornerDownRight) }
         if let letter = row.entry.git {
             Text(GitLetter.word(letter))
         }
@@ -129,16 +141,17 @@ struct FileTreeScreen: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .principal) { BarTitle("Files", detail: FileText.home(model.tree), truncation: .head) }
+        ToolbarItem(placement: .principal) { BarHeading(title: "Files", detail: FileText.baseName(model.tree)) }
         ToolbarItem(placement: .primaryAction) {
             Menu {
-                Toggle(isOn: Binding(get: { !hideIgnored }, set: { hideIgnored = !$0 })) { Label("Show Ignored Files", systemImage: "eye") }
+                Toggle(isOn: Binding(get: { !hideIgnored }, set: { hideIgnored = !$0 })) { Label("Show Ignored Files", lucide: .eye) }
+                // No Lucide icon is a dotted circle.
                 Toggle(isOn: Binding(get: { !hideDotfiles }, set: { hideDotfiles = !$0 })) { Label("Show Dotfiles", systemImage: "circle.dotted") }
                 Divider()
-                Button { copy(model.tree) } label: { Label("Copy Folder Path", systemImage: "doc.on.doc") }
-                Button { files.open(model) } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                Button { copy(model.tree) } label: { Label("Copy Folder Path", lucide: .copy) }
+                Button { files.open(model) } label: { Label("Refresh", lucide: .rotateCw) }
             } label: {
-                Label("Options", systemImage: "ellipsis")
+                BarMenuLabel()
             }
         }
     }
@@ -166,56 +179,63 @@ struct FilePick: Hashable, Identifiable {
     var id: String { path }
 }
 
-/// One line of the tree: indent, chevron or icon, name, git letter; a folder that couldn't be listed says why.
+/// One line of the tree: indent, chevron, icon, name, git letter; a folder that couldn't be listed says why. A line is
+/// 44 pt, its hairline starting at the name.
 @MainActor
 struct FileRowView: View, Equatable {
     let row: FileRow
+    /// The card's top row, which has no hairline above it.
+    let first: Bool
 
-    nonisolated static let indent: CGFloat = 16
+    nonisolated static let indent: CGFloat = 22
 
     var body: some View {
-        HStack(spacing: Space.s) {
+        HStack(spacing: 6) {
             Group {
                 if row.entry.dir {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
+                    LucideIcon(.chevronRight, size: 13)
                         .foregroundStyle(Palette.text4.color)
                         .rotationEffect(.degrees(row.open ? 90 : 0))
                 } else {
                     Color.clear
                 }
             }
-            .frame(width: 12)
-            MaterialIcon(row.entry.name, folder: row.entry.dir, open: row.open)
-            Text(row.entry.name)
-                .font(Typography.code)
-                .foregroundStyle((row.entry.ignored == true ? Palette.text4 : Palette.text).color)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            if row.entry.link == true {
-                Image(systemName: "arrow.up.forward").font(.caption2).foregroundStyle(Palette.text4.color)
-            }
-            Spacer(minLength: Space.s)
-            if row.loading {
-                ProgressView().controlSize(.mini)
-            }
-            if let failure = row.failure {
-                Text(failure)
-                    .font(Typography.footnote)
-                    .foregroundStyle(Palette.failed.color)
+            .frame(width: 14)
+            LucideIcon(row.entry.dir ? .folder : .fileText, size: 17).foregroundStyle(Palette.text2.color)
+            HStack(spacing: Space.s) {
+                Text(row.entry.name)
+                    .font(.system(size: 16))
+                    .foregroundStyle((row.entry.ignored == true ? Palette.text4 : Palette.text).color)
                     .lineLimit(1)
+                    .truncationMode(.middle)
+                if row.entry.link == true {
+                    LucideIcon(.external, size: 11).foregroundStyle(Palette.text4.color)
+                }
+                Spacer(minLength: Space.s)
+                if row.loading {
+                    ProgressView().controlSize(.mini)
+                }
+                if let failure = row.failure {
+                    Text(failure)
+                        .font(Typography.footnote)
+                        .foregroundStyle(Palette.failed.color)
+                        .lineLimit(1)
+                }
+                if let letter = row.entry.git {
+                    Text(row.entry.dir ? "•" : letter)
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(GitLetter.color(letter).color)
+                        .accessibilityLabel(GitLetter.word(letter))
+                }
             }
-            if let letter = row.entry.git {
-                Text(letter)
-                    .font(.system(.caption, design: .monospaced, weight: .bold))
-                    .foregroundStyle(GitLetter.color(letter).color)
-                    .accessibilityLabel(GitLetter.word(letter))
-            }
+            .padding(.leading, 4)
+            // Room for the tree screen's Try Again over the row's end.
+            .padding(.trailing, row.failure == nil ? Space.l : HitTarget.minimum)
+            .frame(maxHeight: .infinity)
+            .overlay(alignment: .top) { if !first { Palette.separator.color.frame(height: 0.5) } }
         }
-        .padding(.leading, CGFloat(row.depth) * Self.indent)
-        // Room for the tree screen's Try Again over the row's end.
-        .padding(.trailing, row.failure == nil ? 0 : HitTarget.minimum)
-        .frame(minHeight: HitTarget.minimum)
+        .padding(.leading, 12 + CGFloat(row.depth) * Self.indent)
+        .frame(height: HitTarget.minimum)
         .accessibilityElement(children: .combine)
     }
 }
