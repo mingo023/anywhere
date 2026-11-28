@@ -4,6 +4,7 @@ use gpui_kit::base::text::{
 };
 use gpui_kit::component::highlighter::SyntaxHighlighter;
 use gpui_kit::component::input::Rope;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::borrow::Cow;
@@ -209,6 +210,30 @@ pub(super) fn target(link: &str, cwd: &str, home: &str) -> Target {
     }
 }
 
+/// Most characters a path chip shows. Inline elements are measured before the column width is known, so the chip
+/// can't shrink to fit the column and is capped at a fixed length instead.
+const PATH_CHARS: usize = 48;
+
+fn shortened(path: &str, max: usize) -> Cow<'_, str> {
+    if path.chars().count() <= max {
+        return Cow::Borrowed(path);
+    }
+    let parts: Vec<&str> = path.split_inclusive('/').collect();
+    let fits = |head: &[&str], tail: &[&str]| head.iter().chain(tail).map(|p| p.chars().count()).sum::<usize>() + "…/".chars().count() <= max;
+    let (mut head, mut tail) = (0, parts.len());
+    while tail > head && fits(&parts[..head], &parts[tail - 1..]) {
+        tail -= 1;
+    }
+    if tail == parts.len() {
+        let cut = path.char_indices().rev().nth(max - 2).map_or(0, |(i, _)| i);
+        return Cow::Owned(format!("…{}", &path[cut..]));
+    }
+    while head < tail && fits(&parts[..=head], &parts[tail..]) {
+        head += 1;
+    }
+    Cow::Owned(format!("{}…/{}", parts[..head].concat(), parts[tail..].concat()))
+}
+
 /// Inline code naming a file or folder, as a chip led by its icon; a file's opens it.
 struct Paths(Open);
 
@@ -229,6 +254,7 @@ impl MarkdownPlugin for Paths {
         let text = window.text_system();
         let mono = text.resolve_font(&font(code_font()));
         let (ascent, descent) = (text.ascent(mono, size), px(f32::from(text.descent(mono, size)).abs()));
+        let shown = SharedString::from(shortened(path, PATH_CHARS).into_owned());
         let chip = div()
             .flex()
             .items_center()
@@ -243,11 +269,17 @@ impl MarkdownPlugin for Paths {
             .text_color(TEXT)
             .whitespace_nowrap()
             .child(file_icon(path.trim_end_matches('/'), folder, false, 13.))
-            .child(path.to_string());
-        let chip = chip.id(SharedString::from(format!("path-{path}"))).when(!folder, |c| {
-            let (open, path) = (self.0.clone(), path.to_string());
-            c.cursor_pointer().hover(|s| s.bg(FILL_3)).on_click(move |_, window, cx| open(&path, Press::Follow, window, cx))
-        });
+            .child(shown.clone());
+        let chip = chip
+            .id(SharedString::from(format!("path-{path}")))
+            .when(!folder, |c| {
+                let (open, path) = (self.0.clone(), path.to_string());
+                c.cursor_pointer().hover(|s| s.bg(FILL_3)).on_click(move |_, window, cx| open(&path, Press::Follow, window, cx))
+            })
+            .when(shown != path, |c| {
+                let full = SharedString::from(path.to_string());
+                c.tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx))
+            });
         Some(InlineElement::new(chip).with_baseline(size * 0.25 + ascent))
     }
 }
@@ -343,7 +375,7 @@ pub(crate) fn fenced(lang: &str, code: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Colours, Highlights, Styles, Target, closed, fence, fenced, highlight, path_in, target};
+    use super::{Colours, Highlights, Styles, Target, closed, fence, fenced, highlight, path_in, shortened, target};
     use gpui_kit::HighlightStyle;
     use std::sync::Arc;
 
@@ -390,6 +422,25 @@ mod tests {
         for code in ["make app", "v*", "type:", "Desktop", "self.items", "0.1/5", "https://x.dev/a"] {
             assert_eq!(path_in(code), None, "{code}");
         }
+    }
+
+    #[test]
+    fn a_long_path_drops_its_middle_folders_and_keeps_its_file_name() {
+        let path = "/private/tmp/claude-501/-Users-dev--anywhere-worktrees-volam-tools-pure-redshank/78e217a7-8592-4558-98e6-8ab2ed8d1a55/scratchpad/icon/icon-mau-xem.png";
+        assert_eq!(shortened(path, 48), "/private/tmp/…/scratchpad/icon/icon-mau-xem.png");
+        assert_eq!(shortened("one/two/three/four/", 12), "one/…/four/");
+    }
+
+    #[test]
+    fn a_path_that_fits_is_shown_whole_and_one_character_more_is_cut() {
+        assert_eq!(shortened("a/b/c.rs", 8), "a/b/c.rs");
+        assert_eq!(shortened("a/b/cd.rs", 8), "…/cd.rs");
+    }
+
+    #[test]
+    fn a_file_name_too_long_for_the_chip_keeps_its_end() {
+        assert_eq!(shortened("src/a-very-long-file-name.rs", 10), "…e-name.rs");
+        assert_eq!(shortened("ünïcödé-ünïcödé.rs", 6), "…dé.rs");
     }
 
     #[test]
