@@ -9,6 +9,8 @@ import SwiftUI
 public struct PairingView: View {
     @State private var model: PairingModel
     let onPaired: (@MainActor () -> Void)?
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.isPresented) private var isPresented
 
     /// `link` opens straight at the confirm screen; `knownHost` at the code entry, for a Mac that revoked this phone.
     public init(app: AppModel, link: URL? = nil, knownHost: String? = nil, onPaired: (@MainActor () -> Void)? = nil) {
@@ -32,6 +34,7 @@ public struct PairingView: View {
                     }
                 }
         }
+        .environment(\.closePairing, ClosePairing(owner: ObjectIdentifier(model), presented: isPresented) { if isPresented { dismiss() } else { model.path = [] } })
         .onChange(of: model.phase) { _, phase in
             if case .paired = phase { onPaired?() }
         }

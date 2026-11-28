@@ -1,102 +1,97 @@
 import DesignSystem
 import SwiftUI
 
-/// What Anywhere is, that it needs Tailscale, and the ways to pair.
+/// What Zoes is, that it needs Tailscale, and the ways to pair.
 @MainActor
 struct WelcomeView: View {
     let model: PairingModel
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Space.xxl) {
-                VStack(alignment: .leading, spacing: Space.m) {
+        GeometryReader { screen in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
                     AppMark()
-                    Text("Zoes").font(Typography.largeTitle).foregroundStyle(Palette.text.color)
-                    Text("Watch and drive the coding agents on your Mac, from your iPhone")
-                        .font(Typography.title3).foregroundStyle(Palette.text2.color)
+                    Text("Zoes").font(.system(size: 34, weight: .bold)).foregroundStyle(Palette.text.color).padding(.top, Space.xl)
+                    Text("Watch and drive the coding agents on your Mac from your iPhone")
+                        .font(.system(size: 17)).foregroundStyle(Palette.textBody.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, Space.s)
+                    VStack(alignment: .leading, spacing: Space.l) {
+                        Point(icon: .bell, text: "Know when a session needs you")
+                        Point(icon: .lock, text: "Private link over Tailscale")
+                    }
+                    .padding(.top, Space.xxl)
+                    Text("On your Mac, open Zoes → Settings → Phone → Pair a phone.")
+                        .font(.system(size: 15)).foregroundStyle(Palette.textBody.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, Space.l)
+                        .padding(.vertical, 14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Palette.surface.color, in: RoundedRectangle(cornerRadius: Inset.radius, style: .continuous))
+                        .padding(.top, Space.xxl)
                 }
-                VStack(alignment: .leading, spacing: Space.l + Space.xs) {
-                    Point(title: "Know when a session needs you", detail: "Approvals, questions, failures and finished runs, as they happen.") { StatusGlyph(.needsYou) }
-                    Point(systemImage: "lock.shield", title: "Private link over Tailscale", detail: "Your iPhone reaches your Mac across your own tailnet.")
-                }
-                Text("On your Mac, open Zoes → Settings → Phone → Pair a phone.")
-                    .font(Typography.footnote).foregroundStyle(Palette.text3.color)
+                .padding(.horizontal, 28)
+                .frame(maxWidth: 560)
+                .frame(maxWidth: .infinity, minHeight: screen.size.height, alignment: .center)
             }
-            .padding(.horizontal, Space.xl)
-            .padding(.top, Space.xxl)
-            .frame(maxWidth: 560, alignment: .leading)
-            .frame(maxWidth: .infinity)
+            .scrollBounceBehavior(.basedOnSize)
         }
         .safeAreaInset(edge: .bottom) {
-            VStack(spacing: Space.s) {
+            VStack(spacing: Space.xs) {
                 Button {
                     Haptics.tap()
                     model.path.append(.scan)
                 } label: {
-                    Label("Scan pairing code", systemImage: "qrcode.viewfinder").frame(maxWidth: .infinity)
+                    HStack(spacing: Space.s) {
+                        LucideIcon(.scanQrCode, size: 17)
+                        Text("Scan pairing code")
+                    }
                 }
-                .buttonStyle(CapsuleButtonStyle())
-                Button { model.path.append(.enter) } label: { Text("Enter code instead").frame(maxWidth: .infinity) }
-                    .buttonStyle(CapsuleButtonStyle(primary: false))
+                .buttonStyle(LargeButtonStyle())
+                Button("Enter code instead") { model.path.append(.enter) }
+                    .buttonStyle(QuietButtonStyle())
                 HStack(spacing: Space.xs) {
                     Text("No Tailscale yet?").foregroundStyle(Palette.text3.color)
                     Link("Get Tailscale", destination: Tailscale.appStore).fontWeight(.semibold).foregroundStyle(Palette.text.color)
                 }
-                .font(Typography.footnote)
-                .padding(.top, Space.xs)
+                .font(.system(size: 13))
             }
-            .padding(.horizontal, Space.xl)
-            .padding(.vertical, Space.m)
+            .padding(.horizontal, 28)
+            .padding(.bottom, Space.s)
             .frame(maxWidth: 560)
             .frame(maxWidth: .infinity)
-            .background(Palette.background.color)
         }
         .screenBackground()
         .toolbar(.hidden)
     }
 }
 
-/// The app's mark: a Mac and a phone on an ink tile.
+/// The app's mark: a Mac and a phone on a light tile, as the design draws it in both appearances.
 @MainActor
 struct AppMark: View {
     var size: CGFloat = 64
 
     var body: some View {
-        Image(systemName: "laptopcomputer.and.iphone")
-            .font(.system(size: size * 0.42, weight: .medium))
-            .foregroundStyle(Palette.onText.color)
+        LucideIcon(.monitorSmartphone, size: size * 34 / 64, weight: 1.75)
+            .foregroundStyle(Token.fixed(0x171717ff).color)
             .frame(width: size, height: size)
-            .background(Palette.text.color, in: RoundedRectangle(cornerRadius: size * 0.24, style: .continuous))
+            .background(Token.fixed(0xebebebff).color, in: RoundedRectangle(cornerRadius: size / 4, style: .continuous))
             .accessibilityHidden(true)
     }
 }
 
+/// A line of the welcome's short list: an icon and a sentence.
 @MainActor
-struct Point<Icon: View>: View {
-    let title: String
-    let detail: String
-    @ViewBuilder let icon: Icon
+struct Point: View {
+    let icon: Lucide
+    let text: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: Space.m) {
-            icon
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(Palette.text.color)
-                .frame(width: 28, height: 28)
-                .background(Palette.fill3.color, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: Space.xxs) {
-                Text(title).font(Typography.subheadline.weight(.semibold)).foregroundStyle(Palette.text.color)
-                Text(detail).font(Typography.subheadline).foregroundStyle(Palette.text3.color).fixedSize(horizontal: false, vertical: true)
-            }
+        HStack(spacing: 14) {
+            LucideIcon(icon, size: 17).foregroundStyle(Palette.text2.color)
+            Text(text).font(.system(size: 17)).foregroundStyle(Palette.text.color)
         }
         .accessibilityElement(children: .combine)
-    }
-}
-
-extension Point where Icon == Image {
-    init(systemImage: String, title: String, detail: String) {
-        self.init(title: title, detail: detail) { Image(systemName: systemImage) }
     }
 }
 
