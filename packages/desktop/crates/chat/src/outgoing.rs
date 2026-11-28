@@ -185,9 +185,10 @@ impl Outgoing {
         let since = self.idle_since;
         self.sends.retain(|s| !(s.delivery == Delivery::Steered && command(&s.text) && idle && s.sent_at <= since));
         let (claimed, before) = (&mut self.claimed, self.sends.len());
-        self.sends.retain(|send| {
-            if send.delivery == Delivery::Queued && !send.stopped {
-                return true;
+        let mut settled = Vec::new();
+        for send in &self.sends {
+            if send.delivery == Delivery::Queued && !send.stopped || settled.contains(&send.id) {
+                continue;
             }
             let prompt = t
                 .turns
@@ -197,10 +198,12 @@ impl Outgoing {
                 .take_while(|p| p.at >= send.sent_at - SKEW_MS)
                 .filter(|p| !claimed.contains(&p.id) && same_text(&p.text, &send.text))
                 .last();
-            let Some(prompt) = prompt else { return true };
+            let Some(prompt) = prompt else { continue };
             claimed.push(prompt.id.clone());
-            false
-        });
+            settled.push(send.id);
+            settled.extend(joined_before(&self.sends, send, &prompt.text));
+        }
+        self.sends.retain(|send| !settled.contains(&send.id));
         // Once the opening command echoed, its transcript says whether the agent is at work.
         let pending = self.sends.iter().any(|s| s.delivery == Delivery::Sending && command(&s.text));
         self.command = self.command.filter(|ran| !ran.opening || pending);
@@ -411,6 +414,25 @@ fn command(text: &str) -> bool {
 fn same_text(echo: &str, sent: &str) -> bool {
     let (echo, sent) = (tidy(echo), tidy(sent));
     echo.ends_with(&sent)
+}
+
+/// Claude takes the prompts steered into a turn as one, joined by newlines in the order they went. The ids of the sends
+/// that went before `last` whose text makes up the rest of `echo`, once `last`'s text (which `echo` ends with) is taken off.
+fn joined_before(sends: &[Pending], last: &Pending, echo: &str) -> Vec<u64> {
+    let mut rest = tidy(echo);
+    rest.truncate(rest.len() - tidy(&last.text).len());
+    let mut before: Vec<_> =
+        sends.iter().rev().filter(|s| s.id != last.id && s.sent_at <= last.sent_at && in_flight(s.delivery) && !command(&s.text)).collect();
+    // A send steered from the queue keeps its place in the list, so the list's order isn't the order they went.
+    before.sort_by_key(|s| std::cmp::Reverse(s.sent_at));
+    let mut ids = Vec::new();
+    for send in before {
+        let head = rest.trim_end();
+        let Some(left) = head.strip_suffix(tidy(&send.text).as_str()) else { break };
+        rest = left.to_string();
+        ids.push(send.id);
+    }
+    ids
 }
 
 fn tidy(text: &str) -> String {

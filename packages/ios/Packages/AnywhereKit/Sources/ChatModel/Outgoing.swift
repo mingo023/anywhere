@@ -117,21 +117,21 @@ public struct Outgoing: Sendable {
         let since = idleSince
         sends.removeAll { $0.delivery == .steered && isCommand($0.text) && idle && $0.sentAt <= since }
         let before = sends.count
-        var kept: [Pending] = []
+        var settled: Set<Int> = []
         for send in sends {
-            if send.delivery == .queued && !send.stopped {
-                kept.append(send)
-                continue
-            }
+            if send.delivery == .queued && !send.stopped || settled.contains(send.id) { continue }
             var prompt: Message?
             for turn in t.turns.reversed() {
                 guard let p = turn.prompt else { continue }
                 if p.at < send.sentAt - skewMs { break }
                 if !claimed.contains(p.id) && sameText(p.text, send.text) { prompt = p }
             }
-            if let prompt { claimed.append(prompt.id) } else { kept.append(send) }
+            guard let prompt else { continue }
+            claimed.append(prompt.id)
+            settled.insert(send.id)
+            settled.formUnion(joinedBefore(sends, send, prompt.text))
         }
-        sends = kept
+        sends.removeAll { settled.contains($0.id) }
         // A command that never echoes goes once it reads as done.
         if command == nil { sends.removeAll { $0.delivery == .sending && isCommand($0.text) } }
         if claimed.count > claimedMax { claimed.removeFirst(claimed.count - claimedMax) }
@@ -285,6 +285,25 @@ func isCommand(_ text: String) -> Bool { slash(text) != nil }
 /// user left in Claude's input runs on into the prompt typed after it.
 func sameText(_ echo: String, _ sent: String) -> Bool {
     tidy(echo).hasSuffix(tidy(sent))
+}
+
+/// Claude takes the prompts steered into a turn as one, joined by newlines in the order they went. The ids of the sends
+/// that went before `last` whose text makes up the rest of `echo`, once `last`'s text (which `echo` ends with) is taken off.
+func joinedBefore(_ sends: [Pending], _ last: Pending, _ echo: String) -> [Int] {
+    var rest = String(tidy(echo).dropLast(tidy(last.text).count))
+    // A send steered from the queue keeps its place in the list, so the list's order isn't the order they went.
+    let before = sends.reversed()
+        .filter { $0.id != last.id && $0.sentAt <= last.sentAt && $0.delivery.inFlight && !isCommand($0.text) }
+        .enumerated().sorted { ($0.element.sentAt, $1.offset) > ($1.element.sentAt, $0.offset) }.map(\.element)
+    var ids: [Int] = []
+    for send in before {
+        let text = tidy(send.text)
+        if rest.hasSuffix(" ") { rest.removeLast() }
+        guard rest.hasSuffix(text) else { break }
+        rest.removeLast(text.count)
+        ids.append(send.id)
+    }
+    return ids
 }
 
 private func tidy(_ text: String) -> String {
