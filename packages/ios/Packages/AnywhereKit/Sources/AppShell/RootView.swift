@@ -1,5 +1,6 @@
 import DesignSystem
 import Domain
+import FeatureGitHub
 import FeaturePairing
 import FeatureSettings
 import FileIcons
@@ -48,6 +49,7 @@ public struct RootView: View {
         .preferredColorScheme(appearance.colorScheme)
         .tint(Palette.accent.color)
         .task { await Task.detached(priority: .utility) { MaterialIcons.preload() }.value }
+        .task(id: PullRequestsHome.loadKey(app.hosts)) { await PullRequestsHome.loadLists(app.hosts) }
         .sheet(item: pairingSheet) { request in
             PairingView(app: app, link: request.link, knownHost: request.knownHost) { navigator.pairing = nil }
         }

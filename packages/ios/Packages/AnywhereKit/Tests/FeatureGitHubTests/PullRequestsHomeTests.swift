@@ -1,3 +1,4 @@
+import Foundation
 import Fixtures
 import Stores
 import Testing
@@ -112,17 +113,24 @@ struct PullRequestProblemsTests {
         #expect(PrProblems.notices(macs).isEmpty)
         #expect(!PrProblems.unreachable([MacPrProblems(id: "a", name: "A", problems: [.signedOut])]))
     }
+
+    @Test("an empty list names the offline Macs it hasn't heard from")
+    func unheardText() {
+        #expect(PrProblems.unheardText([]) == nil)
+        #expect(PrProblems.unheardText(["Mini"]) == "Mini is offline. Its pull requests show once it's back.")
+        #expect(PrProblems.unheardText(["A", "B", "C"]) == "A, B and C are offline. Their pull requests show once they're back.")
+    }
 }
 
 @MainActor
 @Suite("PRs across Macs")
 struct PullRequestsHomeTests {
-    private func host(_ name: String, id: String, projects: [(String, String)], lists: [String: [PrItem]]) -> HostModel {
+    private func host(_ name: String, id: String, projects: [(String, String)], lists: [String: [PrItem]], droppedFor: TimeInterval? = nil) -> HostModel {
         var hello = Sample.hello
         hello.serverId = id
         hello.hostname = name
         let list = ProjectList(projects: projects.map { Project(path: $0.0, name: $0.1, worktrees: []) })
-        let host = HostModel.offline(hello: hello, messages: [.projectList(list)])
+        let host = HostModel.offline(hello: hello, messages: [.projectList(list)], droppedFor: droppedFor)
         for (path, items) in lists { host.github.showList(path, GhPrs(items: items)) }
         return host
     }
@@ -150,5 +158,13 @@ struct PullRequestsHomeTests {
         let mac = host("Mini", id: "m2", projects: [("/f", "fox-api")], lists: [:])
         mac.github.showList("/f", GhPrs(items: [], problem: .signedOut))
         #expect(PullRequestsHome.problems([mac]) == [MacPrProblems(id: "m2", name: "Mini", problems: [.signedOut])])
+    }
+
+    @Test("an offline Mac with a project whose list never came is unheard; one whose lists came is not")
+    func unheard() {
+        let heard = host("MacBook", id: "m1", projects: [("/a", "anywhere")], lists: ["/a": []], droppedFor: 60)
+        let silent = host("Mini", id: "m2", projects: [("/f", "fox-api"), ("/g", "garden")], lists: ["/f": []], droppedFor: 60)
+        let online = host("Studio", id: "m3", projects: [("/s", "site")], lists: [:])
+        #expect(PullRequestsHome.unheard([heard, silent, online]) == ["Mini"])
     }
 }

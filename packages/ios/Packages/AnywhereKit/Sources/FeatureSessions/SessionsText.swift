@@ -8,10 +8,10 @@ enum SessionsFilter: String, CaseIterable, Hashable {
     case working = "Working"
     case pinned = "Pinned"
 
-    /// The sessions listed, the last to move first.
-    func sessions(_ cards: [Sidebar.Card]) -> [String] {
+    /// The sessions listed, in the order the Sessions menu picked.
+    func sessions(_ cards: [Sidebar.Card], by sort: Sidebar.SessionSort) -> [String] {
         let kept = self == .pinned ? cards.filter(\.pinned) : cards.filter { $0.status == .working }
-        return kept.sorted { $0.updatedAt != $1.updatedAt ? $0.updatedAt > $1.updatedAt : $0.id < $1.id }.map(\.id)
+        return Sidebar.sorted(kept, by: sort).map(\.id)
     }
 
     /// Only All lists projects: the others narrow to sessions.

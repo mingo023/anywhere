@@ -153,6 +153,15 @@ enum PrProblems {
         }
     }
 
+    /// Why an empty list may not be the whole story: "Studio Mac Mini is offline. Its pull requests show once it's back."
+    static func unheardText(_ macs: [String]) -> String? {
+        switch macs.count {
+        case 0: nil
+        case 1: "\(macs[0]) is offline. Its pull requests show once it's back."
+        default: "\(macs.dropLast().joined(separator: ", ")) and \(macs[macs.count - 1]) are offline. Their pull requests show once they're back."
+        }
+    }
+
     /// gh couldn't reach GitHub for some project, so its list is the last answer.
     static func unreachable(_ macs: [MacPrProblems]) -> Bool {
         macs.contains { $0.problems.contains(.failed) }

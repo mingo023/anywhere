@@ -10,16 +10,24 @@ private let utc = TimeZone(secondsFromGMT: 0)!
 
 @Suite("Sessions home")
 struct SessionsHomeTests {
-    private func card(_ id: String, _ status: Status, updatedAt: Int, pinned: Bool = false) -> Sidebar.Card {
-        Sidebar.Card(id: id, title: id, status: status, createdAt: 0, updatedAt: updatedAt, pinned: pinned)
+    private func card(_ id: String, _ status: Status, createdAt: Int = 0, updatedAt: Int, pinned: Bool = false) -> Sidebar.Card {
+        Sidebar.Card(id: id, title: id, status: status, createdAt: createdAt, updatedAt: updatedAt, pinned: pinned)
     }
 
-    @Test("All and Working list the sessions working now, the last to move first, and Pinned lists the pinned ones whatever they are doing")
+    @Test("All and Working list the sessions working now, and Pinned lists the pinned ones whatever they are doing")
     func filters() {
         let cards = [card("a", .working, updatedAt: 1), card("b", .working, updatedAt: 3), card("c", .done, updatedAt: 9, pinned: true), card("d", .idle, updatedAt: 5)]
-        #expect(SessionsFilter.all.sessions(cards) == ["b", "a"])
-        #expect(SessionsFilter.working.sessions(cards) == ["b", "a"])
-        #expect(SessionsFilter.pinned.sessions(cards) == ["c"])
+        #expect(SessionsFilter.all.sessions(cards, by: .activity) == ["b", "a"])
+        #expect(SessionsFilter.working.sessions(cards, by: .activity) == ["b", "a"])
+        #expect(SessionsFilter.pinned.sessions(cards, by: .activity) == ["c"])
+    }
+
+    @Test("the sessions listed follow the order picked in the Sessions menu")
+    func sortOrder() {
+        let cards = [card("b", .working, createdAt: 2, updatedAt: 1), card("a", .working, createdAt: 1, updatedAt: 3)]
+        #expect(SessionsFilter.all.sessions(cards, by: .newest) == ["b", "a"])
+        #expect(SessionsFilter.all.sessions(cards, by: .activity) == ["a", "b"])
+        #expect(SessionsFilter.all.sessions(cards, by: .name) == ["a", "b"])
     }
 
     @Test("only All lists projects")

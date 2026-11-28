@@ -44,6 +44,8 @@ public struct PullRequestsHome: View {
                         Placeholder("Couldn't load pull requests", icon: .cloudOff, detail: "No Mac answered. Try again once one is online.") {
                             Task { await loadAll() }
                         }
+                    } else if let offline = PrProblems.unheardText(Self.unheard(hosts)) {
+                        Placeholder("No pull requests to show", icon: .cloudOff, detail: offline)
                     } else {
                         NoPullRequests()
                     }
@@ -141,16 +143,10 @@ public struct PullRequestsHome: View {
         }
     }
 
-    /// Changes when a Mac connects or its projects arrive, so the lists load then and not only on first appearance.
-    private var loadKey: [String] {
-        hosts.map { "\($0.id)|\($0.link == .online)|\($0.workspace.projects.map(\.path).joined(separator: ","))" }
-    }
+    private var loadKey: [String] { Self.loadKey(hosts) }
 
     private func loadAll() async {
-        let targets = hosts.filter { $0.link == .online }.flatMap { host in host.workspace.projects.map { (host.github, $0.path) } }
-        let loads = targets.map { store, path in Task { (try? await store.recheckList(path)) != nil } }
-        var answered = false
-        for load in loads where await load.value { answered = true }
+        let answered = await Self.loadLists(hosts)
         let emptyWorkspace = hosts.contains { $0.link == .online && $0.workspace.loaded && $0.workspace.projects.isEmpty }
         unanswered = !hosts.isEmpty && !answered && !emptyWorkspace
         loaded = true
@@ -158,6 +154,33 @@ public struct PullRequestsHome: View {
 }
 
 extension PullRequestsHome {
+    /// Changes when a Mac connects or its projects arrive, so the lists load then and not only on first appearance.
+    @MainActor
+    public static func loadKey(_ hosts: [HostModel]) -> [String] {
+        hosts.map { "\($0.id)|\($0.link == .online)|\($0.workspace.projects.map(\.path).joined(separator: ","))" }
+    }
+
+    /// Asks every connected Mac for each project's PRs; true when any answered. The shell calls it too, as the tab's
+    /// badge counts these lists before the tab is ever opened.
+    @MainActor
+    @discardableResult
+    public static func loadLists(_ hosts: [HostModel]) async -> Bool {
+        let targets = hosts.filter { $0.link == .online }.flatMap { host in host.workspace.projects.map { (host.github, $0.path) } }
+        let loads = targets.map { store, path in Task { (try? await store.recheckList(path)) != nil } }
+        var answered = false
+        for load in loads where await load.value { answered = true }
+        return answered
+    }
+
+    /// The Macs out of reach whose PRs never came for some project, or whose projects never came: an empty list can't
+    /// say they have none.
+    @MainActor
+    static func unheard(_ hosts: [HostModel]) -> [String] {
+        hosts.filter { host in
+            host.link != .online && (!host.workspace.loaded || host.workspace.projects.contains { host.github.lists[$0.path] == nil })
+        }.map(\.name)
+    }
+
     /// How many pull requests across `hosts` need action, for the PRs tab's badge.
     @MainActor
     public static func needingAction(_ hosts: [HostModel]) -> Int {
