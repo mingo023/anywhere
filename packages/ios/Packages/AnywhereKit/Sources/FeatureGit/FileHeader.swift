@@ -44,6 +44,9 @@ struct FileHeaderTail<MenuContent: View>: View {
             Menu { menu } label: {
                 LucideIcon(.ellipsis, size: 16).foregroundStyle(Palette.text2.color).frame(width: 32, height: HitTarget.minimum)
             }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
             Button(action: toggleViewed) { CheckCircle(on: viewed).frame(width: 32, height: HitTarget.minimum) }
                 .buttonStyle(.plain)
                 .accessibilityLabel(viewed ? "Viewed" : "Mark as Viewed")
