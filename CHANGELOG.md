@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.68
+
+- feat(desktop): wash the window in a space's theme colours (#447): (6d5a4d11)
+- feat(settings): edit a saved host, and dismiss a failed pocketd update (#446): (a5888b63)
+- fix(pocketd): update a Mac host whose pocketd launchd started as plain pocketd (#444): (050158ab)
+- fix(new-session): long branch names no longer overflow the chip row (#445): (2b3c683d)
+- fix(ui): every line count uses the sidebar's green and red (#440): (9776b677)
+- feat(pocketd): delegate_task adds an unlisted folder on a linked host (#443): (269e70a9)
+- fix(chat): a queued message sent now stays on screen until Claude reads it (#442): (adf8e073)
+- feat(settings): group GitHub accounts by machine, as Projects does (#441): (5b82e676)
+- fix(pocketd): make Windows hosts work without hand patches (#438): (8287c1b8)
+
 ## 0.1.67
 
 - fix(sidebar): Threads rows make room for ⋯; a No project send skips the blank frame (#436): (b86c76fd)
