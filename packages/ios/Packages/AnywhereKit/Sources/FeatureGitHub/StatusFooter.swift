@@ -8,6 +8,12 @@ import Wire
 /// agent, resolve the conflict, mark ready, merge, or, once merged, delete the worktree or keep it.
 @MainActor
 struct StatusFooter: View {
+    /// The summary and the merge sit at the end of the Status group; handing work to the agent is pinned over the
+    /// screen's bottom edge.
+    enum Part {
+        case summary, actions
+    }
+
     struct SendAll {
         let title: String
         /// Nil when this phone can't send.
@@ -33,24 +39,38 @@ struct StatusFooter: View {
     let keep: () -> Void
     let delete: () -> Void
     let merged: () -> Void
+    let part: Part
 
     var body: some View {
-        let summary = PullRequestText.summary(pr)
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: Space.m) {
-                LucideIcon(summary.icon, size: 20).foregroundStyle(summary.tone.icon.color)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(summary.title).font(.system(size: 15, weight: .semibold)).foregroundStyle(Palette.text.color)
-                    detail(summary).font(.system(size: 13)).lineSpacing(2).foregroundStyle(Palette.text2.color)
-                }
+        switch part {
+        case .summary:
+            VStack(alignment: .leading, spacing: 14) {
+                summaryRow
+                actions
             }
-            .accessibilityElement(children: .combine)
-            actions
+            .padding(.top, 14)
+            .padding(.bottom, Inset.margin)
+            .padding(.horizontal, Inset.margin)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case .actions:
+            VStack(alignment: .leading, spacing: 14) { agentActions }
+                .padding(.horizontal, Inset.margin)
+                .padding(.vertical, Space.s)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Palette.background.color)
         }
-        .padding(.top, 14)
-        .padding(.bottom, Inset.margin)
-        .padding(.horizontal, Inset.margin)
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var summaryRow: some View {
+        let summary = PullRequestText.summary(pr)
+        return HStack(alignment: .top, spacing: Space.m) {
+            LucideIcon(summary.icon, size: 20).foregroundStyle(summary.tone.icon.color)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(summary.title).font(.system(size: 15, weight: .semibold)).foregroundStyle(Palette.text.color)
+                detail(summary).font(.system(size: 13)).lineSpacing(2).foregroundStyle(Palette.text2.color)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 
     /// The agent's work on a conflict, or the worktree that's left once merged, else what the summary says.
@@ -82,7 +102,14 @@ struct StatusFooter: View {
             }
             .buttonStyle(PillButtonStyle(.primary))
             .disabled(model.busy != nil || mac.writesWait)
-        } else {
+        } else if pr.gate == .ready {
+            MergeControls(store: store, model: model, pr: pr, offline: mac.writesWait, cleanup: cleanup, deleteAfter: $deleteAfter, merged: merged)
+        }
+    }
+
+    @ViewBuilder
+    private var agentActions: some View {
+        if pr.state == "OPEN", !pr.draft {
             if let sendAll {
                 if let send = sendAll.send {
                     Button {
@@ -106,9 +133,6 @@ struct StatusFooter: View {
                 }
                 .buttonStyle(PillButtonStyle(.primary))
                 .disabled(resolve.working != nil || mac.writesWait)
-            }
-            if pr.gate == .ready {
-                MergeControls(store: store, model: model, pr: pr, offline: mac.writesWait, cleanup: cleanup, deleteAfter: $deleteAfter, merged: merged)
             }
         }
     }

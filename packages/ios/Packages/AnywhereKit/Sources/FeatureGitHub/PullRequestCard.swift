@@ -45,6 +45,9 @@ struct PullRequestCard: View {
             }
             .padding(.bottom, Space.xl)
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if pr.state == "OPEN", !pr.draft, sendAll != nil || resolve != nil { footer(.actions) }
+        }
         .screenBackground()
         .refreshable { await store.recheck(model.tree) }
         .errorAlert(model)
@@ -54,6 +57,14 @@ struct PullRequestCard: View {
         } message: {
             Text(deletable?.confirmMessage ?? "")
         }
+    }
+
+    private func footer(_ part: StatusFooter.Part) -> StatusFooter {
+        StatusFooter(
+            store: store, model: model, pr: pr, mac: mac, cleanup: deletable, deleteAfter: deleteAfterBinding, fix: fix,
+            sendAll: sendAll, resolve: resolve, keep: { model.kept = true }, delete: startDelete,
+            merged: { if deleteAfter ?? deletable?.deletesByDefault ?? false { startDelete() } }, part: part
+        )
     }
 
     private var deletable: WorktreeCleanup? {
@@ -166,12 +177,7 @@ struct PullRequestCard: View {
                 .rowDivider(true, leading: PrListRow.textColumn)
                 if checksShown { checkLines(rows) }
             }
-            StatusFooter(
-                store: store, model: model, pr: pr, mac: mac, cleanup: deletable, deleteAfter: deleteAfterBinding, fix: fix,
-                sendAll: sendAll, resolve: resolve, keep: { model.kept = true }, delete: startDelete,
-                merged: { if deleteAfter ?? deletable?.deletesByDefault ?? false { startDelete() } }
-            )
-            .rowDivider(true, leading: 0)
+            footer(.summary).rowDivider(true, leading: 0)
         }
         .buttonStyle(.plain)
     }
